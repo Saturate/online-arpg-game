@@ -68,7 +68,7 @@ export type BehaviourAffixId = (typeof BEHAVIOUR_AFFIXES)[number];
 export const AFFIXES: Record<AffixId, AffixDef> = {
   heat_reduced: {
     id: 'heat_reduced',
-    text: '{v}% reduced heat cost',
+    text: '{v}% reduced Force cost',
     slot: 'prefix',
     targets: ['sigil'],
     group: 'heat',

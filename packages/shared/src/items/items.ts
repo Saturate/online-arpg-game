@@ -100,7 +100,7 @@ export function compileSigilItem(item: SigilItem, classId: ClassId, draft?: read
 }
 
 const NAME_FIRST = ['Grim', 'Hollow', 'Storm', 'Ash', 'Blood', 'Dusk', 'Rune', 'Wraith', 'Ember', 'Frost', 'Bone', 'Star', 'Viper', 'Oath', 'Gloom', 'Raven'];
-const NAME_SECOND = ['Whorl', 'Seal', 'Mark', 'Brand', 'Glyph', 'Knot', 'Sigil', 'Coil', 'Eye', 'Crown', 'Ward', 'Song', 'Scar', 'Bane', 'Heart', 'Tongue'];
+const NAME_SECOND = ['Whorl', 'Seal', 'Mark', 'Brand', 'Glyph', 'Knot', 'Veil', 'Coil', 'Eye', 'Crown', 'Ward', 'Song', 'Scar', 'Bane', 'Heart', 'Tongue'];
 
 /** Rares and relics get a random two-word name, D2 style; lower tiers are named from their affixes. */
 function rareName(rng: Rng): string {
@@ -265,9 +265,14 @@ export function misfireChance(heat: number, misfireMultiplier: number, heatMax: 
  * affixes that suit the category. Weapons respect the base's class list when a class is given.
  */
 export function createGear(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: number, opts: { category?: GearCategory; classId?: ClassId; base?: string } = {}): GearItem {
-  const pool = GEAR_BASES.filter(
+  const eligible = GEAR_BASES.filter(
     (b) => b.level <= Math.max(1, ilvl) && (!opts.category || b.category === opts.category) && (!opts.classId || !b.classes || b.classes.includes(opts.classId)),
   );
+  // Slot first, then base: weapons have one base per class family, so a flat pick over bases made
+  // nearly a third of all gear drops weapons, most of them for someone else's class.
+  const categories = [...new Set(eligible.map((b) => b.category))];
+  const category = categories[rng.int(0, Math.max(0, categories.length - 1))];
+  const pool = eligible.filter((b) => b.category === category);
   const base = (opts.base ? gearBase(opts.base) : undefined) ?? pool[rng.int(0, Math.max(0, pool.length - 1))] ?? GEAR_BASES[0];
   if (!base) throw new Error('no gear bases defined');
   const rolls = TIER_ROLLS[tier];

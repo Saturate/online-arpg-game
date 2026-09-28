@@ -26,6 +26,19 @@ describe('gear', () => {
     }
   });
 
+  it('spreads drops evenly over slots rather than over bases', () => {
+    const sim = new Simulation(9);
+    const counts = new Map<string, number>();
+    const n = 4000;
+    for (let i = 0; i < n; i++) {
+      const g = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 5);
+      counts.set(g.category, (counts.get(g.category) ?? 0) + 1);
+    }
+    // Eight slots at ilvl 5: each should land near 12.5%.
+    for (const c of counts.values()) expect(c / n).toBeGreaterThan(0.09);
+    expect((counts.get('weapon') ?? 0) / n).toBeLessThan(0.16);
+  });
+
   it('equipping boots with movement speed makes the player faster, and prediction uses the same speed', () => {
     const sim = new Simulation(3);
     const id = sim.addPlayer('c', 'ranger');
