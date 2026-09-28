@@ -110,6 +110,7 @@ function findTarget(sim: Simulation, m: MinionComp, from: Vec2, center: Vec2, ra
   let best: EntityId | null = null;
   let bestScore = Infinity;
   for (const [eid, e, ep] of w.query(w.enemy, w.position)) {
+    if (e.burrowed) continue;
     const d = distSq(center.x, center.y, ep.x, ep.y);
     if (d > r2) continue;
     let score = distSq(from.x, from.y, ep.x, ep.y);

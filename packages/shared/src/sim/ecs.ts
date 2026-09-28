@@ -115,6 +115,33 @@ export interface EnemyComp {
   tauntTimer: number;
   knockX: number;
   knockY: number;
+  // Generic monster AI (sim/enemies.ts). The three original behaviours leave these at rest.
+  /** Seconds until each ability in the definition is ready again. */
+  cooldowns: number[];
+  cast: EnemyCast | null;
+  dash: { vx: number; vy: number; t: number; damage: number; width: number; hitIds: Set<EntityId> } | null;
+  leap: { fromX: number; fromY: number; toX: number; toY: number; t: number; duration: number; radius: number; damage: number } | null;
+  /** Underground: invisible and untouchable. */
+  burrowed: boolean;
+  /** Seconds spent above ground since the last dive. */
+  burrowTimer: number;
+  /** The monster that summoned this one, for summon caps. */
+  summonerId: EntityId | null;
+  enraged: boolean;
+  /** Already raised once by a shaman; raised monsters stay dead the second time. */
+  raised: boolean;
+  /** Killed by its own suicide blast, so the death burst does not fire on top. */
+  detonated: boolean;
+}
+
+/** An ability winding up. Aim and target points lock at the start, which is what makes it dodgeable. */
+export interface EnemyCast {
+  index: number;
+  t: number;
+  x: number;
+  y: number;
+  angle: number;
+  points: { x: number; y: number }[];
 }
 
 export type MinionState = 'follow' | 'engage' | 'retreat';

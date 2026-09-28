@@ -70,7 +70,8 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
         const e = w.enemy.get(id);
         const h = w.health.get(id);
         if (!e || !h) break;
-        out.push({ ...base, k: 'enemy', et: e.typeId, rare: e.rare, dormant: !e.aggro, boss: e.boss, lvl: e.level, ax: e.affixes.map((x) => x.id), life: Math.ceil(h.life), maxLife: h.maxLife, st, a: round2(e.facing) });
+        const flags = st | (e.burrowed ? STATUS.hidden : 0) | (e.enraged ? STATUS.enraged : 0);
+        out.push({ ...base, k: 'enemy', et: e.typeId, rare: e.rare, dormant: !e.aggro, boss: e.boss, lvl: e.level, ax: e.affixes.map((x) => x.id), life: Math.ceil(h.life), maxLife: h.maxLife, st: flags, a: round2(e.facing) });
         break;
       }
       case 'minion': {

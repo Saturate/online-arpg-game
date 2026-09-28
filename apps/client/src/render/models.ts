@@ -304,7 +304,324 @@ export function enemyModel(type: EnemyTypeId, color: number): Rig {
       }
       return rig;
     }
+    case 'plague_rat':
+      return rat(color);
+    case 'blood_bat':
+      return bat(color);
+    case 'spiderling':
+      return spider(color, 0.8, false);
+    case 'venom_spider':
+      return spider(color, 1, false);
+    case 'broodmother':
+      return spider(color, 1.1, true);
+    case 'tusked_boar':
+      return quadruped(color, { tusks: true, horns: false, bulk: 1 });
+    case 'horned_charger':
+      return quadruped(color, { tusks: false, horns: true, bulk: 1.25 });
+    case 'bloated_corpse': {
+      const rig = humanoid({ skin: color, torso: tint(color, -0.1), legs: 0x3a3a2a, bulk: 1.3, hunch: 0.3 });
+      rig.body.add(mesh(G.sphereLow, mat(tint(color, 0.08), { rough: 0.5 }), 0.25, 1.75, 0, 0.75, 0.7, 0.7));
+      for (const [y, z] of [[1.9, 0.35], [1.6, -0.3], [2.1, -0.1]] as const) rig.body.add(mesh(G.sphere, mat(0x9aba4a, { emissive: 0x405a10, intensity: 0.6 }), 0.8, y, z, 0.14, 0.14, 0.14));
+      return rig;
+    }
+    case 'volatile': {
+      const rig = imp(color, { glow: true, staff: false });
+      rig.root.scale.multiplyScalar(0.9);
+      return rig;
+    }
+    case 'fallen_shaman':
+      return imp(color, { glow: false, staff: true });
+    case 'sand_burrower':
+      return worm(color);
+    case 'bone_spire':
+      return spire(color);
+    case 'flame_totem':
+      return totem(color);
+    case 'wraith':
+      return ghost(color, false);
+    case 'banshee':
+      return ghost(color, true);
+    case 'bog_spitter':
+      return toad(color);
+    case 'ooze':
+    case 'oozeling':
+      return ooze(color);
+    case 'infernal':
+      return infernal(color);
+    default: {
+      // Placeholder until the glTF model streams in; humanoids with their family colour.
+      const rig = humanoid({ skin: tint(color, 0.1), torso: color, legs: tint(color, -0.25) });
+      return rig;
+    }
   }
+}
+
+function imp(color: number, opts: { glow: boolean; staff: boolean }): Rig {
+  const rig = emptyRig('hop', 2.2);
+  const skin = opts.glow ? mat(color, { emissive: 0xff5a10, intensity: 0.9 }) : mat(color, { rough: 0.7 });
+  const dark = mat(0x3a1410);
+  const eye = mat(0xffe060, { emissive: 0xffc020, intensity: 2.5 });
+  const b = rig.body;
+  b.add(mesh(G.sphereLow, skin, 0, 0.95, 0, 0.6, 0.55, 0.55));
+  const head = new Group();
+  head.position.set(0.45, 1.45, 0);
+  head.add(mesh(G.sphereLow, skin, 0, 0, 0, 0.5, 0.45, 0.5));
+  head.add(mesh(G.sphere, eye, 0.4, 0.05, 0.18, 0.08, 0.08, 0.08), mesh(G.sphere, eye, 0.4, 0.05, -0.18, 0.08, 0.08, 0.08));
+  if (opts.staff) {
+    // A shaman's feathered headdress.
+    for (let i = 0; i < 5; i++) {
+      const f = mesh(G.cone4, mat(i % 2 ? 0xf0d060 : 0x40a0c0), -0.1, 0.5, (i - 2) * 0.14, 0.07, 0.55, 0.07);
+      f.rotation.x = (i - 2) * 0.25;
+      head.add(f);
+    }
+  } else {
+    // A fuse on its head, burning.
+    head.add(mesh(G.cyl, dark, 0, 0.45, 0, 0.04, 0.3, 0.04), mesh(G.sphere, mat(0xffe080, { emissive: 0xffa020, intensity: 3 }), 0, 0.65, 0, 0.1, 0.1, 0.1));
+  }
+  b.add(head);
+  rig.head = head;
+  rig.armL = limb(0.75, 0.13, skin, 0.3, 1.2, 0.5);
+  rig.armR = limb(0.75, 0.13, skin, 0.3, 1.2, -0.5);
+  if (opts.staff) rig.armR.add(mesh(G.cyl, mat(0x5a3a20), 0.1, -0.6, 0, 0.05, 1.8, 0.05), mesh(G.octa, mat(0xff6030, { emissive: 0xff3010, intensity: 1.5 }), 0.1, 0.35, 0, 0.14, 0.18, 0.14));
+  b.add(rig.armL, rig.armR);
+  rig.legL = limb(0.6, 0.16, dark, 0, 0.6, 0.28);
+  rig.legR = limb(0.6, 0.16, dark, 0, 0.6, -0.28);
+  b.add(rig.legL, rig.legR);
+  return rig;
+}
+
+function rat(color: number): Rig {
+  const rig = emptyRig('hop', 1.4);
+  const fur = mat(color, { rough: 0.9 });
+  const b = rig.body;
+  b.add(mesh(G.sphereLow, fur, 0, 0.55, 0, 0.9, 0.5, 0.55));
+  const head = mesh(G.cone, fur, 0.95, 0.6, 0, 0.32, 0.7, 0.32);
+  head.rotation.z = -Math.PI / 2;
+  b.add(head);
+  rig.head = head;
+  for (const z of [0.2, -0.2]) b.add(mesh(G.sphere, mat(0xd8a0a0), 0.75, 0.95, z, 0.14, 0.18, 0.06), mesh(G.sphere, mat(0x000000, { emissive: 0xff3030, intensity: 1.5 }), 1.1, 0.72, z * 0.6, 0.05, 0.05, 0.05));
+  const tail = new Group();
+  tail.position.set(-0.85, 0.5, 0);
+  const t = mesh(G.cone, mat(0xc89090), -0.6, 0, 0, 0.05, 1.2, 0.05);
+  t.rotation.z = Math.PI / 2;
+  tail.add(t);
+  b.add(tail);
+  rig.tail = tail;
+  rig.legL = limb(0.4, 0.1, fur, 0.3, 0.35, 0.3);
+  rig.legR = limb(0.4, 0.1, fur, -0.3, 0.35, -0.3);
+  b.add(rig.legL, rig.legR);
+  return rig;
+}
+
+function bat(color: number): Rig {
+  const rig = emptyRig('float', 0);
+  const skin = mat(color, { rough: 0.7 });
+  const b = rig.body;
+  b.add(mesh(G.sphereLow, skin, 0, 1.8, 0, 0.45, 0.45, 0.4));
+  b.add(mesh(G.sphere, mat(0x000000, { emissive: 0xffe040, intensity: 2 }), 0.38, 1.9, 0.14, 0.06, 0.06, 0.06), mesh(G.sphere, mat(0x000000, { emissive: 0xffe040, intensity: 2 }), 0.38, 1.9, -0.14, 0.06, 0.06, 0.06));
+  for (const sgn of [1, -1]) {
+    const wing = new Group();
+    wing.position.set(0, 1.85, sgn * 0.35);
+    const membrane = mesh(G.cone4, mat(tint(color, -0.12), { rough: 0.9 }), 0, 0, sgn * 0.7, 0.9, 0.08, 0.8);
+    membrane.rotation.x = Math.PI / 2;
+    wing.add(membrane);
+    wing.userData.phase = sgn > 0 ? 0 : Math.PI;
+    b.add(wing);
+    rig.extras.push(wing);
+  }
+  return rig;
+}
+
+function spider(color: number, size: number, queen: boolean): Rig {
+  const rig = emptyRig('float', 0);
+  const shell = mat(color, { rough: 0.5 });
+  const b = rig.body;
+  b.scale.setScalar(size);
+  b.add(mesh(G.sphereLow, shell, -0.45, 0.75, 0, 0.75, 0.6, 0.65));
+  b.add(mesh(G.sphereLow, shell, 0.35, 0.65, 0, 0.4, 0.35, 0.4));
+  for (let i = 0; i < 4; i++) b.add(mesh(G.sphere, mat(0x000000, { emissive: 0xff2020, intensity: 2 }), 0.72, 0.8 + (i % 2) * 0.08, (i < 2 ? 1 : -1) * (0.08 + (i % 2) * 0.1), 0.05, 0.05, 0.05));
+  // A venom mark on the back.
+  b.add(mesh(G.sphere, mat(0xc02020, { emissive: 0x600000, intensity: 0.8 }), -0.45, 1.3, 0, 0.3, 0.08, 0.2));
+  for (let i = 0; i < 8; i++) {
+    const side = i < 4 ? 1 : -1;
+    const k = i % 4;
+    const leg = limb(1.1, 0.07, mat(tint(color, -0.1)), 0.25 - k * 0.22, 0.75, side * 0.3, G.cyl);
+    leg.rotation.x = side * (0.9 + k * 0.05);
+    leg.rotation.y = (k - 1.5) * 0.35 * side;
+    leg.userData.phase = i * 0.8;
+    b.add(leg);
+    rig.extras.push(leg);
+  }
+  if (queen) {
+    for (const [x, z] of [[-1.1, 0.4], [-1.2, -0.3], [-0.9, -0.6]] as const) b.add(mesh(G.sphere, mat(0xe8e0c0, { emissive: 0x303010, intensity: 0.5 }), x, 0.45, z, 0.28, 0.32, 0.28));
+    b.add(mesh(G.cone, mat(0x201810), 0.7, 0.5, 0.12, 0.06, 0.4, 0.06), mesh(G.cone, mat(0x201810), 0.7, 0.5, -0.12, 0.06, 0.4, 0.06));
+  }
+  return rig;
+}
+
+function quadruped(color: number, opts: { tusks: boolean; horns: boolean; bulk: number }): Rig {
+  const rig = emptyRig('biped', 2.6);
+  const hide = mat(color, { rough: 0.9 });
+  const b = rig.body;
+  b.scale.setScalar(opts.bulk);
+  b.add(mesh(G.sphereLow, hide, -0.1, 0.95, 0, 1.0, 0.62, 0.6));
+  // A bristled ridge along the back.
+  for (let i = 0; i < 5; i++) b.add(mesh(G.cone4, mat(tint(color, -0.2)), -0.7 + i * 0.3, 1.55, 0, 0.1, 0.3, 0.1));
+  const head = new Group();
+  head.position.set(0.95, 0.95, 0);
+  head.add(mesh(G.sphereLow, hide, 0, 0, 0, 0.45, 0.4, 0.4), mesh(G.cyl, mat(0x3a2418), 0.42, -0.08, 0, 0.18, 0.2, 0.18));
+  head.add(mesh(G.sphere, mat(0x000000, { emissive: 0xff4020, intensity: 1.6 }), 0.3, 0.12, 0.2, 0.06, 0.06, 0.06), mesh(G.sphere, mat(0x000000, { emissive: 0xff4020, intensity: 1.6 }), 0.3, 0.12, -0.2, 0.06, 0.06, 0.06));
+  if (opts.tusks) {
+    for (const z of [0.18, -0.18]) {
+      const tusk = mesh(G.cone, mat(0xf0e8d0), 0.45, -0.1, z, 0.06, 0.4, 0.06);
+      tusk.rotation.z = -1.1;
+      head.add(tusk);
+    }
+  }
+  if (opts.horns) {
+    for (const z of [0.3, -0.3]) {
+      const horn = mesh(G.cone, mat(0xe8dcc0), 0.05, 0.4, z, 0.1, 0.8, 0.1);
+      horn.rotation.x = z > 0 ? -0.7 : 0.7;
+      horn.rotation.z = -0.5;
+      head.add(horn);
+    }
+  }
+  b.add(head);
+  rig.head = head;
+  rig.legL = limb(0.6, 0.14, hide, 0.55, 0.6, 0.3);
+  rig.legR = limb(0.6, 0.14, hide, 0.55, 0.6, -0.3);
+  rig.armL = limb(0.6, 0.14, hide, -0.6, 0.6, 0.3);
+  rig.armR = limb(0.6, 0.14, hide, -0.6, 0.6, -0.3);
+  b.add(rig.legL, rig.legR, rig.armL, rig.armR);
+  return rig;
+}
+
+function worm(color: number): Rig {
+  const rig = emptyRig('float', 0);
+  const skin = mat(color, { rough: 0.8 });
+  const b = rig.body;
+  for (let i = 0; i < 5; i++) {
+    const a = i * 0.42;
+    b.add(mesh(G.sphereLow, i % 2 ? skin : mat(tint(color, -0.08)), -0.8 + Math.sin(a) * 0.9, 0.35 + i * 0.42, 0, 0.55 - i * 0.04, 0.4, 0.55 - i * 0.04));
+  }
+  const maw = new Group();
+  maw.position.set(0.35, 2.35, 0);
+  for (let i = 0; i < 4; i++) {
+    const a = (Math.PI * 2 * i) / 4;
+    const fang = mesh(G.cone, mat(0xf0e0c0), Math.cos(a) * 0.2, 0.2, Math.sin(a) * 0.2, 0.08, 0.5, 0.08);
+    fang.rotation.z = -0.4;
+    maw.add(fang);
+  }
+  b.add(maw);
+  rig.head = maw;
+  return rig;
+}
+
+function spire(color: number): Rig {
+  const rig = emptyRig('biped', 0);
+  const bone = mat(color, { rough: 0.7 });
+  const b = rig.body;
+  b.add(mesh(G.cyl, mat(0x5a5048), 0, 0.2, 0, 0.9, 0.4, 0.9));
+  b.add(mesh(G.cone, bone, 0, 1.6, 0, 0.45, 2.6, 0.45));
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 * i) / 6;
+    const spike = mesh(G.cone, bone, Math.cos(a) * 0.45, 0.8 + (i % 3) * 0.35, Math.sin(a) * 0.45, 0.1, 0.8, 0.1);
+    spike.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9);
+    b.add(spike);
+  }
+  b.add(mesh(G.sphereLow, bone, 0.1, 2.9, 0, 0.35, 0.33, 0.33), mesh(G.sphere, mat(0x000000, { emissive: 0x80ffff, intensity: 2.5 }), 0.38, 2.95, 0.12, 0.07, 0.07, 0.07));
+  return rig;
+}
+
+function totem(color: number): Rig {
+  const rig = emptyRig('biped', 0);
+  const wood = mat(0x6b4a2a, { rough: 0.9 });
+  const b = rig.body;
+  b.add(mesh(G.cyl, wood, 0, 1.3, 0, 0.45, 2.6, 0.45));
+  for (let i = 0; i < 3; i++) {
+    b.add(mesh(G.box, mat(i % 2 ? 0x8a2a1a : 0x3a6a8a), 0.42, 0.55 + i * 0.8, 0, 0.1, 0.35, 0.5));
+    b.add(mesh(G.sphere, mat(0x000000, { emissive: 0xffa020, intensity: 2 }), 0.48, 0.7 + i * 0.8, 0.15, 0.06, 0.06, 0.06), mesh(G.sphere, mat(0x000000, { emissive: 0xffa020, intensity: 2 }), 0.48, 0.7 + i * 0.8, -0.15, 0.06, 0.06, 0.06));
+  }
+  const flame = mesh(G.cone, mat(color, { emissive: 0xff6010, intensity: 2.5, opacity: 0.85 }), 0, 3.0, 0, 0.35, 0.9, 0.35);
+  flame.userData.phase = 0;
+  b.add(flame);
+  rig.extras.push(flame);
+  return rig;
+}
+
+function ghost(color: number, banshee: boolean): Rig {
+  const rig = emptyRig('hover', 0);
+  const cloak = mat(color, { opacity: 0.7, emissive: banshee ? 0x6080c0 : 0x2040a0, intensity: 0.7 });
+  const b = rig.body;
+  const body = mesh(G.cone, cloak, 0, 1.3, 0, 0.8, 2.2, 0.8);
+  body.rotation.x = Math.PI;
+  b.add(body);
+  const hood = new Group();
+  hood.position.set(0.1, 2.35, 0);
+  hood.add(mesh(G.sphere, cloak, 0, 0, 0, 0.45, 0.5, 0.45));
+  const eyes = banshee ? 0xffffff : 0x9fd0ff;
+  hood.add(mesh(G.sphere, mat(0x000000, { emissive: eyes, intensity: 3 }), 0.38, 0, 0.13, 0.07, 0.07, 0.07), mesh(G.sphere, mat(0x000000, { emissive: eyes, intensity: 3 }), 0.38, 0, -0.13, 0.07, 0.07, 0.07));
+  if (banshee) {
+    // Long drifting hair.
+    for (let i = 0; i < 5; i++) {
+      const strand = limb(1.4, 0.07, mat(0xe8f0ff, { opacity: 0.6 }), -0.2, 0.2, (i - 2) * 0.12, G.cone);
+      strand.rotation.z = 0.6;
+      strand.userData.phase = i;
+      hood.add(strand);
+      rig.extras.push(strand);
+    }
+  }
+  b.add(hood);
+  rig.head = hood;
+  rig.armL = limb(1, 0.18, cloak, 0.2, 1.9, 0.6, G.cone);
+  rig.armR = limb(1, 0.18, cloak, 0.2, 1.9, -0.6, G.cone);
+  b.add(rig.armL, rig.armR);
+  return rig;
+}
+
+function toad(color: number): Rig {
+  const rig = emptyRig('hop', 1.6);
+  const skin = mat(color, { rough: 0.6 });
+  const b = rig.body;
+  b.add(mesh(G.sphereLow, skin, 0, 0.75, 0, 0.9, 0.65, 0.85));
+  b.add(mesh(G.sphereLow, mat(0xd8d0a0), 0.3, 0.6, 0, 0.6, 0.45, 0.7));
+  for (const z of [0.4, -0.4]) b.add(mesh(G.sphere, mat(0xf0e040, { emissive: 0x806000, intensity: 0.8 }), 0.5, 1.35, z, 0.18, 0.18, 0.18), mesh(G.sphere, mat(0x000000), 0.64, 1.38, z, 0.07, 0.1, 0.1));
+  // Warts that ooze.
+  for (let i = 0; i < 6; i++) b.add(mesh(G.sphere, mat(0x9ad040, { emissive: 0x3a6010, intensity: 0.7 }), -0.5 + (i % 3) * 0.3, 1.2 + (i % 2) * 0.1, (i < 3 ? 1 : -1) * 0.35, 0.1, 0.1, 0.1));
+  rig.legL = limb(0.55, 0.2, skin, -0.4, 0.55, 0.55);
+  rig.legR = limb(0.55, 0.2, skin, -0.4, 0.55, -0.55);
+  b.add(rig.legL, rig.legR);
+  return rig;
+}
+
+function ooze(color: number): Rig {
+  const rig = emptyRig('hop', 1.8);
+  const b = rig.body;
+  b.add(mesh(G.sphereLow, mat(color, { opacity: 0.75, emissive: tint(color, -0.3), intensity: 0.4, rough: 0.2 }), 0, 0.8, 0, 1, 0.8, 1));
+  b.add(mesh(G.sphereLow, mat(tint(color, -0.25), { emissive: 0x104030, intensity: 0.8 }), 0, 0.75, 0, 0.45, 0.4, 0.45));
+  for (const z of [0.3, -0.3]) b.add(mesh(G.sphere, mat(0x000000), 0.75, 1.1, z, 0.1, 0.12, 0.1));
+  return rig;
+}
+
+function infernal(color: number): Rig {
+  const rig = humanoid({ skin: color, torso: tint(color, -0.2), legs: 0x2a1a10, bulk: 1.5, hunch: 0.15, armLength: 1.4 });
+  rig.root.traverse((o) => {
+    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && o.material.color.getHex() === new Color(color).getHex()) {
+      o.material = mat(color, { emissive: 0xff3010, intensity: 0.9 });
+    }
+  });
+  for (const z of [0.25, -0.25]) {
+    const horn = mesh(G.cone, mat(0x1a1010), 0, 0.5, z, 0.1, 0.6, 0.1);
+    horn.rotation.x = z > 0 ? -0.4 : 0.4;
+    rig.head?.add(horn);
+  }
+  for (let i = 0; i < 3; i++) {
+    const ember = mesh(G.octa, mat(0xffc040, { emissive: 0xff8010, intensity: 3 }), 0, 0, 0, 0.2, 0.2, 0.2);
+    ember.userData.orbit = (Math.PI * 2 * i) / 3;
+    rig.body.add(ember);
+    rig.extras.push(ember);
+  }
+  return rig;
 }
 
 export function minionModel(type: MinionTypeId, color: number): Rig {

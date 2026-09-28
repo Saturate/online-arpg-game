@@ -22,10 +22,24 @@ const PLAYER_ASSETS: Record<ClassId, string> = {
   priest: 'hero_knight',
   binder: 'hero_rogue',
 };
+/** Beasts, slimes, totems and spirits have no KayKit model and stay procedural (see models.ts). */
 const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = {
   chaser: 'skel_minion',
   shooter: 'skel_rogue',
   spinner: 'skel_mage',
+  grave_brute: 'mon_grave_brute',
+  ogre: 'mon_ogre',
+  bandit_archer: 'mon_bandit_archer',
+  bone_archer: 'mon_bone_archer',
+  frost_adept: 'mon_frost_adept',
+  pyromancer: 'mon_pyromancer',
+  storm_caller: 'mon_storm_caller',
+  necromancer: 'mon_necromancer',
+  tomb_guard: 'mon_tomb_guard',
+  grave_priest: 'mon_grave_priest',
+  ghoul: 'mon_ghoul',
+  butcher: 'mon_butcher',
+  lich: 'mon_lich',
 };
 const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = {
   zombie_brute: 'minion_brute',
@@ -156,7 +170,7 @@ export async function loadCharacter(def: AssetDef, seed: number): Promise<Charac
     materials,
     baseEmissive: materials.map((m) => m.emissive.clone()),
     baseIntensity: materials.map((m) => m.emissiveIntensity),
-    attackRole: def.id === 'hero_mage' || def.id === 'hero_rogue' || def.id === 'skel_mage' ? 'cast' : 'attack',
+    attackRole: def.clips?.attack === 'Spellcast_Shoot' || def.id === 'hero_mage' || def.id === 'hero_rogue' || def.id === 'skel_mage' ? 'cast' : 'attack',
   };
 }
 

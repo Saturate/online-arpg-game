@@ -65,6 +65,8 @@ interface View {
   character: CharacterModel | null;
   attackPending: boolean;
   disposed: boolean;
+  /** Dirt mound shown in place of a burrowed monster. */
+  mound: Mesh | null;
 }
 
 // Shared geometry: every entity of a kind reuses the same buffers.
@@ -163,11 +165,12 @@ function makeView(item: RenderItem): View {
       uniqueMaterials(rig.root);
       root.add(rig.root);
       if (s.rare) {
-        // Rares glow and wear a gold ring, so a champion is readable across the screen.
-        const crown = flatOnGround(new Mesh(GEO.ring, basic(COLORS.rareOutline, 0.9)));
-        crown.scale.setScalar(s.r * 1.6);
-        const glow = flatOnGround(new Mesh(GEO.disk, basic(COLORS.rareOutline, 0.14, true)), 0.6);
-        glow.scale.setScalar(s.r * 2.2);
+        // Rares glow and wear a gold ring, so a champion is readable across the screen. Bosses get a red one.
+        const ringColor = s.boss ? 0xff4030 : COLORS.rareOutline;
+        const crown = flatOnGround(new Mesh(GEO.ring, basic(ringColor, 0.9)));
+        crown.scale.setScalar(s.r * (s.boss ? 1.9 : 1.6));
+        const glow = flatOnGround(new Mesh(GEO.disk, basic(ringColor, s.boss ? 0.2 : 0.14, true)), 0.6);
+        glow.scale.setScalar(s.r * (s.boss ? 2.8 : 2.2));
         root.add(crown, glow);
         rig.root.traverse((o) => {
           if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && o.material.emissiveIntensity < 1.5) {
@@ -176,8 +179,10 @@ function makeView(item: RenderItem): View {
           }
         });
       }
-      healthBar = makeHealthBar(s.rare ? 54 : 30, s.rare ? COLORS.rareOutline : 0xe0a040);
-      healthBar.group.position.y = s.r * (s.et === 'spinner' ? 3.4 : 2.8);
+      healthBar = makeHealthBar(s.boss ? 90 : s.rare ? 54 : 30, s.boss ? 0xff4030 : s.rare ? COLORS.rareOutline : 0xe0a040);
+      // Flyers and floaters sit higher, so their bar clears the model.
+      const tall = s.et === 'spinner' || s.et === 'blood_bat' || s.et === 'wraith' || s.et === 'banshee' || s.et === 'bone_spire' || s.et === 'flame_totem';
+      healthBar.group.position.y = s.r * (tall ? 3.6 : 2.8);
       root.add(healthBar.group);
       break;
     }
@@ -303,6 +308,7 @@ function makeView(item: RenderItem): View {
     character: null,
     attackPending: false,
     disposed: false,
+    mound: null,
   };
 }
 
@@ -457,6 +463,8 @@ export class EntityRenderer {
       hb.group.visible = !(s.k === 'player' && s.dead) && (alwaysShow || ratio < 1);
     }
 
+    if (s.k === 'enemy') this.syncBurrow(view, s.st, s.r, t);
+
     if ('st' in s) {
       if (view.shield) {
         view.shield.visible = (s.st & STATUS.shield) !== 0;
@@ -470,6 +478,26 @@ export class EntityRenderer {
     } else if (view.flash > 0) {
       view.flash -= dt;
     }
+  }
+
+  /** Burrowed monsters vanish into a moving dirt mound and lose their health bar. */
+  private syncBurrow(view: View, st: number, r: number, t: number): void {
+    const hidden = (st & STATUS.hidden) !== 0;
+    if (hidden && !view.mound) {
+      const mound = new Mesh(GEO.sphereLow, new MeshStandardMaterial({ color: 0x6a5238, roughness: 1, flatShading: true }));
+      mound.scale.set(r * 1.2, r * 0.35, r * 1.2);
+      view.root.add(mound);
+      view.mound = mound;
+    }
+    if (view.mound) {
+      view.mound.visible = hidden;
+      view.mound.position.y = Math.sin(t * 9) * 1.5;
+    }
+    const model = view.character?.root ?? view.rig?.root;
+    if (model) model.visible = !hidden && (view.character !== null || model === view.rig?.root);
+    if (view.character && view.rig) view.rig.root.visible = false;
+    if (hidden && view.healthBar) view.healthBar.group.visible = false;
+    for (const c of view.root.children) if (c !== view.mound && c !== model && c !== view.healthBar?.group && c !== view.rig?.root) c.visible = !hidden;
   }
 
   private applyTint(view: View, st: number, dt: number): void {
@@ -489,6 +517,12 @@ export class EntityRenderer {
       g += 0.45;
       b += 1;
       k = Math.max(k, 0.5);
+    }
+    if ((st & STATUS.enraged) !== 0) {
+      const f = 0.6 + Math.sin(this.time * 10) * 0.4;
+      r += 1.2 * f;
+      g += 0.1 * f;
+      k = Math.max(k, 0.7);
     }
     if ((st & STATUS.shock) !== 0) {
       const f = Math.random() < 0.3 ? 1 : 0.3;
