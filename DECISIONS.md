@@ -149,3 +149,11 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Generation:** rooms sit in a 4 by 3 slot grid, joined by a randomised DFS spanning tree plus 3 extra corridors, so there are loops without a maze. Carving uses the 40-unit nav cell, so walls line up exactly with pathfinding. Only rock cells touching floor become wall boxes, merged into rectangles, which keeps collision in the hundreds of shapes. Packs get harder with graph depth, and the boss room is the deepest room and holds the exit.
 - **Rendering:** floors and walls are each one merged mesh with world-space UVs. Walls are 44 units tall rather than 70, so a south wall doesn't hide the hero. A pool of 6 point lights follows the torches nearest the player, because light count is part of every shader and one light per torch would force recompiles.
 - **Underground lights:** these use windowed falloff (decay 0). Physical decay at these distances made a torch contribute almost nothing.
+
+## Replays, loot simulator, dungeon clears
+
+- **Replays:** a replay is every server message the client received, timestamped. Snapshots carry full state, so feeding them back through the normal `Game` reproduces the session from the recorder's point of view with no simulation on the client. `Game` takes a session that is either live (WebSocket) or replay (a virtual clock that sends nothing). Interpolation runs on that clock, so slow motion and fast forward work.
+- **Recording:** F8 or the Esc menu. Files are gzipped JSON and capped at 10 minutes; a 5.7 s town clip was 5.9 KB. A recording started mid-room is seeded with the last welcome, inventory and staging state.
+- **Seeking:** builds a fresh client at the target time from the last room entry before it. Combat events older than 0.5 s are stripped, so a seek doesn't burst every past hit.
+- **Loot simulator:** `/dev.html` Loot tab. `rollDrops` in `items/drops.ts` is the only drop roll, and both `dropLoot` and the simulator call it.
+- **Dungeon clear:** killing the boss marks the room cleared once. It opens a cache of 3 rare-or-better items, 70% gear, one level up. Everyone inside gets a banner, and the antechamber shows "Last run cleared".

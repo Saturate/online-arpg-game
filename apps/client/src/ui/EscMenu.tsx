@@ -11,6 +11,8 @@ export function EscMenu() {
   const instances = useUi((s) => s.instances);
   const toggleMenu = useUi((s) => s.toggleMenu);
   const seed = useUi((s) => s.roomSeed);
+  const recording = useUi((s) => s.recording);
+  const toggleRecording = useUi((s) => s.toggleRecording);
   const [seedText, setSeedText] = useState('');
   if (!open) return null;
   const parsedSeed = /^\d{1,9}$/.test(seedText.trim()) ? Number(seedText.trim()) : null;
@@ -53,6 +55,11 @@ export function EscMenu() {
               Open seed
             </button>
           </form>
+          {toggleRecording && (
+            <button type="button" onClick={toggleRecording}>
+              {recording ? 'Stop and save replay' : 'Record replay'} <kbd>F8</kbd>
+            </button>
+          )}
           <button type="button" onClick={() => useUi.getState().leave(null)}>
             Quit to title
           </button>

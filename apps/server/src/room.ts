@@ -36,6 +36,7 @@ export class Room {
   /** Encounter sandbox time scale: simulation steps per server tick, accumulated so fractions work. */
   timeScale = 1;
   private timeAccumulator = 0;
+  private announcedClear = false;
   /** Seconds with nobody inside, so the manager can close abandoned instances. */
   emptySeconds = 0;
 
@@ -165,6 +166,10 @@ export class Room {
       }
     }
     this.broadcast();
+    if (this.sim.cleared && !this.announcedClear) {
+      this.announcedClear = true;
+      for (const m of this.members.values()) m.client.send({ t: 'banner', title: `${this.name} cleared`, text: 'The boss has fallen. A cache has opened where it died.' });
+    }
     const out: { client: Client; request: PortalRequest }[] = [];
     for (const request of this.sim.portalRequests) {
       for (const m of this.members.values()) if (m.playerId === request.playerId) out.push({ client: m.client, request });

@@ -1,9 +1,11 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AssetsTab } from './AssetsTab.js';
+import { LootTab } from './LootTab.js';
+import { ReplayTab } from './ReplayTab.js';
 import { SpellStudioTab } from './SpellStudioTab.js';
 
-type Tab = 'assets' | 'studio';
+type Tab = 'assets' | 'studio' | 'loot' | 'replay';
 
 function DevApp() {
   const [tab, setTab] = useState<Tab>('assets');
@@ -18,11 +20,19 @@ function DevApp() {
           <button type="button" className={tab === 'studio' ? 'on' : ''} onClick={() => setTab('studio')}>
             Spell Studio
           </button>
+          <button type="button" className={tab === 'loot' ? 'on' : ''} onClick={() => setTab('loot')}>
+            Loot
+          </button>
+          <button type="button" className={tab === 'replay' ? 'on' : ''} onClick={() => setTab('replay')}>
+            Replay
+          </button>
         </nav>
         <a href="/">Back to game</a>
       </header>
       <main className="dev-main">{tab === 'assets' && <AssetsTab />}
-        {tab === 'studio' && <SpellStudioTab />}</main>
+        {tab === 'studio' && <SpellStudioTab />}
+        {tab === 'loot' && <LootTab />}
+        {tab === 'replay' && <ReplayTab />}</main>
     </div>
   );
 }

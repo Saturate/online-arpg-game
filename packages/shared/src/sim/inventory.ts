@@ -18,6 +18,7 @@ import {
   type ItemUid,
   type SigilItem,
 } from '../items/items.js';
+import { rollDrops } from '../items/drops.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
 import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
 import { distSq } from './math.js';
@@ -27,10 +28,6 @@ import { computeStats } from './stats.js';
 
 export const INVENTORY_SIZE = LOOT.inventorySize;
 
-const NORMAL_TIER_WEIGHTS = { common: 60, magic: 30, rare: 9, relic: 1 } as const;
-const RARE_TIER_WEIGHTS = { common: 0, magic: 40, rare: 45, relic: 15 } as const;
-const BOSS_TIER_WEIGHTS = { common: 0, magic: 0, rare: 60, relic: 40 } as const;
-const BOSS_DROP_COUNT = 4;
 
 export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
   return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMods(item).misfireMultiplier };
@@ -288,7 +285,7 @@ export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | 
   return null;
 }
 
-function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, ignoreFor: EntityId | null): void {
+export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, ignoreFor: EntityId | null): void {
   const w = sim.world;
   const id = w.create('loot');
   w.position.set(id, { x, y });
@@ -301,26 +298,8 @@ export function dropLoot(sim: Simulation, enemyId: EntityId): void {
   const e = w.enemy.get(enemyId);
   const pos = w.position.get(enemyId);
   if (!e || !pos) return;
-  let count = 0;
-  if (e.boss) count = BOSS_DROP_COUNT;
-  else if (e.rare) count = sim.rand.loot.int(LOOT.rareDropCount.min, LOOT.rareDropCount.max);
-  else if (sim.rand.loot.next() < LOOT.normalDropChance) count = 1;
-  if (count === 0) return;
-
-  const items: Item[] = [];
-  const weights = e.boss ? BOSS_TIER_WEIGHTS : e.rare ? RARE_TIER_WEIGHTS : NORMAL_TIER_WEIGHTS;
-  for (let i = 0; i < count; i++) {
-    const tier = rollTier(sim.rand.loot, weights);
-    const roll = sim.rand.loot.next();
-    items.push(
-      roll < LOOT.gearShareOfDrops
-        ? createGear(sim.newItemUid(), sim.rand.loot, tier, e.level)
-        : roll < LOOT.gearShareOfDrops + LOOT.vesselShareOfDrops
-          ? createVessel(sim.newItemUid(), sim.rand.loot, tier, undefined, e.level)
-          : createSigil(sim.newItemUid(), sim.rand.loot, tier, { ilvl: e.level, allowCorrupt: true, skill: 'random' }),
-    );
-  }
-  spawnBag(sim, pos.x, pos.y, items, LOOT.bagRadius * (e.rare ? WAVES.rareScale : 1), null);
+  const items = rollDrops(sim.rand.loot, () => sim.newItemUid(), { level: e.level, rare: e.rare, boss: e.boss });
+  if (items.length > 0) spawnBag(sim, pos.x, pos.y, items, LOOT.bagRadius * (e.rare ? WAVES.rareScale : 1), null);
 }
 
 export function bestTier(items: readonly Item[]): (typeof ITEM_TIERS)[number] {

@@ -6,7 +6,7 @@ import { DebugOverlay } from './DebugOverlay.js';
 import { DevPanel } from './DevPanel.js';
 import { EscMenu } from './EscMenu.js';
 import { useUi } from './store.js';
-import { Hud, Notices, Party } from './Hud.js';
+import { Banner, Hud, Notices, Party, RecordingBadge } from './Hud.js';
 import { Inventory, ItemTooltip } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
 import { StagingPanel } from './StagingPanel.js';
@@ -23,7 +23,7 @@ export function GameView({ token, character, mode }: { token: string; character:
     const host = hostRef.current;
     const fx = fxRef.current;
     if (!host || !fx) return;
-    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, token, character, mode);
+    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, { kind: 'live', token, character, mode });
     void game.start();
     return () => game.destroy();
   }, [token, character, mode]);
@@ -38,6 +38,8 @@ export function GameView({ token, character, mode }: { token: string; character:
       </div>
       <Party />
       <Notices />
+      <Banner />
+      <RecordingBadge />
       <Hud />
       <Inventory />
       <CharacterPanel />

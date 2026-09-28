@@ -146,6 +146,26 @@ export function Party() {
   );
 }
 
+export function RecordingBadge() {
+  const recording = useUi((s) => s.recording);
+  return recording ? (
+    <div className="rec-badge" title="Recording a replay. F8 stops and saves it.">
+      REC
+    </div>
+  ) : null;
+}
+
+export function Banner() {
+  const banner = useUi((s) => s.banner);
+  if (!banner) return null;
+  return (
+    <div key={banner.id} className="banner" role="status">
+      <h2>{banner.title}</h2>
+      <p>{banner.text}</p>
+    </div>
+  );
+}
+
 export function Notices() {
   const notices = useUi((s) => s.notices);
   return (

@@ -14,6 +14,8 @@ export class Staging {
   /** Room id of the live run, if any. The manager clears it when that room closes. */
   runRoomId: string | null = null;
   runs = 0;
+  /** The current or last run was cleared; reset when a new run starts. */
+  cleared = false;
   private lastSentKey = '';
 
   constructor(
@@ -58,6 +60,7 @@ export class Staging {
       open: this.runRoomId !== null,
       inside,
       level: this.ref.level,
+      cleared: this.cleared,
     };
   }
 

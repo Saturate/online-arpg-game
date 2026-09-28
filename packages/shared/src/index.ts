@@ -4,6 +4,7 @@ export * from './data/classes.js';
 export * from './data/enemies.js';
 export * from './data/minions.js';
 export * from './data/runes.js';
+export * from './items/drops.js';
 export * from './items/items.js';
 export * from './protocol/accounts.js';
 export * from './protocol/codec.js';

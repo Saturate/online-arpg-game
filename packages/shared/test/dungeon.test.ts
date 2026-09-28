@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GameMap, generateDungeon, loadMap, stagingMap, type WorldMap } from '../src/index.js';
+import { DUNGEON, GameMap, generateDungeon, loadMap, Simulation, stagingMap, type WorldMap } from '../src/index.js';
+import { dealDamage } from '../src/sim/combat.js';
 
 /** Walkable nav cells reachable from a point, by flood fill. */
 function reach(map: WorldMap, x: number, y: number): { gm: GameMap; seen: Set<number> } {
@@ -66,5 +67,30 @@ describe('dungeon generation', () => {
       expect(e.dungeon).toBeDefined();
       expect(seen.has(gm.navCell(e.x, e.y))).toBe(true);
     }
+  });
+});
+
+describe('dungeon boss', () => {
+  it('clears the run once and opens a cache of rare or better items', () => {
+    const sim = new Simulation(3, { kind: 'dungeon', seed: 11, level: 3, run: 0 });
+    const pid = sim.addPlayer('c', 'mage');
+    const boss = [...sim.world.enemy].find(([, e]) => e.boss);
+    if (!boss) throw new Error('no boss');
+    const bagsBefore = sim.world.loot.size;
+    dealDamage(sim, boss[0], 1e9, pid, []);
+    sim.step();
+    expect(sim.cleared).toBe(true);
+    const items = [...sim.world.loot.values()].flatMap((b) => b.items);
+    expect(sim.world.loot.size).toBeGreaterThanOrEqual(bagsBefore + 2);
+    expect(items.filter((i) => i.tier === 'rare' || i.tier === 'relic').length).toBeGreaterThanOrEqual(DUNGEON.cacheItems);
+  });
+
+  it('never clears anything outside a dungeon', () => {
+    const sim = new Simulation(3, { kind: 'wilds', seed: 5 });
+    const pid = sim.addPlayer('c', 'mage');
+    const boss = [...sim.world.enemy].find(([, e]) => e.boss);
+    if (boss) dealDamage(sim, boss[0], 1e9, pid, []);
+    sim.step();
+    expect(sim.cleared).toBe(false);
   });
 });

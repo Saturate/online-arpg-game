@@ -6,6 +6,7 @@ import {
   NET,
   SIM,
   type CharacterSummary,
+  type ClientMessage,
   type ClassId,
   type EntityId,
   type EntitySnap,
@@ -20,6 +21,7 @@ import {
   DEFAULT_TOWN_LAYOUT,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
+import { Recorder, encodeReplay } from './replay.js';
 import { netSettings } from '../net/settings.js';
 import { COLORS, cssColor, ELEMENT_COLORS, FX, TIER_COLORS, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
@@ -80,8 +82,26 @@ export interface GameMounts {
   minimap: HTMLCanvasElement | null;
 }
 
+/** Recorded playback: messages come from a file on a virtual clock, and nothing is sent anywhere. */
+export interface ReplaySource {
+  start(onMessage: (msg: ServerMessage) => void): void;
+  stop(): void;
+  /** Virtual milliseconds; runs slower or faster than real time with the playback speed. */
+  now(): number;
+}
+
+export type GameSession =
+  | { kind: 'live'; token: string; character: CharacterSummary; mode: GameMode }
+  | { kind: 'replay'; source: ReplaySource; classId: ClassId; name: string };
+
 export class Game {
-  private readonly conn: Connection;
+  private readonly conn: Connection | null = null;
+  private readonly replay: ReplaySource | null = null;
+  private recorder: Recorder | null = null;
+  /** The latest room state, so a recording started mid-room still plays back on its own. */
+  private lastWelcome: ServerMessage | null = null;
+  private lastInventory: ServerMessage | null = null;
+  private lastStaging: ServerMessage | null = null;
   private room: RoomView | null = null;
   private destroyed = false;
   private rafId = 0;
@@ -118,16 +138,22 @@ export class Game {
   private frameNo = 0;
 
   private readonly classId: ClassId;
+  private readonly name: string;
   /** Set when the server ends the session, so the socket close that follows keeps its reason. */
   private ended = false;
 
   constructor(
     private readonly mounts: GameMounts,
-    private readonly token: string,
-    private readonly character: CharacterSummary,
-    private readonly mode: GameMode,
+    private readonly session: GameSession,
   ) {
-    this.classId = character.classId;
+    if (session.kind === 'replay') {
+      this.classId = session.classId;
+      this.name = session.name;
+      this.replay = session.source;
+      return;
+    }
+    this.classId = session.character.classId;
+    this.name = session.character.name;
     this.conn = new Connection({
       url: netSettings.serverUrl,
       oneWayLagMs: netSettings.addedRttMs / 2,
@@ -138,18 +164,39 @@ export class Game {
     });
   }
 
+  /** Interpolation runs on the replay's virtual clock during playback, so slow motion and fast forward both work. */
+  private clock(): number {
+    return this.replay ? this.replay.now() : performance.now();
+  }
+
+  private send(msg: ClientMessage): void {
+    this.conn?.send(msg);
+  }
+
   async start(): Promise<void> {
+    if (this.replay) {
+      this.replay.start((msg) => this.onMessage(msg));
+      this.startLoop();
+      return;
+    }
+    const conn = this.conn;
+    const session = this.session;
+    if (!conn || session.kind !== 'live') return;
     try {
-      await this.conn.ready();
+      await conn.ready();
     } catch (err) {
       if (this.destroyed) return;
       useUi.getState().leave(err instanceof Error ? err.message : 'Connection failed');
       return;
     }
     if (this.destroyed) return;
-    this.conn.send({ t: 'join', token: this.token, characterId: this.character.id, mode: this.mode });
-    useUi.setState({ send: (msg) => this.conn.send(msg) });
-    this.pingTimer = setInterval(() => this.conn.send({ t: 'ping', clientTime: performance.now() }), NET.pingIntervalMs);
+    conn.send({ t: 'join', token: session.token, characterId: session.character.id, mode: session.mode });
+    useUi.setState({ send: (msg) => conn.send(msg), toggleRecording: () => this.toggleRecording() });
+    this.pingTimer = setInterval(() => conn.send({ t: 'ping', clientTime: performance.now() }), NET.pingIntervalMs);
+    this.startLoop();
+  }
+
+  private startLoop(): void {
     this.lastFrame = performance.now();
     const loop = (now: number): void => {
       if (this.destroyed) return;
@@ -164,7 +211,37 @@ export class Game {
     cancelAnimationFrame(this.rafId);
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.teardownRoom();
-    this.conn.close();
+    this.conn?.close();
+    this.replay?.stop();
+    if (this.recorder) {
+      this.recorder = null;
+      useUi.setState({ recording: false });
+    }
+    useUi.setState({ toggleRecording: null });
+  }
+
+  /** Starts recording, or stops and downloads the file. */
+  private toggleRecording(): void {
+    if (!this.recorder) {
+      const seed = [this.lastWelcome, this.lastInventory, this.lastStaging].filter((m): m is ServerMessage => m !== null);
+      this.recorder = new Recorder(this.classId, this.name, seed);
+      useUi.setState({ recording: true });
+      useUi.getState().notify('Recording replay');
+      return;
+    }
+    const file = this.recorder.finish();
+    this.recorder = null;
+    useUi.setState({ recording: false });
+    void encodeReplay(file).then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rune-replay-${new Date(file.recordedAt).toISOString().replace(/[:.]/g, '-')}.json.gz`;
+      a.click();
+      // Revoked a tick later: some browsers cancel the download if the URL dies during the click.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      useUi.getState().notify(`Replay saved (${Math.round(file.durationMs / 1000)} s, ${Math.round(blob.size / 1024)} KB)`);
+    });
   }
 
   private teardownRoom(): void {
@@ -240,7 +317,7 @@ export class Game {
     this.editor = new TownEditor(room.world, this.townLayout, { x: start.x, y: start.y }, (layout) => {
       this.reopenEditor = true;
       this.editorCamera = this.editor ? { ...this.editor.camera } : null;
-      this.conn.send({ t: 'saveTown', layout });
+      this.send({ t: 'saveTown', layout });
     });
   }
 
@@ -254,15 +331,16 @@ export class Game {
     if (this.editor) return;
     if (code === 'F1') ui.toggleDebug();
     else if (code === 'F3') useUi.setState((s) => ({ devOpen: !s.devOpen }));
+    else if (code === 'F8' && !this.replay) this.toggleRecording();
     else if (code === 'KeyI') ui.toggleInventory();
     else if (code === 'KeyC') useUi.setState((s) => ({ characterOpen: !s.characterOpen }));
     else if (code === 'KeyK') {
       if (ui.editorAllowed) ui.toggleEditor();
       else ui.notify('Skills are locked for now. The sigil editor works in the Arena.');
-    } else if (code === 'KeyT') this.conn.send({ t: 'cycleStance' });
+    } else if (code === 'KeyT') this.send({ t: 'cycleStance' });
     else if (code === 'KeyR' && ui.staging) {
       const me = ui.staging.members.find((m) => m.name === ui.name);
-      this.conn.send({ t: 'ready', ready: !(me?.ready ?? false) });
+      this.send({ t: 'ready', ready: !(me?.ready ?? false) });
     }
     else if (code === 'Tab') useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     else if (code === 'Escape') {
@@ -272,6 +350,13 @@ export class Game {
   }
 
   private onMessage(msg: ServerMessage): void {
+    if (msg.t === 'welcome') this.lastWelcome = msg;
+    else if (msg.t === 'inventory') this.lastInventory = msg;
+    else if (msg.t === 'staging') this.lastStaging = msg;
+    if (this.recorder) {
+      this.recorder.record(msg);
+      if (this.recorder.full) this.toggleRecording();
+    }
     switch (msg.t) {
       case 'welcome':
         this.playerId = msg.playerId;
@@ -298,6 +383,14 @@ export class Game {
       case 'notice':
         useUi.getState().notify(msg.text);
         return;
+      case 'banner': {
+        const id = performance.now();
+        useUi.setState({ banner: { id, title: msg.title, text: msg.text } });
+        setTimeout(() => {
+          if (useUi.getState().banner?.id === id) useUi.setState({ banner: null });
+        }, 5000);
+        return;
+      }
       case 'staging':
         useUi.setState({ staging: msg });
         return;
@@ -319,7 +412,7 @@ export class Game {
       this.paused = snap.paused;
       useUi.setState({ paused: snap.paused });
     }
-    room.interp.push(snap, performance.now());
+    room.interp.push(snap, this.clock());
     for (const ev of snap.events) this.pendingEvents.push({ tick: snap.tick, ev });
 
     const self = this.findSelf(snap);
@@ -360,21 +453,22 @@ export class Game {
     this.visualOffset.x *= decay;
     this.visualOffset.y *= decay;
     if (!this.paused) this.updateCosmetics(dt);
-    this.draw(now, this.paused ? 0 : dt);
+    this.draw(this.replay ? this.clock() : now, this.paused ? 0 : dt);
     this.publishDebug(now);
   }
 
   private fixedStep(): void {
     const room = this.room;
     // While paused the server drops input, so predicting it would only produce a correction later.
-    if (!room || this.paused || this.playerId === null || !this.latest) return;
+    // Playback has no input: the recorded snapshots move the player, so prediction just follows them.
+    if (!room || this.paused || this.playerId === null || !this.latest || this.replay) return;
     const origin = room.predictor.position;
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
     if (useUi.getState().menuOpen) sampled.buttons = 0;
     const frame = { seq: this.seq++, ...sampled };
-    this.conn.send({ t: 'input', ...frame });
+    this.send({ t: 'input', ...frame });
     room.predictor.apply(frame);
     this.localAim = frame.aimAngle;
 

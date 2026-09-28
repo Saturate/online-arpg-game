@@ -24,6 +24,7 @@ export function StagingPanel() {
           </li>
         ))}
       </ul>
+      {staging.cleared && <p className="cleared">Last run cleared</p>}
       {staging.countdown !== null ? (
         <p className="countdown">Descending in {staging.countdown}</p>
       ) : staging.open ? (

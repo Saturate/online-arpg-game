@@ -326,3 +326,155 @@
   font-size: 11px !important;
   resize: vertical;
 }
+
+/* Loot simulator */
+.loot {
+  grid-template-columns: 300px 1fr 330px;
+}
+.loot-results {
+  overflow: auto;
+  padding: 12px 16px;
+  min-width: 0;
+}
+.loot-results h3 {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 6px;
+  text-transform: uppercase;
+}
+.loot-summary {
+  max-width: 420px;
+}
+.loot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+}
+.loot-bars {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+}
+.loot-bars li {
+  display: grid;
+  grid-template-columns: 120px 1fr 110px;
+  gap: 8px;
+  align-items: center;
+}
+.loot-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loot-bar {
+  height: 10px;
+  background: #1a1611;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.loot-bar > span {
+  display: block;
+  height: 100%;
+}
+.loot-bar-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.loot-bar-num small {
+  color: var(--muted);
+}
+.loot-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.loot-table th,
+.loot-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid #2a241a;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.loot-table th:first-child,
+.loot-table td:first-child {
+  text-align: left;
+}
+.loot-table th {
+  color: var(--muted);
+  font-weight: normal;
+}
+.loot-progress {
+  height: 4px;
+  background: #1a1611;
+  margin-bottom: 8px;
+}
+.loot-progress > div {
+  height: 100%;
+  background: var(--gold);
+}
+.loot-tuned {
+  color: var(--heat);
+  text-transform: none;
+  margin-left: 6px;
+}
+.loot-sample {
+  position: static;
+  margin-top: 10px;
+}
+.dev-app .small {
+  font-size: 11px;
+}
+
+/* Replay */
+.replay-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #3a2f20;
+}
+/* Visually hidden but still focusable, so the picker works from the keyboard. */
+.replay-file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.replay-file:focus-within {
+  outline: 2px solid var(--gold, #d9b56a);
+}
+.replay-file {
+  cursor: pointer;
+  padding: 5px 12px;
+  border: 1px solid var(--gold, #d9b56a);
+  border-radius: 4px;
+}
+.replay-seek {
+  flex: 1;
+  min-width: 200px;
+}
+.replay-time {
+  font-variant-numeric: tabular-nums;
+}
+.replay-empty {
+  padding: 40px;
+  text-align: center;
+}
+.replay-game {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.replay-game[hidden] {
+  display: none;
+}

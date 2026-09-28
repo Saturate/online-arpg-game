@@ -195,6 +195,8 @@ export interface StagingMessage {
   open: boolean;
   inside: number;
   level: number;
+  /** The current or last run's boss is dead. */
+  cleared: boolean;
 }
 
 export type ServerMessage =
@@ -215,6 +217,8 @@ export type ServerMessage =
   | Snapshot
   | InventoryMessage
   | { t: 'notice'; text: string }
+  /** A big centre-screen announcement, like a cleared dungeon. */
+  | { t: 'banner'; title: string; text: string }
   /** The server refused or ended the session; the socket closes right after. */
   | { t: 'sessionEnded'; reason: string }
   | { t: 'pong'; clientTime: number };

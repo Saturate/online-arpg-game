@@ -90,6 +90,7 @@ export class RoomManager {
       staging.recheck();
       if (staging.tick()) this.startRun(staging);
       const run = staging.runRoomId === null ? undefined : this.rooms.get(staging.runRoomId);
+      if (run?.sim.cleared) staging.cleared = true;
       staging.broadcast(run?.members.size ?? 0);
     }
   }
@@ -119,6 +120,7 @@ export class RoomManager {
   private startRun(staging: Staging): void {
     const run = this.createRoom({ kind: 'dungeon', seed: staging.ref.seed, level: staging.ref.level, run: staging.runs++ });
     staging.runRoomId = run.id;
+    staging.cleared = false;
     for (const m of [...staging.room.members.values()]) this.move(m.client, run);
   }
 

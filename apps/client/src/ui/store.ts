@@ -60,6 +60,7 @@ interface UiState {
   instances: InstanceInfo[];
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
+  banner: { id: number; title: string; text: string } | null;
   /** Landing spots beside each portal in the current room, for the sandbox's quick travel list. */
   roomPortals: { label: string; x: number; y: number }[];
   connectionError: string | null;
@@ -92,6 +93,9 @@ interface UiState {
   notices: Notice[];
 
   send: ((msg: ClientMessage) => void) | null;
+  /** Set by a live game; starts a replay recording, or stops it and downloads the file. */
+  toggleRecording: (() => void) | null;
+  recording: boolean;
 
   setSession: (token: string, username: string) => void;
   logout: () => void;
@@ -146,6 +150,7 @@ export const useUi = create<UiState>((set, get) => ({
   minimapVisible: true,
   instances: [],
   staging: null,
+  banner: null,
   roomPortals: [],
   connectionError: null,
   playerId: null,
@@ -185,6 +190,8 @@ export const useUi = create<UiState>((set, get) => ({
   },
   notices: [],
   send: null,
+  toggleRecording: null,
+  recording: false,
 
   setSession: (token, username) => {
     storeToken(token);

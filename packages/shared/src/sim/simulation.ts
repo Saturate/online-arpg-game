@@ -61,6 +61,8 @@ export class Simulation {
   tick = 0;
   wave = 0;
   waveTimer: number = WAVES.firstWaveDelaySeconds;
+  /** A dungeon's boss has died. Set once; the server announces it. */
+  cleared = false;
   /** Filled by the portal system; the server drains it and moves players between rooms. */
   portalRequests: PortalRequest[] = [];
   private events: PositionedEvent[] = [];

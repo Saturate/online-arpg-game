@@ -1491,3 +1491,54 @@ kbd {
   border-color: var(--good) !important;
   color: var(--good);
 }
+
+/* Centre banner: dungeon cleared and similar moments */
+.banner {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  animation: banner-in 5s ease forwards;
+}
+.banner h2 {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 44px;
+  color: var(--gold);
+  margin: 0;
+  text-shadow: 0 0 18px rgba(217, 181, 106, 0.5), 0 2px 4px #000;
+}
+.banner p {
+  color: var(--text);
+  margin: 6px 0 0;
+  text-shadow: 0 1px 3px #000;
+}
+@keyframes banner-in {
+  0% { opacity: 0; transform: translate(-50%, 12px); }
+  10% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.staging-panel .cleared {
+  color: var(--good);
+  margin: 4px 0;
+}
+
+.rec-badge {
+  position: absolute;
+  top: 14px;
+  right: 230px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(20, 0, 0, 0.7);
+  border: 1px solid #ff4a3a;
+  color: #ff6b5a;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  animation: rec-blink 1.4s steps(2, start) infinite;
+}
+@keyframes rec-blink {
+  to { opacity: 0.35; }
+}

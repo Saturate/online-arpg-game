@@ -108,7 +108,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
