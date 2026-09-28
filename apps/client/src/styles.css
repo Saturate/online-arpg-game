@@ -437,7 +437,8 @@ kbd {
 
 .notices {
   position: absolute;
-  top: 14px;
+  /* Below the target frame, which owns the top centre while a monster is hovered. */
+  top: 96px;
   left: 50%;
   transform: translateX(-50%);
   display: grid;
