@@ -12,6 +12,7 @@ export * from './protocol/messages.js';
 export * from './protocol/validate.js';
 export * from './runes/compiler.js';
 export * from './sim/auras.js';
+export * from './sim/progression.js';
 export * from './sim/ecs.js';
 export * from './sim/math.js';
 export * from './sim/movement.js';

@@ -166,3 +166,12 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Safe zone rule:** it lives in `isTargetable`, the one check both monster aggro and damage go through. Monsters lose their target at the gate and leash home. Packs and dungeon entrances keep outside aggro range of the town.
 - **Waypoints:** touching one activates it for that character (`PlayerSave.waypoints`), and everyone starts with the town's. The menu opens on contact and closes when you walk off. The server re-checks that you're standing on a waypoint and that the destination is unlocked. Saves from before waypoints existed are given the town's on load.
 - **Zone transitions:** portals at the west and east edges land you just off the matching portal in the neighbouring zone, so arriving never triggers the way back.
+
+## Character progression
+
+- **XP curve:** XP to the next level is `60 * L^1.75`, with a cap of 50. Monsters are worth `6 * m^1.35`, times 4 for rares and 18 for bosses.
+- **Low-level penalty:** monsters more than 5 levels below you lose 15% of their XP per extra level, down to a 5% floor, so farming the first zone at level 30 pays almost nothing, as in D2.
+- **Party XP:** every living player within 1500 units shares a kill. The pool grows 35% per extra member, so a group levels faster than the same players alone.
+- **Level growth:** per level, +6% of the class's base life, +12 Force, +1 spirit and +1.5% damage, added to gear's "increased damage" as in PoE. Level-up refills life and Force.
+- **Item requirements:** an item needs item level minus 2, enforced on the server when equipping. Gear already worn from before levels existed stays on, but can't be re-equipped until the character reaches its level. Saves from before levels start at level 1.
+- **Not built yet:** a real passive tree or attribute points. For now, levels only grow stats automatically.

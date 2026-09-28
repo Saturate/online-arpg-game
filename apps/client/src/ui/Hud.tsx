@@ -58,6 +58,21 @@ function SkillSlot({ slot }: { slot: number }) {
   );
 }
 
+function XpBar() {
+  const level = useUi((s) => s.level);
+  const xp = useUi((s) => s.xp);
+  const next = useUi((s) => s.xpNext);
+  const ratio = next > 0 ? Math.min(1, xp / next) : 1;
+  return (
+    <div className="xp-bar" title={`${xp.toLocaleString()} / ${next.toLocaleString()} XP to level ${level + 1}`}>
+      <div style={{ width: `${ratio * 100}%` }} />
+      <span>
+        Level {level} <small>{Math.floor(ratio * 100)}%</small>
+      </span>
+    </div>
+  );
+}
+
 /** Mouse access to the panels, for anyone who does not know or has not bound the keys. */
 function PanelButtons() {
   const invKey = useSettings((s) => s.bindings.inventory);
@@ -128,6 +143,7 @@ export function Hud() {
       <div className="hud">
         <Orb label="Life" value={life} max={maxLife} kind="life" danger={lowLife} />
         <div className="hud-center">
+          <XpBar />
           <div className="spirit-bar" title={`Spirit reserved ${spiritReserved} / ${spiritMax}`}>
             <div style={{ width: `${spiritRatio * 100}%` }} />
             <span>
@@ -168,7 +184,7 @@ export function Party() {
         <div key={p.id} className={`party-row${p.dead ? ' dead' : ''}${p.id === playerId ? ' me' : ''}`}>
           <span className="dot" style={{ background: cssColor(CLASSES[p.cls].color) }} />
           <span className="pname">
-            {p.name} <small>{CLASSES[p.cls].name}</small>
+            {p.name} <small>Lv {p.level} {CLASSES[p.cls].name}</small>
           </span>
           <div className="mini-bar">
             <div style={{ width: `${(p.life / Math.max(1, p.maxLife)) * 100}%` }} />

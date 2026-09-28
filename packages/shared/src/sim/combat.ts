@@ -7,6 +7,7 @@ import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
 import { alertPack } from './enemies.js';
 import { onBossKilled } from './dungeon.js';
+import { grantKillXp } from './progression.js';
 import { dropLoot } from './inventory.js';
 import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
@@ -179,6 +180,7 @@ function kill(sim: Simulation, id: EntityId): void {
     sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'enemy', color: ENEMIES[e.typeId].color, big: e.rare }, pos.x, pos.y);
     dropLoot(sim, id);
     if (e.boss) onBossKilled(sim, pos.x, pos.y, e.level);
+    grantKillXp(sim, e, pos.x, pos.y);
     w.destroy(id);
     return;
   }

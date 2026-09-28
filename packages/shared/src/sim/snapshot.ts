@@ -1,4 +1,5 @@
 import { CLASSES } from '../data/classes.js';
+import { xpToNext } from './progression.js';
 import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot } from '../protocol/messages.js';
 import { STATUS } from '../protocol/messages.js';
 import { auraRadius, spiritReservedFor } from './auras.js';
@@ -147,6 +148,9 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
     stance: p.stance,
     minionRespawn: p.minionRespawn.map((t) => round1(Math.max(0, t))),
     links: p.links.map((l) => (l ? { targetId: l.targetId, connected: l.connected } : null)),
+    level: p.level,
+    xp: Math.floor(p.xp),
+    xpNext: xpToNext(p.level),
   };
 }
 
@@ -179,7 +183,7 @@ export function snapshotFor(
   const players: Snapshot['players'] = [];
   for (const [id, other] of w.player) {
     const h = w.health.get(id);
-    if (h) players.push({ id, name: other.name, cls: other.classId, life: Math.ceil(h.life), maxLife: h.maxLife, dead: other.respawnIn !== null });
+    if (h) players.push({ id, name: other.name, cls: other.classId, level: other.level, life: Math.ceil(h.life), maxLife: h.maxLife, dead: other.respawnIn !== null });
   }
 
   return {

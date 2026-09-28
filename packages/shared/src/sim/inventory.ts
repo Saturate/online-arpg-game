@@ -19,6 +19,7 @@ import {
   type SigilItem,
 } from '../items/items.js';
 import { rollDrops } from '../items/drops.js';
+import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
 import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
 import { distSq } from './math.js';
@@ -111,6 +112,8 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
   p.stance = save.stance;
   p.waypoints = [...save.waypoints];
+  p.level = save.level;
+  p.xp = save.xp;
   save.sigils.forEach((u, slot) => {
     const item = p.items.get(re(u) ?? -1);
     p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(p, item) : null;
@@ -152,6 +155,7 @@ export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: n
   const invIndex = inventoryIndex(p, uid);
   const item = p.items.get(uid);
   if (invIndex < 0 || !item || item.kind !== 'sigil') return 'That sigil is not in your inventory';
+  if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
 
   const previous = p.sigils[slot] ?? null;
   p.sigils[slot] = compileSigil(p, item);
@@ -188,6 +192,7 @@ export function equipVessel(sim: Simulation, pid: EntityId, uid: ItemUid, slot: 
   const invIndex = inventoryIndex(p, uid);
   const item = p.items.get(uid);
   if (invIndex < 0 || !item || item.kind !== 'vessel') return 'That vessel is not in your inventory';
+  if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
 
   const previous = p.warband[slot] ?? null;
   p.warband[slot] = uid;
@@ -235,6 +240,7 @@ export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid, target: 
   const idx = inventoryIndex(p, uid);
   const item = p.items.get(uid);
   if (idx < 0 || !item || item.kind !== 'gear') return 'That is not equipment in your inventory';
+  if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
   const slots = GEAR_SLOTS.filter((s) => categoryForSlot(s) === item.category);
   if (target !== null && !slots.includes(target)) return 'That does not go there';
   // Without a target, rings go into whichever ring slot is empty first, otherwise they replace the first ring.

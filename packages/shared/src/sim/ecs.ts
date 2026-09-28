@@ -92,6 +92,9 @@ export interface PlayerComp {
   god: boolean;
   /** Zones whose waypoint this character has touched; the waypoint menu offers these. */
   waypoints: ZoneId[];
+  level: number;
+  /** Progress into the current level, not lifetime total. */
+  xp: number;
 }
 
 export interface EnemyComp {

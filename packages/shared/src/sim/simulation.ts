@@ -39,6 +39,8 @@ export interface PlayerSave {
   gear: Record<GearSlot, ItemUid | null>;
   stance: Stance;
   waypoints: ZoneId[];
+  level: number;
+  xp: number;
 }
 
 export interface PortalRequest {
@@ -127,7 +129,7 @@ export class Simulation {
       sigils: [null, null, null, null],
       warband: [null, null, null, null],
       gear: { weapon: null, helmet: null, body: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
-      stats: baseStats({ classId }),
+      stats: baseStats({ classId, level: 1 }),
       minions: [null, null, null, null],
       minionRespawn: [0, 0, 0, 0],
       stance: 'aggressive',
@@ -141,6 +143,8 @@ export class Simulation {
       god: false,
       // Everyone starts with the town's waypoint, like D2's.
       waypoints: [HOME_ZONE],
+      level: 1,
+      xp: 0,
     });
     if (save) inv.restoreSave(this, id, save);
     else inv.giveStarterKit(this, id);
@@ -168,6 +172,8 @@ export class Simulation {
       gear: { ...p.gear },
       stance: p.stance,
       waypoints: [...p.waypoints],
+      level: p.level,
+      xp: p.xp,
     };
   }
 

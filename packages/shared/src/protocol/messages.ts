@@ -145,7 +145,8 @@ export type GameEvent =
   /** Any melee swing or shot, so clients can play the attack animation. */
   | { e: 'attack'; id: EntityId }
   /** A character touched a waypoint for the first time. */
-  | { e: 'waypoint'; id: EntityId; zone: ZoneId };
+  | { e: 'waypoint'; id: EntityId; zone: ZoneId }
+  | { e: 'levelUp'; id: EntityId; level: number; x: number; y: number };
 
 export interface SelfState {
   respawnIn: number | null;
@@ -162,6 +163,9 @@ export interface SelfState {
   stance: Stance;
   minionRespawn: number[];
   links: ({ targetId: EntityId | null; connected: boolean } | null)[];
+  level: number;
+  xp: number;
+  xpNext: number;
 }
 
 export interface Snapshot {
@@ -174,7 +178,7 @@ export interface Snapshot {
   /** Total entities in the room, for the debug overlay; differs from entities.length with interest management. */
   roomEntityCount: number;
   wave: number;
-  players: { id: EntityId; name: string; cls: ClassId; life: number; maxLife: number; dead: boolean }[];
+  players: { id: EntityId; name: string; cls: ClassId; level: number; life: number; maxLife: number; dead: boolean }[];
   /** The room is frozen: only possible when a player is alone in a non-shared room. */
   paused: boolean;
 }

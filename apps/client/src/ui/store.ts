@@ -103,6 +103,9 @@ interface UiState {
   devTools: boolean;
   stats: PlayerStats | null;
   heatMax: number;
+  level: number;
+  xp: number;
+  xpNext: number;
   editorOpen: boolean;
   editorUid: ItemUid | null;
 
@@ -199,6 +202,9 @@ export const useUi = create<UiState>((set, get) => ({
   devTools: false,
   stats: null,
   heatMax: 1000,
+  level: 1,
+  xp: 0,
+  xpNext: 1,
   editorOpen: false,
   editorUid: null,
   debugVisible: false,

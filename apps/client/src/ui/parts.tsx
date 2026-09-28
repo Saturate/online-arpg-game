@@ -7,6 +7,7 @@ import {
   MINION_DEFS,
   RUNES,
   gearBase,
+  levelRequirement,
   sigilCapacity,
   STAT_IDS,
   STAT_LABELS,
@@ -71,11 +72,20 @@ function Affixes({ item }: { item: Item }) {
   );
 }
 
+/** Red when the character is too low, like D2's unusable item text. */
+function Requirement({ item }: { item: Item }) {
+  const level = useUi((s) => s.level);
+  const need = levelRequirement(item);
+  if (need <= 1) return null;
+  return <p className={need > level ? 'requirement unmet' : 'requirement'}>Requires level {need}</p>;
+}
+
 function GearDetails({ item }: { item: Extract<Item, { kind: 'gear' }> }) {
   const base = gearBase(item.base);
   return (
     <div className="item-details">
       <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <Requirement item={item} />
       <p className="muted">
         {base?.name ?? item.base}, {item.category}, item level {item.ilvl}
       </p>
@@ -103,6 +113,7 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
   return (
     <div className="item-details">
       <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <Requirement item={item} />
       <p className="muted">
         {item.tier} vessel, level {item.level}. {def.name}: {def.ranged ? 'ranged' : 'melee'}, defaults to {def.defaultBehaviour}.
       </p>
@@ -121,6 +132,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   return (
     <div className="item-details">
       <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <Requirement item={item} />
       {skill && (
         <p className="skill-line">
           <strong>{skill.name}</strong>: {skill.description}

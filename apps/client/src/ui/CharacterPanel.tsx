@@ -37,6 +37,7 @@ export function CharacterPanel() {
   const classId = useUi((s) => s.classId);
   const name = useUi((s) => s.name);
   const stats = useUi((s) => s.stats);
+  const level = useUi((s) => s.level);
   if (!open || !inv || !classId) return null;
   const cls = CLASSES[classId];
 
@@ -44,7 +45,9 @@ export function CharacterPanel() {
     <section className="panel character" aria-label="Character">
       <header>
         <h2>{name}</h2>
-        <span className="muted">{cls.name}</span>
+        <span className="muted">
+          Level {level} {cls.name}
+        </span>
         <button type="button" className="close" onClick={() => useUi.setState({ characterOpen: false })} aria-label="Close character panel">
           x
         </button>

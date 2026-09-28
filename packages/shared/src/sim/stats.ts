@@ -1,4 +1,4 @@
-import { ARMOR, HEAT } from '../config/sim.js';
+import { ARMOR, HEAT, PROGRESSION } from '../config/sim.js';
 import { CLASSES } from '../data/classes.js';
 import { GEAR_SLOTS } from '../data/gear.js';
 import { gearStats, type GearItem } from '../items/items.js';
@@ -21,16 +21,18 @@ export interface PlayerStats {
   minionLifeMult: number;
 }
 
-export function baseStats(p: Pick<PlayerComp, 'classId'>): PlayerStats {
+/** Class base plus automatic growth per character level. */
+export function baseStats(p: Pick<PlayerComp, 'classId' | 'level'>): PlayerStats {
   const def = CLASSES[p.classId];
+  const gained = p.level - 1;
   return {
-    maxLife: def.life,
+    maxLife: Math.round(def.life * (1 + PROGRESSION.lifePerLevel * gained)),
     armor: ARMOR.values[def.armor],
     moveSpeed: def.moveSpeed,
-    heatMax: HEAT.max,
+    heatMax: HEAT.max + PROGRESSION.forcePerLevel * gained,
     heatCooling: 1,
-    spiritMax: def.baseSpirit,
-    damageMult: 1,
+    spiritMax: def.baseSpirit + PROGRESSION.spiritPerLevel * gained,
+    damageMult: 1 + PROGRESSION.damagePerLevel * gained,
     castSpeedMult: 1,
     attackSpeedMult: 1,
     lifeRegen: 0,
@@ -60,7 +62,8 @@ export function computeStats(p: PlayerComp): PlayerStats {
     heatMax: s.heatMax + (g.heatMax ?? 0),
     heatCooling: pct(g.heatCooling),
     spiritMax: s.spiritMax + (g.spirit ?? 0),
-    damageMult: pct(g.damage),
+    // Level damage and gear damage add up, like "increased" modifiers in PoE.
+    damageMult: s.damageMult + (g.damage ?? 0) / 100,
     castSpeedMult: pct(g.castSpeed),
     attackSpeedMult: pct(g.attackSpeed),
     lifeRegen: g.lifeRegen ?? 0,

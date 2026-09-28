@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import { addXp, createGear, levelRequirement, monsterXp, PROGRESSION, Simulation, xpToNext, type GearItem } from '../src/index.js';
+import { dealDamage } from '../src/sim/combat.js';
+import { spawnEnemy } from '../src/sim/enemies.js';
+
+function give(sim: Simulation, pid: number, item: GearItem): void {
+  const p = sim.world.player.get(pid);
+  if (!p) throw new Error('no player');
+  p.items.set(item.uid, item);
+  p.inventory[p.inventory.indexOf(null)] = item.uid;
+}
+
+describe('progression', () => {
+  it('levels up across thresholds, growing life and Force, and refills them', () => {
+    const sim = new Simulation(1, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'warrior');
+    const p = sim.world.player.get(pid);
+    const h = sim.world.health.get(pid);
+    if (!p || !h) throw new Error('no player');
+    const life1 = h.maxLife;
+    const force1 = p.stats.heatMax;
+    h.life = 10;
+    addXp(sim, pid, xpToNext(1) + xpToNext(2) + 5);
+    expect(p.level).toBe(3);
+    expect(p.xp).toBeCloseTo(5);
+    expect(h.maxLife).toBeGreaterThan(life1);
+    expect(h.life).toBe(h.maxLife);
+    expect(p.stats.heatMax).toBe(force1 + 2 * PROGRESSION.forcePerLevel);
+    expect(sim.takeEvents().some((e) => e.ev.e === 'levelUp')).toBe(true);
+  });
+
+  it('shares kill XP between nearby players with a party bonus, and pays nothing to those far away', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const a = sim.addPlayer('a', 'mage');
+    const b = sim.addPlayer('b', 'ranger');
+    const far = sim.addPlayer('f', 'priest');
+    const pos = sim.world.position.get(a);
+    if (!pos) throw new Error('no pos');
+    sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
+    sim.world.position.set(far, { x: pos.x + PROGRESSION.partyRange + 400, y: pos.y });
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1e9, a, []);
+    const each = (monsterXp({ level: 1, rare: false, boss: false }) * (1 + PROGRESSION.partyBonusPerMember)) / 2;
+    expect(sim.world.player.get(a)?.xp).toBeCloseTo(each);
+    expect(sim.world.player.get(b)?.xp).toBeCloseTo(each);
+    expect(sim.world.player.get(far)?.xp).toBe(0);
+  });
+
+  it('monsters far below your level are worth almost nothing', () => {
+    const sim = new Simulation(3, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'mage');
+    const p = sim.world.player.get(pid);
+    const pos = sim.world.position.get(pid);
+    if (!p || !pos) throw new Error('no player');
+    p.level = 30;
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1e9, pid, []);
+    expect(p.xp).toBeCloseTo(monsterXp({ level: 1, rare: false, boss: false }) * PROGRESSION.grayFloor);
+  });
+
+  it('refuses gear above your level and allows it once you get there', () => {
+    const sim = new Simulation(4, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'warrior');
+    const helm = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 9, { category: 'helmet' });
+    give(sim, pid, helm);
+    expect(levelRequirement(helm)).toBe(9 - PROGRESSION.requirementSlack);
+    expect(sim.equipGear(pid, helm.uid)).toMatch(/Requires level/);
+    addXp(sim, pid, Array.from({ length: 6 }, (_, i) => xpToNext(i + 1)).reduce((a, b) => a + b, 0));
+    expect(sim.world.player.get(pid)?.level).toBe(7);
+    expect(sim.equipGear(pid, helm.uid)).toBeNull();
+  });
+
+  it('keeps level and progress through a save', () => {
+    const sim = new Simulation(5, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'binder');
+    addXp(sim, pid, xpToNext(1) + 12);
+    const save = sim.exportPlayer(pid);
+    if (!save) throw new Error('no save');
+    const next = new Simulation(6, { kind: 'flat' });
+    const again = next.addPlayer('c', 'binder', 'Kay', save);
+    expect(next.world.player.get(again)).toMatchObject({ level: 2, xp: 12 });
+    expect(next.world.health.get(again)?.maxLife).toBe(sim.world.health.get(pid)?.maxLife);
+  });
+});

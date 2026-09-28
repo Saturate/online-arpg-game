@@ -749,6 +749,18 @@ export class Game {
           fx.text(ev.x, ev.y, `+${ev.amt}`, COLORS.heal);
           fx.burst(ev.x, ev.y, COLORS.heal, 6, 40, { up: 90, size: 3, gravity: -60 });
           break;
+        case 'levelUp': {
+          fx.shockwave(ev.x, ev.y, 160, 0xffd76a, 0.8);
+          fx.burst(ev.x, ev.y, 0xffd76a, 40, 220, { up: 260, size: 5, life: 1 });
+          if (ev.id === this.playerId) {
+            const id = performance.now();
+            useUi.setState({ banner: { id, title: `Level ${ev.level}`, text: 'You feel stronger. Life and Force restored.' } });
+            setTimeout(() => {
+              if (useUi.getState().banner?.id === id) useUi.setState({ banner: null });
+            }, 4000);
+          }
+          break;
+        }
         case 'waypoint':
           if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
           break;
@@ -804,6 +816,9 @@ export class Game {
       if (ui.spiritReserved !== s.spiritReserved) patch.spiritReserved = s.spiritReserved;
       if (ui.stance !== s.stance) patch.stance = s.stance;
       if (ui.heatMax !== s.heatMax) patch.heatMax = s.heatMax;
+      if (ui.level !== s.level) patch.level = s.level;
+      if (ui.xp !== s.xp) patch.xp = s.xp;
+      if (ui.xpNext !== s.xpNext) patch.xpNext = s.xpNext;
       if (JSON.stringify(ui.stats) !== JSON.stringify(s.stats)) patch.stats = s.stats;
       const cd = Math.round(s.castCooldown * 10) / 10;
       if (ui.castCooldown !== cd) patch.castCooldown = cd;

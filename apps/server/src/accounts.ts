@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, HOME_ZONE, isClassId, isZoneId, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
+import { ACCOUNT_RULES, HOME_ZONE, isClassId, isZoneId, PROGRESSION, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -71,7 +71,15 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     // Saves from before waypoints existed have none; everyone owns the town's.
     const waypoints: unknown = Reflect.get(v, 'waypoints');
     const found = Array.isArray(waypoints) ? waypoints.filter(isZoneId) : [];
-    return { ...v, waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found] };
+    // Saves from before levels existed start at level 1.
+    const level: unknown = Reflect.get(v, 'level');
+    const xp: unknown = Reflect.get(v, 'xp');
+    return {
+      ...v,
+      waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
+      level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
+      xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
+    };
   } catch {
     return null;
   }

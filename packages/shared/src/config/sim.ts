@@ -230,6 +230,32 @@ export const WILDS = {
   idleCloseSeconds: 300,
 } as const;
 
+export const PROGRESSION = {
+  maxLevel: 50,
+  /** XP from level L to L+1 is xpBase * L^xpExponent: 60 for the first level, ~3.4k at 10, ~52k at 40. */
+  xpBase: 60,
+  xpExponent: 1.75,
+  /** Per level: a share of the class's base life, flat Force and spirit, and increased damage. */
+  lifePerLevel: 0.06,
+  forcePerLevel: 12,
+  spiritPerLevel: 1,
+  damagePerLevel: 0.015,
+  /** A level-m monster is worth monsterXpBase * m^monsterXpExponent before rare and boss multipliers. */
+  monsterXpBase: 6,
+  monsterXpExponent: 1.35,
+  rareXpMultiplier: 4,
+  bossXpMultiplier: 18,
+  /** D2-style: farming far below your level pays almost nothing. */
+  grayGap: 5,
+  grayPenaltyPerLevel: 0.15,
+  grayFloor: 0.05,
+  /** Players this close to a kill share its XP, with a bonus per extra member so grouping pays. */
+  partyRange: 1500,
+  partyBonusPerMember: 0.35,
+  /** Items need this many levels less than their item level, so drops are usable a little early. */
+  requirementSlack: 2,
+} as const;
+
 /** Overworld zones east of the town (the home zone adds the town's width on top). */
 export const ZONE_SIZE = {
   width: 5200,
