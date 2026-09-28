@@ -230,6 +230,12 @@ export const WILDS = {
   idleCloseSeconds: 300,
 } as const;
 
+/** Mummy curse: refreshed every tick a player stands in the aura, fades shortly after leaving it. */
+export const CURSE = {
+  damageReduction: 0.3,
+  lingerSeconds: 0.6,
+} as const;
+
 export const PROGRESSION = {
   maxLevel: 50,
   /** XP from level L to L+1 is xpBase * L^xpExponent: 60 for the first level, ~3.4k at 10, ~52k at 40. */

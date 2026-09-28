@@ -1,4 +1,4 @@
-import { AILMENTS, ARMOR, MINIONS, SIM } from '../config/sim.js';
+import { AILMENTS, ARMOR, CURSE, MINIONS, SIM } from '../config/sim.js';
 import { CLASSES } from '../data/classes.js';
 import { ENEMIES } from '../data/enemies.js';
 import { MINION_DEFS } from '../data/minions.js';
@@ -62,6 +62,9 @@ export function dealDamage(
   if (w.enemy.has(targetId)) alertPack(sim, targetId);
 
   let amount = raw;
+  // A cursed player hits softer; the curse lives on the attacker, not the target.
+  const sourceStatus = w.player.has(sourceId) ? w.status.get(sourceId) : undefined;
+  if (sourceStatus && sourceStatus.curse > 0) amount *= 1 - CURSE.damageReduction;
   const st = w.status.get(targetId);
   if (st && st.shock > 0) amount *= 1 + AILMENTS.shock.damageTakenBonus;
   const p = w.player.get(targetId);
@@ -222,6 +225,7 @@ export function updateStatuses(sim: Simulation, dt: number): void {
     }
     if (st.chill > 0) st.chill = Math.max(0, st.chill - dt);
     if (st.shock > 0) st.shock = Math.max(0, st.shock - dt);
+    if (st.curse > 0) st.curse = Math.max(0, st.curse - dt);
     if (st.shield) {
       st.shield.t -= dt;
       if (st.shield.t <= 0) st.shield = null;

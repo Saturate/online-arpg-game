@@ -518,6 +518,13 @@ export class EntityRenderer {
       b += 1;
       k = Math.max(k, 0.5);
     }
+    if ((st & STATUS.cursed) !== 0) {
+      // A slow purple pulse: the mummy's curse is on you and your hits are weaker.
+      const f = 0.5 + Math.sin(this.time * 4) * 0.25;
+      r += 0.6 * f;
+      b += 1 * f;
+      k = Math.max(k, 0.55);
+    }
     if ((st & STATUS.enraged) !== 0) {
       const f = 0.6 + Math.sin(this.time * 10) * 0.4;
       r += 1.2 * f;

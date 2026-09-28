@@ -1,4 +1,4 @@
-import { AILMENTS, ENEMY_LEVEL, SIM, SPELL, WAVES, WILDS } from '../config/sim.js';
+import { AILMENTS, CURSE, ENEMY_LEVEL, SIM, SPELL, WAVES, WILDS } from '../config/sim.js';
 import { ENEMIES, type Ability, type EnemyDef, type EnemyTypeId, type HazardKind, type MonsterDef } from '../data/enemies.js';
 import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
 import type { ElementId } from '../data/runes.js';
@@ -231,6 +231,8 @@ export function updateEnemies(sim: Simulation, dt: number): void {
     e.knockX *= KNOCK_DECAY;
     e.knockY *= KNOCK_DECAY;
 
+    if (def.behaviour === 'monster' && def.traits.curse) applyCurse(sim, pos, def.traits.curse.radius);
+
     const slow = st && st.chill > 0 ? 1 - AILMENTS.chill.slow : 1;
     const enrageSpeed = def.behaviour === 'monster' && e.enraged ? (def.traits.enrage?.speed ?? 1) : 1;
     const speed = def.moveSpeed * e.speedMult * slow * enrageSpeed * map.speedAt(pos.x, pos.y);
@@ -238,6 +240,12 @@ export function updateEnemies(sim: Simulation, dt: number): void {
 
     // Committed monster actions (a wind-up, a charge, a leap) play out even if the target walks away.
     if (def.behaviour === 'monster' && advanceMonster(sim, id, e, def, pos, radius, dt)) continue;
+
+    if (!e.aggro && def.behaviour === 'monster' && def.traits.dormant) {
+      // Statues and mimics hold perfectly still: no idle shuffle that would give them away.
+      if (pickTarget(sim, e, pos.x, pos.y, def.traits.dormant.wakeRange) !== null) alertPack(sim, id);
+      else continue;
+    }
 
     if (!e.aggro) {
       const seen = pickTarget(sim, e, pos.x, pos.y, WILDS.aggroRadius);
@@ -323,7 +331,9 @@ export function updateEnemies(sim: Simulation, dt: number): void {
   for (const [id, e, pos] of w.query(w.enemy, w.position)) {
     const def = ENEMIES[e.typeId];
     if (e.burrowed || (def.behaviour === 'monster' && def.movement === 'ghost')) continue;
-    const p = map.resolveCircle(pos, w.radius.get(id) ?? 0);
+    // Flyers are stopped by rocks and walls but not by water, which only blocks walking.
+    const flying = def.behaviour === 'monster' && def.movement === 'fly';
+    const p = map.resolveCircle(pos, w.radius.get(id) ?? 0, flying ? 'shots' : 'move');
     pos.x = p.x;
     pos.y = p.y;
   }
@@ -624,6 +634,15 @@ function startAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: MonsterD
       if (tele > 0) telegraphCircle(sim, id, at.x, at.y, a.radius, tele, undefined);
       break;
     }
+    case 'blink': {
+      // A fresh angle around the target each time, so an imp never lands in the same place twice.
+      const ang = rnd.range(0, Math.PI * 2);
+      const at = sim.map.findOpen(tpos.x + Math.cos(ang) * a.distance, tpos.y + Math.sin(ang) * a.distance, radius);
+      points.push(at);
+      telegraphCircle(sim, id, at.x, at.y, radius * 1.8, Math.max(tele, 0.2), 'fire');
+      sim.emit({ e: 'cast', id, x: pos.x, y: pos.y, el: 'fire' }, pos.x, pos.y);
+      break;
+    }
   }
   e.facing = angle;
   if (tele > 0) {
@@ -735,6 +754,15 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       addHazard(sim, id, at.x, at.y, a.radius, a.dps * dmg, a.duration, a.hazard);
       break;
     }
+    case 'blink': {
+      const at = points[0];
+      if (!at) break;
+      sim.emit({ e: 'explode', x: pos.x, y: pos.y, r: radius * 1.5 }, pos.x, pos.y);
+      pos.x = at.x;
+      pos.y = at.y;
+      sim.emit({ e: 'explode', x: at.x, y: at.y, r: radius * 1.5 }, at.x, at.y);
+      break;
+    }
   }
   if (def.traits.burrow && e.burrowed) e.burrowed = false;
 }
@@ -748,7 +776,7 @@ function thinkMonster(sim: Simulation, id: EntityId, e: EnemyComp, def: MonsterD
   const dist = Math.hypot(dx, dy) || 1;
   const contact = radius + (w.radius.get(target) ?? SIM.playerRadius);
   const phases = def.movement === 'ghost' || e.burrowed;
-  const sight = phases || map.lineClear(pos.x, pos.y, tpos.x, tpos.y, radius * 0.8, 'move');
+  const sight = phases || map.lineClear(pos.x, pos.y, tpos.x, tpos.y, radius * 0.8, def.movement === 'fly' ? 'shots' : 'move');
   const shotSight = map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 4, 'shots');
   const flow = sight ? null : sim.nav.direction(pos.x, pos.y);
   const ax = flow ? flow.x : dx / dist;
@@ -816,6 +844,21 @@ function thinkMonster(sim: Simulation, id: EntityId, e: EnemyComp, def: MonsterD
       if (dist > contact) moveBy(pos, nx / n, ny / n, speed * dt);
       break;
     }
+    case 'fly': {
+      const hold = range > 0 ? range : contact;
+      if (dist > hold) {
+        const weave = Math.sin(sim.tick * 0.22 + id * 1.3) * 0.7;
+        const nx = ax + -ay * weave;
+        const ny = ay + ax * weave;
+        const n = Math.hypot(nx, ny) || 1;
+        moveBy(pos, nx / n, ny / n, Math.min(speed * dt, dist - hold + speed * dt * 0.3));
+      } else if (range > 0) {
+        // Circles its target at range, like a harpy wheeling overhead.
+        const side = id % 2 === 0 ? 1 : -1;
+        moveBy(pos, (-dy / dist) * side, (dx / dist) * side, speed * STRAFE_FRACTION * dt);
+      }
+      break;
+    }
     case 'ghost': {
       const hold = range > 0 ? range : contact;
       if (dist > hold) moveBy(pos, dx / dist, dy / dist, Math.min(speed * dt, dist - hold));
@@ -881,6 +924,17 @@ export function onEnemyDeath(sim: Simulation, id: EntityId, e: EnemyComp, pos: V
       const a = (Math.PI * 2 * k) / t.splitInto.count + sim.rand.world.range(0, 0.6);
       s.pending.push({ typeId: t.splitInto.type, x: pos.x + Math.cos(a) * 26, y: pos.y + Math.sin(a) * 26, level: e.level, summonerId: null, lifeShare: 1, raised: false });
     }
+  }
+}
+
+/** Refreshes the curse on every player standing in a mummy's aura. */
+function applyCurse(sim: Simulation, pos: Vec2, radius: number): void {
+  const w = sim.world;
+  for (const pid of w.player.keys()) {
+    if (!isTargetable(sim, pid)) continue;
+    const p = w.position.get(pid);
+    const st = w.status.get(pid);
+    if (p && st && distSq(pos.x, pos.y, p.x, p.y) <= radius * radius) st.curse = Math.max(st.curse, CURSE.lingerSeconds);
   }
 }
 

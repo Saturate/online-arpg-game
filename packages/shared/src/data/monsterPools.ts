@@ -50,6 +50,37 @@ const HABITATS: Partial<Record<EnemyTypeId, Habitat>> = {
   bog_spitter: { biomes: ['marsh', 'forest'], minLevel: 2 },
   venom_spider: { biomes: ['forest', 'cave', 'marsh'], minLevel: 2 },
   ooze: { biomes: ['marsh', 'cave'], minLevel: 3 },
+  // Second roster: beasts, insects, flyers, elementals, golems and ambushers.
+  dire_wolf: { biomes: ['meadow', 'forest', 'ruins'], minLevel: 1 },
+  hellhound: { biomes: ['desert', 'cave', 'ruins'], minLevel: 5 },
+  giant_scorpion: { biomes: ['desert', 'cave'], minLevel: 3 },
+  thorn_beast: { biomes: ['forest', 'meadow'], minLevel: 3 },
+  cave_spider: { biomes: ['cave', 'crypt', 'forest'], minLevel: 2 },
+  lizardman: { biomes: ['marsh', 'desert', 'forest'], minLevel: 2 },
+  scarab: { biomes: ['desert', 'crypt'], minLevel: 1 },
+  carrion_beetle: { biomes: ['desert', 'crypt', 'marsh'], minLevel: 3 },
+  vulture: { biomes: ['meadow', 'desert', 'ruins'], minLevel: 1 },
+  harpy: { biomes: ['ruins', 'meadow', 'cave'], minLevel: 3 },
+  fire_slime: { biomes: ['desert', 'cave', 'ruins'], minLevel: 2 },
+  frost_slime: { biomes: ['cave', 'marsh', 'crypt'], minLevel: 2 },
+  fire_elemental: { biomes: ['desert', 'ruins', 'cave'], minLevel: 6 },
+  frost_elemental: { biomes: ['cave', 'crypt', 'marsh'], minLevel: 6 },
+  storm_elemental: { biomes: ['meadow', 'ruins', 'desert'], minLevel: 5 },
+  will_o_wisp: { biomes: ['marsh', 'forest', 'meadow'], minLevel: 2 },
+  earth_golem: { biomes: ['cave', 'ruins', 'forest'], minLevel: 7 },
+  bone_golem: { biomes: ['crypt', 'ruins'], minLevel: 6 },
+  iron_golem: { biomes: ['ruins', 'cave'], minLevel: 8 },
+  treant: { biomes: ['forest', 'marsh'], minLevel: 4 },
+  spore_man: { biomes: ['forest', 'marsh', 'cave'], minLevel: 2 },
+  bog_lurker: { biomes: ['marsh'], minLevel: 2 },
+  gargoyle: { biomes: ['ruins', 'crypt'], minLevel: 3 },
+  mimic: { biomes: ['crypt', 'cave', 'ruins'], minLevel: 4 },
+  sand_worm: { biomes: ['desert'], minLevel: 6 },
+  mummy: { biomes: ['desert', 'crypt'], minLevel: 3 },
+  ice_wraith: { biomes: ['cave', 'crypt'], minLevel: 5 },
+  imp: { biomes: ['desert', 'ruins', 'cave'], minLevel: 3 },
+  cultist: { biomes: ['crypt', 'ruins', 'marsh', 'meadow'], minLevel: 4 },
+  hellspawn: { biomes: ['cave', 'desert', 'ruins'], minLevel: 8 },
 };
 
 /** Monster types that fit a biome at a monster level. Never empty. */
@@ -64,12 +95,12 @@ export function monsterPool(biome: Biome, level: number): readonly EnemyTypeId[]
 
 const BOSSES: Record<Biome, EnemyTypeId> = {
   meadow: 'butcher',
-  forest: 'broodmother',
+  forest: 'treant_king',
   marsh: 'broodmother',
-  desert: 'infernal',
+  desert: 'sand_wyrm',
   crypt: 'lich',
-  cave: 'broodmother',
-  ruins: 'lich',
+  cave: 'frost_giant',
+  ruins: 'infernal',
 };
 
 /** The boss a biome builds up to. Low-level zones get the Butcher, the most readable fight. */
@@ -86,10 +117,20 @@ export function packScale(typeId: EnemyTypeId): number {
   switch (familyOf(typeId)) {
     case 'swarm':
       return 2.2;
+    case 'flyer':
+      return 1.4;
+    case 'beast':
+      return 1.3;
+    case 'elemental':
+      return 0.7;
+    case 'lurker':
+      return 0.6;
     case 'brute':
     case 'charger':
     case 'totem':
       return 0.5;
+    case 'golem':
+      return 0.45;
     case 'summoner':
     case 'shaman':
       return 0.35;

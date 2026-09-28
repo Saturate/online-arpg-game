@@ -79,6 +79,8 @@ export const STATUS = {
   hidden: 32,
   /** Boss in its second phase. */
   enraged: 64,
+  /** Player under a mummy's curse: deals less damage. */
+  cursed: 128,
 } as const;
 
 /** What a spell area does, for picking its colour. */

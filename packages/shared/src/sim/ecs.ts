@@ -218,6 +218,8 @@ export interface StatusComp {
   chill: number;
   shock: number;
   shield: { amount: number; t: number; burning: boolean } | null;
+  /** Seconds left on a mummy's curse; a cursed player deals less damage. */
+  curse: number;
 }
 
 /** Recomputed every tick from auras and links. */
@@ -319,7 +321,7 @@ export class World {
 }
 
 export function emptyStatus(): StatusComp {
-  return { burn: null, chill: 0, shock: 0, shield: null };
+  return { burn: null, chill: 0, shock: 0, shield: null, curse: 0 };
 }
 
 export function emptyBuffs(): BuffComp {
