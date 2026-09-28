@@ -139,7 +139,7 @@ export function CharacterSelect() {
   return (
     <main className="picker characters">
       <header className="account-bar">
-        <h1>Rune</h1>
+        <h1>Allan's ARPG</h1>
         <span className="muted">
           {username}{' '}
           <button type="button" className="link" onClick={logout}>

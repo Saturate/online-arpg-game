@@ -12,7 +12,7 @@ function DevApp() {
   return (
     <div className="dev-app">
       <header className="dev-header">
-        <h1>Rune dev tools</h1>
+        <h1>Allan's ARPG dev tools</h1>
         <nav>
           <button type="button" className={tab === 'assets' ? 'on' : ''} onClick={() => setTab('assets')}>
             Assets

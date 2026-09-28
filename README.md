@@ -1,4 +1,4 @@
-# Rune ARPG
+# Allan's ARPG
 
 Browser ARPG demo with an authoritative server. See `SPEC.md` for the design and `DECISIONS.md` for choices made along the way.
 

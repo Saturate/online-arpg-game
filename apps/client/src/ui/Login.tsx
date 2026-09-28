@@ -25,7 +25,7 @@ export function Login() {
 
   return (
     <main className="picker account">
-      <h1>Rune</h1>
+      <h1>Allan's ARPG</h1>
       <p className="tagline">{mode === 'login' ? 'Log in to your account' : 'Create an account'}</p>
       {(error ?? notice) && <p className="error">{error ?? notice}</p>}
       <form className="account-form" onSubmit={(e) => void submit(e)}>
