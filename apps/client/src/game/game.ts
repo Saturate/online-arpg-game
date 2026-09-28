@@ -164,7 +164,7 @@ export class Game {
       oneWayLagMs: netSettings.addedRttMs / 2,
       onMessage: (msg) => this.onMessage(msg),
       onClose: () => {
-        if (!this.destroyed && !this.ended) useUi.getState().leave('Disconnected from server');
+        if (!this.destroyed && !this.ended) useUi.getState().connectionLost('Disconnected from server');
       },
     });
   }
@@ -191,7 +191,7 @@ export class Game {
       await conn.ready();
     } catch (err) {
       if (this.destroyed) return;
-      useUi.getState().leave(err instanceof Error ? err.message : 'Connection failed');
+      useUi.getState().connectionLost(err instanceof Error ? err.message : 'Connection failed');
       return;
     }
     if (this.destroyed) return;
@@ -384,6 +384,8 @@ export class Game {
     }
     switch (msg.t) {
       case 'welcome':
+        if (useUi.getState().reconnectAttempt > 0) useUi.getState().notify('Reconnected');
+        useUi.getState().connected();
         this.playerId = msg.playerId;
         this.townEditorAllowed = msg.townEditor;
         if (this.room?.id !== msg.roomId) {
@@ -820,3 +822,7 @@ export class Game {
     });
   }
 }
+
+// Game state lives in module scope. A hot update would split it between an old and a new copy
+// (the symptom: panels that stop opening), so edits to this module reload the page instead.
+import.meta.hot?.accept(() => location.reload());

@@ -21,6 +21,8 @@ export function GameView({ token, character, mode }: { token: string; character:
   const minimapVisible = useUi((s) => s.minimapVisible);
   const roomName = useUi((s) => s.roomName);
   const uiScale = useSettings((s) => s.options.uiScale);
+  const reconnectKey = useUi((s) => s.reconnectKey);
+  const reconnecting = useUi((s) => s.reconnectAttempt > 0);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -29,7 +31,7 @@ export function GameView({ token, character, mode }: { token: string; character:
     const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, { kind: 'live', token, character, mode });
     void game.start();
     return () => game.destroy();
-  }, [token, character, mode]);
+  }, [token, character, mode, reconnectKey]);
 
   return (
     <div className="game">
@@ -57,6 +59,11 @@ export function GameView({ token, character, mode }: { token: string; character:
         <StagingPanel />
         <SettingsPanel />
       </div>
+      {reconnecting && (
+        <div className="reconnecting" role="status">
+          Connection lost. Reconnecting...
+        </div>
+      )}
       <ItemTooltip />
     </div>
   );

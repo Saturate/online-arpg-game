@@ -1768,3 +1768,17 @@ kbd {
   height: 100%;
   fill: #cdb88a;
 }
+
+.reconnecting {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 22px;
+  background: rgba(10, 8, 6, 0.9);
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  z-index: 20;
+}

@@ -45,13 +45,16 @@ export function addRiver(map: WorldMap, spec: RiverSpec): void {
   const path: Vec2[] = [];
   for (let y = -60; y <= map.height + 60; y += 60) path.push({ x: spec.xAt(y), y });
   const r = spec.width / 2;
+  // Water is cut back so the capsules' rounded ends stop at the bridge's edges. Skipping whole
+  // segments was not enough: the neighbouring caps reached into the gap and sealed most bridges.
+  const cuts = spec.bridgeYs.map((by) => ({ top: by - spec.bridgeWidth / 2 - r, bottom: by + spec.bridgeWidth / 2 + r }));
   for (let i = 0; i < path.length - 1; i++) {
     const a = path[i];
     const b = path[i + 1];
     if (!a || !b) continue;
-    const midY = (a.y + b.y) / 2;
-    if (spec.bridgeYs.some((by) => Math.abs(midY - by) < spec.bridgeWidth / 2)) continue;
-    map.obstacles.push({ kind: 'water', shape: { type: 'capsule', ax: a.x, ay: a.y, bx: b.x, by: b.y, r }, blocksMove: true, blocksShots: false, visual: 0 });
+    for (const piece of clipSegment(a, b, cuts)) {
+      map.obstacles.push({ kind: 'water', shape: { type: 'capsule', ax: piece[0].x, ay: piece[0].y, bx: piece[1].x, by: piece[1].y, r }, blocksMove: true, blocksShots: false, visual: 0 });
+    }
   }
   map.rivers.push({ path, width: spec.width });
   for (const y of spec.bridgeYs) {
@@ -59,6 +62,28 @@ export function addRiver(map: WorldMap, spec: RiverSpec): void {
     const bridge: Bridge = { x: spec.xAt(y), y, angle: riverAngle + Math.PI / 2, length: spec.width + 80, width: spec.bridgeWidth - 20 };
     map.bridges.push(bridge);
   }
+}
+
+/** The parts of segment a to b (running north to south) that lie outside every [top, bottom] band. */
+function clipSegment(a: Vec2, b: Vec2, cuts: readonly { top: number; bottom: number }[]): [Vec2, Vec2][] {
+  const at = (y: number): Vec2 => {
+    const t = b.y === a.y ? 0 : (y - a.y) / (b.y - a.y);
+    return { x: a.x + (b.x - a.x) * t, y };
+  };
+  let pieces: [Vec2, Vec2][] = [[a, b]];
+  for (const c of cuts) {
+    const next: [Vec2, Vec2][] = [];
+    for (const [p, q] of pieces) {
+      if (q.y <= c.top || p.y >= c.bottom) {
+        next.push([p, q]);
+        continue;
+      }
+      if (p.y < c.top) next.push([p, at(c.top)]);
+      if (q.y > c.bottom) next.push([at(c.bottom), q]);
+    }
+    pieces = next;
+  }
+  return pieces;
 }
 
 export interface Placement {

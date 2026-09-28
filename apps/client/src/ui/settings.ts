@@ -182,3 +182,7 @@ export function keyLabel(code: string): string {
   if (code === 'Space') return 'Space';
   return code;
 }
+
+// Game state lives in module scope. A hot update would split it between an old and a new copy
+// (the symptom: panels that stop opening), so edits to this module reload the page instead.
+import.meta.hot?.accept(() => location.reload());

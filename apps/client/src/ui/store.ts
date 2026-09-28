@@ -110,6 +110,11 @@ interface UiState {
   send: ((msg: ClientMessage) => void) | null;
   /** Set by a live game; starts a replay recording, or stops it and downloads the file. */
   toggleRecording: (() => void) | null;
+  /** Bumped to make the game view build a fresh connection after a drop. */
+  reconnectKey: number;
+  reconnectAttempt: number;
+  connectionLost: (reason: string) => void;
+  connected: () => void;
   recording: boolean;
 
   setSession: (token: string, username: string) => void;
@@ -127,6 +132,7 @@ interface UiState {
 let noticeId = 1;
 
 const TOKEN_KEY = 'rune.session';
+const RECONNECT_ATTEMPTS = 8;
 
 function storedToken(): string | null {
   try {
@@ -208,6 +214,22 @@ export const useUi = create<UiState>((set, get) => ({
   notices: [],
   send: null,
   toggleRecording: null,
+  reconnectKey: 0,
+  reconnectAttempt: 0,
+  connectionLost: (reason) => {
+    const attempt = get().reconnectAttempt + 1;
+    // About half a minute in all: long enough for a dev server restart or a short network blip.
+    if (attempt > RECONNECT_ATTEMPTS) {
+      set({ reconnectAttempt: 0 });
+      get().leave(reason);
+      return;
+    }
+    set({ reconnectAttempt: attempt, send: null });
+    setTimeout(() => {
+      if (get().phase === 'playing') set((s) => ({ reconnectKey: s.reconnectKey + 1 }));
+    }, Math.min(5000, 500 * 2 ** (attempt - 1)));
+  },
+  connected: () => set({ reconnectAttempt: 0 }),
   recording: false,
 
   setSession: (token, username) => {
@@ -227,7 +249,7 @@ export const useUi = create<UiState>((set, get) => ({
     s.send?.({ t: 'pause', paused: open && s.canPause });
     if (open) s.send?.({ t: 'listInstances' });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, menuOpen: false, paused: false }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen, characterOpen: !s.inventoryOpen })),
@@ -261,3 +283,7 @@ export function itemByUid(inv: InventoryMessage | null, uid: ItemUid | null): It
 export function compileFor(item: SigilItem, classId: ClassId, draft?: readonly RuneId[]): CompileResult {
   return compileSigilItem(item, classId, draft);
 }
+
+// Game state lives in module scope. A hot update would split it between an old and a new copy
+// (the symptom: panels that stop opening), so edits to this module reload the page instead.
+import.meta.hot?.accept(() => location.reload());

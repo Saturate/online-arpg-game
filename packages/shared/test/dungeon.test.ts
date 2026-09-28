@@ -101,3 +101,24 @@ describe('monster names', () => {
     expect(enemyDisplayName('shooter', [])).toBe('Shooter');
   });
 });
+
+describe('bridges', () => {
+  it('every bridge can be walked across, from the spawn, on both banks', () => {
+    for (const desc of [{ kind: 'arena' as const }, ...[1, 2, 3, 7, 1234, 530187].map((seed) => ({ kind: 'wilds' as const, seed }))]) {
+      const map = loadMap(desc).def;
+      const { gm, seen } = reach(map, map.spawn.x, map.spawn.y);
+      for (const b of map.bridges) {
+        const dx = Math.cos(b.angle);
+        const dy = Math.sin(b.angle);
+        const off = b.length / 2 + 40;
+        for (const [x, y] of [
+          [b.x, b.y],
+          [b.x + dx * off, b.y + dy * off],
+          [b.x - dx * off, b.y - dy * off],
+        ] as const) {
+          expect(seen.has(gm.navCell(x, y)), `${JSON.stringify(desc)} bridge at ${Math.round(b.x)},${Math.round(b.y)}`).toBe(true);
+        }
+      }
+    }
+  });
+});
