@@ -36,6 +36,7 @@ import { InterpolationBuffer } from './interpolation.js';
 import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
+import { actionFor, useSettings } from '../ui/settings.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
 const MAX_CATCHUP_TICKS = 3;
@@ -335,21 +336,41 @@ export class Game {
     if (this.editor) return;
     if (code === 'F1') ui.toggleDebug();
     else if (code === 'F3') useUi.setState((s) => ({ devOpen: !s.devOpen }));
-    else if (code === 'F8' && !this.replay) this.toggleRecording();
-    else if (code === 'KeyI') ui.toggleInventory();
-    else if (code === 'KeyC') useUi.setState((s) => ({ characterOpen: !s.characterOpen }));
-    else if (code === 'KeyK') {
-      if (ui.editorAllowed) ui.toggleEditor();
-      else ui.notify('Skills are locked for now. The sigil editor works in the Arena.');
-    } else if (code === 'KeyT') this.send({ t: 'cycleStance' });
-    else if (code === 'KeyR' && ui.staging) {
-      const me = ui.staging.members.find((m) => m.name === ui.name);
-      this.send({ t: 'ready', ready: !(me?.ready ?? false) });
-    }
-    else if (code === 'Tab') useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     else if (code === 'Escape') {
-      if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen) useUi.setState({ inventoryOpen: false, editorOpen: false, characterOpen: false });
+      if (ui.settingsOpen) useUi.setState({ settingsOpen: false });
+      else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen) useUi.setState({ inventoryOpen: false, editorOpen: false, characterOpen: false });
       else ui.toggleMenu();
+    }
+    // A settings panel waiting for a key press gets it instead of the game.
+    if (ui.settingsOpen) return;
+    switch (actionFor(code)) {
+      case 'record':
+        if (!this.replay) this.toggleRecording();
+        break;
+      case 'inventory':
+        ui.toggleInventory();
+        break;
+      case 'character':
+        useUi.setState((s) => ({ characterOpen: !s.characterOpen }));
+        break;
+      case 'sigilEditor':
+        if (ui.editorAllowed) ui.toggleEditor();
+        else ui.notify('Skills are locked for now. The sigil editor works in the Arena.');
+        break;
+      case 'stance':
+        this.send({ t: 'cycleStance' });
+        break;
+      case 'ready':
+        if (ui.staging) {
+          const me = ui.staging.members.find((m) => m.name === ui.name);
+          this.send({ t: 'ready', ready: !(me?.ready ?? false) });
+        }
+        break;
+      case 'minimap':
+        useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
+        break;
+      default:
+        break;
     }
   }
 
@@ -604,7 +625,7 @@ export class Game {
     for (const b of this.bolts) if (b.serverId !== null) pairedIds.add(b.serverId);
     this.renderedEnemies = [];
     const trail = dt > 0 && this.frameNo % FX.trailEveryFrames === 0;
-    const showAllLoot = room.input.altDown;
+    const showAllLoot = room.input.showLootDown;
 
     if (sample) {
       for (const [id, to] of sample.to) {
@@ -704,7 +725,7 @@ export class Game {
           if (ev.amt < 1) break;
           const own = ev.id === this.playerId;
           if (own) world.addShake(VIEW.shakeOnHit);
-          fx.text(ev.x, ev.y, String(ev.amt), own ? 0xff4040 : ev.el ? ELEMENT_COLORS[ev.el] : 0xffffff, ev.amt >= 30);
+          if (useSettings.getState().options.damageNumbers) fx.text(ev.x, ev.y, String(ev.amt), own ? 0xff4040 : ev.el ? ELEMENT_COLORS[ev.el] : 0xffffff, ev.amt >= 30);
           fx.burst(ev.x, ev.y, ev.el ? ELEMENT_COLORS[ev.el] : 0xffe0c0, 4, 90, { up: 120, size: 3, life: 0.3 });
           break;
         }

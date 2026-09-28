@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { keyLabel, useSettings } from './settings.js';
 import { sendCommand, useUi } from './store.js';
 
 /** Esc menu. Pauses the world when the player is alone outside town; otherwise it is only a menu. */
@@ -12,6 +13,7 @@ export function EscMenu() {
   const toggleMenu = useUi((s) => s.toggleMenu);
   const seed = useUi((s) => s.roomSeed);
   const recording = useUi((s) => s.recording);
+  const recordKey = useSettings((s) => s.bindings.record);
   const toggleRecording = useUi((s) => s.toggleRecording);
   const [seedText, setSeedText] = useState('');
   if (!open) return null;
@@ -57,9 +59,12 @@ export function EscMenu() {
           </form>
           {toggleRecording && (
             <button type="button" onClick={toggleRecording}>
-              {recording ? 'Stop and save replay' : 'Record replay'} <kbd>F8</kbd>
+              {recording ? 'Stop and save replay' : 'Record replay'} <kbd>{keyLabel(recordKey)}</kbd>
             </button>
           )}
+          <button type="button" onClick={() => useUi.setState({ settingsOpen: true })}>
+            Settings
+          </button>
           <button type="button" onClick={() => useUi.getState().leave(null)}>
             Quit to title
           </button>

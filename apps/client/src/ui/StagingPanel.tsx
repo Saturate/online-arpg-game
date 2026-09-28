@@ -1,11 +1,13 @@
 import { CLASSES } from '@rune/shared';
 import { cssColor } from '../render/config.js';
+import { keyLabel, useSettings } from './settings.js';
 import { sendCommand, useUi } from './store.js';
 
 /** Antechamber party list and ready check. The gate opens when everyone here is ready. */
 export function StagingPanel() {
   const staging = useUi((s) => s.staging);
   const name = useUi((s) => s.name);
+  const readyKey = useSettings((s) => s.bindings.ready);
   if (!staging) return null;
   const me = staging.members.find((m) => m.name === name);
   const readyCount = staging.members.filter((m) => m.ready).length;
@@ -37,7 +39,7 @@ export function StagingPanel() {
         </p>
       )}
       <button type="button" className={me?.ready ? 'on' : ''} onClick={() => sendCommand({ t: 'ready', ready: !(me?.ready ?? false) })}>
-        {me?.ready ? 'Not ready' : 'Ready'} <kbd>R</kbd>
+        {me?.ready ? 'Not ready' : 'Ready'} <kbd>{keyLabel(readyKey)}</kbd>
       </button>
     </section>
   );

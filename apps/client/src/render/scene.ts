@@ -21,6 +21,7 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { buildWorld, type BuiltWorld } from './props.js';
+import { useSettings } from '../ui/settings.js';
 
 const DEG = Math.PI / 180;
 
@@ -121,6 +122,7 @@ export class WorldScene {
   }
 
   addShake(amount: number): void {
+    if (!useSettings.getState().options.screenShake) return;
     this.shake = Math.min(20, this.shake + amount);
   }
 

@@ -1,14 +1,15 @@
 import { BUTTON, clampDir, SKILL_BUTTONS, type Vec2 } from '@rune/shared';
 import type { GroundBasis } from '../render/scene.js';
+import { actionFor, useSettings } from '../ui/settings.js';
 
-const MOVE_KEYS: Record<string, { x: number; y: number }> = {
-  KeyW: { x: 0, y: -1 },
-  KeyS: { x: 0, y: 1 },
-  KeyA: { x: -1, y: 0 },
-  KeyD: { x: 1, y: 0 },
-};
+const MOVES = [
+  ['moveUp', 0, -1],
+  ['moveDown', 0, 1],
+  ['moveLeft', -1, 0],
+  ['moveRight', 1, 0],
+] as const;
 
-const SKILL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const;
+const SKILLS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 
 export interface SampledInput {
   moveDir: Vec2;
@@ -23,8 +24,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
 /** Tracks raw key and mouse state; the game loop samples it once per tick. */
 export class InputState {
   private keys = new Set<string>();
-  get altDown(): boolean {
-    return this.keys.has('AltLeft') || this.keys.has('AltRight');
+  /** The show-loot key is held, or the player chose to always show labels. */
+  get showLootDown(): boolean {
+    if (useSettings.getState().options.alwaysShowLoot) return true;
+    const code = useSettings.getState().bindings.showLoot;
+    return this.keys.has(code) || (code === 'AltLeft' && this.keys.has('AltRight'));
   }
   private mouseDown = false;
   mouseX = 0;
@@ -39,7 +43,8 @@ export class InputState {
       'keydown',
       (e) => {
         if (isTypingTarget(e.target)) return;
-        if (e.code === 'F1' || e.code === 'Tab' || e.code.startsWith('Alt')) e.preventDefault();
+        // Bound keys belong to the game: Tab would move focus, Alt opens browser menus, and so on.
+        if (e.code === 'F1' || e.code === 'F3' || actionFor(e.code) !== null) e.preventDefault();
         if (!e.repeat) onKey(e.code);
         this.keys.add(e.code);
       },
@@ -90,10 +95,11 @@ export class InputState {
   sample(basis: GroundBasis, origin: Vec2, aimPoint: Vec2 | null, lastAim: number): SampledInput {
     let sx = 0;
     let sy = 0;
-    for (const [code, dir] of Object.entries(MOVE_KEYS)) {
-      if (this.keys.has(code)) {
-        sx += dir.x;
-        sy += dir.y;
+    const bindings = useSettings.getState().bindings;
+    for (const [action, dx, dy] of MOVES) {
+      if (this.keys.has(bindings[action])) {
+        sx += dx;
+        sy += dy;
       }
     }
     // Screen y grows downward, so "up" on the keyboard is +forward on the ground.
@@ -103,9 +109,9 @@ export class InputState {
     const moveDir = len > 0 ? clampDir(wx / len, wy / len) : { x: 0, y: 0 };
 
     let buttons = this.mouseDown ? BUTTON.primary : 0;
-    SKILL_KEYS.forEach((code, i) => {
+    SKILLS.forEach((action, i) => {
       const bit = SKILL_BUTTONS[i];
-      if (bit !== undefined && this.keys.has(code)) buttons |= bit;
+      if (bit !== undefined && this.keys.has(bindings[action])) buttons |= bit;
     });
 
     const aimAngle = aimPoint ? Math.atan2(aimPoint.y - origin.y, aimPoint.x - origin.x) : lastAim;

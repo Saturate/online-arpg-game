@@ -5,6 +5,8 @@ import { CharacterPanel } from './CharacterPanel.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { DevPanel } from './DevPanel.js';
 import { EscMenu } from './EscMenu.js';
+import { SettingsPanel } from './SettingsPanel.js';
+import { useSettings } from './settings.js';
 import { useUi } from './store.js';
 import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.js';
 import { Inventory, ItemTooltip } from './Inventory.js';
@@ -18,6 +20,7 @@ export function GameView({ token, character, mode }: { token: string; character:
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const minimapVisible = useUi((s) => s.minimapVisible);
   const roomName = useUi((s) => s.roomName);
+  const uiScale = useSettings((s) => s.options.uiScale);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -32,24 +35,28 @@ export function GameView({ token, character, mode }: { token: string; character:
     <div className="game">
       <div className="canvas-host" ref={hostRef} />
       <div className="fx-layer" ref={fxRef} aria-hidden="true" />
-      <div className={`minimap${minimapVisible ? '' : ' hidden'}`}>
-        <canvas ref={minimapRef} aria-label="Minimap" />
-        <span>{roomName}</span>
+      {/* Everything scalable lives in one layer; the tooltip stays outside because it is placed at mouse coordinates. */}
+      <div className="ui-layer" style={{ zoom: uiScale }}>
+        <div className={`minimap${minimapVisible ? '' : ' hidden'}`}>
+          <canvas ref={minimapRef} aria-label="Minimap" />
+          <span>{roomName}</span>
+        </div>
+        <Party />
+        <Notices />
+        <Banner />
+        <RecordingBadge />
+        <TargetFrame />
+        <Hud />
+        <Inventory />
+        <CharacterPanel />
+        <SigilEditor />
+        <DebugOverlay />
+        <EscMenu />
+        <TownEditorPanel />
+        <DevPanel />
+        <StagingPanel />
+        <SettingsPanel />
       </div>
-      <Party />
-      <Notices />
-      <Banner />
-      <RecordingBadge />
-      <TargetFrame />
-      <Hud />
-      <Inventory />
-      <CharacterPanel />
-      <SigilEditor />
-      <DebugOverlay />
-      <EscMenu />
-      <TownEditorPanel />
-      <DevPanel />
-      <StagingPanel />
       <ItemTooltip />
     </div>
   );

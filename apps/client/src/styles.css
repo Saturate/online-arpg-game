@@ -1669,3 +1669,74 @@ kbd {
   color: #9fb4ff;
   text-shadow: 0 1px 2px #000;
 }
+
+/* Scalable UI layer: passes clicks through to the game except where a panel sits. */
+.ui-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ui-layer > * {
+  pointer-events: auto;
+}
+.ui-layer > .fx-labels,
+.ui-layer > .notices,
+.ui-layer > .banner,
+.ui-layer > .target-frame,
+.ui-layer > .low-life-vignette,
+.ui-layer > .death {
+  pointer-events: none;
+}
+
+/* Settings */
+.panel.settings {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+.settings-cols {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 700px) {
+  .settings-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.bindings,
+.toggles {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.bindings li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.bindings button {
+  min-width: 92px;
+  padding: 3px 8px;
+  font-family: ui-monospace, monospace;
+}
+.bindings button.waiting {
+  border-color: var(--gold) !important;
+  color: var(--gold);
+  animation: rec-blink 1s steps(2, start) infinite;
+}
+.scale-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.scale-row button.on {
+  border-color: var(--gold) !important;
+  color: var(--gold);
+}
+.settings .reset {
+  margin-top: 16px;
+}

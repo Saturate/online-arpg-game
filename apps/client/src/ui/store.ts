@@ -68,6 +68,7 @@ interface UiState {
   paused: boolean;
   editorAllowed: boolean;
   menuOpen: boolean;
+  settingsOpen: boolean;
   minimapVisible: boolean;
   instances: InstanceInfo[];
   /** Antechamber ready check, while standing in one. */
@@ -161,6 +162,7 @@ export const useUi = create<UiState>((set, get) => ({
   paused: false,
   editorAllowed: false,
   menuOpen: false,
+  settingsOpen: false,
   minimapVisible: true,
   instances: [],
   staging: null,

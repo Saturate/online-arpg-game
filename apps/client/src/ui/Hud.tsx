@@ -2,6 +2,9 @@ import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, skillById, type 
 import type { CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
+import { keyLabel, useSettings } from './settings.js';
+
+const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 import { compileFor, itemByUid, useUi } from './store.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
@@ -27,6 +30,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const castCooldown = useUi((s) => s.castCooldown);
   const editorAllowed = useUi((s) => s.editorAllowed);
   const openEditor = useUi((s) => s.openEditor);
+  const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
   const uid = inv?.sigils[slot] ?? null;
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
@@ -47,7 +51,7 @@ function SkillSlot({ slot }: { slot: number }) {
     >
       {sigil && sigil.runes.length > 0 ? <SkillIcon runes={skill?.runes ?? sigil.runes} size={56} /> : <div className="skill-blank" />}
       {cd > 0 && <div className="skill-cd" style={sweep} />}
-      <kbd className="skill-key">{slot + 1}</kbd>
+      <kbd className="skill-key">{keyLabel(binding)}</kbd>
       {cost && <span className={`skill-cost${result && !result.ok ? ' bad' : ''}`}>{cost}</span>}
       <span className="skill-name">{name}</span>
     </button>
@@ -59,11 +63,12 @@ function Warband() {
   const inv = useUi((s) => s.inventory);
   const stance = useUi((s) => s.stance);
   const respawn = useUi((s) => s.minionRespawn);
+  const stanceKey = useSettings((s) => s.bindings.stance);
   if (classId !== 'binder' || !inv) return null;
   return (
     <div className="warband">
-      <span className="stance" title="T cycles stance">
-        <kbd>T</kbd> {stance}
+      <span className="stance" title="Cycles minion stance">
+        <kbd>{keyLabel(stanceKey)}</kbd> {stance}
       </span>
       {inv.warband.map((uid, slot) => {
         const item = itemByUid(inv, uid);
