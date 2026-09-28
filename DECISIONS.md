@@ -175,3 +175,10 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Level growth:** per level, +6% of the class's base life, +12 Force, +1 spirit and +1.5% damage, added to gear's "increased damage" as in PoE. Level-up refills life and Force.
 - **Item requirements:** an item needs item level minus 2, enforced on the server when equipping. Gear already worn from before levels existed stays on, but can't be re-equipped until the character reaches its level. Saves from before levels start at level 1.
 - **Not built yet:** a real passive tree or attribute points. For now, levels only grow stats automatically.
+
+## Monster roster and biome pools
+
+- **Roster:** 33 new types in 16 families plus 4 phase bosses (Butcher, Lich, Broodmother, Infernal), built on the branch that was merged in. Every big attack is telegraphed: a circle or line fills up while the monster stands still, then lands, so it can always be dodged.
+- **Pools:** zones draw packs from `monsterPool(biome, level)`, and harder families unlock deeper in. Pack size scales by family, and each zone's far end is its biome boss with an escort. Dungeons are crypts or caves, picked by seed.
+- **Summoned adds:** necromancer and shaman raises drop no loot and give a quarter of the XP, so they can't be farmed.
+- **Hero-model monsters:** monsters built on the adventurer models are drawn through a shader that desaturates the texture and repaints it in the monster's tint. A plain colour multiply kept the texture's hue, so a Pyromancer looked exactly like a player Mage.

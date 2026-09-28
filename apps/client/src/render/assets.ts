@@ -234,6 +234,8 @@ export async function instantiate(def: AssetDef): Promise<AssetInstance> {
     const bone = model.getObjectByName(def.weapon.bone);
     if (bone) bone.add(weapon.scene.clone(true));
   }
+  // Monsters built on the hero models must never read as a player at a glance.
+  const corrupt = def.category === 'monster' && def.url.includes('/adventurers/');
   model.traverse((o: Object3D) => {
     if (!(o instanceof Mesh)) return;
     o.castShadow = true;
@@ -241,7 +243,8 @@ export async function instantiate(def: AssetDef): Promise<AssetInstance> {
     // Materials are cloned per instance so hit flashes and tints never leak between copies.
     if (o.material instanceof MeshStandardMaterial) {
       const m = o.material.clone();
-      if (def.tint !== undefined) m.color.multiply(new Color(def.tint));
+      if (corrupt) corruptMaterial(m, def.tint ?? 0xb0a0a0);
+      else if (def.tint !== undefined) m.color.multiply(new Color(def.tint));
       if (def.glow !== undefined) {
         m.emissive.setHex(def.glow);
         m.emissiveIntensity = 0.8;
@@ -263,4 +266,24 @@ export async function instantiate(def: AssetDef): Promise<AssetInstance> {
   root.add(pivot);
   root.userData.assetId = def.id;
   return { root, clips: file.clips, def };
+}
+
+/**
+ * Drains the texture's own colours and repaints it in the monster's tint. A plain colour multiply
+ * keeps the texture's hue, so a tinted hero model still looked like the player's class.
+ */
+function corruptMaterial(m: MeshStandardMaterial, tint: number): void {
+  const color = new Color(tint);
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uCorruptTint = { value: color };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uCorruptTint;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float corruptLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        diffuseColor.rgb = mix(vec3(corruptLuma), diffuseColor.rgb, 0.2) * uCorruptTint * 1.25;`,
+      );
+  };
+  m.customProgramCacheKey = () => `corrupt-${tint}`;
 }
