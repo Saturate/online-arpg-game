@@ -110,6 +110,7 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   p.warband = save.warband.map(re);
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
   p.stance = save.stance;
+  p.waypoints = [...save.waypoints];
   save.sigils.forEach((u, slot) => {
     const item = p.items.get(re(u) ?? -1);
     p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(p, item) : null;

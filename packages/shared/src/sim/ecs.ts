@@ -1,3 +1,4 @@
+import type { ZoneId } from '../data/zones.js';
 import type { BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
@@ -89,6 +90,8 @@ export interface PlayerComp {
   focusTick: number;
   /** Dev tools: takes no damage. */
   god: boolean;
+  /** Zones whose waypoint this character has touched; the waypoint menu offers these. */
+  waypoints: ZoneId[];
 }
 
 export interface EnemyComp {

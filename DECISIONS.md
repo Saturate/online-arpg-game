@@ -157,3 +157,12 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Seeking:** builds a fresh client at the target time from the last room entry before it. Combat events older than 0.5 s are stripped, so a seek doesn't burst every past hit.
 - **Loot simulator:** `/dev.html` Loot tab. `rollDrops` in `items/drops.ts` is the only drop roll, and both `dropLoot` and the simulator call it.
 - **Dungeon clear:** killing the boss marks the room cleared once. It opens a cache of 3 rare-or-better items, 70% gear, one level up. Everyone inside gets a banner, and the antechamber shows "Last run cleared".
+
+## Instances, seamless town and waypoints
+
+- **Instances:** no global town. Every login starts a game of its own, D2 style, holding up to 6 players (`INSTANCE_CAPACITY`). Friends join from the Esc menu's games list. A shared hub can come later.
+- **Zones:** an instance is a chain of six zones with rising level bands, from Mossy Barrens (1 to 3) to The Hollows (20 to 25). Each zone room is created when someone first enters it and closed when abandoned. Seeds come from the instance seed, so a zone regenerates identically with fresh monsters, like re-entering a D2 area.
+- **Seamless town:** the town layout sits at the origin of the home zone's map and is marked as a safe zone. Its fenced gates open straight onto the wilderness, so leaving town is a walk with no load. The layout stays at the origin so the town editor keeps working in town coordinates.
+- **Safe zone rule:** it lives in `isTargetable`, the one check both monster aggro and damage go through. Monsters lose their target at the gate and leash home. Packs and dungeon entrances keep outside aggro range of the town.
+- **Waypoints:** touching one activates it for that character (`PlayerSave.waypoints`), and everyone starts with the town's. The menu opens on contact and closes when you walk off. The server re-checks that you're standing on a waypoint and that the destination is unlocked. Saves from before waypoints existed are given the town's on load.
+- **Zone transitions:** portals at the west and east edges land you just off the matching portal in the neighbouring zone, so arriving never triggers the way back.

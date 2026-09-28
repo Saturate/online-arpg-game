@@ -11,8 +11,10 @@ export const MAX_MESSAGES_PER_SECOND = 80;
 /** A connection. It outlives rooms: the same client moves between town, arena and instances. */
 export class Client {
   room: Room | null = null;
-  /** The last Wilds instance this client was in, so the town portal takes them back to it. */
-  lastWildsId: string | null = null;
+  /** The party instance this client plays in (kept while visiting the Arena). */
+  instanceId: string | null = null;
+  /** The last zone room, so leaving a dungeon returns there. */
+  lastZoneRoomId: string | null = null;
   /** Set once the client joins with a valid session; everything before that is ignored. */
   accountId: number | null = null;
   characterId: number | null = null;

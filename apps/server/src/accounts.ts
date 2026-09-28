@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, isClassId, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
+import { ACCOUNT_RULES, HOME_ZONE, isClassId, isZoneId, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -67,7 +67,11 @@ function isPlayerSave(v: unknown, classId: ClassId): v is PlayerSave {
 function parseSave(json: string, classId: ClassId): PlayerSave | null {
   try {
     const v: unknown = JSON.parse(json);
-    return isPlayerSave(v, classId) ? v : null;
+    if (!isPlayerSave(v, classId)) return null;
+    // Saves from before waypoints existed have none; everyone owns the town's.
+    const waypoints: unknown = Reflect.get(v, 'waypoints');
+    const found = Array.isArray(waypoints) ? waypoints.filter(isZoneId) : [];
+    return { ...v, waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found] };
   } catch {
     return null;
   }

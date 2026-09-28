@@ -92,12 +92,19 @@ export interface Placement {
   /** Keep this far from any river centre line beyond its half width. */
   riverPad: number;
   avoid: { x: number; y: number; r: number }[];
+  /** Rectangles to keep clear entirely, like a town built into the map, with `pad` of margin. */
+  avoidRects?: { x: number; y: number; w: number; h: number; pad: number }[];
+}
+
+export function inRect(x: number, y: number, r: { x: number; y: number; w: number; h: number }, pad = 0): boolean {
+  return x >= r.x - pad && y >= r.y - pad && x <= r.x + r.w + pad && y <= r.y + r.h + pad;
 }
 
 /** Whether a new circular obstacle of radius `r` at (x, y) fits without crowding anything. */
 export function fits(map: WorldMap, x: number, y: number, r: number, p: Placement): boolean {
   if (x < r + 50 || y < r + 50 || x > map.width - r - 50 || y > map.height - r - 50) return false;
   for (const a of p.avoid) if (Math.hypot(x - a.x, y - a.y) < a.r + r) return false;
+  for (const a of p.avoidRects ?? []) if (inRect(x, y, a, a.pad + r)) return false;
   for (const river of map.rivers) if (distToPath(x, y, river.path) < river.width / 2 + r + p.riverPad) return false;
   for (const b of map.bridges) if (Math.hypot(x - b.x, y - b.y) < b.length / 2 + r + 80) return false;
   for (const o of map.obstacles) {

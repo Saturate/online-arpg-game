@@ -1,5 +1,6 @@
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
+import type { ZoneId } from '../data/zones.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { MinionTypeId, Stance } from '../data/minions.js';
 import type { ElementId, RuneId } from '../data/runes.js';
@@ -40,7 +41,9 @@ export type ClientMessage =
   /** Leave the current room for town, like a D2 town portal. */
   | { t: 'townPortal' }
   | { t: 'listInstances' }
-  | { t: 'joinInstance'; roomId: string }
+  | { t: 'joinInstance'; id: string }
+  /** Travel from the waypoint the player stands on to another unlocked one. */
+  | { t: 'useWaypoint'; zone: ZoneId }
   /** Enter a fresh Wilds instance. A given seed reproduces a layout exactly; omit it for a random one. */
   | { t: 'newInstance'; seed: number | null }
   | ({ t: 'input' } & InputFrame)
@@ -140,7 +143,9 @@ export type GameEvent =
   | { e: 'pickup'; id: EntityId; x: number; y: number; count: number }
   | { e: 'cast'; id: EntityId; x: number; y: number; el: ElementId | null }
   /** Any melee swing or shot, so clients can play the attack animation. */
-  | { e: 'attack'; id: EntityId };
+  | { e: 'attack'; id: EntityId }
+  /** A character touched a waypoint for the first time. */
+  | { e: 'waypoint'; id: EntityId; zone: ZoneId };
 
 export interface SelfState {
   respawnIn: number | null;
@@ -174,12 +179,15 @@ export interface Snapshot {
   paused: boolean;
 }
 
+/** A joinable game: one party's town and zones, up to INSTANCE_CAPACITY players. */
 export interface InstanceInfo {
-  roomId: string;
-  kind: 'wilds' | 'staging';
+  id: string;
   name: string;
   seed: number;
   players: string[];
+  capacity: number;
+  /** The game the asking player is in. */
+  yours: boolean;
 }
 
 export interface InventoryMessage {
@@ -219,6 +227,8 @@ export type ServerMessage =
       devTools: boolean;
     }
   | { t: 'instances'; list: InstanceInfo[] }
+  /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
+  | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
   | StagingMessage
   | Snapshot
   | InventoryMessage

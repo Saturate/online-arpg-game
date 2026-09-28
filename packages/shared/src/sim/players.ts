@@ -14,6 +14,11 @@ export function updatePlayers(sim: Simulation, dt: number): void {
     if (pos && p.respawnIn === null && p.portalCooldown <= 0) {
       for (const portal of sim.mapDef.portals) {
         if ((pos.x - portal.x) ** 2 + (pos.y - portal.y) ** 2 > portal.r * portal.r) continue;
+        // Touching a waypoint activates it for this character before the menu opens.
+        if (portal.target === 'waypoint' && portal.zone && !p.waypoints.includes(portal.zone)) {
+          p.waypoints.push(portal.zone);
+          sim.emit({ e: 'waypoint', id, zone: portal.zone }, pos.x, pos.y);
+        }
         sim.portalRequests.push({ playerId: id, target: portal.target, portal });
         p.portalCooldown = PORTAL_RETRY_SECONDS;
         break;

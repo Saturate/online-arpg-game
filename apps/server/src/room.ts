@@ -13,6 +13,7 @@ import {
   type MapDescriptor,
   type PlayerSave,
   type PortalRequest,
+  type Vec2,
 } from '@rune/shared';
 import type { Client } from './client.js';
 import { InputBuffer } from './inputBuffer.js';
@@ -37,6 +38,8 @@ export class Room {
   timeScale = 1;
   private timeAccumulator = 0;
   private announcedClear = false;
+  /** The party instance this room belongs to; null for the global Arena. */
+  instanceId: string | null = null;
   /** Seconds with nobody inside, so the manager can close abandoned instances. */
   emptySeconds = 0;
 
@@ -61,8 +64,8 @@ export class Room {
     return !this.shared && this.members.size === 1;
   }
 
-  add(client: Client, classId: ClassId, name: string, save?: PlayerSave): void {
-    const playerId = this.sim.addPlayer(client.id, classId, name, save);
+  add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
+    const playerId = this.sim.addPlayer(client.id, classId, name, save, at);
     this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1 });
     client.room = this;
     // Someone joining ends a solo pause.
@@ -73,6 +76,14 @@ export class Room {
   exportMember(client: Client): PlayerSave | null {
     const m = this.members.get(client.id);
     return m ? this.sim.exportPlayer(m.playerId) : null;
+  }
+
+  /** The player's position and unlocked waypoints, for travel decisions made by the manager. */
+  playerState(client: Client): { x: number; y: number; waypoints: readonly string[] } | null {
+    const m = this.members.get(client.id);
+    const p = m ? this.sim.world.player.get(m.playerId) : undefined;
+    const pos = m ? this.sim.world.position.get(m.playerId) : undefined;
+    return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
   /** Removes the client's player and returns their character for the next room. */

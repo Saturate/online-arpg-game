@@ -19,9 +19,18 @@ export function teamOf(sim: Simulation, id: EntityId): Team | null {
 }
 
 /** Players and minions are valid targets for enemies; dead players are not. */
+/** Inside a town built into a zone: nobody there can be targeted or hurt. */
+export function inSafeZone(sim: Simulation, x: number, y: number): boolean {
+  const zones = sim.mapDef.safeZones;
+  return zones !== undefined && zones.some((z) => x >= z.x && y >= z.y && x <= z.x + z.w && y <= z.y + z.h);
+}
+
 export function isTargetable(sim: Simulation, id: EntityId): boolean {
   const w = sim.world;
   if (!w.isAlive(id)) return false;
+  const pos = w.position.get(id);
+  // Monsters lose interest at the town gate and go home, as in D2.
+  if (pos && inSafeZone(sim, pos.x, pos.y)) return false;
   const p = w.player.get(id);
   if (p) return p.respawnIn === null;
   const h = w.health.get(id);

@@ -1782,3 +1782,43 @@ kbd {
   color: var(--gold);
   z-index: 20;
 }
+
+/* Waypoints */
+.panel.waypoints {
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+}
+.waypoints ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 4px;
+}
+.waypoints li button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #3a2f20;
+  border-radius: 4px;
+  background: #15120e;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.waypoints li button:hover:not(:disabled) {
+  border-color: #5ff0e0;
+}
+.waypoints li button.here {
+  border-color: var(--gold);
+  cursor: default;
+}
+.waypoints li button.locked {
+  opacity: 0.45;
+  cursor: default;
+}

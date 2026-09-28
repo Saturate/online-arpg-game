@@ -1,8 +1,25 @@
-import { jsonCodec, parseClientMessage, SIM, WILDS, type ClientMessage, type DungeonRef, type PlayerSave, type PortalRequest } from '@rune/shared';
+import {
+  HOME_ZONE,
+  INSTANCE_CAPACITY,
+  jsonCodec,
+  parseClientMessage,
+  SIM,
+  WILDS,
+  ZONE_IDS,
+  zoneArrival,
+  type ClientMessage,
+  type DungeonRef,
+  type MapDescriptor,
+  type PlayerSave,
+  type PortalRequest,
+  type TownLayout,
+  type Vec2,
+  type ZoneId,
+} from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { AccountStore } from './accounts.js';
 import { Client, MAX_MESSAGES_PER_SECOND } from './client.js';
-import { Room, roomIdFor } from './room.js';
+import { Room } from './room.js';
 import { Staging } from './staging.js';
 import { loadTownLayout, saveTownLayout, townEditorEnabled } from './townStore.js';
 
@@ -12,18 +29,35 @@ const devToolsEnabled = process.env.DEV_TOOLS === '1';
 /** Bounds what a crash can lose; room changes and disconnects save straight away. */
 const AUTOSAVE_SECONDS = 30;
 
+/** Waypoint travel is only allowed while standing on one; a little slack covers movement since the menu opened. */
+const WAYPOINT_REACH = 120;
+
 /**
- * Owns every room and every connection. Town and arena are permanent; Wilds instances are created
- * on demand, each with a fresh seed and therefore its own layout, and closed once abandoned.
+ * One party's game, D2 style: its own town and zones, seeded once, for up to six players. Zone rooms
+ * are created when someone first walks in and closed when abandoned; they regenerate identically
+ * from the instance seed, with fresh monsters, like re-entering an area.
+ */
+interface Instance {
+  id: string;
+  seed: number;
+  host: string;
+  rooms: Set<string>;
+}
+
+/**
+ * Owns every room and every connection. The Arena is one global test room; everything else lives
+ * in party instances.
  */
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly clients = new Map<string, Client>();
+  private readonly instances = new Map<string, Instance>();
   /** Ready-check state per antechamber, keyed by the staging room id. */
   private readonly stagings = new Map<string, Staging>();
-  private town: Room;
   private readonly arena: Room;
+  private townLayout: TownLayout;
   private nextClientId = 1;
+  private nextInstanceId = 1;
   private seedCounter: number;
   private timer: NodeJS.Timeout | null = null;
   private ticksSinceSave = 0;
@@ -33,23 +67,45 @@ export class RoomManager {
     private readonly store: AccountStore,
   ) {
     this.seedCounter = seed;
-    this.town = this.createRoom({ kind: 'town', layout: loadTownLayout() });
-    this.town.townEditor = townEditorEnabled;
-    this.arena = this.createRoom({ kind: 'arena' });
+    this.townLayout = loadTownLayout();
+    this.arena = this.createRoom('arena', { kind: 'arena' }, null);
   }
 
-  private createRoom(desc: Room['desc']): Room {
-    const room = new Room(roomIdFor(desc), desc, this.seedCounter++);
+  private createRoom(id: string, desc: MapDescriptor, instance: Instance | null): Room {
+    const room = new Room(id, desc, this.seedCounter++);
     room.devTools = devToolsEnabled;
+    room.instanceId = instance?.id ?? null;
+    if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.townEditor = townEditorEnabled;
     this.rooms.set(room.id, room);
+    instance?.rooms.add(room.id);
     return room;
   }
 
-  private newWilds(seed: number | null = null): Room {
+  private newInstance(host: string, seed: number | null = null): Instance {
     // Random seeds only need to differ between instances; a mixed counter keeps layouts varied.
     const s = seed ?? (Math.imul(this.seedCounter++, 2654435761) >>> 0) % 1_000_000;
-    const existing = this.rooms.get(roomIdFor({ kind: 'wilds', seed: s }));
-    return existing ?? this.createRoom({ kind: 'wilds', seed: s });
+    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed: s, host, rooms: new Set() };
+    this.instances.set(inst.id, inst);
+    return inst;
+  }
+
+  private zoneDesc(inst: Instance, zone: ZoneId): Extract<MapDescriptor, { kind: 'zone' }> {
+    // Each zone gets its own seed from the instance seed, so an instance's world is fixed but zones differ.
+    const seed = ((Math.imul(inst.seed + 1, 2654435761) + ZONE_IDS.indexOf(zone) * 40503) >>> 0) % 1_000_000;
+    return zone === HOME_ZONE ? { kind: 'zone', zone, seed, layout: this.townLayout } : { kind: 'zone', zone, seed };
+  }
+
+  private zoneRoom(inst: Instance, zone: ZoneId): Room {
+    const id = `${inst.id}-${zone}`;
+    return this.rooms.get(id) ?? this.createRoom(id, this.zoneDesc(inst, zone), inst);
+  }
+
+  private instanceOf(client: Client): Instance | null {
+    return client.instanceId === null ? null : (this.instances.get(client.instanceId) ?? null);
+  }
+
+  private membersOf(inst: Instance): Client[] {
+    return [...this.clients.values()].filter((c) => c.instanceId === inst.id && c.characterId !== null);
   }
 
   start(): void {
@@ -82,7 +138,7 @@ export class RoomManager {
       this.saveAll();
     }
     for (const room of [...this.rooms.values()]) {
-      for (const { client, request } of room.tick()) this.usePortal(client, request);
+      for (const { client, request } of room.tick()) this.usePortal(client, room, request);
       if (this.closable(room)) this.close(room);
     }
     for (const staging of this.stagings.values()) {
@@ -93,32 +149,41 @@ export class RoomManager {
       if (run?.sim.cleared) staging.cleared = true;
       staging.broadcast(run?.members.size ?? 0);
     }
+    for (const inst of [...this.instances.values()]) {
+      if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) this.instances.delete(inst.id);
+    }
   }
 
-  /** Instances close once abandoned. An antechamber stays while its run is live, so latecomers can still get in. */
+  /** Abandoned rooms close. An antechamber stays while its run is live, so latecomers can still get in. */
   private closable(room: Room): boolean {
-    if (room.members.size > 0 || room.emptySeconds <= WILDS.idleCloseSeconds) return false;
-    if (room.desc.kind === 'wilds' || room.desc.kind === 'dungeon') return true;
-    return room.desc.kind === 'staging' && this.stagings.get(room.id)?.runRoomId === null;
+    if (room === this.arena || room.members.size > 0 || room.emptySeconds <= WILDS.idleCloseSeconds) return false;
+    return room.desc.kind !== 'staging' || this.stagings.get(room.id)?.runRoomId === null;
   }
 
   private close(room: Room): void {
     this.rooms.delete(room.id);
     this.stagings.delete(room.id);
+    if (room.instanceId !== null) this.instances.get(room.instanceId)?.rooms.delete(room.id);
   }
 
-  private stagingFor(ref: DungeonRef): Room {
-    const desc = { kind: 'staging', seed: ref.seed, level: ref.level } as const;
-    const existing = this.rooms.get(roomIdFor(desc));
+  private stagingFor(inst: Instance, ref: DungeonRef): Room {
+    const id = `${inst.id}-st-${ref.seed}-${ref.level}`;
+    const existing = this.rooms.get(id);
     if (existing) return existing;
-    const room = this.createRoom(desc);
+    const room = this.createRoom(id, { kind: 'staging', seed: ref.seed, level: ref.level }, inst);
     this.stagings.set(room.id, new Staging(room, ref));
     return room;
   }
 
   /** Everyone in the antechamber goes into a brand new run together. */
   private startRun(staging: Staging): void {
-    const run = this.createRoom({ kind: 'dungeon', seed: staging.ref.seed, level: staging.ref.level, run: staging.runs++ });
+    const inst = staging.room.instanceId === null ? undefined : this.instances.get(staging.room.instanceId);
+    if (!inst) return;
+    const run = this.createRoom(
+      `${inst.id}-dg-${staging.ref.seed}-${staging.runs}`,
+      { kind: 'dungeon', seed: staging.ref.seed, level: staging.ref.level, run: staging.runs++ },
+      inst,
+    );
     staging.runRoomId = run.id;
     staging.cleared = false;
     for (const m of [...staging.room.members.values()]) this.move(m.client, run);
@@ -164,24 +229,35 @@ export class RoomManager {
         client.send({ t: 'pong', clientTime: msg.clientTime });
         return;
       case 'join':
-        this.join(client, msg.token, msg.characterId, msg.mode === 'arena' ? this.arena : this.town);
+        this.join(client, msg.token, msg.characterId, msg.mode);
         return;
       case 'townPortal':
-        this.move(client, this.town);
+        this.goHome(client);
         return;
-      case 'newInstance':
-        this.move(client, this.newWilds(msg.seed));
+      case 'newInstance': {
+        const inst = this.newInstance(this.playerName(client), msg.seed);
+        client.instanceId = inst.id;
+        this.move(client, this.zoneRoom(inst, HOME_ZONE));
+        return;
+      }
+      case 'joinInstance': {
+        const inst = this.instances.get(msg.id);
+        if (!inst) client.send({ t: 'notice', text: 'That game has closed' });
+        else if (inst.id === client.instanceId) client.send({ t: 'notice', text: 'You are already in that game' });
+        else if (this.membersOf(inst).length >= INSTANCE_CAPACITY) client.send({ t: 'notice', text: `That game is full (${INSTANCE_CAPACITY} players)` });
+        else {
+          client.instanceId = inst.id;
+          this.move(client, this.zoneRoom(inst, HOME_ZONE));
+        }
+        return;
+      }
+      case 'useWaypoint':
+        this.useWaypoint(client, msg.zone);
         return;
       case 'ready': {
         const room = client.room;
         const staging = room ? this.stagings.get(room.id) : undefined;
         staging?.setReady(client, msg.ready);
-        return;
-      }
-      case 'joinInstance': {
-        const room = this.rooms.get(msg.roomId);
-        if (room && (room.desc.kind === 'wilds' || room.desc.kind === 'staging')) this.move(client, room);
-        else client.send({ t: 'notice', text: 'That instance has closed' });
         return;
       }
       case 'saveTown': {
@@ -197,15 +273,15 @@ export class RoomManager {
       case 'listInstances':
         client.send({
           t: 'instances',
-          list: [...this.rooms.values()]
-            .flatMap((r) => (r.desc.kind === 'wilds' || r.desc.kind === 'staging' ? [{ r, kind: r.desc.kind, seed: r.desc.seed }] : []))
-            .map(({ r, kind, seed }) => ({
-              roomId: r.id,
-              kind,
-              name: r.name,
-              seed,
-              players: [...r.members.values()].map((m) => this.nameOf(r, m.playerId)),
-            })),
+          // Empty games are about to close and cannot be met in, so they are not offered.
+          list: [...this.instances.values()].filter((inst) => this.membersOf(inst).length > 0).map((inst) => ({
+            id: inst.id,
+            name: `${inst.host}'s game`,
+            seed: inst.seed,
+            players: this.membersOf(inst).map((c) => this.playerName(c)),
+            capacity: INSTANCE_CAPACITY,
+            yours: inst.id === client.instanceId,
+          })),
         });
         return;
       default:
@@ -213,50 +289,97 @@ export class RoomManager {
     }
   }
 
-  /** Swaps in a rebuilt town and carries everyone inside over to it. */
-  private replaceTown(layout: Parameters<typeof saveTownLayout>[0]): void {
-    const old = this.town;
-    const next = this.createRoom({ kind: 'town', layout });
-    next.townEditor = townEditorEnabled;
-    this.town = next;
-    for (const m of [...old.members.values()]) {
-      const save = old.remove(m.client);
-      if (save) next.add(m.client, save.classId, save.name, save);
+  private playerName(client: Client): string {
+    const room = client.room;
+    const m = room?.members.get(client.id);
+    const p = m ? room?.sim.world.player.get(m.playerId) : undefined;
+    return p?.name ?? '?';
+  }
+
+  /** The instance's town, or a fresh game if the old one is gone (after a restart, say). */
+  private goHome(client: Client): void {
+    const inst = this.instanceOf(client) ?? this.newInstance(this.playerName(client));
+    client.instanceId = inst.id;
+    this.move(client, this.zoneRoom(inst, HOME_ZONE));
+  }
+
+  /** Rebuilds every town with the new layout and carries everyone inside over. */
+  private replaceTown(layout: TownLayout): void {
+    this.townLayout = layout;
+    for (const inst of this.instances.values()) {
+      const old = this.rooms.get(`${inst.id}-${HOME_ZONE}`);
+      if (!old) continue;
+      this.close(old);
+      const next = this.zoneRoom(inst, HOME_ZONE);
+      for (const m of [...old.members.values()]) {
+        const save = old.remove(m.client);
+        if (save) next.add(m.client, save.classId, save.name, save);
+      }
     }
-    if (old.id !== next.id) this.rooms.delete(old.id);
   }
 
-  private nameOf(room: Room, playerId: number): string {
-    return room.sim.world.player.get(playerId)?.name ?? '?';
-  }
-
-  private usePortal(client: Client, request: PortalRequest): void {
+  private usePortal(client: Client, from: Room, request: PortalRequest): void {
+    const inst = this.instanceOf(client);
     switch (request.target) {
       case 'town':
-        this.move(client, this.town);
+        this.goHome(client);
         return;
       case 'arena':
         this.move(client, this.arena);
         return;
+      case 'zone': {
+        const zone = request.portal.zone;
+        if (!inst || !zone || from.desc.kind !== 'zone') return;
+        const to = this.zoneRoom(inst, zone);
+        if (to.desc.kind === 'zone') this.move(client, to, zoneArrival(to.desc, from.desc.zone));
+        return;
+      }
+      case 'waypoint': {
+        const state = from.playerState(client);
+        const zone = request.portal.zone;
+        if (!state || !zone) return;
+        client.send({ t: 'waypoints', current: zone, unlocked: ZONE_IDS.filter((z) => state.waypoints.includes(z)) });
+        return;
+      }
       case 'staging':
-        if (request.portal.dungeon) this.move(client, this.stagingFor(request.portal.dungeon));
+        if (inst && request.portal.dungeon) this.move(client, this.stagingFor(inst, request.portal.dungeon));
         return;
       case 'dungeon': {
-        const staging = client.room ? this.stagings.get(client.room.id) : undefined;
+        const staging = this.stagings.get(from.id);
         const run = staging?.runRoomId ? this.rooms.get(staging.runRoomId) : undefined;
         if (run) this.move(client, run);
         else client.send({ t: 'notice', text: 'The gate is sealed until everyone here is ready (R)' });
         return;
       }
       case 'wilds': {
-        const last = client.lastWildsId === null ? undefined : this.rooms.get(client.lastWildsId);
-        this.move(client, last ?? this.newWilds());
+        const last = client.lastZoneRoomId === null ? undefined : this.rooms.get(client.lastZoneRoomId);
+        if (last) this.move(client, last);
+        else this.goHome(client);
       }
     }
   }
 
+  /** Checked on the server: standing on a waypoint, and the destination unlocked by this character. */
+  private useWaypoint(client: Client, zone: ZoneId): void {
+    const room = client.room;
+    const inst = this.instanceOf(client);
+    const state = room?.playerState(client);
+    if (!room || !inst || !state) return;
+    const near = room.sim.mapDef.portals.some((p) => p.target === 'waypoint' && Math.hypot(p.x - state.x, p.y - state.y) <= p.r + WAYPOINT_REACH);
+    if (!near) {
+      client.send({ t: 'notice', text: 'Stand on a waypoint to travel' });
+      return;
+    }
+    if (!state.waypoints.includes(zone)) {
+      client.send({ t: 'notice', text: 'You have not found that waypoint yet' });
+      return;
+    }
+    const to = this.zoneRoom(inst, zone);
+    if (to !== room && to.desc.kind === 'zone') this.move(client, to, zoneArrival(to.desc, 'waypoint'));
+  }
+
   /** Carries the character (class, name, items, equipment) from the current room into `to`. */
-  private move(client: Client, to: Room): void {
+  private move(client: Client, to: Room, at?: Vec2): void {
     const from = client.room;
     if (!from || from === to) return;
     const carried = from.remove(client);
@@ -265,11 +388,11 @@ export class RoomManager {
     // Leaving the sandbox restores the stored character, so free rune editing never leaks into the world.
     const stored = isSandbox(from) && !isSandbox(to) ? this.loadSave(client) : null;
     const save = stored ?? carried;
-    if (to.desc.kind === 'wilds') client.lastWildsId = to.id;
-    to.add(client, save.classId, save.name, save);
+    if (to.desc.kind === 'zone') client.lastZoneRoomId = to.id;
+    to.add(client, save.classId, save.name, save, at);
   }
 
-  private join(client: Client, token: string, characterId: number, room: Room): void {
+  private join(client: Client, token: string, characterId: number, mode: 'world' | 'arena'): void {
     if (client.characterId !== null) return;
     const account = this.store.accountForToken(token);
     const character = account ? this.store.loadCharacter(account.id, characterId) : null;
@@ -283,6 +406,10 @@ export class RoomManager {
     }
     client.accountId = account.id;
     client.characterId = character.id;
+    // Everyone starts in a game of their own, like D2; friends join it from the menu.
+    const inst = this.newInstance(character.name);
+    client.instanceId = inst.id;
+    const room = mode === 'arena' ? this.arena : this.zoneRoom(inst, HOME_ZONE);
     room.add(client, character.classId, character.name, character.save ?? undefined);
     // A brand new character gets its starter kit on first entry; store it right away.
     if (!character.save) this.persist(client, room, room.exportMember(client));

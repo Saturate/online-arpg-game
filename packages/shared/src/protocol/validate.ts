@@ -7,6 +7,7 @@ function isGearSlot(v: unknown): v is GearSlot {
 import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken } from './accounts.js';
+import { isZoneId } from '../data/zones.js';
 import { BUTTON_MASK, type ClientMessage, type ServerMessage } from './messages.js';
 
 /** Longer than any sigil can hold; the simulation enforces the real capacity. */
@@ -56,7 +57,9 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'newInstance':
       return { t: 'newInstance', seed: isNonNegativeInt(value.seed) && value.seed < 1_000_000_000 ? value.seed : null };
     case 'joinInstance':
-      return typeof value.roomId === 'string' && /^[a-z0-9:-]{1,40}$/.test(value.roomId) ? { t: 'joinInstance', roomId: value.roomId } : null;
+      return typeof value.id === 'string' && /^[a-z0-9-]{1,24}$/.test(value.id) ? { t: 'joinInstance', id: value.id } : null;
+    case 'useWaypoint':
+      return isZoneId(value.zone) ? { t: 'useWaypoint', zone: value.zone } : null;
     case 'input': {
       const { seq, moveDir, aimAngle, buttons } = value;
       if (!isNonNegativeInt(seq)) return null;
@@ -108,7 +111,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner', 'waypoints']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

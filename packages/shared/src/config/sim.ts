@@ -230,6 +230,12 @@ export const WILDS = {
   idleCloseSeconds: 300,
 } as const;
 
+/** Overworld zones east of the town (the home zone adds the town's width on top). */
+export const ZONE_SIZE = {
+  width: 5200,
+  height: 3600,
+} as const;
+
 export const DUNGEON = {
   /** Room slots across and down; one room per slot. */
   slotsX: 4,

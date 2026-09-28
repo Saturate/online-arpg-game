@@ -1,5 +1,6 @@
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { Vec2 } from '../sim/math.js';
+import type { ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
 export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate' | 'cavewall';
@@ -28,8 +29,11 @@ export interface Bridge {
   width: number;
 }
 
-/** `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from there into the dungeon itself. */
-export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon';
+/**
+ * `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from there into the dungeon
+ * itself; `zone` is an area transition at a zone's edge; `waypoint` opens the waypoint menu.
+ */
+export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon' | 'zone' | 'waypoint';
 
 /** Identifies a dungeon: the same seed and level always generate the same staging room. */
 export interface DungeonRef {
@@ -45,6 +49,16 @@ export interface Portal {
   label: string;
   /** Set on `staging` portals: which dungeon the entrance leads to. */
   dungeon?: DungeonRef;
+  /** Set on `zone` portals (where they lead) and `waypoint` portals (which zone's waypoint this is). */
+  zone?: ZoneId;
+}
+
+/** Axis-aligned area where nobody can be hurt or targeted: the town inside the first zone. */
+export interface SafeZone {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface MonsterPack {
@@ -83,6 +97,8 @@ export interface WorldMap {
   waves: boolean;
   /** No damage is dealt in safe maps. */
   safe: boolean;
+  /** Safe areas inside an otherwise dangerous map. */
+  safeZones?: SafeZone[];
   /** Ground tint so each instance of the wilds feels different. */
   groundTint: number;
   /** Render hints: which trees are broadleaf, and where lamp posts stand. */
@@ -107,6 +123,8 @@ export type MapDescriptor =
   | { kind: 'town'; layout?: TownLayout }
   | { kind: 'flat' }
   | { kind: 'wilds'; seed: number }
+  /** An overworld zone of an instance. The home zone carries the town layout, since it contains the town. */
+  | { kind: 'zone'; zone: ZoneId; seed: number; layout?: TownLayout }
   | ({ kind: 'staging' } & DungeonRef)
   /** `run` counts attempts from the same staging room, so every run gets a fresh layout. */
   | ({ kind: 'dungeon'; run: number } & DungeonRef);

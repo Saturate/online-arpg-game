@@ -366,13 +366,14 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     cancelled = true;
   });
 
-  const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347 } as const;
+  const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, zone: 0x8fe07a, waypoint: 0x5ff0e0 } as const;
   for (const p of def.portals) {
     const built = portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
     group.add(built.group);
     animated.push(built.update);
   }
-  if (def.theme === 'wilds') {
+  // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
+  if (def.theme === 'wilds' && !def.safeZones?.length) {
     const fire = campfire(def.spawn.x + 40, def.spawn.y + 60);
     group.add(fire.group);
     animated.push(fire.update);

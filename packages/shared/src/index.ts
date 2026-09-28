@@ -21,6 +21,7 @@ export * from './sim/snapshot.js';
 export { isOffensive, spellFx } from './sim/spells.js';
 export * from './sim/systems.js';
 export * from './data/skills.js';
+export * from './data/zones.js';
 export * from './world/dungeon.js';
 export * from './world/gamemap.js';
 export * from './world/maps.js';

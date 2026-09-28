@@ -17,6 +17,7 @@ import {
   type Snapshot,
   type Stance,
   type StagingMessage,
+  type ZoneId,
   type PlayerStats,
 } from '@rune/shared';
 import { create } from 'zustand';
@@ -73,6 +74,8 @@ interface UiState {
   instances: InstanceInfo[];
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
+  /** Open waypoint menu: the waypoint underfoot and every one this character has found. */
+  waypointMenu: { current: ZoneId; unlocked: ZoneId[] } | null;
   banner: { id: number; title: string; text: string } | null;
   /** Monster under the cursor, for the target frame. */
   target: TargetInfo | null;
@@ -172,6 +175,7 @@ export const useUi = create<UiState>((set, get) => ({
   minimapVisible: true,
   instances: [],
   staging: null,
+  waypointMenu: null,
   banner: null,
   target: null,
   roomPortals: [],

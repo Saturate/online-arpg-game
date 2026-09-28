@@ -20,6 +20,8 @@ import {
   type WorldMap,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
+  HOME_ZONE,
+  ZONES,
   enemyDisplayName,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
@@ -295,8 +297,9 @@ export class Game {
     this.visualOffset = { x: 0, y: 0 };
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
-    useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' ? desc.seed : null });
-    this.townLayout = desc.kind === 'town' ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
+    useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'zone' ? desc.seed : null, waypointMenu: null });
+    // The town editor works on the town part of the home zone, which sits at the map origin.
+    this.townLayout = desc.kind === 'town' || (desc.kind === 'zone' && desc.zone === HOME_ZONE) ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
   }
 
   private toggleTownEditor(): void {
@@ -418,6 +421,9 @@ export class Game {
         }, 5000);
         return;
       }
+      case 'waypoints':
+        useUi.setState({ waypointMenu: { current: msg.current, unlocked: msg.unlocked } });
+        return;
       case 'staging':
         useUi.setState({ staging: msg });
         return;
@@ -568,6 +574,13 @@ export class Game {
     this.swings = this.swings.filter((s) => (s.lifetime -= dt) > 0);
   }
 
+  /** The waypoint menu belongs to the waypoint you stand on; walking off closes it, as in D2. */
+  private closeWaypointMenuWhenAway(room: RoomView, at: { x: number; y: number }): void {
+    if (!useUi.getState().waypointMenu) return;
+    const near = room.def.portals.some((p) => p.target === 'waypoint' && Math.hypot(p.x - at.x, p.y - at.y) <= p.r + 110);
+    if (!near) useUi.setState({ waypointMenu: null });
+  }
+
   private updateTarget(room: RoomView, now: number): void {
     const aim = room.input.overCanvas ? room.world.screenToGround(room.input.mouseX, room.input.mouseY) : null;
     let best: (typeof this.renderedEnemies)[number] | null = null;
@@ -657,6 +670,7 @@ export class Game {
     }
 
     this.updateTarget(room, now);
+    this.closeWaypointMenuWhenAway(room, room.predictor.position);
 
     const alpha = this.paused ? 1 : this.accumulator / SIM.tickMs;
     const prev = room.predictor.previous;
@@ -734,6 +748,9 @@ export class Game {
         case 'heal':
           fx.text(ev.x, ev.y, `+${ev.amt}`, COLORS.heal);
           fx.burst(ev.x, ev.y, COLORS.heal, 6, 40, { up: 90, size: 3, gravity: -60 });
+          break;
+        case 'waypoint':
+          if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
           break;
         case 'death':
           fx.burst(ev.x, ev.y, ev.color, ev.big ? FX.deathParticles * 2 : FX.deathParticles, ev.big ? 260 : 180, { size: ev.big ? 8 : 6 });

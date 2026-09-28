@@ -7,7 +7,6 @@ export function EscMenu() {
   const open = useUi((s) => s.menuOpen);
   const paused = useUi((s) => s.paused);
   const canPause = useUi((s) => s.canPause);
-  const theme = useUi((s) => s.roomTheme);
   const roomName = useUi((s) => s.roomName);
   const instances = useUi((s) => s.instances);
   const toggleMenu = useUi((s) => s.toggleMenu);
@@ -37,13 +36,11 @@ export function EscMenu() {
           <button type="button" onClick={toggleMenu} autoFocus>
             Resume
           </button>
-          {theme !== 'town' && (
-            <button type="button" onClick={() => go({ t: 'townPortal' })}>
-              Town portal
-            </button>
-          )}
+          <button type="button" onClick={() => go({ t: 'townPortal' })}>
+            Town portal
+          </button>
           <button type="button" onClick={() => go({ t: 'newInstance', seed: null })}>
-            New Wilds (random layout)
+            New game (fresh world)
           </button>
           <form
             className="seed-row"
@@ -52,9 +49,9 @@ export function EscMenu() {
               if (parsedSeed !== null) go({ t: 'newInstance', seed: parsedSeed });
             }}
           >
-            <input value={seedText} onChange={(e) => setSeedText(e.target.value)} placeholder="Seed" inputMode="numeric" aria-label="Wilds seed" />
+            <input value={seedText} onChange={(e) => setSeedText(e.target.value)} placeholder="Seed" inputMode="numeric" aria-label="World seed" />
             <button type="submit" disabled={parsedSeed === null}>
-              Open seed
+              New game from seed
             </button>
           </form>
           {toggleRecording && (
@@ -71,18 +68,19 @@ export function EscMenu() {
         </div>
         {instances.length > 0 && (
           <>
-            <h3>Open instances</h3>
+            <h3>Games</h3>
             <ul className="instances">
               {instances.map((i) => (
-                <li key={i.roomId}>
+                <li key={i.id}>
                   <span>
                     {i.name}{' '}
                     <span className="muted">
-                      {i.kind === 'staging' ? 'dungeon party' : `seed ${i.seed}`}, {i.players.length > 0 ? i.players.join(', ') : 'empty'}
+                      {i.players.length}/{i.capacity}
+                      {i.players.length > 0 ? `: ${i.players.join(', ')}` : ''}
                     </span>
                   </span>
-                  <button type="button" onClick={() => go({ t: 'joinInstance', roomId: i.roomId })}>
-                    Join
+                  <button type="button" disabled={i.yours || i.players.length >= i.capacity} onClick={() => go({ t: 'joinInstance', id: i.id })}>
+                    {i.yours ? 'You are here' : i.players.length >= i.capacity ? 'Full' : 'Join'}
                   </button>
                 </li>
               ))}

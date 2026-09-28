@@ -12,6 +12,7 @@ import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.
 import { Inventory, ItemTooltip } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
 import { StagingPanel } from './StagingPanel.js';
+import { WaypointPanel } from './WaypointPanel.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 
 export function GameView({ token, character, mode }: { token: string; character: CharacterSummary; mode: GameMode }) {
@@ -57,6 +58,7 @@ export function GameView({ token, character, mode }: { token: string; character:
         <TownEditorPanel />
         <DevPanel />
         <StagingPanel />
+        <WaypointPanel />
         <SettingsPanel />
       </div>
       {reconnecting && (

@@ -10,6 +10,7 @@ import type { GameMap } from '../world/gamemap.js';
 import { loadMap } from '../world/maps.js';
 import { FlowField } from '../world/nav.js';
 import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
+import { HOME_ZONE, type ZoneId } from '../data/zones.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
 import * as inv from './inventory.js';
@@ -37,6 +38,7 @@ export interface PlayerSave {
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
   stance: Stance;
+  waypoints: ZoneId[];
 }
 
 export interface PortalRequest {
@@ -95,11 +97,12 @@ export class Simulation {
     return out;
   }
 
-  addPlayer(clientId: string, classId: ClassId, name = 'Player', save?: PlayerSave): EntityId {
+  /** `at` places the player at a zone transition or waypoint instead of the map's spawn. */
+  addPlayer(clientId: string, classId: ClassId, name = 'Player', save?: PlayerSave, at?: Vec2): EntityId {
     const def = CLASSES[classId];
     const w = this.world;
     const id = w.create('player');
-    w.position.set(id, this.playerSpawnPoint());
+    w.position.set(id, at ? this.map.findOpen(at.x, at.y, SIM.playerRadius + 6) : this.playerSpawnPoint());
     w.radius.set(id, SIM.playerRadius);
     w.health.set(id, { life: def.life, maxLife: def.life });
     w.team.set(id, 'players');
@@ -136,6 +139,8 @@ export class Simulation {
       focusTarget: null,
       focusTick: 0,
       god: false,
+      // Everyone starts with the town's waypoint, like D2's.
+      waypoints: [HOME_ZONE],
     });
     if (save) inv.restoreSave(this, id, save);
     else inv.giveStarterKit(this, id);
@@ -162,6 +167,7 @@ export class Simulation {
       warband: [...p.warband],
       gear: { ...p.gear },
       stance: p.stance,
+      waypoints: [...p.waypoints],
     };
   }
 
