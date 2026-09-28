@@ -1,5 +1,6 @@
 import { Box3, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3, type Group, type Material } from 'three';
 import { assetById, instantiate } from './assets.js';
+import { withOccluderFade } from './occluderFade.js';
 
 /** How a placement is sized: to a footprint radius, a box, a length along its x axis, or a height. */
 export type Fit = { radius: number } | { box: { w: number; d: number } } | { length: number } | { height: number } | { scale: number };
@@ -11,6 +12,8 @@ export interface Placement {
   fit: Fit;
   /** Extra uniform scale on top of the fit, for variety. */
   jitter?: number;
+  /** Tall things (buildings, walls): cut a see-through hole when they stand between camera and hero. */
+  fade?: boolean;
 }
 
 const tmpPos = new Vector3();
@@ -48,8 +51,10 @@ export class PropBatch {
         });
         // Segment assets are not all modelled along x; turn them so their long side follows the line.
         const alongZ = size.z > size.x;
+        const fade = list.some((p) => p.fade === true);
         for (const m of meshes) {
-          const im = new InstancedMesh(m.geometry, m.material, list.length);
+          // Cloned so the same asset elsewhere (the asset viewer, decor) keeps its normal material.
+          const im = new InstancedMesh(m.geometry, fade ? withOccluderFade(m.material.clone()) : m.material, list.length);
           list.forEach((p, i) => {
             const s = fitScale(p.fit, size) * (p.jitter ?? 1);
             tmpPos.set(p.x, 0, p.y);

@@ -22,6 +22,7 @@ import {
 import { COLORS, VIEW } from './config.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
+import { fadeUniforms } from './occluderFade.js';
 
 const DEG = Math.PI / 180;
 
@@ -94,6 +95,7 @@ export class WorldScene {
     const yaw = VIEW.yawDegrees * DEG;
     const pitch = VIEW.pitchDegrees * DEG;
     this.offset = new Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(VIEW.cameraDistance);
+    fadeUniforms.uFadeDir.value.set(this.offset.x, this.offset.z).normalize();
     // Forward on the ground is the camera's look direction flattened; right is perpendicular to it.
     const up = { x: -Math.sin(yaw), y: -Math.cos(yaw) };
     this.basis = { up, right: { x: -up.y, y: up.x } };
@@ -149,6 +151,7 @@ export class WorldScene {
     this.sun.position.set(x - 400, 900, y + 250);
     this.sun.target.position.set(x, 0, y);
     this.playerLight.position.set(x, 120, y);
+    fadeUniforms.uFadeCenter.value.set(x, 0, y);
     this.world.update(this.time, x, y);
   }
 

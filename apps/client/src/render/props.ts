@@ -30,6 +30,7 @@ import {
 } from 'three';
 import { COLORS } from './config.js';
 import { mat } from './models.js';
+import { withOccluderFade } from './occluderFade.js';
 import { PropBatch } from './propBatch.js';
 import { treeGeometry, type TreeKind } from './trees.js';
 
@@ -338,10 +339,10 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const o of byKind.get('pillar') ?? []) {
     if (o.shape.type !== 'circle') continue;
     const h = hash(o.shape.x, o.shape.y);
-    batch.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 } });
+    batch.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
     if (o.visual < 90) batch.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
   }
-  for (const w of byKind.get('wall') ?? []) tileAlong(batch, w, 'dungeon_wall_broken', 70);
+  for (const w of byKind.get('wall') ?? []) tileAlong(batch, w, 'dungeon_wall_broken', 70, true);
   for (const f of byKind.get('fence') ?? []) tileAlong(batch, f, 'fence_wood_straight', 44);
   const BUILDINGS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'];
   for (const h of byKind.get('house') ?? []) {
@@ -349,7 +350,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     const k = hash(h.shape.x, h.shape.y);
     const small = Math.max(h.shape.hw, h.shape.hh) < 100;
     const id = small ? (k % 2 === 0 ? 'building_home_B_red' : 'building_home_B_yellow') : (BUILDINGS[k % BUILDINGS.length] ?? 'building_home_A_red');
-    batch.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } } });
+    batch.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
   }
   for (const s of byKind.get('stall') ?? []) group.add(stall(s));
   for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') batch.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
@@ -407,7 +408,7 @@ function addRocks(batch: PropBatch, rocks: Obstacle[]): void {
 }
 
 /** Repeats a straight segment asset along a capsule obstacle (walls, fences). */
-function tileAlong(batch: PropBatch, o: Obstacle, asset: string, segment: number): void {
+function tileAlong(batch: PropBatch, o: Obstacle, asset: string, segment: number, fade = false): void {
   if (o.shape.type !== 'capsule') return;
   const { ax, ay, bx, by } = o.shape;
   const len = Math.hypot(bx - ax, by - ay);
@@ -415,7 +416,7 @@ function tileAlong(batch: PropBatch, o: Obstacle, asset: string, segment: number
   const angle = Math.atan2(by - ay, bx - ax);
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
-    batch.add(asset, { x: ax + (bx - ax) * t, y: ay + (by - ay) * t, angle, fit: { length: len / n + 2 } });
+    batch.add(asset, { x: ax + (bx - ax) * t, y: ay + (by - ay) * t, angle, fit: { length: len / n + 2 }, fade });
   }
 }
 
@@ -948,7 +949,7 @@ function addUnderground(group: Group, def: WorldMap, animated: ((t: number, px: 
   wallGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2));
   wallGeo.setIndex(idx);
   wallGeo.computeVertexNormals();
-  const walls = new Mesh(wallGeo, new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide }));
+  const walls = new Mesh(wallGeo, withOccluderFade(new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide })));
   walls.castShadow = true;
   walls.receiveShadow = true;
   group.add(walls);
