@@ -212,7 +212,8 @@ export const useUi = create<UiState>((set, get) => ({
   },
   leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, menuOpen: false, paused: false }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
-  toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen })),
+  // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
+  toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen, characterOpen: !s.inventoryOpen })),
   toggleEditor: () => {
     const s = get();
     if (s.editorOpen) {

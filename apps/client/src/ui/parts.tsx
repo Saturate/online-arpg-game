@@ -94,21 +94,28 @@ function GearDetails({ item }: { item: Extract<Item, { kind: 'gear' }> }) {
 
 export function ItemDetails({ item, classId }: { item: Item; classId: ClassId }) {
   if (item.kind === 'gear') return <GearDetails item={item} />;
+  if (item.kind === 'vessel') return <VesselDetails item={item} />;
+  return <SigilDetails item={item} classId={classId} />;
+}
+
+function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
+  const def = MINION_DEFS[item.minion];
+  return (
+    <div className="item-details">
+      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <p className="muted">
+        {item.tier} vessel, level {item.level}. {def.name}: {def.ranged ? 'ranged' : 'melee'}, defaults to {def.defaultBehaviour}.
+      </p>
+      <Affixes item={item} />
+      <p className="muted">Reserves {vesselSpirit(item)} spirit when bound. Item level {item.ilvl}.</p>
+    </div>
+  );
+}
+
+/** Separate components per kind so each one's hooks run unconditionally. */
+function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }>; classId: ClassId }) {
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.editorAllowed);
-  if (item.kind === 'vessel') {
-    const def = MINION_DEFS[item.minion];
-    return (
-      <div className="item-details">
-        <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
-        <p className="muted">
-          {item.tier} vessel, level {item.level}. {def.name}: {def.ranged ? 'ranged' : 'melee'}, defaults to {def.defaultBehaviour}.
-        </p>
-        <Affixes item={item} />
-        <p className="muted">Reserves {vesselSpirit(item)} spirit when bound. Item level {item.ilvl}.</p>
-      </div>
-    );
-  }
   const result = compileFor(item, classId);
   const skill = skillById(item.skill);
   return (

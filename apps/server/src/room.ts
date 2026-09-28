@@ -123,7 +123,7 @@ export class Room {
         this.sim.cycleStance(pid);
         break;
       case 'equipGear':
-        error = this.sim.equipGear(pid, msg.uid);
+        error = this.sim.equipGear(pid, msg.uid, msg.slot);
         break;
       case 'unequipGear':
         error = this.sim.unequipGear(pid, msg.slot);

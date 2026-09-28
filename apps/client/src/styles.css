@@ -1542,3 +1542,60 @@ kbd {
 @keyframes rec-blink {
   to { opacity: 0.35; }
 }
+
+/* Item cells: a tier-tinted glow behind the icon, and drop feedback while dragging */
+.cell,
+.gear-slot {
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--tier) 26%, transparent), transparent 72%), #0f0c09;
+  border-color: color-mix(in srgb, var(--tier) 80%, #3a2f20);
+}
+.cell.empty,
+.gear-slot.empty {
+  background: #0f0c09;
+  border-color: #2e261b;
+}
+.cell.drop-over,
+.gear-slot.drop-over {
+  outline: 2px dashed var(--gold);
+  outline-offset: -3px;
+}
+.cell[draggable='true'],
+.gear-slot[draggable='true'] {
+  cursor: grab;
+}
+.gear-slot.empty .cell-label {
+  position: static;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tooltip {
+  border-width: 1px;
+  border-style: solid;
+}
+.tooltip .compare {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #3a2f20;
+}
+.tooltip .compare h5 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.tooltip .compare ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tooltip .compare li.up {
+  color: var(--good);
+}
+.tooltip .compare li.down {
+  color: var(--bad);
+}
+.tooltip-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}

@@ -258,8 +258,8 @@ export class Simulation {
     return inv.unequipVessel(this, id, slot);
   }
 
-  equipGear(id: EntityId, uid: ItemUid): string | null {
-    return inv.equipGear(this, id, uid);
+  equipGear(id: EntityId, uid: ItemUid, slot: GearSlot | null = null): string | null {
+    return inv.equipGear(this, id, uid, slot);
   }
 
   unequipGear(id: EntityId, slot: GearSlot): string | null {

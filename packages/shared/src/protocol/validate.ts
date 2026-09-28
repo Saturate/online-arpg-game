@@ -92,7 +92,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'ready':
       return typeof value.ready === 'boolean' ? { t: 'ready', ready: value.ready } : null;
     case 'equipGear':
-      return isNonNegativeInt(value.uid) ? { t: 'equipGear', uid: value.uid } : null;
+      return isNonNegativeInt(value.uid) ? { t: 'equipGear', uid: value.uid, slot: isGearSlot(value.slot) ? value.slot : null } : null;
     case 'unequipGear':
       return isGearSlot(value.slot) ? { t: 'unequipGear', slot: value.slot } : null;
     case 'dev': {

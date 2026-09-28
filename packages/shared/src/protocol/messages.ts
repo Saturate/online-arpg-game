@@ -53,7 +53,8 @@ export type ClientMessage =
   | { t: 'cycleStance' }
   /** Dungeon antechamber ready check. */
   | { t: 'ready'; ready: boolean }
-  | { t: 'equipGear'; uid: ItemUid }
+  /** `slot` picks a ring slot when dragging onto one; null lets the server choose. */
+  | { t: 'equipGear'; uid: ItemUid; slot: GearSlot | null }
   | { t: 'unequipGear'; slot: GearSlot }
   /** Town editor: replace the town layout. Only honoured when the server enables the editor. */
   | { t: 'saveTown'; layout: TownLayout }

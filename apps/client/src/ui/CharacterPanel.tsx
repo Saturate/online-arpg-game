@@ -1,8 +1,6 @@
 import { CLASSES, GEAR_SLOTS, type GearSlot } from '@rune/shared';
-import { ItemIcon } from './icons.js';
-import { tierColor } from './parts.js';
-import { itemByUid, sendCommand, useUi } from './store.js';
-import { useHover } from './Inventory.js';
+import { ItemCell } from './Inventory.js';
+import { itemByUid, useUi } from './store.js';
 
 const SLOT_LABELS: Record<GearSlot, string> = {
   weapon: 'Weapon',
@@ -39,7 +37,6 @@ export function CharacterPanel() {
   const classId = useUi((s) => s.classId);
   const name = useUi((s) => s.name);
   const stats = useUi((s) => s.stats);
-  const setHover = useHover((h) => h.set);
   if (!open || !inv || !classId) return null;
   const cls = CLASSES[classId];
 
@@ -57,19 +54,15 @@ export function CharacterPanel() {
         {GEAR_SLOTS.map((slot) => {
           const item = itemByUid(inv, inv.gear[slot]);
           return (
-            <button
+            <ItemCell
               key={slot}
-              type="button"
-              className={`gear-slot${item ? '' : ' empty'}`}
-              style={{ gridArea: SLOT_AREA[slot], ...(item ? { borderColor: tierColor(item) } : {}) }}
-              onClick={() => item && sendCommand({ t: 'unequipGear', slot })}
-              onMouseEnter={(e) => item && setHover(item, e.clientX, e.clientY)}
-              onMouseMove={(e) => item && setHover(item, e.clientX, e.clientY)}
-              onMouseLeave={() => setHover(null, 0, 0)}
-              title={item ? `${item.name} (click to unequip)` : SLOT_LABELS[slot]}
-            >
-              {item ? <ItemIcon item={item} size={40} /> : <span className="slot-label">{SLOT_LABELS[slot]}</span>}
-            </button>
+              item={item}
+              place={{ at: 'gear', slot }}
+              className="gear-slot"
+              iconSize={40}
+              label={item ? undefined : SLOT_LABELS[slot]}
+              style={{ gridArea: SLOT_AREA[slot] }}
+            />
           );
         })}
       </div>
@@ -105,7 +98,7 @@ export function CharacterPanel() {
           )}
         </dl>
       )}
-      <p className="muted small">Click equipped gear to take it off. Equip from the inventory (I).</p>
+      <p className="muted small">Right-click gear to take it off, or drag it back to the bag.</p>
     </section>
   );
 }

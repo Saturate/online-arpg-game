@@ -228,15 +228,16 @@ export function refreshStats(sim: Simulation, pid: EntityId): void {
   }
 }
 
-export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid): string | null {
+export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid, target: GearSlot | null = null): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   const idx = inventoryIndex(p, uid);
   const item = p.items.get(uid);
   if (idx < 0 || !item || item.kind !== 'gear') return 'That is not equipment in your inventory';
   const slots = GEAR_SLOTS.filter((s) => categoryForSlot(s) === item.category);
-  // Rings go into whichever ring slot is empty first, otherwise they replace the first ring.
-  const slot = slots.find((s) => p.gear[s] === null) ?? slots[0];
+  if (target !== null && !slots.includes(target)) return 'That does not go there';
+  // Without a target, rings go into whichever ring slot is empty first, otherwise they replace the first ring.
+  const slot = target ?? slots.find((s) => p.gear[s] === null) ?? slots[0];
   if (!slot) return 'No slot for that item';
   const previous = p.gear[slot];
   p.gear[slot] = uid;
