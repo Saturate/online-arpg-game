@@ -8,6 +8,7 @@ import {
   ZONE_IDS,
   zoneArrival,
   type ClientMessage,
+  type ServerMessage,
   type DungeonRef,
   type MapDescriptor,
   type PlayerSave,
@@ -28,6 +29,10 @@ const devToolsEnabled = process.env.DEV_TOOLS === '1';
 
 /** Bounds what a crash can lose; room changes and disconnects save straight away. */
 const AUTOSAVE_SECONDS = 30;
+
+/** Chat flood limit: this many messages per window. Generous for talk, tight for spam. */
+const CHAT_PER_WINDOW = 6;
+const CHAT_WINDOW_MS = 5000;
 
 /** Waypoint travel is only allowed while standing on one; a little slack covers movement since the menu opened. */
 const WAYPOINT_REACH = 120;
@@ -254,6 +259,9 @@ export class RoomManager {
       case 'useWaypoint':
         this.useWaypoint(client, msg.zone);
         return;
+      case 'chat':
+        this.chat(client, msg.text);
+        return;
       case 'ready': {
         const room = client.room;
         const staging = room ? this.stagings.get(room.id) : undefined;
@@ -357,6 +365,56 @@ export class RoomManager {
         else this.goHome(client);
       }
     }
+  }
+
+  private system(client: Client, text: string): void {
+    client.send({ t: 'chat', kind: 'system', from: '', to: null, text });
+  }
+
+  /** Game chat plus a few D2-style commands. Rate limited so one player cannot flood a game. */
+  private chat(client: Client, text: string): void {
+    const now = performance.now();
+    client.chatTimes = client.chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
+    if (client.chatTimes.length >= CHAT_PER_WINDOW) {
+      this.system(client, 'You are sending messages too quickly');
+      return;
+    }
+    client.chatTimes.push(now);
+    const from = this.playerName(client);
+    if (text.startsWith('/')) {
+      const [cmd = '', ...rest] = text.slice(1).split(' ');
+      switch (cmd.toLowerCase()) {
+        case 'w':
+        case 'whisper': {
+          const [name = '', ...words] = rest;
+          const body = words.join(' ').trim();
+          const target = [...this.clients.values()].find((c) => c.characterId !== null && this.playerName(c).toLowerCase() === name.toLowerCase());
+          if (!body) this.system(client, 'Usage: /w name message');
+          else if (!target) this.system(client, `${name} is not online`);
+          else {
+            const msg: ServerMessage = { t: 'chat', kind: 'whisper', from, to: this.playerName(target), text: body };
+            target.send(msg);
+            if (target !== client) client.send(msg);
+          }
+          return;
+        }
+        case 'who': {
+          const inst = this.instanceOf(client);
+          const names = inst ? this.membersOf(inst).map((c) => this.playerName(c)) : [from];
+          this.system(client, `In your game: ${names.join(', ')}`);
+          return;
+        }
+        case 'help':
+          this.system(client, 'Enter chats to your game. /w name message whispers anyone online. /who lists your game.');
+          return;
+        default:
+          this.system(client, `Unknown command /${cmd}. Try /help`);
+          return;
+      }
+    }
+    const inst = this.instanceOf(client);
+    const to = inst ? this.membersOf(inst) : [client];
+    for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text });
   }
 
   /** Checked on the server: standing on a waypoint, and the destination unlocked by this character. */

@@ -1889,3 +1889,79 @@ kbd {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Chat */
+.chat {
+  position: absolute;
+  left: 12px;
+  bottom: 150px;
+  width: min(420px, calc(100% - 24px));
+  pointer-events: none;
+  z-index: 6;
+}
+.chat ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: hidden;
+  display: grid;
+  gap: 2px;
+}
+.chat.open ul {
+  max-height: 260px;
+  overflow-y: auto;
+  pointer-events: auto;
+  background: rgba(8, 6, 4, 0.72);
+  border: 1px solid #3a2f20;
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.chat-line {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text);
+  text-shadow: 0 1px 2px #000, 0 0 4px #000;
+  overflow-wrap: anywhere;
+}
+.chat-line b {
+  color: var(--gold);
+  font-weight: 600;
+}
+.chat-line.whisper,
+.chat-line.whisper b {
+  color: #d59cff;
+}
+.chat-line.system {
+  color: #9fd4ff;
+  font-style: italic;
+}
+.chat form {
+  margin-top: 4px;
+  pointer-events: auto;
+}
+.chat input {
+  width: 100%;
+  padding: 7px 9px;
+  background: rgba(10, 8, 6, 0.92);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+}
+.chat-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-shadow: 0 1px 2px #000;
+}
+.fx-label.bubble {
+  max-width: 260px;
+  white-space: normal;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(10, 8, 6, 0.75);
+  border: 1px solid rgba(217, 181, 106, 0.4);
+  font-size: 12px;
+}

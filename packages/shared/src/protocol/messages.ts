@@ -42,6 +42,8 @@ export type ClientMessage =
   | { t: 'townPortal' }
   | { t: 'listInstances' }
   | { t: 'joinInstance'; id: string }
+  /** Chat to your game, or a command such as `/w name message`. */
+  | { t: 'chat'; text: string }
   /** Travel from the waypoint the player stands on to another unlocked one. */
   | { t: 'useWaypoint'; zone: ZoneId }
   /** Enter a fresh Wilds instance. A given seed reproduces a layout exactly; omit it for a random one. */
@@ -243,6 +245,8 @@ export type ServerMessage =
       devTools: boolean;
     }
   | { t: 'instances'; list: InstanceInfo[] }
+  /** `game` reaches everyone in your game; `whisper` one player; `system` is the server talking. */
+  | { t: 'chat'; kind: 'game' | 'whisper' | 'system'; from: string; to: string | null; text: string }
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
   | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
   | StagingMessage

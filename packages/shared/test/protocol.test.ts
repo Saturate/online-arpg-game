@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseClientMessage } from '../src/index.js';
+import { parseClientMessage, cleanChat, CHAT_MAX_LENGTH } from '../src/index.js';
 
 describe('parseClientMessage', () => {
   it('accepts a valid input and strips unknown button bits', () => {
@@ -19,5 +19,16 @@ describe('parseClientMessage', () => {
     { t: 'admin' },
   ])('rejects %j', (value) => {
     expect(parseClientMessage(value)).toBeNull();
+  });
+});
+
+describe('chat', () => {
+  it('strips control and zero-width characters, collapses space and caps length', () => {
+    expect(cleanChat('  hi​ there\u0007  ')).toBe('hi there');
+    expect(cleanChat('a\n\nb')).toBe('a b');
+    expect(cleanChat('x'.repeat(500))?.length).toBe(CHAT_MAX_LENGTH);
+    expect(cleanChat('   ')).toBeNull();
+    expect(cleanChat(42)).toBeNull();
+    expect(parseClientMessage({ t: 'chat', text: '<b>hi</b>' })).toEqual({ t: 'chat', text: '<b>hi</b>' });
   });
 });

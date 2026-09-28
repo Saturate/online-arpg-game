@@ -215,7 +215,7 @@ export function CharacterSelect() {
           </div>
         </>
       )}
-      <p className="hint">WASD to move, mouse to aim, left click to attack, 1 to 4 for skills, I inventory, C character, T minion stance, Esc menu, Tab minimap, Alt loot names, F1 debug, F3 sandbox, F8 record replay.</p>
+      <p className="hint">WASD to move, mouse to aim, left click to attack, 1 to 4 for skills, I inventory, C character, T minion stance, Esc menu, Tab minimap, Alt loot names, F1 debug, F3 sandbox, F8 record replay, Enter chat. Click-to-move and gamepad are in Esc, Settings.</p>
     </main>
   );
 }

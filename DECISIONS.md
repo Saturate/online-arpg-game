@@ -182,3 +182,9 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Pools:** zones draw packs from `monsterPool(biome, level)`, and harder families unlock deeper in. Pack size scales by family, and each zone's far end is its biome boss with an escort. Dungeons are crypts or caves, picked by seed.
 - **Summoned adds:** necromancer and shaman raises drop no loot and give a quarter of the XP, so they can't be farmed.
 - **Hero-model monsters:** monsters built on the adventurer models are drawn through a shader that desaturates the texture and repaints it in the monster's tint. A plain colour multiply kept the texture's hue, so a Pyromancer looked exactly like a player Mage.
+
+## Controls and chat
+
+- **Control schemes:** WASD plus mouse, or click-to-move (D2 style), set under Esc → Settings. Click-to-move plans A* over the nav grid, string-pulled along clear lines, and sends ordinary movement frames, so the server and prediction didn't change. Pressing on a monster locks onto it and attacks while held, walking into range first for melee. Shift attacks in place, and right-click casts skill 1.
+- **Gamepad:** a standard-mapping pad works under either scheme and only takes over while in use, so a pad left plugged in doesn't fight the mouse.
+- **Chat:** Enter chats to everyone in your game, `/w name` whispers anyone online, and `/who` lists your game. The server strips control and zero-width characters, caps messages at 200 characters and allows 6 per 5 s. Text is only ever set through React or `textContent`, never as HTML. A speaker's line also shows as a speech bubble over their head for 6 s.

@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Game } from '../game/game.js';
 import { CharacterPanel } from './CharacterPanel.js';
 import { DebugOverlay } from './DebugOverlay.js';
+import { ChatBox } from './ChatBox.js';
 import { DevPanel } from './DevPanel.js';
 import { EscMenu } from './EscMenu.js';
 import { SettingsPanel } from './SettingsPanel.js';
@@ -46,6 +47,7 @@ export function GameView({ token, character, mode }: { token: string; character:
         </div>
         <Party />
         <Notices />
+        <ChatBox />
         <Banner />
         <RecordingBadge />
         <TargetFrame />

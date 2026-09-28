@@ -45,6 +45,8 @@ import { useDevCursor } from '../ui/DevPanel.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
+/** How long a chat line hangs over the speaker's head. */
+const BUBBLE_MS = 6000;
 const MAX_CATCHUP_TICKS = 3;
 const DEBUG_PUBLISH_MS = 250;
 const MINIMAP_MS = 100;
@@ -137,6 +139,9 @@ export class Game {
   private attackLock: EntityId | null = null;
   private lastLeftPresses = 0;
   private readonly pad = new GamepadInput();
+  private chatSeq = 0;
+  /** Latest chat line per speaker name, shown over their head until it expires. */
+  private readonly bubbles = new Map<string, { text: string; until: number }>();
   private pendingEvents: { tick: number; ev: GameEvent }[] = [];
   private lastFizzle: string | null = null;
   private townLayout: TownLayout | null = null;
@@ -430,6 +435,13 @@ export class Game {
         setTimeout(() => {
           if (useUi.getState().banner?.id === id) useUi.setState({ banner: null });
         }, 5000);
+        return;
+      }
+      case 'chat': {
+        const line = { id: ++this.chatSeq, kind: msg.kind, from: msg.from, to: msg.to, text: msg.text, at: performance.now() };
+        useUi.setState((s) => ({ chat: [...s.chat, line].slice(-60) }));
+        // Speech bubble over the speaker, when they are in this room, like D2's overhead text.
+        if (msg.kind === 'game') this.bubbles.set(msg.from, { text: msg.text, until: performance.now() + BUBBLE_MS });
         return;
       }
       case 'waypoints':
@@ -731,7 +743,11 @@ export class Game {
         const r = from.r + (to.r - from.r) * sample.t;
         const snap: EntitySnap = { ...to, x, y, r };
         if (to.k === 'enemy') this.renderedEnemies.push({ x, y, r, snap: to });
-        if (to.k === 'player') labels.push({ key: `p${id}`, x, y, text: to.name, color: '#cfe6ff', height: 78, className: 'fx-label' });
+        if (to.k === 'player') {
+          labels.push({ key: `p${id}`, x, y, text: to.name, color: '#cfe6ff', height: 78, className: 'fx-label' });
+          const bubble = this.bubbles.get(to.name);
+          if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
+        }
         if (to.k === 'loot') {
           // D2 style: good drops are always labelled, everything shows while Alt is held.
           to.names.forEach((n, i) => {
@@ -787,6 +803,8 @@ export class Game {
         isSelf: true,
         isAlly: true,
       });
+      const bubble = this.bubbles.get(self.name);
+      if (bubble && bubble.until > performance.now()) labels.push({ key: `b${self.id}`, x: px, y: py, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
     }
     for (const p of room.def.portals) labels.push({ key: `portal-${p.x}-${p.y}`, x: p.x, y: p.y, text: p.label, color: '#e0d0ff', height: p.r * 2 + 40, className: 'fx-label portal' });
 

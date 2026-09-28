@@ -40,6 +40,19 @@ function parseRunes(value: unknown): RuneId[] | null {
   return out;
 }
 
+export const CHAT_MAX_LENGTH = 200;
+
+/**
+ * Chat text is shown to other players, so control and zero-width characters are stripped (they can
+ * break layout or disguise text) and length is capped. Rendering never parses it as HTML anyway.
+ */
+export function cleanChat(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  // Whitespace first: newlines are control characters too, and should become spaces, not vanish.
+  const text = value.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, CHAT_MAX_LENGTH);
+  return text.length > 0 ? text : null;
+}
+
 /** Structural check only. Gameplay limits (speed, cooldowns, heat, ownership) are enforced by the simulation. */
 export function parseClientMessage(value: unknown): ClientMessage | null {
   if (!isRecord(value)) return null;
@@ -58,6 +71,10 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return { t: 'newInstance', seed: isNonNegativeInt(value.seed) && value.seed < 1_000_000_000 ? value.seed : null };
     case 'joinInstance':
       return typeof value.id === 'string' && /^[a-z0-9-]{1,24}$/.test(value.id) ? { t: 'joinInstance', id: value.id } : null;
+    case 'chat': {
+      const text = cleanChat(value.text);
+      return text ? { t: 'chat', text } : null;
+    }
     case 'useWaypoint':
       return isZoneId(value.zone) ? { t: 'useWaypoint', zone: value.zone } : null;
     case 'input': {
@@ -111,7 +128,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner', 'waypoints']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

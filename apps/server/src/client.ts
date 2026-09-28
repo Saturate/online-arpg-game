@@ -19,6 +19,8 @@ export class Client {
   accountId: number | null = null;
   characterId: number | null = null;
   messageCount = 0;
+  /** Recent chat send times, for the chat rate limit (separate from the general message limit). */
+  chatTimes: number[] = [];
   messageWindowStart = performance.now();
 
   constructor(

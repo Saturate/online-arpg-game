@@ -36,6 +36,15 @@ export interface DebugStats {
   lastFizzle: string | null;
 }
 
+export interface ChatLine {
+  id: number;
+  kind: 'game' | 'whisper' | 'system';
+  from: string;
+  to: string | null;
+  text: string;
+  at: number;
+}
+
 export interface TargetInfo {
   id: EntityId;
   name: string;
@@ -77,6 +86,8 @@ interface UiState {
   /** Open waypoint menu: the waypoint underfoot and every one this character has found. */
   waypointMenu: { current: ZoneId; unlocked: ZoneId[] } | null;
   banner: { id: number; title: string; text: string } | null;
+  chat: ChatLine[];
+  chatOpen: boolean;
   /** Monster under the cursor, for the target frame. */
   target: TargetInfo | null;
   /** Landing spots beside each portal in the current room, for the sandbox's quick travel list. */
@@ -180,6 +191,8 @@ export const useUi = create<UiState>((set, get) => ({
   staging: null,
   waypointMenu: null,
   banner: null,
+  chat: [],
+  chatOpen: false,
   target: null,
   roomPortals: [],
   connectionError: null,
