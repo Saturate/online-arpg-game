@@ -37,14 +37,15 @@ export class RateLimiter {
 
 /**
  * Behind Cloudflare and the WAF every request arrives from a proxy address, which would make the
- * rate limit one shared bucket for all players. Only trusted when the deploy says the origin is
- * reachable through Cloudflare alone, since the header is otherwise trivially spoofed.
+ * rate limit one shared bucket for all players. TRUST_PROXY=x-real-ip uses the header the WAF sets
+ * after resolving the client through Cloudflare's ranges (it overwrites any client-sent value);
+ * TRUST_PROXY=cloudflare reads CF-Connecting-IP, only safe when the origin is reachable through
+ * Cloudflare alone. Unset, the socket address is used, since both headers are trivially spoofed.
  */
 function clientIp(req: IncomingMessage): string {
-  if (process.env.TRUST_PROXY === 'cloudflare') {
-    const cf = req.headers['cf-connecting-ip'];
-    if (typeof cf === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(cf)) return cf;
-  }
+  const mode = process.env.TRUST_PROXY;
+  const header = mode === 'x-real-ip' ? req.headers['x-real-ip'] : mode === 'cloudflare' ? req.headers['cf-connecting-ip'] : undefined;
+  if (typeof header === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(header)) return header;
   return req.socket.remoteAddress ?? 'unknown';
 }
 
