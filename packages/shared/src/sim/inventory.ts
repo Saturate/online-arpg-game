@@ -279,6 +279,37 @@ export function unequipGear(sim: Simulation, pid: EntityId, slot: GearSlot): str
   return null;
 }
 
+const KIND_ORDER: Readonly<Record<Item['kind'], number>> = { gear: 0, sigil: 1, vessel: 2 };
+const CATEGORY_ORDER = ['weapon', 'helmet', 'body', 'gloves', 'boots', 'belt', 'amulet', 'ring'];
+
+/** Bag order after sorting: gear by slot, then sigils, then vessels; best tier and item level first. */
+export function compareForSort(a: Item, b: Item): number {
+  const kind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+  if (kind !== 0) return kind;
+  if (a.kind === 'gear' && b.kind === 'gear') {
+    const cat = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category);
+    if (cat !== 0) return cat;
+  }
+  const tier = ITEM_TIERS.indexOf(b.tier) - ITEM_TIERS.indexOf(a.tier);
+  if (tier !== 0) return tier;
+  if (a.ilvl !== b.ilvl) return b.ilvl - a.ilvl;
+  return a.name.localeCompare(b.name) || a.uid - b.uid;
+}
+
+/** Packs the bag to the front in sort order. Only the bag moves; nothing equipped changes. */
+export function sortInventory(sim: Simulation, pid: EntityId): string | null {
+  const p = sim.world.player.get(pid);
+  if (!p) return 'No player';
+  const items = p.inventory.flatMap((uid) => {
+    const item = uid === null ? undefined : p.items.get(uid);
+    return item ? [item] : [];
+  });
+  items.sort(compareForSort);
+  p.inventory = p.inventory.map((_, i) => items[i]?.uid ?? null);
+  changed(p);
+  return null;
+}
+
 export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';

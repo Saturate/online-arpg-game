@@ -127,6 +127,9 @@ export class Room {
       case 'unequipVessel':
         error = this.sim.unequipVessel(pid, msg.slot);
         break;
+      case 'sortInventory':
+        error = this.sim.sortInventory(pid);
+        break;
       case 'discard':
         error = this.sim.discard(pid, msg.uid);
         break;

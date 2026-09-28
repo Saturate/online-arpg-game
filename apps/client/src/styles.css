@@ -491,14 +491,14 @@ kbd {
   cursor: pointer;
   color: var(--muted);
 }
-.panel button:not(.close):not(.cell):not(.sigil-list button) {
+.panel button:not(.close):not(.cell):not(.inv-cell):not(.sigil-list button) {
   background: #1f1a13;
   border: 1px solid #4a3b24;
   border-radius: 4px;
   padding: 5px 10px;
   cursor: pointer;
 }
-.panel button:not(:disabled):hover {
+.panel button:not(:disabled):not(.inv-cell):hover {
   border-color: var(--gold);
 }
 .panel button:disabled {

@@ -278,6 +278,10 @@ export class Simulation {
     return inv.unequipGear(this, id, slot);
   }
 
+  sortInventory(id: EntityId): string | null {
+    return inv.sortInventory(this, id);
+  }
+
   discard(id: EntityId, uid: ItemUid): string | null {
     return inv.discard(this, id, uid);
   }

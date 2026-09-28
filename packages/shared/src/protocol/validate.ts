@@ -88,6 +88,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipVessel', uid: value.uid, slot: value.slot } : null;
     case 'unequipVessel':
       return isSlot(value.slot) ? { t: 'unequipVessel', slot: value.slot } : null;
+    case 'sortInventory':
+      return { t: 'sortInventory' };
     case 'discard':
       return isNonNegativeInt(value.uid) ? { t: 'discard', uid: value.uid } : null;
     case 'cycleStance':

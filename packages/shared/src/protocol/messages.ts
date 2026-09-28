@@ -54,6 +54,7 @@ export type ClientMessage =
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
+  | { t: 'sortInventory' }
   | { t: 'cycleStance' }
   /** Dungeon antechamber ready check. */
   | { t: 'ready'; ready: boolean }
