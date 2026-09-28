@@ -68,7 +68,11 @@ export const DEFAULT_BINDINGS: Bindings = {
 /** Escape and the dev keys are fixed, so a bad binding can never lock you out of the menu. */
 export const RESERVED_KEYS = new Set(['Escape', 'F1', 'F2', 'F3']);
 
+/** Keyboard: WASD moves, the mouse aims. Click: D2 style, click the ground to walk and a monster to attack. */
+export type ControlScheme = 'keyboard' | 'click';
+
 export interface Options {
+  controls: ControlScheme;
   damageNumbers: boolean;
   screenShake: boolean;
   /** Labels on every drop without holding the show-loot key. */
@@ -76,7 +80,7 @@ export interface Options {
   uiScale: number;
 }
 
-export const DEFAULT_OPTIONS: Options = { damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1 };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1 };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -109,6 +113,7 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
     }
     if (isRecord(v.options)) {
       const o = v.options;
+      if (o.controls === 'keyboard' || o.controls === 'click') options.controls = o.controls;
       if (typeof o.damageNumbers === 'boolean') options.damageNumbers = o.damageNumbers;
       if (typeof o.screenShake === 'boolean') options.screenShake = o.screenShake;
       if (typeof o.alwaysShowLoot === 'boolean') options.alwaysShowLoot = o.alwaysShowLoot;

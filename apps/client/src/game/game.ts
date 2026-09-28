@@ -1,5 +1,6 @@
 import {
   BUTTON,
+  SKILL_BUTTONS,
   CLASSES,
   distSq,
   loadMap,
@@ -17,6 +18,7 @@ import {
   type ServerMessage,
   type Snapshot,
   type TownLayout,
+  type Vec2,
   type WorldMap,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
@@ -33,7 +35,9 @@ import { Effects } from '../render/fx.js';
 import { Minimap } from '../render/minimap.js';
 import { WorldScene } from '../render/scene.js';
 import { useUi } from '../ui/store.js';
-import { InputState } from './input.js';
+import { ClickMover } from './clickMove.js';
+import { GamepadInput, type PadState } from './gamepad.js';
+import { InputState, screenToWorld, type SampledInput } from './input.js';
 import { InterpolationBuffer } from './interpolation.js';
 import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
@@ -78,6 +82,7 @@ interface RoomView {
   input: InputState;
   predictor: Predictor;
   interp: InterpolationBuffer;
+  mover: ClickMover;
   minimap: Minimap | null;
 }
 
@@ -127,6 +132,11 @@ export class Game {
   private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
   /** Keeps the target frame up briefly after the cursor slips off, so it does not flicker in a fight. */
   private targetHeldUntil = 0;
+  private hoverEnemyId: EntityId | null = null;
+  /** Click-to-move: the monster a left-click locked onto, attacked for as long as the button is held. */
+  private attackLock: EntityId | null = null;
+  private lastLeftPresses = 0;
+  private readonly pad = new GamepadInput();
   private pendingEvents: { tick: number; ev: GameEvent }[] = [];
   private lastFizzle: string | null = null;
   private townLayout: TownLayout | null = null;
@@ -287,6 +297,7 @@ export class Game {
       input,
       predictor: new Predictor(CLASSES[this.classId].moveSpeed, game),
       interp: new InterpolationBuffer(SIM.tickMs, NET.interpolationDelayMs),
+      mover: new ClickMover(game),
       minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def) : null,
     };
     this.latest = null;
@@ -499,6 +510,11 @@ export class Game {
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
+    const now = performance.now();
+    if (useSettings.getState().options.controls === 'click') this.applyClickScheme(room, sampled, origin, aimPoint, now);
+    const pad = this.pad.poll(now);
+    // The pad only takes over while it is in use, so a controller left plugged in does not fight the mouse.
+    if (pad && now - this.pad.lastActive < 3000) this.applyPad(room, sampled, pad);
     if (useUi.getState().menuOpen) sampled.buttons = 0;
     const frame = { seq: this.seq++, ...sampled };
     this.send({ t: 'input', ...frame });
@@ -510,6 +526,67 @@ export class Game {
       this.spawnCosmeticPrimary(frame.aimAngle);
       this.localPrimaryCooldown = CLASSES[this.classId].primary.cooldown;
       room.entities.attack(`s${this.playerId}`);
+    }
+  }
+
+  /**
+   * D2-style mouse control. Left button walks toward the cursor along a path; pressing it on a
+   * monster locks onto it and attacks while held, walking into range first for melee. Shift holds
+   * position and attacks toward the cursor. Right button casts skill 1.
+   */
+  private applyClickScheme(room: RoomView, sampled: SampledInput, origin: Vec2, aimPoint: Vec2 | null, now: number): void {
+    const input = room.input;
+    const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
+    sampled.buttons &= ~BUTTON.primary;
+    const skill1 = SKILL_BUTTONS[0];
+    if (input.rightDown && input.overCanvas && skill1 !== undefined) sampled.buttons |= skill1;
+    const pressed = input.leftPresses !== this.lastLeftPresses;
+    this.lastLeftPresses = input.leftPresses;
+    if (!input.leftDown) this.attackLock = null;
+    else if (pressed) this.attackLock = input.overCanvas ? this.hoverEnemyId : null;
+    if (keysMoving) {
+      room.mover.stop();
+      return;
+    }
+    if (input.leftDown && input.overCanvas && input.shiftDown) {
+      room.mover.stop();
+      sampled.buttons |= BUTTON.primary;
+      sampled.moveDir = { x: 0, y: 0 };
+      return;
+    }
+    const target = this.attackLock === null ? undefined : this.renderedEnemies.find((e) => e.snap.id === this.attackLock);
+    if (this.attackLock !== null && !target) this.attackLock = null;
+    if (input.leftDown && target) {
+      sampled.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
+      const attack = CLASSES[this.classId].primary;
+      const reach = attack.kind === 'melee' ? attack.range + target.r : attack.range * 0.85;
+      if (Math.hypot(target.x - origin.x, target.y - origin.y) > reach) room.mover.moveTo(origin, target, now);
+      else {
+        room.mover.stop();
+        sampled.buttons |= BUTTON.primary;
+      }
+    } else if (input.leftDown && input.overCanvas && aimPoint) {
+      room.mover.moveTo(origin, aimPoint, now);
+    }
+    sampled.moveDir = room.mover.direction(origin);
+  }
+
+  private applyPad(room: RoomView, sampled: SampledInput, pad: PadState): void {
+    const basis = room.world.basis;
+    const move = screenToWorld(basis, pad.move.x, pad.move.y);
+    if (move.x !== 0 || move.y !== 0) {
+      sampled.moveDir = move;
+      room.mover.stop();
+    }
+    const aim = pad.aim ? screenToWorld(basis, pad.aim.x, pad.aim.y) : move;
+    if (aim.x !== 0 || aim.y !== 0) sampled.aimAngle = Math.atan2(aim.y, aim.x);
+    sampled.buttons |= pad.buttons;
+    const ui = useUi.getState();
+    for (const action of pad.pressed) {
+      if (action === 'menu') ui.toggleMenu();
+      else if (action === 'inventory') ui.toggleInventory();
+      else if (action === 'stance') this.send({ t: 'cycleStance' });
+      else useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     }
   }
 
@@ -577,7 +654,7 @@ export class Game {
   /** The waypoint menu belongs to the waypoint you stand on; walking off closes it, as in D2. */
   private closeWaypointMenuWhenAway(room: RoomView, at: { x: number; y: number }): void {
     if (!useUi.getState().waypointMenu) return;
-    const near = room.def.portals.some((p) => p.target === 'waypoint' && Math.hypot(p.x - at.x, p.y - at.y) <= p.r + 110);
+    const near = room.def.portals.some((p) => p.target === 'waypoint' && Math.hypot(p.x - at.x, p.y - at.y) <= p.r + 45);
     if (!near) useUi.setState({ waypointMenu: null });
   }
 
@@ -596,6 +673,7 @@ export class Game {
       }
     }
     const ui = useUi.getState();
+    this.hoverEnemyId = best?.snap.id ?? null;
     if (!best) {
       const still = ui.target ? this.renderedEnemies.find((e) => e.snap.id === ui.target?.id) : undefined;
       if (ui.target && (!still || now > this.targetHeldUntil)) useUi.setState({ target: null });

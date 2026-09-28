@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ACTION_LABELS, ACTIONS, keyLabel, RESERVED_KEYS, UI_SCALES, useSettings, type Action, type Options } from './settings.js';
+import { ACTION_LABELS, ACTIONS, keyLabel, RESERVED_KEYS, UI_SCALES, useSettings, type Action, type ControlScheme, type Options } from './settings.js';
 import { useUi } from './store.js';
 
-const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale'>; label: string }[] = [
+const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
+  { id: 'keyboard', label: 'WASD + mouse', hint: 'Move with the keys, aim and attack with the mouse.' },
+  { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place, right-click casts skill 1.' },
+];
+
+const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls'>; label: string }[] = [
   { key: 'damageNumbers', label: 'Damage numbers' },
   { key: 'screenShake', label: 'Screen shake' },
   { key: 'alwaysShowLoot', label: 'Always show loot labels' },
@@ -53,6 +58,16 @@ export function SettingsPanel() {
             <p className="muted small">Esc, F1 (debug), F2 (town editor) and F3 (sandbox) are fixed. Binding a key in use swaps the two.</p>
           </div>
           <div>
+            <h3>Controls</h3>
+            <div className="scheme-row" role="radiogroup" aria-label="Control scheme">
+              {SCHEMES.map((c) => (
+                <button key={c.id} type="button" role="radio" aria-checked={options.controls === c.id} className={options.controls === c.id ? 'on' : ''} onClick={() => setOption('controls', c.id)}>
+                  <strong>{c.label}</strong>
+                  <span>{c.hint}</span>
+                </button>
+              ))}
+            </div>
+            <p className="muted small">A gamepad works with either: left stick moves, right stick aims, RT attacks, A X Y B cast skills 1 to 4, Start opens the menu.</p>
             <h3>Display</h3>
             <ul className="toggles">
               {TOGGLES.map((t) => (

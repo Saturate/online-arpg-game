@@ -31,6 +31,15 @@ export class InputState {
     return this.keys.has(code) || (code === 'AltLeft' && this.keys.has('AltRight'));
   }
   private mouseDown = false;
+  /** Left button held, and bumped on every press so a click can be told from a hold. */
+  get leftDown(): boolean {
+    return this.mouseDown;
+  }
+  leftPresses = 0;
+  rightDown = false;
+  get shiftDown(): boolean {
+    return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+  }
   mouseX = 0;
   mouseY = 0;
   /** The mouse is over the game canvas rather than a UI panel. */
@@ -56,6 +65,7 @@ export class InputState {
       () => {
         this.keys.clear();
         this.mouseDown = false;
+        this.rightDown = false;
       },
       opts,
     );
@@ -72,7 +82,11 @@ export class InputState {
     canvas.addEventListener(
       'mousedown',
       (e) => {
-        if (e.button === 0) this.mouseDown = true;
+        if (e.button === 0) {
+          this.mouseDown = true;
+          this.leftPresses++;
+        }
+        if (e.button === 2) this.rightDown = true;
       },
       opts,
     );
@@ -80,6 +94,7 @@ export class InputState {
       'mouseup',
       (e) => {
         if (e.button === 0) this.mouseDown = false;
+        if (e.button === 2) this.rightDown = false;
       },
       opts,
     );
@@ -92,7 +107,11 @@ export class InputState {
    * `aimPoint` is the ground point under the cursor and `origin` the own player, both in world
    * coordinates. Movement keys are relative to the screen, so they go through the camera basis.
    */
-  sample(basis: GroundBasis, origin: Vec2, aimPoint: Vec2 | null, lastAim: number): SampledInput {
+  /**
+   * Keyboard movement as a world direction, through the camera basis. Screen y grows downward, so
+   * "up" on the keyboard is +forward on the ground.
+   */
+  keyboardMove(basis: GroundBasis): Vec2 {
     let sx = 0;
     let sy = 0;
     const bindings = useSettings.getState().bindings;
@@ -102,23 +121,31 @@ export class InputState {
         sy += dy;
       }
     }
-    // Screen y grows downward, so "up" on the keyboard is +forward on the ground.
-    const wx = basis.right.x * sx - basis.up.x * sy;
-    const wy = basis.right.y * sx - basis.up.y * sy;
-    const len = Math.hypot(wx, wy);
-    const moveDir = len > 0 ? clampDir(wx / len, wy / len) : { x: 0, y: 0 };
+    return screenToWorld(basis, sx, sy);
+  }
 
+  sample(basis: GroundBasis, origin: Vec2, aimPoint: Vec2 | null, lastAim: number): SampledInput {
+    const bindings = useSettings.getState().bindings;
+    const moveDir = this.keyboardMove(basis);
     let buttons = this.mouseDown ? BUTTON.primary : 0;
     SKILLS.forEach((action, i) => {
       const bit = SKILL_BUTTONS[i];
       if (bit !== undefined && this.keys.has(bindings[action])) buttons |= bit;
     });
-
     const aimAngle = aimPoint ? Math.atan2(aimPoint.y - origin.y, aimPoint.x - origin.x) : lastAim;
     return { moveDir, aimAngle, buttons };
   }
 
+
   dispose(): void {
     this.abort.abort();
   }
+}
+
+/** A screen-space direction (x right, y down) as a unit world direction on the ground. */
+export function screenToWorld(basis: GroundBasis, sx: number, sy: number): Vec2 {
+  const wx = basis.right.x * sx - basis.up.x * sy;
+  const wy = basis.right.y * sx - basis.up.y * sy;
+  const len = Math.hypot(wx, wy);
+  return len > 0 ? clampDir(wx / len, wy / len) : { x: 0, y: 0 };
 }
