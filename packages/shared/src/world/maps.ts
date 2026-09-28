@@ -1,5 +1,5 @@
 import { DUNGEON, WILDS, ZONE_SIZE } from '../config/sim.js';
-import type { EnemyTypeId } from '../data/enemies.js';
+import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, inRect, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
@@ -72,6 +72,7 @@ interface WildsOptions {
   /** A camp at the spawn: fire, tents and a town portal. Zones with a town do not need one. */
   camp: boolean;
   seed: number;
+  biome: Biome;
 }
 
 /** A generated wilderness. Every seed gives a different layout: rivers, ridges, forests, ruins and monster packs. */
@@ -172,7 +173,7 @@ function generateWilds(o: WildsOptions): WorldMap {
     scatterDecor(map, rng, x, y, 60, ['grave_bone_A', 'grave_skull', 'grave_ribcage', 'grave_tree_dead_small', 'dungeon_rubble_half', 'grave_pumpkin_orange'], 2);
   }
   const levelAt = levelFunction(map, o.levels);
-  map.packs = placePacks(map, rng, levelAt, clearRects, scale);
+  map.packs = placePacks(map, rng, levelAt, clearRects, scale, o.biome);
   placeEntrances(map, rng, o.seed, levelAt, clearRects);
   return map;
 }
@@ -201,6 +202,7 @@ function wildsMap(seed: number): WorldMap {
     keepClear: [],
     camp: true,
     seed,
+    biome: 'meadow',
   });
 }
 
@@ -216,7 +218,7 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): 
   const height = Math.max(ZONE_SIZE.height, town?.height ?? 0);
   const spawn = town ? town.spawn : { x: 260, y: height / 2 };
   const keepClear: SafeZone[] = town ? [{ x: 0, y: 0, w: town.width, h: town.height }] : [];
-  const map = generateWilds({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed });
+  const map = generateWilds({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed, biome: zone.biome });
   map.safeZones = keepClear;
 
   if (town) {
@@ -255,7 +257,7 @@ export function zoneArrival(desc: Extract<MapDescriptor, { kind: 'zone' }>, from
  * Packs get harder with distance from the spawn. Only positions reachable from the spawn are used,
  * so a pack can never be sealed behind a ridge or river.
  */
-function placePacks(map: WorldMap, rng: Rng, levelAt: (x: number, y: number) => number, clear: NonNullable<Placement['avoidRects']>, scale: number): MonsterPack[] {
+function placePacks(map: WorldMap, rng: Rng, levelAt: (x: number, y: number) => number, clear: NonNullable<Placement['avoidRects']>, scale: number, biome: Biome): MonsterPack[] {
   const gm = new GameMap(map);
   const reach = reachable(gm, map.spawn.x, map.spawn.y);
   const packs: MonsterPack[] = [];
@@ -270,22 +272,18 @@ function placePacks(map: WorldMap, rng: Rng, levelAt: (x: number, y: number) => 
     if (clear.some((z) => inRect(x, y, z, z.pad + WILDS.aggroRadius))) continue;
     if (packs.some((p) => Math.hypot(p.x - x, p.y - y) < WILDS.packSpacing)) continue;
     const level = levelAt(x, y);
-    const pool = packPool(level);
-    const types = [pool[rng.int(0, pool.length - 1)] ?? 'chaser', pool[rng.int(0, pool.length - 1)] ?? 'chaser'];
-    packs.push({ x, y, types, count: rng.int(3, 6 + Math.min(6, level)), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
+    packs.push({ x, y, ...rollPack(rng, biome, level), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
     if (!farthest || d > farthest.d) farthest = { x, y, d };
   }
-  if (farthest) packs.push({ x: farthest.x, y: farthest.y, types: ['spinner', 'shooter'], count: 6, rareLeader: true, level: levelAt(farthest.x, farthest.y) + 1, boss: true });
+  if (farthest) {
+    // The zone's boss holds the far end, with an escort drawn from the local pool.
+    const level = levelAt(farthest.x, farthest.y) + 1;
+    const escort = rollPack(rng, biome, level);
+    packs.push({ x: farthest.x, y: farthest.y, types: [bossFor(biome, level), ...escort.types], count: Math.max(3, Math.round(escort.count * 0.6)), rareLeader: true, level, boss: true });
+  }
   return packs;
 }
 
-/** Monster types by level. Replaced by the biome pools once the larger roster lands. */
-function packPool(level: number): EnemyTypeId[] {
-  const pool: EnemyTypeId[] = ['chaser'];
-  if (level >= 2) pool.push('shooter');
-  if (level >= 3) pool.push('spinner');
-  return pool;
-}
 
 /** Dungeon entrances: a ring of rubble around a staging portal, out in reachable ground far from the spawn. */
 function placeEntrances(map: WorldMap, rng: Rng, seed: number, levelAt: (x: number, y: number) => number, clear: NonNullable<Placement['avoidRects']>): void {

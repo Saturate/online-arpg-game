@@ -146,7 +146,9 @@ export function spawnPacks(sim: Simulation): void {
     for (let i = 0; i < pack.count; i++) {
       const a = sim.rand.world.range(0, Math.PI * 2);
       const d = sim.rand.world.range(0, WILDS.packSpread);
-      const type = pack.types[i % pack.types.length] ?? 'chaser';
+      // A boss pack's first type is the boss itself; only the rest make up its escort.
+      const members = pack.boss && pack.types.length > 1 ? pack.types.slice(1) : pack.types;
+      const type = members[i % members.length] ?? 'chaser';
       spawnEnemy(sim, type, pack.x + Math.cos(a) * d, pack.y + Math.sin(a) * d, { rare: false, level: pack.level, aggro: false });
     }
     if (pack.rareLeader || pack.boss) {

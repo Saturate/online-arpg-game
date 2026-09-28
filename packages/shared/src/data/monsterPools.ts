@@ -1,3 +1,4 @@
+import type { Rng } from '../sim/rng.js';
 import { ENEMY_TYPE_IDS, familyOf, type EnemyTypeId } from './enemies.js';
 
 /**
@@ -97,4 +98,17 @@ export function packScale(typeId: EnemyTypeId): number {
     default:
       return 1;
   }
+}
+
+/**
+ * One or two types from the biome's pool at this level. Pack size follows the types: swarms come
+ * in crowds, brutes and summoners in small groups.
+ */
+export function rollPack(rng: Rng, biome: Biome, level: number): { types: EnemyTypeId[]; count: number } {
+  const pool = monsterPool(biome, level);
+  const a = pool[rng.int(0, pool.length - 1)] ?? 'chaser';
+  const b = rng.next() < 0.6 ? (pool[rng.int(0, pool.length - 1)] ?? a) : a;
+  const base = rng.int(3, 6 + Math.min(6, level));
+  const count = Math.max(1, Math.round(base * ((packScale(a) + packScale(b)) / 2)));
+  return { types: a === b ? [a] : [a, b], count };
 }

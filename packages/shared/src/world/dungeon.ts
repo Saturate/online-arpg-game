@@ -1,6 +1,6 @@
 import { DUNGEON, NAV } from '../config/sim.js';
-import type { EnemyTypeId } from '../data/enemies.js';
 import { Rng } from '../sim/rng.js';
+import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
 import { emptyMap } from './gen.js';
 import type { DungeonRef, MonsterPack, Obstacle, WorldMap } from './types.js';
 
@@ -91,6 +91,8 @@ export function dungeonMap(ref: DungeonRef, run: number): WorldMap {
 
 export function generateDungeon(ref: DungeonRef, run: number): DungeonLayout {
   const rng = new Rng(Math.imul(ref.seed, 2654435761) ^ (run * 40503) ^ ref.level);
+  // Dungeons are crypts or caves; the seed picks, so one entrance always leads to the same kind.
+  const biome: Biome = ref.seed % 2 === 0 ? 'crypt' : 'cave';
   const { slotsX, slotsY, slotCells } = DUNGEON;
   const cols = slotsX * slotCells + 2;
   const rows = slotsY * slotCells + 2;
@@ -236,12 +238,11 @@ export function generateDungeon(ref: DungeonRef, run: number): DungeonLayout {
     const level = ref.level + Math.floor((depth / Math.max(1, maxDepth)) * DUNGEON.levelSpread);
     const c = centre(room);
     if (room.slot === bossSlot) {
-      packs.push({ x: cellPos(c.cx), y: cellPos(c.cy), types: ['spinner', 'shooter'], count: 5, rareLeader: true, level: level + 1, boss: true });
+      const escort = rollPack(rng, biome, level + 1);
+      packs.push({ x: cellPos(c.cx), y: cellPos(c.cy), types: [bossFor(biome, level + 1), ...escort.types], count: Math.max(3, Math.round(escort.count * 0.6)), rareLeader: true, level: level + 1, boss: true });
       continue;
     }
-    const pool: EnemyTypeId[] = ['chaser', 'shooter', ...(depth >= 2 ? (['spinner'] as const) : [])];
-    const types = [pool[rng.int(0, pool.length - 1)] ?? 'chaser', pool[rng.int(0, pool.length - 1)] ?? 'chaser'];
-    packs.push({ x: cellPos(c.cx), y: cellPos(c.cy), types, count: rng.int(4, 6 + depth), rareLeader: rng.next() < DUNGEON.rareLeaderChance, level, boss: false });
+    packs.push({ x: cellPos(c.cx), y: cellPos(c.cy), ...rollPack(rng, biome, level), rareLeader: rng.next() < DUNGEON.rareLeaderChance, level, boss: false });
   }
   map.lamps = lamps;
   map.packs = packs;

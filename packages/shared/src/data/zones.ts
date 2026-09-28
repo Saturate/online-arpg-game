@@ -1,3 +1,5 @@
+import type { Biome } from './monsterPools.js';
+
 /**
  * The overworld: a chain of zones with rising monster levels, D2 act style. The first zone has the
  * town built into its west edge, so leaving town is a walk, not a load. Each zone has a waypoint
@@ -7,15 +9,14 @@
 export const ZONE_IDS = ['barrens', 'steppe', 'gloomvale', 'thornwood', 'dunes', 'hollows'] as const;
 export type ZoneId = (typeof ZONE_IDS)[number];
 
-/** Biome ids match the monster pools in data/monsterPools.ts. */
-export type ZoneBiome = 'meadow' | 'ruins' | 'marsh' | 'forest' | 'desert' | 'cave';
 
 export interface ZoneDef {
   id: ZoneId;
   name: string;
   /** Monster levels from the entrance to the far end of the zone. */
   levels: readonly [number, number];
-  biome: ZoneBiome;
+  /** Which monster pool the zone draws from. */
+  biome: Biome;
   groundTint: number;
   /** Dead trees instead of green ones, for bleak places. */
   bleak: boolean;
