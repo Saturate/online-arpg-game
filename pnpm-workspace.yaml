@@ -1,0 +1,7 @@
+packages:
+  - packages/*
+  - apps/*
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@gltf-transform/core@4.5.1'

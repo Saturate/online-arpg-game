@@ -1,0 +1,18 @@
+{
+  "name": "@rune/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "TOWN_EDITOR=1 DEV_TOOLS=1 tsx watch --ignore data/** src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@rune/shared": "workspace:*",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "tsx": "4.23.15"
+  }
+}

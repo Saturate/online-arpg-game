@@ -1,0 +1,16 @@
+{
+  "name": "rune-arpg",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter './apps/*' dev",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "@types/node": "26.6.3",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

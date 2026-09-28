@@ -1,0 +1,218 @@
+import { AILMENTS, ARMOR, MINIONS, SIM } from '../config/sim.js';
+import { CLASSES } from '../data/classes.js';
+import { ENEMIES } from '../data/enemies.js';
+import { MINION_DEFS } from '../data/minions.js';
+import type { ElementId } from '../data/runes.js';
+import { affixValue } from '../items/items.js';
+import type { EntityId, Team } from './ecs.js';
+import { alertPack } from './enemies.js';
+import { dropLoot } from './inventory.js';
+import { distSq } from './math.js';
+import type { Simulation } from './simulation.js';
+
+/** Damage reduction from wards is capped so stacked auras and links never make a target immune. */
+const MAX_DAMAGE_REDUCTION = 0.6;
+
+export function teamOf(sim: Simulation, id: EntityId): Team | null {
+  return sim.world.team.get(id) ?? null;
+}
+
+/** Players and minions are valid targets for enemies; dead players are not. */
+export function isTargetable(sim: Simulation, id: EntityId): boolean {
+  const w = sim.world;
+  if (!w.isAlive(id)) return false;
+  const p = w.player.get(id);
+  if (p) return p.respawnIn === null;
+  const h = w.health.get(id);
+  return h !== undefined && h.life > 0;
+}
+
+export interface DamageOptions {
+  /** DoT and aura ticks: no floating number, no ailment re-application. */
+  quiet?: boolean;
+  ignoreArmor?: boolean;
+}
+
+export function dealDamage(
+  sim: Simulation,
+  targetId: EntityId,
+  raw: number,
+  sourceId: EntityId,
+  elements: readonly ElementId[],
+  opts: DamageOptions = {},
+): number {
+  const w = sim.world;
+  if (sim.mapDef.safe || raw <= 0 || !isTargetable(sim, targetId)) return 0;
+  const h = w.health.get(targetId);
+  const pos = w.position.get(targetId);
+  if (!h || !pos) return 0;
+  if (w.enemy.has(targetId)) alertPack(sim, targetId);
+
+  let amount = raw;
+  const st = w.status.get(targetId);
+  if (st && st.shock > 0) amount *= 1 + AILMENTS.shock.damageTakenBonus;
+  const p = w.player.get(targetId);
+  if (p && !opts.ignoreArmor) amount = (amount * ARMOR.scale) / (ARMOR.scale + p.stats.armor);
+  const buffs = w.buffs.get(targetId);
+  if (buffs) amount *= 1 - Math.min(MAX_DAMAGE_REDUCTION, buffs.damageReduction);
+
+  if (st?.shield) {
+    const absorbed = Math.min(st.shield.amount, amount);
+    st.shield.amount -= absorbed;
+    amount -= absorbed;
+    if (st.shield.amount <= 0) st.shield = null;
+  }
+
+  if (p?.god) amount = 0;
+  h.life = Math.max(0, h.life - amount);
+  const attacker = w.player.get(sourceId);
+  if (attacker && w.enemy.has(targetId)) {
+    attacker.focusTarget = targetId;
+    attacker.focusTick = sim.tick;
+  }
+  if (!opts.quiet) {
+    sim.emit({ e: 'dmg', id: targetId, amt: Math.round(amount), x: pos.x, y: pos.y, el: elements[0] ?? null }, pos.x, pos.y);
+    if (elements.length > 0) applyAilments(sim, targetId, raw, elements, sourceId);
+  }
+
+  const src = w.minion.get(sourceId);
+  if (src && amount > 0) {
+    const leech = affixValue(src.affixes, 'leech_for_master');
+    if (leech > 0) healEntity(sim, src.ownerId, (amount * leech) / 100, false);
+  }
+
+  if (h.life <= 0) kill(sim, targetId);
+  return amount;
+}
+
+/** Life loss that bypasses armor, shields and wards, used for misfires. */
+export function selfDamage(sim: Simulation, id: EntityId, amount: number): void {
+  const h = sim.world.health.get(id);
+  const pos = sim.world.position.get(id);
+  if (!h || !pos || sim.mapDef.safe || !isTargetable(sim, id)) return;
+  h.life = Math.max(0, h.life - amount);
+  sim.emit({ e: 'dmg', id, amt: Math.round(amount), x: pos.x, y: pos.y, el: null }, pos.x, pos.y);
+  if (h.life <= 0) kill(sim, id);
+}
+
+export function applyAilments(
+  sim: Simulation,
+  targetId: EntityId,
+  hit: number,
+  elements: readonly ElementId[],
+  sourceId: EntityId,
+): void {
+  const st = sim.world.status.get(targetId);
+  if (!st) return;
+  for (const el of elements) {
+    if (el === 'fire') {
+      const dps = hit * AILMENTS.burn.dpsFractionOfHit;
+      if (!st.burn || st.burn.dps <= dps) st.burn = { dps, t: AILMENTS.burn.seconds, sourceId };
+      else st.burn.t = AILMENTS.burn.seconds;
+    } else if (el === 'cold') {
+      st.chill = AILMENTS.chill.seconds;
+    } else {
+      st.shock = AILMENTS.shock.seconds;
+    }
+  }
+}
+
+export function healEntity(sim: Simulation, id: EntityId, amount: number, showNumber: boolean): number {
+  const h = sim.world.health.get(id);
+  const pos = sim.world.position.get(id);
+  if (!h || !pos || amount <= 0 || !isTargetable(sim, id)) return 0;
+  const healed = Math.min(amount, h.maxLife - h.life);
+  h.life += healed;
+  if (showNumber && healed >= 1) sim.emit({ e: 'heal', id, amt: Math.round(healed), x: pos.x, y: pos.y }, pos.x, pos.y);
+  return healed;
+}
+
+export function grantShield(sim: Simulation, id: EntityId, amount: number, seconds: number, burning: boolean): void {
+  const st = sim.world.status.get(id);
+  if (!st || amount <= 0 || !isTargetable(sim, id)) return;
+  if (!st.shield || st.shield.amount < amount) st.shield = { amount, t: seconds, burning };
+  else {
+    st.shield.t = seconds;
+    st.shield.burning ||= burning;
+  }
+}
+
+export function knockback(sim: Simulation, id: EntityId, fromX: number, fromY: number, strength: number): void {
+  const e = sim.world.enemy.get(id);
+  const pos = sim.world.position.get(id);
+  if (!e || !pos || strength <= 0) return;
+  const dx = pos.x - fromX;
+  const dy = pos.y - fromY;
+  const d = Math.hypot(dx, dy) || 1;
+  // Rares are heavier, so knockback matters less against them.
+  const s = e.rare ? strength * 0.5 : strength;
+  e.knockX += (dx / d) * s;
+  e.knockY += (dy / d) * s;
+}
+
+function kill(sim: Simulation, id: EntityId): void {
+  const w = sim.world;
+  const pos = w.position.get(id);
+  if (!pos) return;
+
+  const p = w.player.get(id);
+  if (p) {
+    p.respawnIn = SIM.playerRespawnSeconds;
+    p.dash = null;
+    p.dashSpell = null;
+    sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'player', color: CLASSES[p.classId].color, big: false }, pos.x, pos.y);
+    return;
+  }
+
+  const e = w.enemy.get(id);
+  if (e) {
+    sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'enemy', color: ENEMIES[e.typeId].color, big: e.rare }, pos.x, pos.y);
+    dropLoot(sim, id);
+    w.destroy(id);
+    return;
+  }
+
+  const m = w.minion.get(id);
+  if (m) {
+    sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'minion', color: MINION_DEFS[m.typeId].color, big: false }, pos.x, pos.y);
+    const explode = affixValue(m.affixes, 'explodes_on_death');
+    if (explode > 0) {
+      const dmg = (MINIONS.explodeDamage * explode) / 100;
+      sim.emit({ e: 'explode', x: pos.x, y: pos.y, r: MINIONS.explodeRadius }, pos.x, pos.y);
+      const r2 = MINIONS.explodeRadius * MINIONS.explodeRadius;
+      for (const [eid] of w.enemy) {
+        const ep = w.position.get(eid);
+        if (ep && distSq(pos.x, pos.y, ep.x, ep.y) <= r2) dealDamage(sim, eid, dmg, id, ['fire']);
+      }
+    }
+    const owner = w.player.get(m.ownerId);
+    if (owner && owner.minions[m.slot] === id) {
+      owner.minions[m.slot] = null;
+      owner.minionRespawn[m.slot] = MINIONS.respawnSeconds * (1 - affixValue(m.affixes, 'faster_respawn') / 100);
+    }
+    w.destroy(id);
+  }
+}
+
+/** Ailment timers, burn ticks, shield decay and enemy regeneration. */
+export function updateStatuses(sim: Simulation, dt: number): void {
+  const w = sim.world;
+  for (const [id, st] of w.status) {
+    if (!w.isAlive(id)) continue;
+    if (st.burn) {
+      dealDamage(sim, id, st.burn.dps * dt, st.burn.sourceId, ['fire'], { quiet: true });
+      st.burn.t -= dt;
+      if (st.burn.t <= 0) st.burn = null;
+    }
+    if (st.chill > 0) st.chill = Math.max(0, st.chill - dt);
+    if (st.shock > 0) st.shock = Math.max(0, st.shock - dt);
+    if (st.shield) {
+      st.shield.t -= dt;
+      if (st.shield.t <= 0) st.shield = null;
+    }
+  }
+  for (const [id, e] of w.enemy) {
+    const h = w.health.get(id);
+    if (h && e.regenPercent > 0 && h.life > 0) h.life = Math.min(h.maxLife, h.life + (h.maxLife * e.regenPercent * dt) / 100);
+  }
+}
