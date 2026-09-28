@@ -258,7 +258,8 @@ export const DUNGEON = {
   countdownSeconds: 3,
   /** Killing the boss opens a cache on top of its own drops: this many items, rare or better, one level up. */
   cacheItems: 3,
-  cacheTierWeights: { common: 0, magic: 0, rare: 55, relic: 45 },
+  // Richer per item than a boss drop (30% vs 18% relic), since clearing the whole run earns it.
+  cacheTierWeights: { common: 0, magic: 0, rare: 70, relic: 30 },
   names: ['The Sunken Crypt', 'Hollow Vaults', 'The Bone Cellar', 'Drowned Catacombs', 'The Ember Pit', 'Wormwood Tunnels'],
 } as const;
 
