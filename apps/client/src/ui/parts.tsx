@@ -62,42 +62,60 @@ export function CostLine({ result }: { result: CompileResult }) {
 function Affixes({ item }: { item: Item }) {
   if (item.affixes.length === 0) return null;
   return (
-    <ul className="affixes">
+    <ul className="affixes tt-sec">
       {item.affixes.map((a, i) => (
         <li key={i}>
-          {formatAffix(a)} <span className="tier">T{a.tier + 1}</span>
+          {formatAffix(a)} <span className={`tier t${a.tier + 1}`}>T{a.tier + 1}</span>
         </li>
       ))}
     </ul>
   );
 }
 
-/** Red when the character is too low, like D2's unusable item text. */
-function Requirement({ item }: { item: Item }) {
+const TIER_NAMES: Record<Item['tier'], string> = { common: 'Common', magic: 'Magic', rare: 'Rare', relic: 'Relic' };
+
+function Head({ item, sub }: { item: Item; sub: string }) {
+  return (
+    <header className="tt-head">
+      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <p className="tt-base">
+        {TIER_NAMES[item.tier]} {sub}
+      </p>
+    </header>
+  );
+}
+
+/** Red when the character cannot meet it, like D2's unusable item text. */
+function Requirements({ item, classes }: { item: Item; classes?: readonly ClassId[] | undefined }) {
   const level = useUi((s) => s.level);
+  const classId = useUi((s) => s.classId);
   const need = levelRequirement(item);
-  if (need <= 1) return null;
-  return <p className={need > level ? 'requirement unmet' : 'requirement'}>Requires level {need}</p>;
+  const wrongClass = classes !== undefined && classId !== null && !classes.includes(classId);
+  if (need <= 1 && !classes) return null;
+  return (
+    <section className="tt-sec tt-req">
+      {need > 1 && <p className={need > level ? 'requirement unmet' : 'requirement'}>Requires level {need}</p>}
+      {classes && <p className={wrongClass ? 'requirement unmet' : 'requirement'}>{classes.map((c) => c[0]?.toUpperCase() + c.slice(1)).join(' or ')} only</p>}
+    </section>
+  );
 }
 
 function GearDetails({ item }: { item: Extract<Item, { kind: 'gear' }> }) {
   const base = gearBase(item.base);
+  const implicit = base ? STAT_IDS.filter((k) => base.implicit[k] !== undefined) : [];
   return (
     <div className="item-details">
-      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
-      <Requirement item={item} />
-      <p className="muted">
-        {base?.name ?? item.base}, {item.category}, item level {item.ilvl}
-      </p>
-      {base && (
-        <ul className="implicit">
-          {STAT_IDS.filter((k) => base.implicit[k] !== undefined).map((k) => (
+      <Head item={item} sub={base?.name ?? item.base} />
+      {base && implicit.length > 0 && (
+        <ul className="implicit tt-sec">
+          {implicit.map((k) => (
             <li key={k}>{STAT_LABELS[k](base.implicit[k] ?? 0)}</li>
           ))}
         </ul>
       )}
       <Affixes item={item} />
-      {base?.classes && <p className="muted">Usable by: {base.classes.join(', ')}</p>}
+      <Requirements item={item} classes={base?.classes} />
+      <p className="tt-foot">Item level {item.ilvl}</p>
     </div>
   );
 }
@@ -112,13 +130,16 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
   const def = MINION_DEFS[item.minion];
   return (
     <div className="item-details">
-      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
-      <Requirement item={item} />
-      <p className="muted">
-        {item.tier} vessel, level {item.level}. {def.name}: {def.ranged ? 'ranged' : 'melee'}, defaults to {def.defaultBehaviour}.
+      <Head item={item} sub="Soul Vessel" />
+      <p className="tt-sec tt-lore">
+        Binds a {def.name}: {def.ranged ? 'ranged' : 'melee'}, level {item.level}, defaults to {def.defaultBehaviour}.
       </p>
       <Affixes item={item} />
-      <p className="muted">Reserves {vesselSpirit(item)} spirit when bound. Item level {item.ilvl}.</p>
+      <section className="tt-sec">
+        <p className="requirement">Reserves {vesselSpirit(item)} spirit when bound</p>
+      </section>
+      <Requirements item={item} classes={['binder']} />
+      <p className="tt-foot">Item level {item.ilvl}</p>
     </div>
   );
 }
@@ -131,18 +152,14 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   const skill = skillById(item.skill);
   return (
     <div className="item-details">
-      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
-      <Requirement item={item} />
+      <Head item={item} sub={item.corrupted ? 'Corrupted Sigil' : 'Sigil'} />
       {skill && (
-        <p className="skill-line">
+        <p className="skill-line tt-sec">
           <strong>{skill.name}</strong>: {skill.description}
         </p>
       )}
-      <p className="muted">
-        {item.tier} sigil, item level {item.ilvl}
-        {skill ? '' : `, ${sigilCapacity(item)} rune slots`}
-        {item.corrupted ? ', corrupted: more misfires' : ''}
-      </p>
+      {!skill && <p className="tt-sec muted">{sigilCapacity(item)} rune slots</p>}
+      {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />
       <div className="rune-row">
         {item.runes.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Sigils can be inscribed in the Arena.'}</span> : item.runes.map((r, i) => <RuneChip key={i} id={r} small />)}
@@ -157,6 +174,8 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
       {debug && item.runes.length > 0 && (
         <p className="debug-line">{result.ok ? describeSpell(result.program) : `dud: ${result.dud}`}</p>
       )}
+      <Requirements item={item} />
+      <p className="tt-foot">Item level {item.ilvl}</p>
     </div>
   );
 }

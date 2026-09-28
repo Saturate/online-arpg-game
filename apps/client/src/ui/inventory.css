@@ -1,0 +1,533 @@
+/* Inventory window, character sheet and item tooltips. Everything here is scoped to inv-, cs- and
+   tt- classes so it cannot fight the older panel styles in styles.css. */
+
+.inv-window {
+  right: 214px;
+  top: 12px;
+  width: auto;
+  padding: 0;
+  overflow: visible;
+  max-height: none;
+}
+.inv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px !important;
+  margin: 0 !important;
+  background: linear-gradient(180deg, rgba(217, 181, 106, 0.1), transparent);
+}
+.inv-header h2 {
+  font-family: Cinzel, Georgia, serif;
+  letter-spacing: 0.5px;
+}
+.inv-body {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 18px;
+  padding: 10px 16px 6px;
+}
+.inv-section {
+  margin: 12px 0 6px !important;
+  font-size: 11px !important;
+  letter-spacing: 1.5px;
+  color: #a8957a !important;
+}
+.inv-left > .inv-section:first-of-type {
+  margin-top: 8px !important;
+}
+
+/* Cells */
+.inv-cell {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid #2e261b;
+  background: radial-gradient(circle at 50% 38%, #1b1611, #0b0907 75%);
+  box-shadow: inset 0 0 10px #000, inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  cursor: default;
+  transition: transform 90ms ease, box-shadow 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.inv-cell.filled {
+  cursor: grab;
+  border-color: color-mix(in srgb, var(--tier) 70%, #2e261b);
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--tier) 22%, transparent), transparent 70%),
+    radial-gradient(circle at 50% 38%, #1d1712, #0b0907 75%);
+}
+.inv-cell.tier-magic {
+  box-shadow: inset 0 0 10px #000, 0 0 6px color-mix(in srgb, var(--tier) 30%, transparent);
+}
+.inv-cell.tier-rare {
+  box-shadow: inset 0 0 10px #000, 0 0 9px color-mix(in srgb, var(--tier) 40%, transparent);
+}
+.inv-cell.tier-relic {
+  box-shadow: inset 0 0 10px #000, 0 0 12px color-mix(in srgb, var(--tier) 55%, transparent);
+  animation: inv-relic 2.6s ease-in-out infinite;
+}
+@keyframes inv-relic {
+  50% {
+    box-shadow: inset 0 0 10px #000, 0 0 18px color-mix(in srgb, var(--tier) 75%, transparent);
+  }
+}
+.inv-cell.filled:hover {
+  transform: translateY(-1px);
+  border-color: var(--tier);
+}
+.inv-cell:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.inv-cell.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(217, 181, 106, 0.55), inset 0 0 10px #000;
+}
+.inv-cell svg,
+.inv-cell img {
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8));
+}
+.inv-cell img.item-model {
+  image-rendering: auto;
+}
+.inv-cell.dragging {
+  opacity: 0.35;
+}
+.inv-cell.drop-ok {
+  border-color: #6fd08a;
+  box-shadow: inset 0 0 10px #000, 0 0 0 1px rgba(111, 208, 138, 0.6), 0 0 10px rgba(111, 208, 138, 0.35);
+}
+.inv-cell.drop-over {
+  border-color: var(--gold);
+  box-shadow: inset 0 0 14px rgba(217, 181, 106, 0.35), 0 0 0 2px var(--gold);
+}
+.inv-cell.drop-over:not(.drop-ok) {
+  border-color: #c0503a;
+  box-shadow: inset 0 0 14px rgba(192, 80, 58, 0.3), 0 0 0 2px #c0503a;
+}
+/* D2's red: an item the character cannot use yet. */
+.inv-cell.unusable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 5px;
+  background: rgba(190, 30, 20, 0.32);
+  pointer-events: none;
+}
+.inv-cell.unusable svg,
+.inv-cell.unusable img {
+  filter: grayscale(0.5) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8));
+}
+.inv-cell-key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #8a7a60;
+}
+.inv-pips {
+  position: absolute;
+  bottom: 3px;
+  left: 4px;
+  display: flex;
+  gap: 2px;
+}
+.inv-pips i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--tier);
+  box-shadow: 0 0 3px var(--tier);
+}
+.inv-req {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: #a8231a;
+}
+
+/* Paperdoll */
+.inv-doll {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px 84px 58px;
+  grid-template-rows: 56px 50px 50px 56px auto;
+  grid-template-areas:
+    '. helmet amulet'
+    'weapon body ring1'
+    'weapon body ring2'
+    'gloves belt boots'
+    'stats stats stats';
+  gap: 8px;
+  justify-items: center;
+  align-items: center;
+}
+.inv-doll-figure {
+  grid-area: 1 / 2 / 5 / 3;
+  width: 96px;
+  height: 100%;
+  border-radius: 48px 48px 18px 18px;
+  background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--class) 22%, transparent), transparent 70%);
+  pointer-events: none;
+}
+.inv-slot {
+  width: 50px;
+  height: 50px;
+  color: #3a3024;
+}
+.inv-slot.slot-helmet,
+.inv-slot.slot-belt {
+  width: 56px;
+}
+.inv-slot.slot-helmet {
+  height: 54px;
+}
+.inv-slot.slot-body {
+  width: 78px;
+  height: 108px;
+}
+.inv-slot.slot-weapon {
+  width: 56px;
+  height: 108px;
+}
+.inv-slot.slot-gloves,
+.inv-slot.slot-boots {
+  height: 54px;
+}
+.slot-silhouette {
+  opacity: 0.55;
+}
+.inv-doll-stats {
+  grid-area: stats;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  width: 100%;
+  margin: 4px 0 0;
+}
+.inv-doll-stats div {
+  padding: 4px 2px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid #2e261b;
+  border-radius: 4px;
+}
+.inv-doll-stats dt {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8a7a60;
+}
+.inv-doll-stats dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.inv-row {
+  display: grid;
+  grid-template-columns: repeat(4, 52px);
+  gap: 6px;
+  justify-content: center;
+}
+
+/* Bag */
+.inv-bag-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.inv-bag-head .inv-section {
+  margin: 0 !important;
+  flex: 1;
+}
+.inv-sort {
+  padding: 2px 10px !important;
+  font-size: 12px;
+}
+.inv-bag {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 52px);
+  gap: 5px;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #241d15;
+}
+.inv-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: #8a7a60;
+  pointer-events: none;
+}
+.inv-confirm {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #a8231a;
+  border-radius: 6px;
+  background: rgba(60, 10, 8, 0.6);
+  font-size: 12px;
+}
+.inv-confirm p {
+  margin: 0 0 6px;
+}
+.inv-confirm div {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.inv-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid #2e261b;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+}
+.inv-selection span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-selection-actions {
+  display: flex;
+  gap: 6px;
+}
+.inv-footer {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid #241d15;
+  font-size: 11px;
+  color: #8a7a60;
+}
+.inv-footer kbd {
+  padding: 0 4px;
+  border: 1px solid #3a3024;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: inherit;
+  color: #c8b890;
+}
+
+/* Character sheet */
+.cs-window {
+  left: 12px;
+  top: 220px;
+  width: 270px;
+  padding: 0 0 10px;
+}
+.cs-identity {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px 4px;
+}
+.cs-level {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  font-family: Cinzel, Georgia, serif;
+  font-size: 20px;
+  color: var(--gold);
+  background: radial-gradient(circle, rgba(217, 181, 106, 0.2), rgba(0, 0, 0, 0.5));
+}
+.cs-identity > div {
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+.cs-xp {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid #3a3024;
+  overflow: hidden;
+}
+.cs-xp div {
+  height: 100%;
+  background: linear-gradient(90deg, #a07c28, #f0cf6a);
+}
+.cs-window .inv-section {
+  padding: 0 16px;
+}
+.cs-grid {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0 16px;
+}
+.cs-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.cs-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.025);
+}
+.cs-row dt {
+  color: #a8957a;
+}
+.cs-row dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Tooltip */
+.tooltip.tt {
+  width: 300px;
+  padding: 0;
+  overflow: hidden;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--tier) 65%, #000);
+  box-shadow: 0 0 0 1px #000, 0 0 18px color-mix(in srgb, var(--tier) 18%, transparent), 0 12px 36px #000e;
+}
+.tt .item-details {
+  padding-bottom: 2px;
+}
+.tt-head {
+  padding: 10px 12px 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tier) 26%, transparent), transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tier) 35%, transparent);
+}
+.tt-head h4 {
+  margin: 0 !important;
+  font-family: Cinzel, Georgia, serif;
+  font-size: 17px !important;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--tier) 45%, transparent);
+}
+.tt-base {
+  margin: 2px 0 0 !important;
+  font-size: 12px !important;
+  color: #b8a888;
+}
+.tt-sec {
+  margin: 0 !important;
+  padding: 6px 12px;
+  border-bottom: 1px solid #1f1913;
+}
+.tt .implicit {
+  color: #e8dcc0;
+  border-bottom: 1px solid #1f1913;
+}
+.tt .affixes {
+  color: #8fa8ff;
+}
+.tt .affixes li {
+  margin: 2px 0;
+}
+.affixes .tier.t1 {
+  color: #8a8a8a;
+}
+.affixes .tier.t2 {
+  color: #7ad08a;
+}
+.affixes .tier.t3 {
+  color: #f0c050;
+}
+.tt-req .requirement {
+  margin: 1px 0 !important;
+}
+.requirement.unmet {
+  color: #ff5a4a !important;
+  font-weight: 600;
+}
+.tt .corrupted {
+  color: #e0405a;
+}
+.tt .skill-line {
+  font-size: 12px;
+  color: #d8ccb0;
+}
+.tt .rune-row,
+.tt .cost {
+  padding: 4px 12px;
+}
+.tt-foot {
+  margin: 0 !important;
+  padding: 5px 12px 6px;
+  font-size: 11px !important;
+  color: #7a6d58;
+}
+.tt-compare {
+  margin: 0 8px 6px;
+  padding: 6px 8px;
+  border: 1px solid #2e261b;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.35);
+  text-align: left;
+}
+.tt-compare h5 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #a8957a;
+}
+.tt-compare ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+.tt-compare li.up {
+  color: #7ae08a;
+}
+.tt-compare li.down {
+  color: #ff6a5a;
+}
+.tt-hint {
+  padding: 6px 10px 8px;
+  font-size: 10px;
+  color: #6d6150;
+  border-top: 1px solid #1f1913;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Narrow screens: stack the two columns so the window never runs off the side. */
+@media (max-width: 1100px) {
+  .inv-body {
+    grid-template-columns: auto;
+  }
+  .inv-window {
+    max-height: calc(100% - 180px);
+    overflow: auto;
+  }
+}
