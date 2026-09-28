@@ -113,7 +113,7 @@ describe('rooms', () => {
     for (let i = 0; i < 40; i++) sim.step();
     sim.world.position.set(id, { x: portal.x, y: portal.y });
     sim.step();
-    expect(sim.portalRequests).toContainEqual({ playerId: id, target: 'wilds' });
+    expect(sim.portalRequests).toContainEqual({ playerId: id, target: 'wilds', portal });
   });
 
   it('a character keeps items and equipment across rooms', () => {

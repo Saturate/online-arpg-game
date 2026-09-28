@@ -9,6 +9,7 @@ import { useUi } from './store.js';
 import { Hud, Notices, Party } from './Hud.js';
 import { Inventory, ItemTooltip } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
+import { StagingPanel } from './StagingPanel.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 
 export function GameView({ token, character, mode }: { token: string; character: CharacterSummary; mode: GameMode }) {
@@ -45,6 +46,7 @@ export function GameView({ token, character, mode }: { token: string; character:
       <EscMenu />
       <TownEditorPanel />
       <DevPanel />
+      <StagingPanel />
       <ItemTooltip />
     </div>
   );

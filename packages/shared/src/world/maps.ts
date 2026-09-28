@@ -1,8 +1,9 @@
-import { WILDS } from '../config/sim.js';
+import { DUNGEON, WILDS } from '../config/sim.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
+import { dungeonMap, dungeonName, stagingMap } from './dungeon.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
 import type { MapDescriptor, MonsterPack, WorldMap } from './types.js';
 
@@ -147,7 +148,28 @@ function wildsMap(seed: number): WorldMap {
     scatterDecor(map, rng, x, y, 60, ['grave_bone_A', 'grave_skull', 'grave_ribcage', 'grave_tree_dead_small', 'dungeon_rubble_half', 'grave_pumpkin_orange'], 2);
   }
   map.packs = placePacks(map, rng);
+  placeEntrances(map, rng, seed);
   return map;
+}
+
+/** Dungeon entrances: a ring of rubble around a staging portal, out in reachable ground far from camp. */
+function placeEntrances(map: WorldMap, rng: Rng, seed: number): void {
+  const gm = new GameMap(map);
+  const reach = reachable(gm, map.spawn.x, map.spawn.y);
+  for (let attempt = 0, placed = 0; attempt < 2000 && placed < DUNGEON.entrances; attempt++) {
+    const x = rng.range(300, map.width - 300);
+    const y = rng.range(300, map.height - 300);
+    const d = Math.hypot(x - map.spawn.x, y - map.spawn.y);
+    if (d < DUNGEON.entranceMinDistance || !reach.has(gm.navCell(x, y)) || gm.pointBlocked(x, y, 90, 'move')) continue;
+    if (map.packs.some((p) => Math.hypot(p.x - x, p.y - y) < 260) || map.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 1200)) continue;
+    const level = 2 + Math.floor(d / WILDS.levelDistance);
+    // Derived from the Wilds seed so everyone in one instance shares the same antechamber.
+    const dungeonSeed = ((Math.imul(seed + 1, 2246822519) + placed * 3266489917) >>> 0) % 1_000_000;
+    map.portals.push({ x, y, r: 46, target: 'staging', label: dungeonName(dungeonSeed), dungeon: { seed: dungeonSeed, level } });
+    map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 130 } });
+    scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10);
+    placed++;
+  }
 }
 
 /**
@@ -208,11 +230,30 @@ function flatMap(): WorldMap {
   return emptyMap({ name: 'Flat', theme: 'flat', width: 2800, height: 2000, spawn: { x: 1400, y: 1000 }, waves: true, safe: false, groundTint: 0x606060 });
 }
 
+function buildMap(desc: MapDescriptor): WorldMap {
+  switch (desc.kind) {
+    case 'arena':
+      return arenaMap();
+    case 'town':
+      return layoutToMap(desc.layout ?? DEFAULT_TOWN_LAYOUT);
+    case 'flat':
+      return flatMap();
+    case 'wilds':
+      return wildsMap(desc.seed);
+    case 'staging':
+      return stagingMap(desc);
+    case 'dungeon':
+      return dungeonMap(desc, desc.run);
+  }
+}
+
 const cache = new Map<string, { def: WorldMap; game: GameMap }>();
 
 export function mapKey(desc: MapDescriptor): string {
   if (desc.kind === 'wilds') return `wilds:${desc.seed}`;
   if (desc.kind === 'town') return `town:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}`;
+  if (desc.kind === 'staging') return `staging:${desc.seed}:${desc.level}`;
+  if (desc.kind === 'dungeon') return `dungeon:${desc.seed}:${desc.level}:${desc.run}`;
   return desc.kind;
 }
 
@@ -221,8 +262,7 @@ export function loadMap(desc: MapDescriptor): { def: WorldMap; game: GameMap } {
   const key = mapKey(desc);
   const hit = cache.get(key);
   if (hit) return hit;
-  const def =
-    desc.kind === 'arena' ? arenaMap() : desc.kind === 'town' ? layoutToMap(desc.layout ?? DEFAULT_TOWN_LAYOUT) : desc.kind === 'flat' ? flatMap() : wildsMap(desc.seed);
+  const def = buildMap(desc);
   const entry = { def, game: new GameMap(def) };
   // Instances come and go; keep the cache small so a long-running server does not grow forever.
   if (cache.size > 32) {

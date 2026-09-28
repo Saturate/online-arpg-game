@@ -15,6 +15,7 @@ import {
   type SigilItem,
   type Snapshot,
   type Stance,
+  type StagingMessage,
   type PlayerStats,
 } from '@rune/shared';
 import { create } from 'zustand';
@@ -57,6 +58,10 @@ interface UiState {
   menuOpen: boolean;
   minimapVisible: boolean;
   instances: InstanceInfo[];
+  /** Antechamber ready check, while standing in one. */
+  staging: StagingMessage | null;
+  /** Landing spots beside each portal in the current room, for the sandbox's quick travel list. */
+  roomPortals: { label: string; x: number; y: number }[];
   connectionError: string | null;
   playerId: EntityId | null;
 
@@ -140,6 +145,8 @@ export const useUi = create<UiState>((set, get) => ({
   menuOpen: false,
   minimapVisible: true,
   instances: [],
+  staging: null,
+  roomPortals: [],
   connectionError: null,
   playerId: null,
   life: 0,

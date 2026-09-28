@@ -1435,3 +1435,59 @@ kbd {
   color: var(--gold);
   margin: 0 0 10px;
 }
+
+/* Dungeon antechamber */
+.staging-panel {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 340px;
+  text-align: center;
+}
+.staging-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.staging-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+.staging-panel li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid #3a2f20;
+  border-radius: 4px;
+}
+.staging-panel li.ready {
+  border-color: var(--good);
+}
+.staging-panel li .state {
+  color: var(--muted);
+  font-size: 12px;
+}
+.staging-panel li.ready .state {
+  color: var(--good);
+}
+.staging-panel .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.staging-panel .countdown {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 20px;
+  margin: 6px 0;
+}
+.staging-panel button.on {
+  border-color: var(--good) !important;
+  color: var(--good);
+}

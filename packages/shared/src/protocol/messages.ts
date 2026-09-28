@@ -51,6 +51,8 @@ export type ClientMessage =
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
   | { t: 'cycleStance' }
+  /** Dungeon antechamber ready check. */
+  | { t: 'ready'; ready: boolean }
   | { t: 'equipGear'; uid: ItemUid }
   | { t: 'unequipGear'; slot: GearSlot }
   /** Town editor: replace the town layout. Only honoured when the server enables the editor. */
@@ -168,6 +170,7 @@ export interface Snapshot {
 
 export interface InstanceInfo {
   roomId: string;
+  kind: 'wilds' | 'staging';
   name: string;
   seed: number;
   players: string[];
@@ -180,6 +183,18 @@ export interface InventoryMessage {
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
+}
+
+/** Antechamber state, sent to everyone inside it whenever it changes. */
+export interface StagingMessage {
+  t: 'staging';
+  members: { name: string; cls: ClassId; ready: boolean }[];
+  /** Seconds until the party is sent in, or null when not everyone is ready. */
+  countdown: number | null;
+  /** A run is live: the gate lets latecomers straight in. */
+  open: boolean;
+  inside: number;
+  level: number;
 }
 
 export type ServerMessage =
@@ -196,6 +211,7 @@ export type ServerMessage =
       devTools: boolean;
     }
   | { t: 'instances'; list: InstanceInfo[] }
+  | StagingMessage
   | Snapshot
   | InventoryMessage
   | { t: 'notice'; text: string }

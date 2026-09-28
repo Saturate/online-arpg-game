@@ -2,6 +2,9 @@ import { jsonCodec, type ServerMessage } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { Room } from './room.js';
 
+/** The parts of a ws socket a client uses, so tests can pass a stand-in. */
+export type ClientSocket = Pick<WebSocket, 'readyState' | 'OPEN' | 'send' | 'close'>;
+
 /** Generous for 20 Hz input, pings and editor clicks; anything above is a misbehaving client. */
 export const MAX_MESSAGES_PER_SECOND = 80;
 
@@ -18,7 +21,7 @@ export class Client {
 
   constructor(
     readonly id: string,
-    readonly socket: WebSocket,
+    readonly socket: ClientSocket,
   ) {}
 
   send(msg: ServerMessage): void {

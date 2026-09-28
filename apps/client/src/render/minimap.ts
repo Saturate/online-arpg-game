@@ -37,8 +37,12 @@ export class Minimap {
     g.fillRect(0, 0, this.w, this.h);
     g.globalAlpha = 1;
     for (const patch of this.def.ground) {
-      g.fillStyle = patch.kind === 'plaza' ? '#9a9080' : '#8a7050';
-      if (patch.shape.type === 'circle') {
+      g.fillStyle = patch.kind === 'plaza' ? '#9a9080' : patch.kind === 'floor' ? '#6e655a' : '#8a7050';
+      if (patch.shape.type === 'box') {
+        const b = patch.shape;
+        // Floor runs are one cell tall; overlap by a pixel so rows do not leave hairline gaps.
+        g.fillRect((b.x - b.hw) * s, (b.y - b.hh) * s, b.hw * 2 * s, b.hh * 2 * s + 1);
+      } else if (patch.shape.type === 'circle') {
         g.beginPath();
         g.arc(patch.shape.x * s, patch.shape.y * s, patch.shape.r * s, 0, Math.PI * 2);
         g.fill();
@@ -66,7 +70,8 @@ export class Minimap {
       g.fill();
     }
     for (const o of this.def.obstacles) {
-      if (o.kind === 'water') continue;
+      // Rock is the background underground; the carved floor already shows the layout.
+      if (o.kind === 'water' || o.kind === 'cavewall') continue;
       g.fillStyle = o.kind === 'tree' ? '#2a4a22' : o.kind === 'house' || o.kind === 'stall' ? '#8a4a3a' : '#5a5650';
       const sh = o.shape;
       if (sh.type === 'circle') {

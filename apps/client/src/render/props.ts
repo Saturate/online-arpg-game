@@ -264,8 +264,11 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const disposers: (() => void)[] = [];
   const { width, height } = def;
 
-  // Ground
-  const groundMat = new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), width / 420, height / 420), color: def.groundTint, roughness: 1 });
+  const underground = def.theme === 'dungeon' || def.theme === 'staging';
+  // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
+  const groundMat = underground
+    ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 })
+    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), width / 420, height / 420), color: def.groundTint, roughness: 1 });
   const ground = new Mesh(new PlaneGeometry(width, height), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(width / 2, 0, height / 2);
@@ -278,7 +281,9 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
   const stoneTex = repeatTexture(stoneCanvas(), 1, 1);
   const dirtTex = repeatTexture(dirtCanvas(), 1, 1);
+  if (underground) addUnderground(group, def, animated);
   for (const patch of def.ground) {
+    if (patch.kind === 'floor') continue;
     const s = patch.shape;
     if (s.type === 'circle') {
       const tex = (patch.kind === 'plaza' ? stoneTex : dirtTex).clone();
@@ -351,17 +356,18 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') batch.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
   for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') batch.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
   for (const d of def.decor) batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
-  for (const l of def.lamps ?? []) batch.add('grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: 80 } });
+  for (const l of def.lamps ?? []) batch.add(underground ? 'dungeon_torch_lit' : 'grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
   if (def.theme === 'arena') addArenaWalls(group, width, height);
-  else addBorder(group, batch, def);
+  else if (!underground) addBorder(group, batch, def);
   let cancelled = false;
   void batch.build(group, () => cancelled);
   disposers.push(() => {
     cancelled = true;
   });
 
+  const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347 } as const;
   for (const p of def.portals) {
-    const built = portal(p.x, p.y, p.r, p.target === 'town' ? 0x6bb6ff : p.target === 'arena' ? 0xff7a3a : 0xb49cff);
+    const built = portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
     group.add(built.group);
     animated.push(built.update);
   }
@@ -370,14 +376,14 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     group.add(fire.group);
     animated.push(fire.update);
   }
-  {
+  if (!underground) {
     for (const { x, y } of def.lamps ?? []) {
       const torch = lamp(x, y);
       group.add(torch.group);
       animated.push(torch.update);
     }
+    addDecor(group, def);
   }
-  addDecor(group, def);
 
   return {
     group,
@@ -878,3 +884,93 @@ function addDecor(group: Group, def: WorldMap): void {
   }
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Dungeons
+
+/** Flagstone quads and rock wall boxes, each merged into one mesh, with UVs in world space so the texture never stretches. */
+function addUnderground(group: Group, def: WorldMap, animated: ((t: number, px: number, py: number) => void)[]): void {
+  const tile = 160;
+  const floorPos: number[] = [];
+  const floorUv: number[] = [];
+  const floorIdx: number[] = [];
+  for (const patch of def.ground) {
+    if (patch.kind !== 'floor' || patch.shape.type !== 'box') continue;
+    const { x, y, hw, hh } = patch.shape;
+    const base = floorPos.length / 3;
+    for (const [cx, cz] of [
+      [x - hw, y - hh],
+      [x + hw, y - hh],
+      [x + hw, y + hh],
+      [x - hw, y + hh],
+    ] as const) {
+      floorPos.push(cx, 0.5, cz);
+      floorUv.push(cx / tile, cz / tile);
+    }
+    floorIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  }
+  const floorGeo = new BufferGeometry();
+  floorGeo.setAttribute('position', new BufferAttribute(new Float32Array(floorPos), 3));
+  floorGeo.setAttribute('uv', new BufferAttribute(new Float32Array(floorUv), 2));
+  floorGeo.setIndex(floorIdx);
+  floorGeo.computeVertexNormals();
+  const floor = new Mesh(floorGeo, new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0xd0c4b4, roughness: 0.95 }));
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  // Low walls: a full-height wall on the south side of a room would hide anyone standing behind it.
+  const h = 44;
+  const quad = (a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[], uvs: readonly number[]) => {
+    const base = pos.length / 3;
+    pos.push(...a, ...b, ...c, ...d);
+    uv.push(...uvs);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  for (const o of def.obstacles) {
+    if (o.kind !== 'cavewall' || o.shape.type !== 'box') continue;
+    const { x, y, hw, hh } = o.shape;
+    const x0 = x - hw;
+    const x1 = x + hw;
+    const z0 = y - hh;
+    const z1 = y + hh;
+    const t = 96;
+    quad([x0, h, z0], [x0, h, z1], [x1, h, z1], [x1, h, z0], [x0 / t, z0 / t, x0 / t, z1 / t, x1 / t, z1 / t, x1 / t, z0 / t]);
+    quad([x0, 0, z1], [x1, 0, z1], [x1, h, z1], [x0, h, z1], [x0 / t, 0, x1 / t, 0, x1 / t, h / t, x0 / t, h / t]);
+    quad([x1, 0, z0], [x0, 0, z0], [x0, h, z0], [x1, h, z0], [x1 / t, 0, x0 / t, 0, x0 / t, h / t, x1 / t, h / t]);
+    quad([x0, 0, z0], [x0, 0, z1], [x0, h, z1], [x0, h, z0], [z0 / t, 0, z1 / t, 0, z1 / t, h / t, z0 / t, h / t]);
+    quad([x1, 0, z1], [x1, 0, z0], [x1, h, z0], [x1, h, z1], [z1 / t, 0, z0 / t, 0, z0 / t, h / t, z1 / t, h / t]);
+  }
+  const wallGeo = new BufferGeometry();
+  wallGeo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+  wallGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2));
+  wallGeo.setIndex(idx);
+  wallGeo.computeVertexNormals();
+  const walls = new Mesh(wallGeo, new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide }));
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+  group.add(walls);
+
+  // A fixed pool of lights follows the torches nearest the player. The light count is part of every
+  // material's shader, so toggling one light per torch would recompile shaders as you walk.
+  const lamps = def.lamps ?? [];
+  const pool: PointLight[] = [];
+  for (let i = 0; i < Math.min(6, lamps.length); i++) {
+    const light = new PointLight(0xff9a4a, 0, 380, 0);
+    light.position.y = 56;
+    group.add(light);
+    pool.push(light);
+  }
+  animated.push((t, px, py) => {
+    const nearest = [...lamps].sort((a, b) => (a.x - px) ** 2 + (a.y - py) ** 2 - ((b.x - px) ** 2 + (b.y - py) ** 2));
+    pool.forEach((light, i) => {
+      const l = nearest[i];
+      if (!l) return;
+      light.position.x = l.x;
+      light.position.z = l.y;
+      light.intensity = 2.4 + Math.sin(t * 9 + l.x) * 0.25 + Math.sin(t * 23 + l.y) * 0.15;
+    });
+  });
+}

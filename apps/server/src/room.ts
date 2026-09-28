@@ -207,5 +207,5 @@ export class Room {
 }
 
 export function roomIdFor(desc: MapDescriptor): string {
-  return mapKey(desc).replace(':', '-');
+  return mapKey(desc).replaceAll(':', '-');
 }

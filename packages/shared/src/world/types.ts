@@ -2,7 +2,7 @@ import type { EnemyTypeId } from '../data/enemies.js';
 import type { Vec2 } from '../sim/math.js';
 import type { TownLayout } from './town.js';
 
-export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate';
+export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate' | 'cavewall';
 
 export type Shape =
   | { type: 'circle'; x: number; y: number; r: number }
@@ -28,7 +28,14 @@ export interface Bridge {
   width: number;
 }
 
-export type PortalTarget = 'town' | 'wilds' | 'arena';
+/** `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from there into the dungeon itself. */
+export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon';
+
+/** Identifies a dungeon: the same seed and level always generate the same staging room. */
+export interface DungeonRef {
+  seed: number;
+  level: number;
+}
 
 export interface Portal {
   x: number;
@@ -36,6 +43,8 @@ export interface Portal {
   r: number;
   target: PortalTarget;
   label: string;
+  /** Set on `staging` portals: which dungeon the entrance leads to. */
+  dungeon?: DungeonRef;
 }
 
 export interface MonsterPack {
@@ -49,11 +58,12 @@ export interface MonsterPack {
   boss: boolean;
 }
 
-export type MapTheme = 'arena' | 'town' | 'wilds' | 'flat';
+export type MapTheme = 'arena' | 'town' | 'wilds' | 'flat' | 'dungeon' | 'staging';
 
 /** Ground areas drawn with a different surface: plazas, roads. */
 export interface GroundPatch {
-  kind: 'plaza' | 'road' | 'dirt';
+  /** `floor` is dungeon flagstone, laid as boxes over the dark rock. */
+  kind: 'plaza' | 'road' | 'dirt' | 'floor';
   shape: Shape;
 }
 
@@ -92,4 +102,11 @@ export interface Decor {
 }
 
 /** `flat` is an empty open field used by tests. */
-export type MapDescriptor = { kind: 'arena' } | { kind: 'town'; layout?: TownLayout } | { kind: 'flat' } | { kind: 'wilds'; seed: number };
+export type MapDescriptor =
+  | { kind: 'arena' }
+  | { kind: 'town'; layout?: TownLayout }
+  | { kind: 'flat' }
+  | { kind: 'wilds'; seed: number }
+  | ({ kind: 'staging' } & DungeonRef)
+  /** `run` counts attempts from the same staging room, so every run gets a fresh layout. */
+  | ({ kind: 'dungeon'; run: number } & DungeonRef);

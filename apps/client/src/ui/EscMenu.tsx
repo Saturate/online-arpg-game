@@ -59,12 +59,15 @@ export function EscMenu() {
         </div>
         {instances.length > 0 && (
           <>
-            <h3>Open Wilds instances</h3>
+            <h3>Open instances</h3>
             <ul className="instances">
               {instances.map((i) => (
                 <li key={i.roomId}>
                   <span>
-                    {i.name} <span className="muted">seed {i.seed}, {i.players.length > 0 ? i.players.join(', ') : 'empty'}</span>
+                    {i.name}{' '}
+                    <span className="muted">
+                      {i.kind === 'staging' ? 'dungeon party' : `seed ${i.seed}`}, {i.players.length > 0 ? i.players.join(', ') : 'empty'}
+                    </span>
                   </span>
                   <button type="button" onClick={() => go({ t: 'joinInstance', roomId: i.roomId })}>
                     Join

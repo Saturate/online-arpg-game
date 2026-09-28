@@ -9,7 +9,7 @@ import { BUTTON, SKILL_BUTTONS, type GameEvent, type InputFrame } from '../proto
 import type { GameMap } from '../world/gamemap.js';
 import { loadMap } from '../world/maps.js';
 import { FlowField } from '../world/nav.js';
-import type { MapDescriptor, PortalTarget, WorldMap } from '../world/types.js';
+import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
 import * as inv from './inventory.js';
@@ -42,6 +42,7 @@ export interface PlayerSave {
 export interface PortalRequest {
   playerId: EntityId;
   target: PortalTarget;
+  portal: Portal;
 }
 
 /** Seconds after arriving before a portal can be used, so players do not bounce straight back. */

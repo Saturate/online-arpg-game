@@ -230,6 +230,29 @@ export const WILDS = {
   idleCloseSeconds: 300,
 } as const;
 
+export const DUNGEON = {
+  /** Room slots across and down; one room per slot. */
+  slotsX: 4,
+  slotsY: 3,
+  /** Slot size in nav cells (40 units), so a slot is 880 units square. */
+  slotCells: 22,
+  roomMin: 9,
+  roomMax: 17,
+  corridorCells: 3,
+  /** Corridors beyond the spanning tree, so some rooms can be reached two ways. */
+  extraLinks: 3,
+  wallHeight: 70,
+  /** Monster levels climb by up to this much from the entrance to the boss room. */
+  levelSpread: 2,
+  rareLeaderChance: 0.45,
+  /** Entrances per Wilds map, and how far from the camp they must be. */
+  entrances: 2,
+  entranceMinDistance: 1400,
+  /** Ready check countdown before the party is sent in together. */
+  countdownSeconds: 3,
+  names: ['The Sunken Crypt', 'Hollow Vaults', 'The Bone Cellar', 'Drowned Catacombs', 'The Ember Pit', 'Wormwood Tunnels'],
+} as const;
+
 /** Per monster level above 1. */
 export const ENEMY_LEVEL = {
   lifePerLevel: 0.28,

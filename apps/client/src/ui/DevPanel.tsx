@@ -16,6 +16,7 @@ function dev(cmd: DevCommand): void {
 /** Encounter sandbox (F3). Spawning uses the last spot the mouse hovered on the ground. */
 export function DevPanel() {
   const open = useUi((s) => s.devOpen);
+  const portals = useUi((s) => s.roomPortals);
   const allowed = useUi((s) => s.devTools);
   const [enemy, setEnemy] = useState<EnemyTypeId>('chaser');
   const [count, setCount] = useState(5);
@@ -117,6 +118,18 @@ export function DevPanel() {
           Teleport to cursor
         </button>
       </div>
+      {portals.length > 0 && (
+        <>
+          <h3>Portals</h3>
+          <div className="actions">
+            {portals.map((p) => (
+              <button key={`${p.x}:${p.y}`} type="button" onClick={() => dev({ c: 'teleport', x: p.x, y: p.y })}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <h3>Time</h3>
       <div className="actions">
         {TIME_SCALES.map((t) => (

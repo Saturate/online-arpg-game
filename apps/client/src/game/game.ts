@@ -180,7 +180,15 @@ export class Game {
   /** Builds the scene for a room. The map is regenerated locally from its descriptor, identical to the server's. */
   private enterRoom(id: string, desc: MapDescriptor): void {
     this.teardownRoom();
+    useUi.setState({ staging: null });
     const { def, game } = loadMap(desc);
+    useUi.setState({
+      roomPortals: def.portals.map((p) => {
+        // Land on the spawn side of the portal: open ground, and close enough to step in.
+        const d = Math.hypot(def.spawn.x - p.x, def.spawn.y - p.y) || 1;
+        return { label: p.label, x: p.x + ((def.spawn.x - p.x) / d) * (p.r + 50), y: p.y + ((def.spawn.y - p.y) / d) * (p.r + 50) };
+      }),
+    });
     const world = new WorldScene(this.mounts.host, def);
     const entities = new EntityRenderer(world.scene, world.camera);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
@@ -252,6 +260,10 @@ export class Game {
       if (ui.editorAllowed) ui.toggleEditor();
       else ui.notify('Skills are locked for now. The sigil editor works in the Arena.');
     } else if (code === 'KeyT') this.conn.send({ t: 'cycleStance' });
+    else if (code === 'KeyR' && ui.staging) {
+      const me = ui.staging.members.find((m) => m.name === ui.name);
+      this.conn.send({ t: 'ready', ready: !(me?.ready ?? false) });
+    }
     else if (code === 'Tab') useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     else if (code === 'Escape') {
       if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen) useUi.setState({ inventoryOpen: false, editorOpen: false, characterOpen: false });
@@ -285,6 +297,9 @@ export class Game {
         return;
       case 'notice':
         useUi.getState().notify(msg.text);
+        return;
+      case 'staging':
+        useUi.setState({ staging: msg });
         return;
       case 'instances':
         useUi.setState({ instances: msg.list });

@@ -33,7 +33,7 @@ export interface TownPlaza {
 }
 
 export interface TownPortal {
-  target: PortalTarget;
+  target: TownPortalTarget;
   x: number;
   y: number;
 }
@@ -106,7 +106,10 @@ export function isOakAt(def: WorldMap, x: number, y: number): boolean {
   return def.oaks?.some((o) => Math.abs(o.x - x) < 0.5 && Math.abs(o.y - y) < 0.5) ?? false;
 }
 
-const PORTAL_LABELS: Record<PortalTarget, string> = { town: 'Town', wilds: 'The Wilds', arena: 'Arena (test)' };
+/** Town portals lead to fixed places; dungeon portals only exist out in the Wilds. */
+export type TownPortalTarget = Extract<PortalTarget, 'town' | 'wilds' | 'arena'>;
+
+const PORTAL_LABELS: Record<TownPortalTarget, string> = { town: 'Town', wilds: 'The Wilds', arena: 'Arena (test)' };
 
 export function layoutToMap(layout: TownLayout): WorldMap {
   const map = emptyMap({
@@ -259,7 +262,7 @@ function isPropKind(v: unknown): v is TownPropKind {
   return typeof v === 'string' && TOWN_PROP_KINDS.some((k) => k === v);
 }
 
-function isPortalTarget(v: unknown): v is PortalTarget {
+function isPortalTarget(v: unknown): v is TownPortalTarget {
   return v === 'town' || v === 'wilds' || v === 'arena';
 }
 

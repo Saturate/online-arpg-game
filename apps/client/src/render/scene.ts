@@ -39,6 +39,8 @@ interface Lighting {
   sunColor: number;
   exposure: number;
   playerLight: number;
+  /** Falloff exponent for the hero's light. 0 keeps only the windowed falloff to its range, for lit-by-torch places. */
+  playerDecay?: number;
 }
 
 /** Each theme gets its own time of day. */
@@ -46,6 +48,9 @@ const LIGHTING: Record<MapTheme, Lighting> = {
   town: { sky: 0xffd8b0, groundLight: 0x4a3a2c, hemi: 1.4, ambient: 0.6, sun: 2.0, sunColor: 0xffc890, exposure: 1.35, playerLight: 1.6 },
   wilds: { sky: 0xc8dcff, groundLight: 0x4a3a28, hemi: 1.2, ambient: 0.5, sun: 2.2, sunColor: 0xfff0d8, exposure: 1.15, playerLight: 0.8 },
   arena: { sky: 0x9aa8d0, groundLight: 0x3a2a1c, hemi: 1.0, ambient: 0.6, sun: 1.6, sunColor: 0xffe2c0, exposure: 1.3, playerLight: 2.2 },
+  // Underground: almost no sky, torches and the hero's own light do the work.
+  dungeon: { sky: 0x6a7aa0, groundLight: 0x2a2018, hemi: 0.7, ambient: 0.45, sun: 0.5, sunColor: 0x8090c0, exposure: 1.3, playerLight: 1.8, playerDecay: 0 },
+  staging: { sky: 0x7a80a0, groundLight: 0x2a2018, hemi: 0.85, ambient: 0.5, sun: 0.6, sunColor: 0x9098c0, exposure: 1.3, playerLight: 1.6, playerDecay: 0 },
   flat: { sky: 0xffffff, groundLight: 0x444444, hemi: 1, ambient: 0.6, sun: 1.5, sunColor: 0xffffff, exposure: 1.1, playerLight: 1 },
 };
 
@@ -103,7 +108,7 @@ export class WorldScene {
     this.scene.add(this.sun, this.sun.target);
 
     // The player carries a warm light, so the area around them always reads well.
-    this.playerLight = new PointLight(0xffd6a0, light.playerLight, 520, 1.4);
+    this.playerLight = new PointLight(0xffd6a0, light.playerLight, 520, light.playerDecay ?? 1.4);
     this.scene.add(this.playerLight);
 
     this.world = buildWorld(def);

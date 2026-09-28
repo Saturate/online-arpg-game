@@ -1,8 +1,9 @@
-import { jsonCodec, parseClientMessage, SIM, WILDS, type ClientMessage, type PlayerSave, type PortalTarget } from '@rune/shared';
+import { jsonCodec, parseClientMessage, SIM, WILDS, type ClientMessage, type DungeonRef, type PlayerSave, type PortalRequest } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { AccountStore } from './accounts.js';
 import { Client, MAX_MESSAGES_PER_SECOND } from './client.js';
 import { Room, roomIdFor } from './room.js';
+import { Staging } from './staging.js';
 import { loadTownLayout, saveTownLayout, townEditorEnabled } from './townStore.js';
 
 /** Encounter sandbox and other dev commands. Off unless explicitly enabled. */
@@ -18,6 +19,8 @@ const AUTOSAVE_SECONDS = 30;
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly clients = new Map<string, Client>();
+  /** Ready-check state per antechamber, keyed by the staging room id. */
+  private readonly stagings = new Map<string, Staging>();
   private town: Room;
   private readonly arena: Room;
   private nextClientId = 1;
@@ -79,9 +82,44 @@ export class RoomManager {
       this.saveAll();
     }
     for (const room of [...this.rooms.values()]) {
-      for (const { client, request } of room.tick()) this.usePortal(client, request.target);
-      if (room.desc.kind === 'wilds' && room.members.size === 0 && room.emptySeconds > WILDS.idleCloseSeconds) this.rooms.delete(room.id);
+      for (const { client, request } of room.tick()) this.usePortal(client, request);
+      if (this.closable(room)) this.close(room);
     }
+    for (const staging of this.stagings.values()) {
+      if (staging.runRoomId !== null && !this.rooms.has(staging.runRoomId)) staging.runRoomId = null;
+      staging.recheck();
+      if (staging.tick()) this.startRun(staging);
+      const run = staging.runRoomId === null ? undefined : this.rooms.get(staging.runRoomId);
+      staging.broadcast(run?.members.size ?? 0);
+    }
+  }
+
+  /** Instances close once abandoned. An antechamber stays while its run is live, so latecomers can still get in. */
+  private closable(room: Room): boolean {
+    if (room.members.size > 0 || room.emptySeconds <= WILDS.idleCloseSeconds) return false;
+    if (room.desc.kind === 'wilds' || room.desc.kind === 'dungeon') return true;
+    return room.desc.kind === 'staging' && this.stagings.get(room.id)?.runRoomId === null;
+  }
+
+  private close(room: Room): void {
+    this.rooms.delete(room.id);
+    this.stagings.delete(room.id);
+  }
+
+  private stagingFor(ref: DungeonRef): Room {
+    const desc = { kind: 'staging', seed: ref.seed, level: ref.level } as const;
+    const existing = this.rooms.get(roomIdFor(desc));
+    if (existing) return existing;
+    const room = this.createRoom(desc);
+    this.stagings.set(room.id, new Staging(room, ref));
+    return room;
+  }
+
+  /** Everyone in the antechamber goes into a brand new run together. */
+  private startRun(staging: Staging): void {
+    const run = this.createRoom({ kind: 'dungeon', seed: staging.ref.seed, level: staging.ref.level, run: staging.runs++ });
+    staging.runRoomId = run.id;
+    for (const m of [...staging.room.members.values()]) this.move(m.client, run);
   }
 
   connect(socket: WebSocket): void {
@@ -132,9 +170,15 @@ export class RoomManager {
       case 'newInstance':
         this.move(client, this.newWilds(msg.seed));
         return;
+      case 'ready': {
+        const room = client.room;
+        const staging = room ? this.stagings.get(room.id) : undefined;
+        staging?.setReady(client, msg.ready);
+        return;
+      }
       case 'joinInstance': {
         const room = this.rooms.get(msg.roomId);
-        if (room && room.desc.kind === 'wilds') this.move(client, room);
+        if (room && (room.desc.kind === 'wilds' || room.desc.kind === 'staging')) this.move(client, room);
         else client.send({ t: 'notice', text: 'That instance has closed' });
         return;
       }
@@ -152,11 +196,12 @@ export class RoomManager {
         client.send({
           t: 'instances',
           list: [...this.rooms.values()]
-            .filter((r) => r.desc.kind === 'wilds')
-            .map((r) => ({
+            .flatMap((r) => (r.desc.kind === 'wilds' || r.desc.kind === 'staging' ? [{ r, kind: r.desc.kind, seed: r.desc.seed }] : []))
+            .map(({ r, kind, seed }) => ({
               roomId: r.id,
+              kind,
               name: r.name,
-              seed: r.desc.kind === 'wilds' ? r.desc.seed : 0,
+              seed,
               players: [...r.members.values()].map((m) => this.nameOf(r, m.playerId)),
             })),
         });
@@ -183,12 +228,28 @@ export class RoomManager {
     return room.sim.world.player.get(playerId)?.name ?? '?';
   }
 
-  private usePortal(client: Client, target: PortalTarget): void {
-    if (target === 'town') this.move(client, this.town);
-    else if (target === 'arena') this.move(client, this.arena);
-    else {
-      const last = client.lastWildsId === null ? undefined : this.rooms.get(client.lastWildsId);
-      this.move(client, last ?? this.newWilds());
+  private usePortal(client: Client, request: PortalRequest): void {
+    switch (request.target) {
+      case 'town':
+        this.move(client, this.town);
+        return;
+      case 'arena':
+        this.move(client, this.arena);
+        return;
+      case 'staging':
+        if (request.portal.dungeon) this.move(client, this.stagingFor(request.portal.dungeon));
+        return;
+      case 'dungeon': {
+        const staging = client.room ? this.stagings.get(client.room.id) : undefined;
+        const run = staging?.runRoomId ? this.rooms.get(staging.runRoomId) : undefined;
+        if (run) this.move(client, run);
+        else client.send({ t: 'notice', text: 'The gate is sealed until everyone here is ready (R)' });
+        return;
+      }
+      case 'wilds': {
+        const last = client.lastWildsId === null ? undefined : this.rooms.get(client.lastWildsId);
+        this.move(client, last ?? this.newWilds());
+      }
     }
   }
 
