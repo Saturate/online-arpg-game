@@ -23,6 +23,7 @@ function statusFlags(st: StatusComp | undefined): number {
   if (st.burn) f |= STATUS.burn;
   if (st.chill > 0) f |= STATUS.chill;
   if (st.shock > 0) f |= STATUS.shock;
+  if (st.curse > 0) f |= STATUS.cursed;
   if (st.shield) f |= st.shield.burning ? STATUS.shield | STATUS.burningShield : STATUS.shield;
   return f;
 }

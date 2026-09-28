@@ -26,6 +26,11 @@ export type MonsterFamily =
   | 'ghost'
   | 'poisoner'
   | 'splitter'
+  | 'beast'
+  | 'elemental'
+  | 'golem'
+  | 'flyer'
+  | 'lurker'
   | 'boss';
 
 /**
@@ -37,8 +42,9 @@ export type MonsterFamily =
  * - ghost: drifts straight through obstacles.
  * - erratic: melee with a zig-zag weave (bats).
  * - burrow: travels hidden underground, surfaces near the target.
+ * - fly: weaves toward the target over water; rocks and walls still stop it. Holds `preferredRange` if set.
  */
-export type Movement = 'melee' | 'flank' | 'ranged' | 'kite' | 'stationary' | 'ghost' | 'erratic' | 'burrow';
+export type Movement = 'melee' | 'flank' | 'ranged' | 'kite' | 'stationary' | 'ghost' | 'erratic' | 'burrow' | 'fly';
 
 export type HazardKind = 'poison' | 'fire' | 'frost';
 
@@ -73,7 +79,9 @@ export type Ability =
   /** Raises recently fallen monsters nearby, like a D2 fallen shaman. */
   | (AbilityBase & { kind: 'raise'; radius: number; count: number })
   /** Leaves a damaging puddle: lobbed at the target, or dropped where the monster stands. */
-  | (AbilityBase & { kind: 'pool'; radius: number; dps: number; duration: number; hazard: HazardKind; atSelf?: boolean });
+  | (AbilityBase & { kind: 'pool'; radius: number; dps: number; duration: number; hazard: HazardKind; atSelf?: boolean })
+  /** Teleports to a spot `distance` from the target; the arrival point is telegraphed. */
+  | (AbilityBase & { kind: 'blink'; distance: number });
 
 export type AbilityKind = Ability['kind'];
 
@@ -90,6 +98,10 @@ export interface MonsterTraits {
   knockbackImmune?: boolean;
   /** Element of its melee hits, so a frost wraith's touch chills. */
   contactElement?: ElementId;
+  /** Statues and mimics: perfectly still until a target comes this close (or it is hit). */
+  dormant?: { wakeRange: number };
+  /** Players within this radius are cursed and deal less damage while they stay near. */
+  curse?: { radius: number };
 }
 
 interface EnemyBase {
@@ -186,11 +198,54 @@ export const ENEMY_TYPE_IDS = [
   // Splitters
   'ooze',
   'oozeling',
+  // Beasts
+  'dire_wolf',
+  'hellhound',
+  'giant_scorpion',
+  'thorn_beast',
+  'cave_spider',
+  'lizardman',
+  // Insects
+  'scarab',
+  'carrion_beetle',
+  // Flyers
+  'vulture',
+  'harpy',
+  // Slimes
+  'fire_slime',
+  'frost_slime',
+  // Elementals
+  'fire_elemental',
+  'frost_elemental',
+  'storm_elemental',
+  'will_o_wisp',
+  // Golems
+  'earth_golem',
+  'bone_golem',
+  'iron_golem',
+  // Forest
+  'treant',
+  'spore_man',
+  // Lurkers and statues
+  'bog_lurker',
+  'gargoyle',
+  'mimic',
+  'sand_worm',
+  // Desert and crypt dwellers
+  'mummy',
+  'ice_wraith',
+  // Demons and their servants
+  'imp',
+  'cultist',
+  'hellspawn',
   // Bosses
   'butcher',
   'lich',
   'broodmother',
   'infernal',
+  'sand_wyrm',
+  'treant_king',
+  'frost_giant',
 ] as const;
 export type EnemyTypeId = (typeof ENEMY_TYPE_IDS)[number];
 
@@ -582,6 +637,286 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
       { kind: 'summon', cooldown: 10, range: 900, windup: 1, type: 'volatile', count: 3, cap: 6, enragedOnly: true },
     ],
     { enrage: { at: 0.4, speed: 1.3, cooldown: 0.6 }, knockbackImmune: true, deathBurst: { radius: 160, damage: 30, element: 'fire' } },
+  ),
+
+  // Beasts: pack hunters that come at you from the sides.
+  dire_wolf: monster('dire_wolf', 'Dire Wolf', 'beast', 'flank', { life: 60, speed: 170, radius: 14, contact: 9, contactCooldown: 0.7, color: 0x6a6a72 }),
+  hellhound: monster(
+    'hellhound',
+    'Hellhound',
+    'beast',
+    'flank',
+    { life: 80, speed: 180, radius: 15, contact: 11, contactCooldown: 0.8, color: 0x8a2a1a },
+    [{ kind: 'shoot', cooldown: 3, range: 260, windup: 0.4, bullets: 3, spread: 0.25, speed: 300, damage: 10, radius: 7, element: 'fire' }],
+    { contactElement: 'fire', deathBurst: { radius: 60, damage: 14, element: 'fire' } },
+  ),
+  giant_scorpion: monster(
+    'giant_scorpion',
+    'Giant Scorpion',
+    'beast',
+    'melee',
+    { life: 160, speed: 95, radius: 18, contact: 10, color: 0xa8783a },
+    [{ kind: 'slam', cooldown: 2.8, range: 90, windup: 0.55, radius: 55, damage: 26 }],
+    { knockbackImmune: true },
+  ),
+  thorn_beast: monster(
+    'thorn_beast',
+    'Thorn Beast',
+    'charger',
+    'melee',
+    { life: 130, speed: 110, radius: 18, contact: 10, color: 0x4a6a2a },
+    [{ kind: 'charge', cooldown: 4.5, range: 400, windup: 0.8, speed: 580, duration: 0.6, damage: 26, width: 24 }],
+    { knockbackImmune: true },
+  ),
+  cave_spider: monster('cave_spider', 'Cave Spider', 'swarm', 'flank', { life: 30, speed: 165, radius: 11, contact: 6, contactCooldown: 0.6, color: 0x5a4a6a }),
+  lizardman: monster(
+    'lizardman',
+    'Lizardman',
+    'beast',
+    'flank',
+    { life: 75, speed: 135, radius: 14, contact: 9, color: 0x4a8a5a },
+    [{ kind: 'shoot', cooldown: 3, range: 420, windup: 0.4, bullets: 1, spread: 0, speed: 420, damage: 14, radius: 5 }],
+  ),
+
+  // Insects: armoured, and the big ones burst into little ones.
+  scarab: monster('scarab', 'Scarab', 'swarm', 'flank', { life: 22, speed: 150, radius: 9, contact: 5, contactCooldown: 0.6, color: 0x2a6a8a }, [], { knockbackImmune: true }),
+  carrion_beetle: monster(
+    'carrion_beetle',
+    'Carrion Beetle',
+    'splitter',
+    'melee',
+    { life: 140, speed: 75, radius: 19, contact: 10, color: 0x3a4a2a },
+    [],
+    { splitInto: { type: 'scarab', count: 4 }, knockbackImmune: true },
+  ),
+
+  // Flyers: cross rivers the rest of the pack has to walk around.
+  vulture: monster('vulture', 'Vulture', 'flyer', 'fly', { life: 38, speed: 170, radius: 12, contact: 7, contactCooldown: 0.8, color: 0x4a3a30 }),
+  harpy: monster(
+    'harpy',
+    'Harpy',
+    'flyer',
+    'fly',
+    { life: 50, speed: 150, radius: 13, contact: 6, color: 0x9a7aa8, range: 240 },
+    [{ kind: 'shoot', cooldown: 2.2, range: 480, windup: 0.35, bullets: 3, spread: 0.3, speed: 330, damage: 8, radius: 5 }],
+  ),
+
+  // Elemental slimes: pop them at range, they leave their element behind.
+  fire_slime: monster('fire_slime', 'Fire Slime', 'splitter', 'melee', { life: 70, speed: 80, radius: 15, contact: 8, color: 0xff7a3a }, [], {
+    deathBurst: { radius: 70, damage: 16, element: 'fire', hazard: 'fire' },
+  }),
+  frost_slime: monster('frost_slime', 'Frost Slime', 'splitter', 'melee', { life: 70, speed: 80, radius: 15, contact: 8, color: 0x8ac8ff }, [], {
+    deathBurst: { radius: 70, damage: 14, element: 'cold', hazard: 'frost' },
+    contactElement: 'cold',
+  }),
+
+  // Elementals.
+  fire_elemental: monster(
+    'fire_elemental',
+    'Fire Elemental',
+    'elemental',
+    'ranged',
+    { life: 110, speed: 90, radius: 17, contact: 10, color: 0xff6a20, range: 300 },
+    [{ kind: 'ring', cooldown: 2.8, range: 420, windup: 0.5, bullets: 12, speed: 200, damage: 9, radius: 7, element: 'fire' }],
+    { contactElement: 'fire', deathBurst: { radius: 80, damage: 18, element: 'fire' } },
+  ),
+  frost_elemental: monster(
+    'frost_elemental',
+    'Frost Elemental',
+    'elemental',
+    'kite',
+    { life: 100, speed: 85, radius: 17, contact: 8, color: 0x9ad8ff, range: 340 },
+    [{ kind: 'blast', cooldown: 3.4, range: 600, windup: 1.0, radius: 60, damage: 26, extra: 1, element: 'cold' }],
+    { contactElement: 'cold' },
+  ),
+  storm_elemental: monster(
+    'storm_elemental',
+    'Storm Elemental',
+    'elemental',
+    'erratic',
+    { life: 90, speed: 140, radius: 16, contact: 9, color: 0xe8e070 },
+    [{ kind: 'blast', cooldown: 3, range: 520, windup: 0.7, radius: 34, damage: 18, extra: 2, element: 'lightning' }],
+    { contactElement: 'lightning' },
+  ),
+  will_o_wisp: monster(
+    'will_o_wisp',
+    'Will-o-Wisp',
+    'elemental',
+    'ghost',
+    { life: 40, speed: 110, radius: 10, contact: 0, color: 0x9affd8, range: 320 },
+    [{ kind: 'shoot', cooldown: 1.8, range: 560, windup: 0.25, bullets: 1, spread: 0, speed: 200, damage: 11, radius: 7, element: 'lightning', homing: 2 }],
+  ),
+
+  // Golems: slow walls of stone, bone and iron.
+  earth_golem: monster(
+    'earth_golem',
+    'Earth Golem',
+    'golem',
+    'melee',
+    { life: 380, speed: 55, radius: 25, contact: 16, contactCooldown: 1.6, color: 0x8a7a5a },
+    [{ kind: 'slam', cooldown: 3.8, range: 110, windup: 1.1, radius: 100, damage: 44 }],
+    { knockbackImmune: true },
+  ),
+  bone_golem: monster(
+    'bone_golem',
+    'Bone Golem',
+    'golem',
+    'melee',
+    { life: 300, speed: 70, radius: 22, contact: 14, contactCooldown: 1.4, color: 0xe0d8c0 },
+    [
+      { kind: 'slam', cooldown: 3.4, range: 100, windup: 0.9, radius: 80, damage: 34 },
+      { kind: 'ring', cooldown: 5, range: 300, windup: 0.6, bullets: 12, speed: 220, damage: 8, radius: 6 },
+    ],
+    { knockbackImmune: true },
+  ),
+  iron_golem: monster(
+    'iron_golem',
+    'Iron Golem',
+    'golem',
+    'melee',
+    { life: 340, speed: 65, radius: 23, contact: 15, contactCooldown: 1.4, color: 0x7a8290 },
+    [{ kind: 'charge', cooldown: 5, range: 480, windup: 1.0, speed: 520, duration: 0.7, damage: 36, width: 30 }],
+    { frontalBlock: 1.6, knockbackImmune: true },
+  ),
+
+  // Forest.
+  treant: monster(
+    'treant',
+    'Treant',
+    'brute',
+    'melee',
+    { life: 320, speed: 55, radius: 24, contact: 14, contactCooldown: 1.5, color: 0x5a7a3a },
+    [
+      { kind: 'slam', cooldown: 3.6, range: 110, windup: 1.0, radius: 90, damage: 36 },
+      { kind: 'blast', cooldown: 5, range: 460, windup: 1.2, radius: 45, damage: 22, extra: 2 },
+    ],
+    { knockbackImmune: true },
+  ),
+  spore_man: monster('spore_man', 'Spore Man', 'exploder', 'melee', { life: 60, speed: 75, radius: 14, contact: 7, color: 0xb05ac0 }, [], {
+    deathBurst: { radius: 90, damage: 10, hazard: 'poison' },
+  }),
+
+  // Lurkers: ambushers that wait under water, as statues, or as treasure.
+  bog_lurker: monster(
+    'bog_lurker',
+    'Bog Lurker',
+    'lurker',
+    'burrow',
+    { life: 150, speed: 110, radius: 19, contact: 12, color: 0x3a5a3a },
+    [{ kind: 'slam', cooldown: 3.5, range: 80, windup: 0.7, radius: 70, damage: 30, atSelf: true }],
+    { burrow: { surfaceRange: 80, surfacedSeconds: 5 }, knockbackImmune: true },
+  ),
+  gargoyle: monster(
+    'gargoyle',
+    'Gargoyle',
+    'lurker',
+    'melee',
+    { life: 140, speed: 120, radius: 16, contact: 11, color: 0x7a7a80 },
+    [{ kind: 'leap', cooldown: 4, range: 420, windup: 0.5, minRange: 120, radius: 60, damage: 24, duration: 0.55 }],
+    { dormant: { wakeRange: 170 }, knockbackImmune: true },
+  ),
+  mimic: monster('mimic', 'Mimic', 'lurker', 'melee', { life: 160, speed: 140, radius: 16, contact: 16, contactCooldown: 0.8, color: 0x8a5a2a }, [], {
+    dormant: { wakeRange: 90 },
+    knockbackImmune: true,
+  }),
+  sand_worm: monster(
+    'sand_worm',
+    'Sand Worm',
+    'burrower',
+    'burrow',
+    { life: 260, speed: 130, radius: 24, contact: 14, color: 0xb8905a },
+    [{ kind: 'slam', cooldown: 3.2, range: 90, windup: 0.8, radius: 100, damage: 38, atSelf: true }],
+    { burrow: { surfaceRange: 90, surfacedSeconds: 3.5 }, knockbackImmune: true },
+  ),
+
+  // Desert and crypt.
+  mummy: monster('mummy', 'Mummy', 'brute', 'melee', { life: 170, speed: 65, radius: 16, contact: 13, contactCooldown: 1.2, color: 0xc8b890 }, [], { curse: { radius: 220 } }),
+  ice_wraith: monster(
+    'ice_wraith',
+    'Ice Wraith',
+    'ghost',
+    'ghost',
+    { life: 80, speed: 85, radius: 15, contact: 10, color: 0xb8e8ff, range: 240 },
+    [{ kind: 'ring', cooldown: 3, range: 260, windup: 0.6, bullets: 12, speed: 180, damage: 8, radius: 6, element: 'cold' }],
+    { contactElement: 'cold' },
+  ),
+
+  // Demons and their servants.
+  imp: monster(
+    'imp',
+    'Imp',
+    'caster',
+    'kite',
+    { life: 45, speed: 130, radius: 11, contact: 5, color: 0xd04a2a, range: 320 },
+    [
+      { kind: 'blink', cooldown: 4, range: 700, windup: 0.3, distance: 260 },
+      { kind: 'shoot', cooldown: 1.6, range: 560, windup: 0.2, bullets: 1, spread: 0, speed: 320, damage: 12, radius: 6, element: 'fire' },
+    ],
+  ),
+  cultist: monster(
+    'cultist',
+    'Cultist',
+    'summoner',
+    'kite',
+    { life: 70, speed: 85, radius: 14, contact: 5, color: 0x6a1a2a, range: 380 },
+    [
+      { kind: 'summon', cooldown: 7, range: 800, windup: 1.0, type: 'volatile', count: 2, cap: 3 },
+      { kind: 'blast', cooldown: 3, range: 560, windup: 0.9, radius: 45, damage: 20, extra: 0, element: 'fire' },
+    ],
+  ),
+  hellspawn: monster(
+    'hellspawn',
+    'Hellspawn',
+    'charger',
+    'melee',
+    { life: 170, speed: 120, radius: 19, contact: 14, color: 0xa0201a },
+    [{ kind: 'charge', cooldown: 4, range: 460, windup: 0.7, speed: 640, duration: 0.6, damage: 30, width: 26 }],
+    { contactElement: 'fire', knockbackImmune: true },
+  ),
+
+  // Bosses for the desert, forest and caves.
+  sand_wyrm: monster(
+    'sand_wyrm',
+    'The Sand Wyrm',
+    'boss',
+    'burrow',
+    { life: 1500, speed: 120, radius: 30, contact: 20, color: 0xc8a060 },
+    [
+      { kind: 'slam', cooldown: 3, range: 110, windup: 0.9, radius: 130, damage: 40, atSelf: true },
+      { kind: 'charge', cooldown: 5, range: 520, windup: 1.0, speed: 700, duration: 0.8, damage: 40, width: 36 },
+      { kind: 'blast', cooldown: 6, range: 700, windup: 1.1, radius: 70, damage: 30, extra: 4, enragedOnly: true },
+      { kind: 'summon', cooldown: 9, range: 900, windup: 1.0, type: 'sand_worm', count: 2, cap: 3, enragedOnly: true },
+    ],
+    { burrow: { surfaceRange: 100, surfacedSeconds: 5 }, enrage: { at: 0.5, speed: 1.3, cooldown: 0.7 }, knockbackImmune: true },
+  ),
+  treant_king: monster(
+    'treant_king',
+    'The Treant King',
+    'boss',
+    'melee',
+    { life: 1600, speed: 60, radius: 32, contact: 20, contactCooldown: 1.4, color: 0x3a5a2a },
+    [
+      { kind: 'slam', cooldown: 3.6, range: 130, windup: 1.0, radius: 110, damage: 44 },
+      { kind: 'blast', cooldown: 4.5, range: 700, windup: 1.2, radius: 55, damage: 28, extra: 3 },
+      { kind: 'summon', cooldown: 8, range: 900, windup: 1.0, type: 'thorn_beast', count: 2, cap: 4 },
+      { kind: 'pool', cooldown: 6, range: 600, windup: 0.9, radius: 90, dps: 16, duration: 5, hazard: 'poison', enragedOnly: true },
+    ],
+    { enrage: { at: 0.5, speed: 1.2, cooldown: 0.7 }, knockbackImmune: true },
+  ),
+  frost_giant: monster(
+    'frost_giant',
+    'The Frost Giant',
+    'boss',
+    'melee',
+    { life: 1700, speed: 75, radius: 30, contact: 22, contactCooldown: 1.2, color: 0x9ac8e8 },
+    [
+      { kind: 'slam', cooldown: 3.2, range: 120, windup: 0.9, radius: 100, damage: 46, element: 'cold' },
+      { kind: 'ring', cooldown: 4, range: 520, windup: 0.7, bullets: 18, speed: 200, damage: 11, radius: 7, element: 'cold' },
+      { kind: 'blast', cooldown: 5, range: 700, windup: 1.1, radius: 70, damage: 32, extra: 2, element: 'cold' },
+      { kind: 'summon', cooldown: 9, range: 900, windup: 1.2, type: 'ice_wraith', count: 2, cap: 4, enragedOnly: true },
+      { kind: 'slam', cooldown: 7, range: 180, windup: 1.3, radius: 180, damage: 34, element: 'cold', atSelf: true, enragedOnly: true },
+    ],
+    { enrage: { at: 0.5, speed: 1.3, cooldown: 0.6 }, knockbackImmune: true, contactElement: 'cold' },
   ),
 };
 

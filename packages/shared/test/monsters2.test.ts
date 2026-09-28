@@ -1,0 +1,137 @@
+import { describe, expect, it } from 'vitest';
+import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, Simulation, type EnemyTypeId } from '../src/index.js';
+import { dealDamage } from '../src/sim/combat.js';
+import { spawnEnemy } from '../src/sim/enemies.js';
+
+function setup(seed = 1, desc: ConstructorParameters<typeof Simulation>[1] = { kind: 'flat' }) {
+  const sim = new Simulation(seed, desc);
+  const pid = sim.addPlayer('c', 'warrior');
+  const p = sim.world.player.get(pid);
+  const pos = sim.world.position.get(pid);
+  if (!p || !pos) throw new Error('no player');
+  p.god = true;
+  return { sim, pid, pos };
+}
+
+const NEW_TYPES: readonly EnemyTypeId[] = [
+  'dire_wolf', 'hellhound', 'giant_scorpion', 'thorn_beast', 'cave_spider', 'lizardman', 'scarab', 'carrion_beetle', 'vulture', 'harpy',
+  'fire_slime', 'frost_slime', 'fire_elemental', 'frost_elemental', 'storm_elemental', 'will_o_wisp', 'earth_golem', 'bone_golem', 'iron_golem',
+  'treant', 'spore_man', 'bog_lurker', 'gargoyle', 'mimic', 'sand_worm', 'mummy', 'ice_wraith', 'imp', 'cultist', 'hellspawn',
+  'sand_wyrm', 'treant_king', 'frost_giant',
+];
+
+describe('second monster roster', () => {
+  it('adds at least 25 types, with the new families present', () => {
+    expect(NEW_TYPES.length).toBeGreaterThanOrEqual(25);
+    for (const t of NEW_TYPES) expect(ENEMY_TYPE_IDS).toContain(t);
+    const families = new Set(NEW_TYPES.map(familyOf));
+    for (const f of ['beast', 'elemental', 'golem', 'flyer', 'lurker', 'boss'] as const) expect(families.has(f), f).toBe(true);
+  });
+
+  it('every biome offers at least 8 distinct monsters across levels 1 to 30, and something at level 1', () => {
+    for (const b of BIOMES) {
+      const all = new Set<EnemyTypeId>();
+      for (let l = 1; l <= 30; l++) for (const t of monsterPool(b, l)) all.add(t);
+      expect(all.size, b).toBeGreaterThanOrEqual(8);
+      expect(monsterPool(b, 1).length, `${b} at level 1`).toBeGreaterThan(0);
+    }
+  });
+
+  it('each biome builds to a fitting boss', () => {
+    expect(bossFor('forest', 12)).toBe('treant_king');
+    expect(bossFor('desert', 16)).toBe('sand_wyrm');
+    expect(bossFor('cave', 22)).toBe('frost_giant');
+    for (const b of BIOMES) expect(familyOf(bossFor(b, 20)), b).toBe('boss');
+  });
+
+  it('is deterministic for the same seed', () => {
+    const trace = (seed: number) => {
+      const { sim, pos } = setup(seed);
+      const ids = NEW_TYPES.slice(0, 12).map((t, i) => spawnEnemy(sim, t, pos.x + 200 + (i % 4) * 60, pos.y - 120 + Math.floor(i / 4) * 80, { rare: false, level: 5, aggro: true }));
+      for (let i = 0; i < 200; i++) sim.step();
+      return ids.map((id) => {
+        const p = sim.world.position.get(id);
+        return p ? `${p.x.toFixed(2)},${p.y.toFixed(2)}` : 'dead';
+      });
+    };
+    expect(trace(7)).toEqual(trace(7));
+  });
+});
+
+describe('new monster behaviours', () => {
+  it('imps blink: they jump to a telegraphed spot around their target', () => {
+    const { sim, pos } = setup(3);
+    const id = spawnEnemy(sim, 'imp', pos.x + 300, pos.y, { rare: false, level: 3, aggro: true });
+    let last = sim.world.position.get(id);
+    let jumped = 0;
+    let teles = 0;
+    for (let i = 0; i < 20 * 12; i++) {
+      sim.step();
+      for (const ev of sim.takeEvents()) if (ev.ev.e === 'tele' && ev.ev.id === id) teles++;
+      const now = sim.world.position.get(id);
+      if (last && now && Math.hypot(now.x - last.x, now.y - last.y) > 120) jumped++;
+      last = now ? { ...now } : undefined;
+    }
+    expect(jumped).toBeGreaterThan(0);
+    expect(teles).toBeGreaterThan(0);
+  });
+
+  it('gargoyles hold perfectly still until a player comes close, then wake', () => {
+    const { sim, pid, pos } = setup(4);
+    const def = ENEMIES.gargoyle;
+    if (def.behaviour !== 'monster' || !def.traits.dormant) throw new Error('gargoyle is not dormant');
+    const wake = def.traits.dormant.wakeRange;
+    const id = spawnEnemy(sim, 'gargoyle', pos.x + wake + 150, pos.y, { rare: false, level: 3, aggro: false });
+    const start = { ...(sim.world.position.get(id) ?? { x: 0, y: 0 }) };
+    for (let i = 0; i < 60; i++) sim.step();
+    const still = sim.world.position.get(id);
+    expect(still).toEqual(start);
+    expect(sim.world.enemy.get(id)?.aggro).toBe(false);
+    sim.world.position.set(pid, { x: start.x - wake + 40, y: start.y });
+    sim.step();
+    expect(sim.world.enemy.get(id)?.aggro).toBe(true);
+  });
+
+  it('a dormant mimic wakes when hit, even from far away', () => {
+    const { sim, pid, pos } = setup(5);
+    const id = spawnEnemy(sim, 'mimic', pos.x + 400, pos.y, { rare: false, level: 4, aggro: false });
+    dealDamage(sim, id, 5, pid, []);
+    expect(sim.world.enemy.get(id)?.aggro).toBe(true);
+  });
+
+  it("a mummy's curse weakens nearby players' hits, and fades after they leave", () => {
+    const { sim, pid, pos } = setup(6);
+    const dummy = spawnEnemy(sim, 'earth_golem', pos.x + 600, pos.y, { rare: false, level: 1, aggro: false });
+    const before = dealDamage(sim, dummy, 100, pid, [], { ignoreArmor: true, quiet: true });
+    spawnEnemy(sim, 'mummy', pos.x + 80, pos.y, { rare: false, level: 3, aggro: true });
+    sim.step();
+    expect(sim.world.status.get(pid)?.curse).toBeGreaterThan(0);
+    const after = dealDamage(sim, dummy, 100, pid, [], { ignoreArmor: true, quiet: true });
+    expect(after).toBeCloseTo(before * (1 - CURSE.damageReduction), 5);
+    for (const [eid, e] of sim.world.enemy) if (e.typeId === 'mummy') sim.world.destroy(eid);
+    sim.world.flushDestroyed();
+    for (let i = 0; i < 30; i++) sim.step();
+    expect(sim.world.status.get(pid)?.curse).toBe(0);
+  });
+
+  it('flyers hover over water that pushes walkers back out', () => {
+    const { sim } = setup(8, { kind: 'arena' });
+    // A segment well inside the map, away from the edge clamp.
+    const water = sim.mapDef.obstacles.find((o) => o.kind === 'water' && o.shape.type === 'capsule' && o.shape.ay > 400 && o.shape.ay < sim.map.height - 400);
+    if (!water || water.shape.type !== 'capsule') throw new Error('arena has no river');
+    // A little off the river's centre line, where the push-out direction is well defined.
+    const x = (water.shape.ax + water.shape.bx) / 2 + 8;
+    const y = (water.shape.ay + water.shape.by) / 2;
+    const bird = spawnEnemy(sim, 'vulture', x, y, { rare: false, level: 1, aggro: false });
+    const wolf = spawnEnemy(sim, 'dire_wolf', x, y, { rare: false, level: 1, aggro: false });
+    // Spawning snaps to open ground; put both on the water on purpose.
+    sim.world.position.set(bird, { x, y });
+    sim.world.position.set(wolf, { x, y });
+    sim.step();
+    const bp = sim.world.position.get(bird);
+    const wp = sim.world.position.get(wolf);
+    if (!bp || !wp) throw new Error('lost them');
+    expect(sim.map.pointBlocked(bp.x, bp.y, 4, 'move')).toBe(true);
+    expect(sim.map.pointBlocked(wp.x, wp.y, 1, 'move')).toBe(false);
+  });
+});
