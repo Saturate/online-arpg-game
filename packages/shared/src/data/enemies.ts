@@ -1,3 +1,4 @@
+import { AFFIXES, type AffixId } from './affixes.js';
 export type EnemyBehaviour = 'chaser' | 'shooter' | 'spinner';
 
 interface EnemyBase {
@@ -89,4 +90,24 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     bulletRadius: 7,
     bulletRange: 560,
   },
+};
+
+/**
+ * D2-style monster names: prefix words, the monster, then suffix words ("Hasted Chaser of Mirrors").
+ * Built on the client from the affix ids in the snapshot, so names cost no bandwidth.
+ */
+export function enemyDisplayName(typeId: EnemyTypeId, affixes: readonly AffixId[]): string {
+  const defs = affixes.map((id) => AFFIXES[id]);
+  const prefix = defs.filter((d) => d.slot === 'prefix').map((d) => d.nameWord);
+  const suffix = defs.filter((d) => d.slot === 'suffix').map((d) => d.nameWord);
+  return [...prefix, ENEMIES[typeId].name, ...suffix].join(' ');
+}
+
+/** Short monster affix tags for the target frame, like D2's "Extra Fast" or "Cursed". */
+export const ENEMY_AFFIX_TAGS: Partial<Record<AffixId, string>> = {
+  hasted: 'Extra Fast',
+  extra_projectiles: 'Multishot',
+  reflects_projectiles: 'Reflects Projectiles',
+  armored: 'Extra Strong',
+  regenerating: 'Regenerates',
 };

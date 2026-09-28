@@ -1,5 +1,6 @@
 import {
   compileSigilItem,
+  type AffixId,
   type CharacterSummary,
   type ClassId,
   type GameMode,
@@ -34,6 +35,17 @@ export interface DebugStats {
   lastFizzle: string | null;
 }
 
+export interface TargetInfo {
+  id: EntityId;
+  name: string;
+  level: number;
+  life: number;
+  maxLife: number;
+  rare: boolean;
+  boss: boolean;
+  affixes: AffixId[];
+}
+
 export interface Notice {
   id: number;
   text: string;
@@ -61,6 +73,8 @@ interface UiState {
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
   banner: { id: number; title: string; text: string } | null;
+  /** Monster under the cursor, for the target frame. */
+  target: TargetInfo | null;
   /** Landing spots beside each portal in the current room, for the sandbox's quick travel list. */
   roomPortals: { label: string; x: number; y: number }[];
   connectionError: string | null;
@@ -151,6 +165,7 @@ export const useUi = create<UiState>((set, get) => ({
   instances: [],
   staging: null,
   banner: null,
+  target: null,
   roomPortals: [],
   connectionError: null,
   playerId: null,

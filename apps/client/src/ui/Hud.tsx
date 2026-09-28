@@ -1,4 +1,4 @@
-import { CLASSES, HEAT, MINION_DEFS, skillById, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, skillById, type SigilItem } from '@rune/shared';
 import type { CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -143,6 +143,29 @@ export function Party() {
         </div>
       ))}
     </aside>
+  );
+}
+
+/** D2-style target frame: the hovered monster's name, level, life and affixes. */
+export function TargetFrame() {
+  const target = useUi((s) => s.target);
+  if (!target) return null;
+  const ratio = target.maxLife > 0 ? Math.max(0, target.life / target.maxLife) : 0;
+  const kind = target.boss ? 'boss' : target.rare ? 'rare' : 'normal';
+  return (
+    <div className={`target-frame ${kind}`} role="status" aria-live="off">
+      <div className="target-name">
+        {target.name} <span className="target-level">Level {target.level}</span>
+        {target.boss && <span className="target-tag">Boss</span>}
+      </div>
+      <div className="target-bar">
+        <div style={{ width: `${ratio * 100}%` }} />
+        <span>
+          {Math.max(0, Math.ceil(target.life))} / {Math.round(target.maxLife)}
+        </span>
+      </div>
+      {target.affixes.length > 0 && <div className="target-affixes">{target.affixes.map((a) => ENEMY_AFFIX_TAGS[a] ?? AFFIXES[a].nameWord).join(', ')}</div>}
+    </div>
   );
 }
 

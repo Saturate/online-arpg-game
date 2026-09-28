@@ -6,7 +6,7 @@ import { DebugOverlay } from './DebugOverlay.js';
 import { DevPanel } from './DevPanel.js';
 import { EscMenu } from './EscMenu.js';
 import { useUi } from './store.js';
-import { Banner, Hud, Notices, Party, RecordingBadge } from './Hud.js';
+import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.js';
 import { Inventory, ItemTooltip } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
 import { StagingPanel } from './StagingPanel.js';
@@ -40,6 +40,7 @@ export function GameView({ token, character, mode }: { token: string; character:
       <Notices />
       <Banner />
       <RecordingBadge />
+      <TargetFrame />
       <Hud />
       <Inventory />
       <CharacterPanel />

@@ -1,3 +1,4 @@
+import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { MinionTypeId, Stance } from '../data/minions.js';
@@ -106,6 +107,10 @@ export type EntitySnap =
       rare: boolean;
       /** Idle pack member that has not noticed anyone yet. */
       dormant: boolean;
+      boss: boolean;
+      lvl: number;
+      /** Affix ids, for the target frame. Empty for normal monsters, so they cost nothing extra. */
+      ax: AffixId[];
       life: number;
       maxLife: number;
       st: number;

@@ -2,7 +2,7 @@ import { CLASSES } from '@rune/shared';
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { Game } from '../game/game.js';
 import { decodeReplay, type ReplayFile } from '../game/replay.js';
-import { Banner, Hud, Notices, Party } from '../ui/Hud.js';
+import { Banner, Hud, Notices, Party, TargetFrame } from '../ui/Hud.js';
 import { StagingPanel } from '../ui/StagingPanel.js';
 import { useUi } from '../ui/store.js';
 import { ReplayPlayer } from './replay/player.js';
@@ -158,6 +158,7 @@ export function ReplayTab() {
         <Hud />
         <StagingPanel />
         <Banner />
+        <TargetFrame />
       </div>
     </div>
   );

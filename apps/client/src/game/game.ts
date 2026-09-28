@@ -19,6 +19,8 @@ import {
   type TownLayout,
   type WorldMap,
   DEFAULT_TOWN_LAYOUT,
+  ENEMIES,
+  enemyDisplayName,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
 import { Recorder, encodeReplay } from './replay.js';
@@ -119,7 +121,9 @@ export class Game {
   private bolts: CosmeticBolt[] = [];
   private swings: CosmeticSwing[] = [];
   private seenOwnProjectiles = new Set<EntityId>();
-  private renderedEnemies: { x: number; y: number; r: number }[] = [];
+  private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
+  /** Keeps the target frame up briefly after the cursor slips off, so it does not flicker in a fight. */
+  private targetHeldUntil = 0;
   private pendingEvents: { tick: number; ev: GameEvent }[] = [];
   private lastFizzle: string | null = null;
   private townLayout: TownLayout | null = null;
@@ -541,6 +545,44 @@ export class Game {
     this.swings = this.swings.filter((s) => (s.lifetime -= dt) > 0);
   }
 
+  private updateTarget(room: RoomView, now: number): void {
+    const aim = room.input.overCanvas ? room.world.screenToGround(room.input.mouseX, room.input.mouseY) : null;
+    let best: (typeof this.renderedEnemies)[number] | null = null;
+    let bestD = Infinity;
+    if (aim) {
+      for (const e of this.renderedEnemies) {
+        // Generous pick radius: monsters move and the cursor is usually a little ahead of them.
+        const d = Math.hypot(e.x - aim.x, e.y - aim.y) - e.r;
+        if (d < 28 && d < bestD) {
+          best = e;
+          bestD = d;
+        }
+      }
+    }
+    const ui = useUi.getState();
+    if (!best) {
+      const still = ui.target ? this.renderedEnemies.find((e) => e.snap.id === ui.target?.id) : undefined;
+      if (ui.target && (!still || now > this.targetHeldUntil)) useUi.setState({ target: null });
+      else if (ui.target && still && still.snap.life !== ui.target.life) useUi.setState({ target: { ...ui.target, life: still.snap.life } });
+      return;
+    }
+    this.targetHeldUntil = now + 800;
+    const s = best.snap;
+    if (ui.target?.id === s.id && ui.target.life === s.life) return;
+    useUi.setState({
+      target: {
+        id: s.id,
+        name: s.rare || s.boss ? enemyDisplayName(s.et, s.ax) : ENEMIES[s.et].name,
+        level: s.lvl,
+        life: s.life,
+        maxLife: s.maxLife,
+        rare: s.rare,
+        boss: s.boss,
+        affixes: s.ax,
+      },
+    });
+  }
+
   /** Hides a cosmetic bolt where the player sees it connect, instead of waiting for the server's verdict. */
   private hitsRenderedEnemy(b: CosmeticBolt): boolean {
     for (const e of this.renderedEnemies) {
@@ -574,7 +616,7 @@ export class Game {
         const y = from.y + (to.y - from.y) * sample.t;
         const r = from.r + (to.r - from.r) * sample.t;
         const snap: EntitySnap = { ...to, x, y, r };
-        if (to.k === 'enemy') this.renderedEnemies.push({ x, y, r });
+        if (to.k === 'enemy') this.renderedEnemies.push({ x, y, r, snap: to });
         if (to.k === 'player') labels.push({ key: `p${id}`, x, y, text: to.name, color: '#cfe6ff', height: 78, className: 'fx-label' });
         if (to.k === 'loot') {
           // D2 style: good drops are always labelled, everything shows while Alt is held.
@@ -590,6 +632,8 @@ export class Game {
         items.push({ key: `s${id}`, snap, x, y, isSelf: false, isAlly: to.k === 'player' || to.k === 'minion' });
       }
     }
+
+    this.updateTarget(room, now);
 
     const alpha = this.paused ? 1 : this.accumulator / SIM.tickMs;
     const prev = room.predictor.previous;

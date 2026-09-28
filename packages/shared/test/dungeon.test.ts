@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DUNGEON, GameMap, generateDungeon, loadMap, Simulation, stagingMap, type WorldMap } from '../src/index.js';
+import { DUNGEON, enemyDisplayName, GameMap, generateDungeon, loadMap, Simulation, stagingMap, type WorldMap } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 
 /** Walkable nav cells reachable from a point, by flood fill. */
@@ -92,5 +92,12 @@ describe('dungeon boss', () => {
     if (boss) dealDamage(sim, boss[0], 1e9, pid, []);
     sim.step();
     expect(sim.cleared).toBe(false);
+  });
+});
+
+describe('monster names', () => {
+  it('builds D2-style names from prefix and suffix affixes', () => {
+    expect(enemyDisplayName('chaser', ['hasted', 'reflects_projectiles'])).toBe('Hasted Chaser of Mirrors');
+    expect(enemyDisplayName('shooter', [])).toBe('Shooter');
   });
 });

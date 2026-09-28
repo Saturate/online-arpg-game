@@ -1599,3 +1599,73 @@ kbd {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Target frame */
+.target-frame {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 300px;
+  max-width: 440px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 4;
+}
+.target-name {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 16px;
+  color: #e8e0d0;
+  text-shadow: 0 1px 3px #000;
+}
+.target-frame.rare .target-name {
+  color: #f2d45c;
+}
+.target-frame.boss .target-name {
+  color: #ff8a3a;
+}
+.target-level {
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.target-tag {
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #ff8a3a;
+  border-radius: 3px;
+  color: #ff8a3a;
+}
+.target-bar {
+  position: relative;
+  height: 14px;
+  margin-top: 4px;
+  background: rgba(10, 6, 4, 0.85);
+  border: 1px solid #5a2a20;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.target-bar > div {
+  height: 100%;
+  background: linear-gradient(180deg, #c8382c, #7a1a14);
+  transition: width 0.12s linear;
+}
+.target-bar span {
+  position: absolute;
+  inset: 0;
+  font-size: 10px;
+  line-height: 14px;
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
+}
+.target-affixes {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #9fb4ff;
+  text-shadow: 0 1px 2px #000;
+}
