@@ -5,7 +5,9 @@ import { isClassId, type ClassId } from '../data/classes.js';
 export const ACCOUNT_RULES = {
   usernamePattern: /^[A-Za-z0-9_]{3,16}$/,
   /** Letters first so names never look like ids or numbers in chat and party lists. */
-  characterNamePattern: /^[A-Za-z][A-Za-z0-9_-]{2,15}$/,
+  // The hyphen is escaped: browsers compile HTML pattern attributes with the v flag, where a bare
+  // "-" in a class is a syntax error and the whole pattern is silently ignored.
+  characterNamePattern: /^[A-Za-z][A-Za-z0-9_\-]{2,15}$/,
   passwordMin: 8,
   /** scrypt cost grows with input length; the cap keeps a login request from being a CPU bomb. */
   passwordMax: 128,

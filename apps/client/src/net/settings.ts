@@ -11,6 +11,7 @@ function numberParam(name: string, fallback: number): number {
 
 /** `?lag=150` adds 150 ms of round-trip latency, split evenly between the two directions. */
 export const netSettings = {
-  serverUrl: params.get('server') ?? `ws://${location.hostname}:${NET.defaultPort}`,
+  // Dev runs the game server on its own port next to Vite; a deploy serves everything from one origin.
+  serverUrl: params.get('server') ?? (import.meta.env.DEV ? `ws://${location.hostname}:${NET.defaultPort}/ws` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`),
   addedRttMs: numberParam('lag', 0),
 };

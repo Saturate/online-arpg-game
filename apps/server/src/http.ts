@@ -35,6 +35,19 @@ export class RateLimiter {
   }
 }
 
+/**
+ * Behind Cloudflare and the WAF every request arrives from a proxy address, which would make the
+ * rate limit one shared bucket for all players. Only trusted when the deploy says the origin is
+ * reachable through Cloudflare alone, since the header is otherwise trivially spoofed.
+ */
+function clientIp(req: IncomingMessage): string {
+  if (process.env.TRUST_PROXY === 'cloudflare') {
+    const cf = req.headers['cf-connecting-ip'];
+    if (typeof cf === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(cf)) return cf;
+  }
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
 class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -113,7 +126,7 @@ export class AccountApi {
   }
 
   private async route(req: IncomingMessage, path: string): Promise<[number, unknown]> {
-    const ip = req.socket.remoteAddress ?? 'unknown';
+    const ip = clientIp(req);
     const method = req.method ?? 'GET';
     const isAuth = path === '/api/register' || path === '/api/login';
     if (!(isAuth ? this.authLimit : this.otherLimit).allow(ip)) throw new HttpError(429, 'Too many requests, wait a minute');

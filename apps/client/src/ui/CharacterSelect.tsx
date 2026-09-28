@@ -59,6 +59,7 @@ function CreateCharacter({ token, onCreated, onCancel }: { token: string; onCrea
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={16}
+          name="character-name"
           pattern={ACCOUNT_RULES.characterNamePattern.source}
           title="3 to 16 characters, starting with a letter"
           placeholder="Wanderer"

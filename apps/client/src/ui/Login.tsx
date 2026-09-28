@@ -34,6 +34,7 @@ export function Login() {
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            name="username"
             autoComplete="username"
             maxLength={16}
             pattern={ACCOUNT_RULES.usernamePattern.source}
@@ -46,6 +47,7 @@ export function Login() {
           Password
           <input
             type="password"
+            name="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
