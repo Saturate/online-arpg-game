@@ -58,6 +58,33 @@ function SkillSlot({ slot }: { slot: number }) {
   );
 }
 
+/** Mouse access to the panels, for anyone who does not know or has not bound the keys. */
+function PanelButtons() {
+  const invKey = useSettings((s) => s.bindings.inventory);
+  const charKey = useSettings((s) => s.bindings.character);
+  const invOpen = useUi((s) => s.inventoryOpen);
+  const charOpen = useUi((s) => s.characterOpen);
+  return (
+    <div className="panel-buttons">
+      <button type="button" className={invOpen ? 'on' : ''} onClick={() => useUi.getState().toggleInventory()} title={`Inventory (${keyLabel(invKey)})`} aria-label="Inventory">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 8V6a5 5 0 0 1 10 0v2h3l-1 13H5L4 8zm2 0h6V6a3 3 0 0 0-6 0z" />
+        </svg>
+      </button>
+      <button type="button" className={charOpen ? 'on' : ''} onClick={() => useUi.setState((s) => ({ characterOpen: !s.characterOpen }))} title={`Character (${keyLabel(charKey)})`} aria-label="Character">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm-7 18c0-4 3-7 7-7s7 3 7 7z" />
+        </svg>
+      </button>
+      <button type="button" onClick={() => useUi.getState().toggleMenu()} title="Menu (Esc)" aria-label="Menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function Warband() {
   const classId = useUi((s) => s.classId);
   const inv = useUi((s) => s.inventory);
@@ -114,6 +141,7 @@ export function Hud() {
           </div>
           <Warband />
         </div>
+        <PanelButtons />
         <Orb label={HEAT.displayName} value={heat} max={Math.round(heatMax)} kind="force" danger={heat > heatMax} />
       </div>
       {respawnIn !== null && (

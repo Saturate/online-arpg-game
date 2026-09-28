@@ -1740,3 +1740,31 @@ kbd {
 .settings .reset {
   margin-top: 16px;
 }
+
+/* Panel buttons beside the skill bar */
+.panel-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: flex-end;
+  margin-bottom: 18px;
+  pointer-events: auto;
+}
+.panel-buttons button {
+  width: 34px;
+  height: 34px;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #5a4628;
+  background: linear-gradient(180deg, #221b13, #120e0a);
+  cursor: pointer;
+}
+.panel-buttons button:hover,
+.panel-buttons button.on {
+  border-color: var(--gold);
+}
+.panel-buttons svg {
+  width: 100%;
+  height: 100%;
+  fill: #cdb88a;
+}
