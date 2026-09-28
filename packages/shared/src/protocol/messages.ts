@@ -72,6 +72,10 @@ export const STATUS = {
   shock: 4,
   shield: 8,
   burningShield: 16,
+  /** Burrowed monster: drawn as a moving mound, not targetable. */
+  hidden: 32,
+  /** Boss in its second phase. */
+  enraged: 64,
 } as const;
 
 /** What a spell area does, for picking its colour. */
@@ -146,7 +150,15 @@ export type GameEvent =
   | { e: 'attack'; id: EntityId }
   /** A character touched a waypoint for the first time. */
   | { e: 'waypoint'; id: EntityId; zone: ZoneId }
-  | { e: 'levelUp'; id: EntityId; level: number; x: number; y: number };
+  | { e: 'levelUp'; id: EntityId; level: number; x: number; y: number }
+  /**
+   * A monster winding up an attack: where it will land and when. Circles are areas, lines are
+   * charges and aimed shots. Sent once; the client draws it for `t` seconds or until `id` dies.
+   */
+  | { e: 'tele'; id: EntityId; shape: 'circle'; x: number; y: number; r: number; t: number; el: ElementId | null }
+  | { e: 'tele'; id: EntityId; shape: 'line'; x: number; y: number; x2: number; y2: number; w: number; t: number; el: ElementId | null }
+  /** A damaging ground puddle that lasts `t` seconds. */
+  | { e: 'hazard'; x: number; y: number; r: number; t: number; kind: 'poison' | 'fire' | 'frost' };
 
 export interface SelfState {
   respawnIn: number | null;

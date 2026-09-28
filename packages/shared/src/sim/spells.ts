@@ -5,6 +5,7 @@ import { misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
 import type { SpellNode } from '../runes/compiler.js';
 import { acquireLink } from './auras.js';
+import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
 import type { EntityId, ProjectileComp, SpellInst, Team } from './ecs.js';
 import { angleDiff, distSq } from './math.js';
@@ -427,12 +428,19 @@ function consumeOrPierce(sim: Simulation, id: EntityId, proj: ProjectileComp, x:
 function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: number, y: number, r: number, angle: number): boolean {
   const w = sim.world;
   for (const [eid, enemy] of w.enemy) {
-    if (proj.hitIds.has(eid) || !w.isAlive(eid)) continue;
+    if (proj.hitIds.has(eid) || !w.isAlive(eid) || enemy.burrowed) continue;
     const epos = w.position.get(eid);
     if (!epos) continue;
     const reach = r + (w.radius.get(eid) ?? 0) + SIM.enemyHitLeniency;
     if (distSq(x, y, epos.x, epos.y) > reach * reach) continue;
     proj.hitIds.add(eid);
+
+    if (blocksProjectile(sim, eid, x - Math.cos(angle) * reach, y - Math.sin(angle) * reach)) {
+      // A blocked shot flashes the shield and is spent, spell triggers included.
+      sim.emit({ e: 'dmg', id: eid, amt: 0, x: epos.x, y: epos.y, el: null }, epos.x, epos.y);
+      w.destroy(id);
+      return true;
+    }
 
     if (enemy.reflectChance > 0 && sim.rand.combat.next() < enemy.reflectChance) {
       reflect(sim, id, proj, eid);

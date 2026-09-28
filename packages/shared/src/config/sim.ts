@@ -244,6 +244,7 @@ export const PROGRESSION = {
   monsterXpBase: 6,
   monsterXpExponent: 1.35,
   rareXpMultiplier: 4,
+  summonedXpMultiplier: 0.25,
   bossXpMultiplier: 18,
   /** D2-style: farming far below your level pays almost nothing. */
   grayGap: 5,

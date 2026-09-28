@@ -5,7 +5,7 @@ import { MINION_DEFS } from '../data/minions.js';
 import type { ElementId } from '../data/runes.js';
 import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
-import { alertPack } from './enemies.js';
+import { alertPack, knockbackImmune, onEnemyDeath } from './enemies.js';
 import { onBossKilled } from './dungeon.js';
 import { grantKillXp } from './progression.js';
 import { dropLoot } from './inventory.js';
@@ -35,6 +35,8 @@ export function isTargetable(sim: Simulation, id: EntityId): boolean {
   const p = w.player.get(id);
   if (p) return p.respawnIn === null;
   const h = w.health.get(id);
+  // Burrowed monsters are underground: nothing can hit them until they surface.
+  if (w.enemy.get(id)?.burrowed) return false;
   return h !== undefined && h.life > 0;
 }
 
@@ -151,7 +153,7 @@ export function grantShield(sim: Simulation, id: EntityId, amount: number, secon
 export function knockback(sim: Simulation, id: EntityId, fromX: number, fromY: number, strength: number): void {
   const e = sim.world.enemy.get(id);
   const pos = sim.world.position.get(id);
-  if (!e || !pos || strength <= 0) return;
+  if (!e || !pos || strength <= 0 || knockbackImmune(e.typeId)) return;
   const dx = pos.x - fromX;
   const dy = pos.y - fromY;
   const d = Math.hypot(dx, dy) || 1;
@@ -179,6 +181,7 @@ function kill(sim: Simulation, id: EntityId): void {
   if (e) {
     sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'enemy', color: ENEMIES[e.typeId].color, big: e.rare }, pos.x, pos.y);
     dropLoot(sim, id);
+    onEnemyDeath(sim, id, e, pos);
     if (e.boss) onBossKilled(sim, pos.x, pos.y, e.level);
     grantKillXp(sim, e, pos.x, pos.y);
     w.destroy(id);

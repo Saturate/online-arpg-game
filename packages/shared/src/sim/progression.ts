@@ -15,9 +15,11 @@ export function levelRequirement(item: Item): number {
 }
 
 /** Base XP for killing one monster, before sharing and the level-gap penalty. */
-export function monsterXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss'>): number {
+export function monsterXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss'> & { summonerId?: EntityId | null }): number {
   const base = PROGRESSION.monsterXpBase * e.level ** PROGRESSION.monsterXpExponent;
-  return base * (e.boss ? PROGRESSION.bossXpMultiplier : e.rare ? PROGRESSION.rareXpMultiplier : 1);
+  // Summoned adds are worth a little, so killing them is not wasted, but not enough to farm.
+  const summoned = e.summonerId !== undefined && e.summonerId !== null ? PROGRESSION.summonedXpMultiplier : 1;
+  return base * summoned * (e.boss ? PROGRESSION.bossXpMultiplier : e.rare ? PROGRESSION.rareXpMultiplier : 1);
 }
 
 function grayFactor(playerLevel: number, monsterLevel: number): number {

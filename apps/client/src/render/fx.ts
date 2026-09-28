@@ -1,6 +1,9 @@
+import type { ElementId, GameEvent } from '@rune/shared';
 import {
   AdditiveBlending,
   BoxGeometry,
+  CircleGeometry,
+  PlaneGeometry,
   Color,
   DoubleSide,
   DynamicDrawUsage,
@@ -37,6 +40,33 @@ interface Shockwave {
   radius: number;
 }
 
+/** A monster wind-up: the outline shows where, the fill growing to the edge shows when. */
+interface Telegraph {
+  ownerId: number;
+  outline: Mesh;
+  fill: Mesh;
+  outlineMat: MeshBasicMaterial;
+  fillMat: MeshBasicMaterial;
+  age: number;
+  duration: number;
+  shape: 'circle' | 'line';
+  /** Full size of the fill: radius for circles, length for lines. */
+  size: number;
+}
+
+interface Pool {
+  mesh: Mesh;
+  mat: MeshBasicMaterial;
+  age: number;
+  duration: number;
+}
+
+type TeleEvent = Extract<GameEvent, { e: 'tele' }>;
+type HazardEvent = Extract<GameEvent, { e: 'hazard' }>;
+
+const TELE_COLORS: Record<ElementId | 'none', number> = { fire: 0xff7a30, cold: 0x7ab8ff, lightning: 0xf0e060, none: 0xff3a30 };
+const HAZARD_COLORS: Record<HazardEvent['kind'], number> = { poison: 0x6ad030, fire: 0xff5a20, frost: 0x9ad8ff };
+
 interface FloatingText {
   el: HTMLSpanElement;
   x: number;
@@ -63,6 +93,11 @@ export class Effects {
   private readonly texts: FloatingText[] = [];
   private readonly labels = new Map<string, HTMLSpanElement>();
   private readonly ringGeo = new RingGeometry(0.8, 1, 48);
+  private readonly edgeGeo = new RingGeometry(0.92, 1, 48);
+  private readonly diskGeo = new CircleGeometry(1, 40);
+  private readonly planeGeo = new PlaneGeometry(1, 1);
+  private readonly teles: Telegraph[] = [];
+  private readonly pools: Pool[] = [];
   private cursor = 0;
 
   constructor(
@@ -134,6 +169,73 @@ export class Effects {
     mesh.scale.setScalar(1);
     this.scene.add(mesh);
     this.waves.push({ mesh, mat, age: 0, duration, radius });
+  }
+
+  telegraph(ev: TeleEvent): void {
+    const hex = TELE_COLORS[ev.el ?? 'none'];
+    const outlineMat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.85, depthWrite: false, side: DoubleSide });
+    const fillMat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.28, depthWrite: false, side: DoubleSide });
+    let outline: Mesh;
+    let fill: Mesh;
+    let size: number;
+    if (ev.shape === 'circle') {
+      outline = new Mesh(this.edgeGeo, outlineMat);
+      fill = new Mesh(this.diskGeo, fillMat);
+      outline.position.set(ev.x, 2.5, ev.y);
+      fill.position.set(ev.x, 2.4, ev.y);
+      outline.scale.setScalar(ev.r);
+      fill.scale.setScalar(0.01);
+      outline.rotation.x = -Math.PI / 2;
+      fill.rotation.x = -Math.PI / 2;
+      size = ev.r;
+    } else {
+      const dx = ev.x2 - ev.x;
+      const dy = ev.y2 - ev.y;
+      size = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      outline = new Mesh(this.planeGeo, outlineMat);
+      fill = new Mesh(this.planeGeo, fillMat);
+      outlineMat.opacity = 0.22;
+      fillMat.opacity = 0.45;
+      for (const m of [outline, fill]) {
+        m.rotation.set(-Math.PI / 2, 0, -angle);
+      }
+      outline.position.set(ev.x + dx / 2, 2.4, ev.y + dy / 2);
+      outline.scale.set(size, ev.w, 1);
+      // The fill grows from the monster outward along the line.
+      fill.position.set(ev.x, 2.5, ev.y);
+      fill.scale.set(0.01, ev.w, 1);
+      fill.userData = { x: ev.x, y: ev.y, cos: Math.cos(angle), sin: Math.sin(angle) };
+    }
+    this.scene.add(outline, fill);
+    this.teles.push({ ownerId: ev.id, outline, fill, outlineMat, fillMat, age: 0, duration: Math.max(0.05, ev.t), shape: ev.shape, size });
+  }
+
+  /** Drops a monster's pending telegraphs when it dies mid wind-up. */
+  clearTelegraphs(ownerId: number): void {
+    for (let i = this.teles.length - 1; i >= 0; i--) {
+      const t = this.teles[i];
+      if (t && t.ownerId === ownerId) this.removeTele(i);
+    }
+  }
+
+  hazard(ev: HazardEvent): void {
+    const mat = new MeshBasicMaterial({ color: HAZARD_COLORS[ev.kind], transparent: true, opacity: 0.4, depthWrite: false, side: DoubleSide });
+    const mesh = new Mesh(this.diskGeo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(ev.x, 2, ev.y);
+    mesh.scale.setScalar(ev.r);
+    this.scene.add(mesh);
+    this.pools.push({ mesh, mat, age: 0, duration: ev.t });
+  }
+
+  private removeTele(i: number): void {
+    const t = this.teles[i];
+    if (!t) return;
+    this.scene.remove(t.outline, t.fill);
+    t.outlineMat.dispose();
+    t.fillMat.dispose();
+    this.teles.splice(i, 1);
   }
 
   text(x: number, y: number, value: string, hex: number, big = false): void {
@@ -208,6 +310,41 @@ export class Effects {
       w.mat.opacity = 0.8 * (1 - k);
     }
 
+    for (let i = this.teles.length - 1; i >= 0; i--) {
+      const t = this.teles[i];
+      if (!t) continue;
+      t.age += dt;
+      const k = t.age / t.duration;
+      if (k >= 1) {
+        this.removeTele(i);
+        continue;
+      }
+      if (t.shape === 'circle') t.fill.scale.setScalar(Math.max(0.01, t.size * k));
+      else {
+        const u = t.fill.userData;
+        const len = Math.max(0.01, t.size * k);
+        t.fill.scale.x = len;
+        if (typeof u.x === 'number' && typeof u.y === 'number' && typeof u.cos === 'number' && typeof u.sin === 'number') t.fill.position.set(u.x + (u.cos * len) / 2, 2.5, u.y + (u.sin * len) / 2);
+      }
+      // The last moment flashes so the hit is readable even without watching the fill.
+      t.outlineMat.opacity = k > 0.8 ? 1 : t.shape === 'circle' ? 0.85 : 0.22;
+    }
+
+    for (let i = this.pools.length - 1; i >= 0; i--) {
+      const p = this.pools[i];
+      if (!p) continue;
+      p.age += dt;
+      if (p.age >= p.duration) {
+        this.scene.remove(p.mesh);
+        p.mat.dispose();
+        this.pools.splice(i, 1);
+        continue;
+      }
+      const fadeIn = Math.min(1, p.age * 4);
+      const fadeOut = Math.min(1, (p.duration - p.age) * 2);
+      p.mat.opacity = (0.32 + Math.sin(p.age * 5) * 0.06) * fadeIn * fadeOut;
+    }
+
     for (let i = this.texts.length - 1; i >= 0; i--) {
       const t = this.texts[i];
       if (!t) continue;
@@ -225,6 +362,12 @@ export class Effects {
   }
 
   dispose(): void {
+    for (let i = this.teles.length - 1; i >= 0; i--) this.removeTele(i);
+    for (const p of this.pools) {
+      this.scene.remove(p.mesh);
+      p.mat.dispose();
+    }
+    this.pools.length = 0;
     for (const t of this.texts) t.el.remove();
     for (const el of this.labels.values()) el.remove();
   }

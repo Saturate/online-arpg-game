@@ -765,6 +765,7 @@ export class Game {
           if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
           break;
         case 'death':
+          fx.clearTelegraphs(ev.id);
           fx.burst(ev.x, ev.y, ev.color, ev.big ? FX.deathParticles * 2 : FX.deathParticles, ev.big ? 260 : 180, { size: ev.big ? 8 : 6 });
           fx.shockwave(ev.x, ev.y, ev.big ? 140 : 70, ev.big ? COLORS.rareOutline : ev.color);
           if (ev.big) world.addShake(5);
@@ -786,6 +787,12 @@ export class Game {
         case 'attack':
           // The own player's swing already played on input; others play it when the server says so.
           if (ev.id !== this.playerId) entities.attack(`s${ev.id}`);
+          break;
+        case 'tele':
+          fx.telegraph(ev);
+          break;
+        case 'hazard':
+          fx.hazard(ev);
           break;
         case 'cast':
           entities.attack(`s${ev.id}`);
