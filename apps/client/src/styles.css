@@ -1965,3 +1965,7 @@ kbd {
   border: 1px solid rgba(217, 181, 106, 0.4);
   font-size: 12px;
 }
+
+.chat.shifted {
+  left: 380px;
+}

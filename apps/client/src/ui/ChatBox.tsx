@@ -19,6 +19,8 @@ function Line({ line }: { line: ChatLine }) {
 export function ChatBox() {
   const lines = useUi((s) => s.chat);
   const open = useUi((s) => s.chatOpen);
+  // The character sheet occupies the bottom-left corner; chat steps aside instead of hiding under it.
+  const shifted = useUi((s) => s.characterOpen);
   const [text, setText] = useState('');
   const [, force] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -63,7 +65,7 @@ export function ChatBox() {
   const now = performance.now();
   const shown = open ? lines.slice(-30) : lines.filter((l) => now - l.at < VISIBLE_MS).slice(-8);
   return (
-    <div className={`chat${open ? ' open' : ''}`}>
+    <div className={`chat${open ? ' open' : ''}${shifted ? ' shifted' : ''}`}>
       <ul ref={list} aria-live="polite" aria-label="Chat">
         {shown.map((l) => (
           <Line key={l.id} line={l} />
