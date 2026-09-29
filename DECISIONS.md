@@ -196,7 +196,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 ## Admin, roles and accounts
 
 - **Roles:** owner (from `ADMIN_USERS`, never grantable), admin, moderator, builder, player, each a fixed permission set in `protocol/roles.ts`. Staff act only on accounts ranked below them. Builders get the town editor (F2) and the F3 dev tools; moderators and up kick, ban, announce and `/goto` players. Names in `ADMIN_USERS` can't be registered or claimed.
-- **Admin page** (`/admin/`, with the dev tools at `/admin/dev/` for builders and up): online players, games and rooms, announcements, accounts with characters, roles, bans, and live settings (XP and loot rates, motd, registration, world seed, day length, night brightness, and the in-game clock, which can be set or held).
+- **Admin page** (`/admin/`, with the dev tools at `/admin/dev/` for builders and up): online players, games and rooms, announcements, accounts with characters, roles, bans, and live settings (XP and loot rates, motd, registration, world seed, day length, night brightness, the in-game clock, which can be set or held, and Force: the level-1 bar, a cost multiplier, a cooling multiplier and the cooling ramp cap). Force changes apply to everyone at once; skill tooltips still show the base cost, not the multiplied one.
 - **Guests:** "Play as guest" makes an account with a generated name and a one-year session; the character screen offers to claim it with a real name and password. Unclaimed guests are deleted after 90 days without play.
 
 ## Items, loot and economy

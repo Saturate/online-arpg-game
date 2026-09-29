@@ -22,14 +22,15 @@ export interface PlayerStats {
 }
 
 /** Class base plus automatic growth per character level. */
-export function baseStats(p: Pick<PlayerComp, 'classId' | 'level'>): PlayerStats {
+/** `forceMax` is the level-1 Force bar, which the admin can tune; levels add to it. */
+export function baseStats(p: Pick<PlayerComp, 'classId' | 'level'>, forceMax: number = HEAT.max): PlayerStats {
   const def = CLASSES[p.classId];
   const gained = p.level - 1;
   return {
     maxLife: Math.round(def.life * (1 + PROGRESSION.lifePerLevel * gained)),
     armor: ARMOR.values[def.armor],
     moveSpeed: def.moveSpeed,
-    heatMax: HEAT.max + PROGRESSION.forcePerLevel * gained,
+    heatMax: forceMax + PROGRESSION.forcePerLevel * gained,
     heatCooling: 1,
     spiritMax: def.baseSpirit + PROGRESSION.spiritPerLevel * gained,
     damageMult: 1 + PROGRESSION.damagePerLevel * gained,
@@ -51,8 +52,8 @@ export function equippedGear(p: PlayerComp): GearItem[] {
   return out;
 }
 
-export function computeStats(p: PlayerComp): PlayerStats {
-  const s = baseStats(p);
+export function computeStats(p: PlayerComp, forceMax: number = HEAT.max): PlayerStats {
+  const s = baseStats(p, forceMax);
   const g = gearStats(equippedGear(p));
   const pct = (v: number | undefined): number => 1 + (v ?? 0) / 100;
   return {

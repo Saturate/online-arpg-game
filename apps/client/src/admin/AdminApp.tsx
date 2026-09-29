@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
@@ -412,6 +412,26 @@ function Settings({ token, role, notify }: TabProps) {
       <small className="muted">{hint}</small>
     </label>
   );
+  const force = (key: 'forceMax' | 'forceCostRate' | 'forceCoolRate' | 'forceRampMax', label: string, hint: string, min: number, max: number, step: number) => (
+    <label className="adm-field">
+      <span>
+        {label} <b>{key === 'forceMax' ? draft[key] : `x${draft[key]}`}</b>
+      </span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={draft[key]}
+        aria-label={label}
+        onChange={(e) => {
+          // An emptied field reads as 0, which the server would reject; keep the last value instead.
+          if (e.target.value !== '') setDraft({ ...draft, [key]: Number(e.target.value) });
+        }}
+      />
+      <small className="muted">{hint}</small>
+    </label>
+  );
   const editable = can(role, 'settings');
   return (
     <form className="adm-settings" onSubmit={(e) => void save(e)}>
@@ -419,6 +439,10 @@ function Settings({ token, role, notify }: TabProps) {
       <fieldset disabled={!editable}>
         {rate('xpRate', 'XP rate', 'Multiplies XP from every kill.')}
         {rate('lootRate', 'Loot rate', 'Multiplies how often monsters drop, and how many items rares and bosses drop.')}
+        {force('forceMax', 'Force bar', `Force at level 1 before gear; each level adds more. Default ${DEFAULT_SERVER_SETTINGS.forceMax}.`, SETTINGS_LIMITS.forceMaxMin, SETTINGS_LIMITS.forceMaxMax, 10)}
+        {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
+        {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
+        {force('forceRampMax', 'Cooling ramp', `How much faster cooling gets after a pause in casting, at most. Default x${DEFAULT_SERVER_SETTINGS.forceRampMax}.`, SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax, 0.5)}
         <label className="adm-field wide">
           <span>Message of the day</span>
           <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />

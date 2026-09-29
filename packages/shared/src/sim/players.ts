@@ -31,8 +31,8 @@ export function updatePlayers(sim: Simulation, dt: number): void {
       p.heatIdle = 0;
     } else if (p.heat > 0) {
       p.heatIdle += dt;
-      const ramp = Math.min(HEAT.coolRampMax, 1 + HEAT.coolRampPerSecond * p.heatIdle);
-      p.heat = Math.max(0, p.heat - HEAT.coolPerSecond * ramp * p.stats.heatCooling * dt);
+      const ramp = Math.min(sim.rates.forceRampMax, 1 + HEAT.coolRampPerSecond * p.heatIdle);
+      p.heat = Math.max(0, p.heat - HEAT.coolPerSecond * sim.rates.forceCool * ramp * p.stats.heatCooling * dt);
     } else p.heatIdle = 0;
     if (p.respawnIn === null && p.stats.lifeRegen > 0 && h.life < h.maxLife) h.life = Math.min(h.maxLife, h.life + p.stats.lifeRegen * dt);
 

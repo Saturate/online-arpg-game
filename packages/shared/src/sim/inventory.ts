@@ -451,7 +451,7 @@ export function refreshStats(sim: Simulation, pid: EntityId): void {
   const p = sim.world.player.get(pid);
   const h = sim.world.health.get(pid);
   if (!p) return;
-  p.stats = computeStats(p);
+  p.stats = computeStats(p, sim.rates.forceMax);
   if (h) {
     const ratio = h.maxLife > 0 ? h.life / h.maxLife : 1;
     h.maxLife = p.stats.maxLife;

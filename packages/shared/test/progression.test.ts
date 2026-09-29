@@ -48,7 +48,7 @@ describe('progression', () => {
 
   it('multiplies kill XP by the server XP rate', () => {
     const sim = new Simulation(2, { kind: 'flat' });
-    sim.rates = { xp: 3, loot: 1 };
+    sim.rates = { ...sim.rates, xp: 3 };
     const a = sim.addPlayer('a', 'mage');
     const pos = sim.world.position.get(a);
     if (!pos) throw new Error('no pos');

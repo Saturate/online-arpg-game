@@ -1,3 +1,4 @@
+import { HEAT } from '../config/sim.js';
 import { isClassId, type ClassId } from '../data/classes.js';
 import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
@@ -104,9 +105,32 @@ export interface ServerSettings {
   clockOffset: number;
   /** Where the clock stands while held, 0 to 1 of a day. */
   heldPhase: number;
+  /** Force bar at level 1 before gear; levels add to it. Lower makes long fights run hot. */
+  forceMax: number;
+  /** Multiplier on every skill's Force cost. */
+  forceCostRate: number;
+  /** Multiplier on how fast Force cools. */
+  forceCoolRate: number;
+  /** How far cooling speeds up after a pause in casting, as a multiple of the base rate. */
+  forceRampMax: number;
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1, dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle', clockOffset: 0, heldPhase: 0.25 };
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
+  xpRate: 1,
+  lootRate: 1,
+  motd: '',
+  registrationOpen: true,
+  worldSeed: 1,
+  dayMinutes: 20,
+  nightBrightness: 0.6,
+  timeOfDay: 'cycle',
+  clockOffset: 0,
+  heldPhase: 0.25,
+  forceMax: HEAT.max,
+  forceCostRate: 1,
+  forceCoolRate: 1,
+  forceRampMax: HEAT.coolRampMax,
+};
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
 export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay' | 'clockOffset' | 'heldPhase'>;
@@ -127,7 +151,20 @@ export function phaseOfHour(hour: number): number {
 }
 
 /** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
-export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200, seedMax: 999_999, dayMinutesMin: 2, dayMinutesMax: 240 } as const;
+export const SETTINGS_LIMITS = {
+  rateMin: 0,
+  rateMax: 20,
+  motdMax: 200,
+  seedMax: 999_999,
+  dayMinutesMin: 2,
+  dayMinutesMax: 240,
+  forceMaxMin: 50,
+  forceMaxMax: 5000,
+  forceRateMin: 0.1,
+  forceRateMax: 10,
+  forceRampMin: 1,
+  forceRampMax: 20,
+} as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
 export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | string {
@@ -165,6 +202,19 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     const v = value[key];
     if (v === undefined) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v >= 1) return `${key} must be at least 0 and below 1`;
+    out[key] = v;
+  }
+  const ranges = {
+    forceMax: [SETTINGS_LIMITS.forceMaxMin, SETTINGS_LIMITS.forceMaxMax],
+    forceCostRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
+    forceCoolRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
+    forceRampMax: [SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax],
+  } as const;
+  for (const key of ['forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax'] as const) {
+    const v = value[key];
+    if (v === undefined) continue;
+    const [min, max] = ranges[key];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) return `${key} must be between ${min} and ${max}`;
     out[key] = v;
   }
   for (const key of ['registrationOpen'] as const) {

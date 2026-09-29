@@ -123,7 +123,8 @@ export class RoomManager implements AdminHooks {
   }
 
   private applySettings(room: Room): void {
-    room.sim.rates = { xp: this.current.xpRate, loot: this.current.lootRate };
+    const s = this.current;
+    room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax });
   }
 
   // Admin hooks -------------------------------------------------------------------------------

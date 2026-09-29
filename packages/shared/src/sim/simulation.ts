@@ -1,4 +1,4 @@
-import { MINIONS, SIM, WAVES } from '../config/sim.js';
+import { HEAT, MINIONS, SIM, WAVES } from '../config/sim.js';
 import { CLASSES, type ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { STANCES, type Stance } from '../data/minions.js';
@@ -56,6 +56,22 @@ export interface PortalRequest {
 /** Seconds after arriving before a portal can be used, so players do not bounce straight back. */
 const PORTAL_COOLDOWN = 1.5;
 
+/** Admin-tunable rates, so balance can change without a deploy. */
+export interface SimRates {
+  xp: number;
+  loot: number;
+  /** Force bar at level 1 before gear. */
+  forceMax: number;
+  /** Multiplier on every skill's Force cost. */
+  forceCost: number;
+  /** Multiplier on Force cooling. */
+  forceCool: number;
+  /** Cap on the cooling speed-up after a pause in casting. */
+  forceRampMax: number;
+}
+
+export const DEFAULT_RATES: SimRates = { xp: 1, loot: 1, forceMax: HEAT.max, forceCost: 1, forceCool: 1, forceRampMax: HEAT.coolRampMax };
+
 export class Simulation {
   readonly world = new World();
   readonly rng: Rng;
@@ -69,8 +85,19 @@ export class Simulation {
   tick = 0;
   wave = 0;
   waveTimer: number = WAVES.firstWaveDelaySeconds;
-  /** Server-wide rates from the admin settings; the room manager keeps them current. */
-  rates = { xp: 1, loot: 1 };
+  /** Server-wide rates from the admin settings; the room manager keeps them current through setRates. */
+  rates: SimRates = { ...DEFAULT_RATES };
+
+  /** Applies new admin rates. The Force bar is part of every player's stats, so those are rebuilt. */
+  setRates(rates: SimRates): void {
+    const maxChanged = rates.forceMax !== this.rates.forceMax;
+    this.rates = { ...rates };
+    if (!maxChanged) return;
+    for (const p of this.world.player.values()) {
+      p.stats = computeStats(p, this.rates.forceMax);
+      p.heat = Math.min(p.heat, p.stats.heatMax);
+    }
+  }
   /** A dungeon's boss has died. Set once; the server announces it. */
   cleared = false;
   /** Filled by the portal system; the server drains it and moves players between rooms. */
@@ -168,7 +195,7 @@ export class Simulation {
     const p = w.player.get(id);
     const h = w.health.get(id);
     if (p && h) {
-      p.stats = computeStats(p);
+      p.stats = computeStats(p, this.rates.forceMax);
       h.maxLife = p.stats.maxLife;
       h.life = p.stats.maxLife;
     }

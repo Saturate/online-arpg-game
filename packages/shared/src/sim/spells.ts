@@ -62,7 +62,7 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   if (!res.ok) {
     // Holding the key on a dud would drain heat every cast cooldown; only fizzle on a fresh press.
     if (!pressed) return;
-    const cost = res.heat * HEAT.dudHeatFraction;
+    const cost = res.heat * HEAT.dudHeatFraction * sim.rates.forceCost;
     if (p.heat + cost > p.stats.heatMax * (HEAT.overheatMax / HEAT.max)) return;
     p.heat += cost;
     p.heatPause = HEAT.coolPauseSeconds;
@@ -72,9 +72,10 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   }
 
   const overheatMax = p.stats.heatMax * (HEAT.overheatMax / HEAT.max);
-  if (p.heat + res.heat > overheatMax) return;
+  const cost = res.heat * sim.rates.forceCost;
+  if (p.heat + cost > overheatMax) return;
   const chance = misfireChance(p.heat, eq.misfireMultiplier, p.stats.heatMax);
-  p.heat += res.heat;
+  p.heat += cost;
   p.heatPause = HEAT.coolPauseSeconds;
   p.castCooldown = HEAT.castCooldownSeconds / p.stats.castSpeedMult;
   if (chance > 0 && sim.rand.combat.next() < chance) {
