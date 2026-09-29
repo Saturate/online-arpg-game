@@ -85,6 +85,7 @@ Three styles: **melee**, **ranged** and **spell**. Each has a family of sigils, 
 - **A character picks a starting style** (**Open**: or picks one of today's five classes, each mapped to a style). That gives a starting kit, cheaper Force on the style's shapes and runes, base stats (armour, life, spirit), and **which minion family it can bind**.
 - **Sigils of every style work for everyone.** A melee character can carry a grimoire; it costs more Force and hits with spell damage, which melee gear does not raise. Hybrids are possible, just not free.
 - **Minions follow style.** Each style binds its own family through vessels, so a ranged character runs a hound and a hawk, a melee one a shield wall.
+- **Rare affixes may break a rule once, never freely.** A rare vessel affix, *Kindred*, lets one minion of another style join your warband; only one such minion at a time. The same principle holds for every rule-breaking affix: it permits one of a kind (one extra multicast, one foreign minion, one free rune), and the unique version is the only way to lift the limit fully.
 
 ### Uniques
 
@@ -125,4 +126,3 @@ Each phase ships on its own and gets the item review before deploy.
 2. Rune trader stock: per player or shared server-wide?
 3. Existing characters: convert or wipe?
 4. Character creation: pick one of three styles, or keep the five classes as starting kits mapped onto the styles (Warrior melee; Ranger ranged; Mage, Priest and Binder spell)?
-5. Can a character learn a second minion family later without a unique, for example through a rare vessel affix?
