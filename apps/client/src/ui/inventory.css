@@ -561,3 +561,35 @@
 .tt-spirit.bad {
   color: #ff7a6a;
 }
+.trader-window {
+  right: auto;
+  left: 12px;
+  width: 360px;
+}
+.trader-shelf {
+  display: grid;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+.trader-item {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px !important;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid #2e261b !important;
+}
+.trader-item:disabled {
+  opacity: 0.45;
+}
+.trader-name {
+  font-size: 13px;
+}
+.trader-price,
+.gold {
+  color: #e8c860;
+}

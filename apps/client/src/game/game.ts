@@ -1,6 +1,7 @@
 import {
   SKILL_BUTTONS,
   STASH_REACH,
+  TRADER,
   CLASSES,
   distSq,
   loadMap,
@@ -475,6 +476,9 @@ export class Game {
       case 'party':
         useUi.setState({ partyInfo: msg.party });
         return;
+      case 'trader':
+        useUi.setState({ traderStock: msg.stock });
+        return;
       case 'partyInvite':
         useUi.setState({ partyInvite: msg.from });
         useUi.getState().notify(`${msg.from} invited you to a party`);
@@ -549,6 +553,12 @@ export class Game {
     const stash = room.def.stash;
     const atStash = !!stash && Math.hypot(stash.x - origin.x, stash.y - origin.y) <= STASH_REACH - 10;
     if (atStash !== useUi.getState().stashOpen) useUi.setState(atStash ? { stashOpen: true, inventoryOpen: true } : { stashOpen: false });
+    const trader = room.def.trader;
+    const atTrader = !!trader && Math.hypot(trader.x - origin.x, trader.y - origin.y) <= TRADER.reach - 10;
+    if (atTrader !== useUi.getState().traderOpen) {
+      useUi.setState(atTrader ? { traderOpen: true, inventoryOpen: true } : { traderOpen: false });
+      if (atTrader) this.send({ t: 'traderList' });
+    }
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);

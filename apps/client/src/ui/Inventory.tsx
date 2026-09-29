@@ -1,4 +1,4 @@
-import { BAG, categoryForSlot, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
+import { BAG, categoryForSlot, sellPrice, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
 import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
@@ -108,7 +108,11 @@ export function ItemTooltip() {
       <SpiritPreview item={item} place={place} />
       {place?.at === 'bag' && <Comparison item={item} />}
       <footer className="tt-hint">
-        {place?.at === 'stash'
+        {place?.at === 'trader'
+          ? `Click to buy for ${place.price} gold`
+          : place?.at === 'bag' && useUi.getState().traderOpen
+            ? `Right-click to sell for ${sellPrice(item)} gold`
+            : place?.at === 'stash'
           ? 'Right-click to take it out · Drag to move'
           : place?.at === 'bag'
             ? useUi.getState().stashOpen
@@ -175,8 +179,10 @@ export function ItemCell({
       sendCommand({ t: 'discard', uid: item.uid });
       return;
     }
-    const stashOpen = useUi.getState().stashOpen;
-    const msg = quickAction(inventory, item, place, cls, stashOpen);
+    const { stashOpen, traderOpen } = useUi.getState();
+    // A good item asks before it goes to the shared shelf, where anyone can buy it.
+    if (traderOpen && place.at === 'bag' && (item.tier === 'rare' || item.tier === 'relic') && !window.confirm(`Sell ${item.name} for ${sellPrice(item)} gold?`)) return;
+    const msg = quickAction(inventory, item, place, cls, stashOpen, traderOpen);
     if (msg) sendCommand(msg);
     else if (stashOpen && (place.at === 'bag' || place.at === 'stash')) useUi.getState().notify(`No room in the ${place.at === 'bag' ? 'stash' : 'bag'}`);
     else if (item.kind === 'vessel' && cls !== 'binder') useUi.getState().notify('Only Binders can bind vessels');
@@ -388,6 +394,53 @@ function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | 'stash'; selUid:
   );
 }
 
+/** The trader's shelf, shared by every player on the server: newest first, 50 at most. */
+export function TraderWindow() {
+  const open = useUi((s) => s.traderOpen && s.inventoryOpen);
+  const stock = useUi((s) => s.traderStock);
+  const gold = useUi((s) => s.inventory?.gold ?? 0);
+  const setHover = useHover((h) => h.set);
+  if (!open) return null;
+  return (
+    <section className="panel inv-window trader-window" aria-label="Trader">
+      <header className="inv-header">
+        <h2>Trader</h2>
+        <span className="muted">
+          {stock.length} / 50 · shared by everyone · <span className="gold">{gold} gold</span>
+        </span>
+      </header>
+      <div className="trader-shelf">
+        {stock.length === 0 && <p className="muted">The shelf is empty. Right-click items in your bag to sell them.</p>}
+        {[...stock].reverse().map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            className={`trader-item tier-${e.item.tier}`}
+            disabled={gold < e.price}
+            onClick={() => sendCommand({ t: 'buy', id: e.id })}
+            onMouseEnter={(ev) => setHover(e.item, ev.clientX, ev.clientY, { at: 'trader', price: e.price })}
+            onMouseMove={(ev) => setHover(e.item, ev.clientX, ev.clientY, { at: 'trader', price: e.price })}
+            onMouseLeave={() => setHover(null, 0, 0)}
+            aria-label={`${e.item.name}, ${e.price} gold`}
+          >
+            <ItemIcon item={e.item} size={36} />
+            <span className="trader-name" style={{ color: tierColor(e.item) }}>
+              {e.item.name}
+            </span>
+            <span className="trader-price">{e.price} g</span>
+          </button>
+        ))}
+      </div>
+      <footer className="inv-footer">
+        <span>
+          <kbd>Right-click</kbd> a bag item to sell
+        </span>
+        <span>The oldest item goes when a 51st is sold</span>
+      </footer>
+    </section>
+  );
+}
+
 /** The account's shared stash, beside the bag while standing at the chest in town. */
 export function StashWindow() {
   const open = useUi((s) => s.stashOpen && s.inventoryOpen);
@@ -495,7 +548,9 @@ export function Inventory() {
         <div className="inv-right">
           <div className="inv-bag-head">
             <h3 className="inv-section">Bag</h3>
-            <span className="muted">{used} items</span>
+            <span className="muted">
+              {used} items · <span className="gold">{inv.gold} gold</span>
+            </span>
             <button type="button" className="inv-sort" onClick={() => sendCommand({ t: 'sortInventory' })} disabled={used === 0} title="Group by type, best first">
               Sort
             </button>

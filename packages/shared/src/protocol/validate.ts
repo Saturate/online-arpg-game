@@ -111,6 +111,12 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isSlot(value.slot) ? { t: 'unequipVessel', slot: value.slot } : null;
     case 'sortInventory':
       return { t: 'sortInventory' };
+    case 'traderList':
+      return { t: 'traderList' };
+    case 'sell':
+      return isNonNegativeInt(value.uid) ? { t: 'sell', uid: value.uid } : null;
+    case 'buy':
+      return isNonNegativeInt(value.id) ? { t: 'buy', id: value.id } : null;
     case 'moveItem':
       return isNonNegativeInt(value.uid) && (value.to === 'bag' || value.to === 'stash') && isNonNegativeInt(value.x) && isNonNegativeInt(value.y) && value.x < 64 && value.y < 64
         ? { t: 'moveItem', uid: value.uid, to: value.to, x: value.x, y: value.y }
@@ -138,7 +144,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'trader', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

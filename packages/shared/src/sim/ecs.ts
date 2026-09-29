@@ -98,6 +98,7 @@ export interface PlayerComp {
   level: number;
   /** Progress into the current level, not lifetime total. */
   xp: number;
+  gold: number;
 }
 
 export interface EnemyComp {

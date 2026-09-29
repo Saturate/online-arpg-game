@@ -59,6 +59,10 @@ export type ClientMessage =
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
+  /** Standing at the trader: send the shared stock. */
+  | { t: 'traderList' }
+  | { t: 'sell'; uid: ItemUid }
+  | { t: 'buy'; id: number }
   /** Move a bag or stash item so its top-left corner lands on cell (x, y) of the target grid. */
   | { t: 'moveItem'; uid: ItemUid; to: 'bag' | 'stash'; x: number; y: number }
   | { t: 'sortInventory' }
@@ -215,6 +219,12 @@ export interface WorldInfo {
   capacity: number;
 }
 
+export interface TraderEntry {
+  id: number;
+  item: Item;
+  price: number;
+}
+
 export interface PartyInfo {
   leader: string;
   members: { name: string; online: boolean }[];
@@ -229,6 +239,7 @@ export interface InventoryMessage {
   inventory: (ItemUid | null)[];
   /** Account stash grid cells (STASH). */
   stash: (ItemUid | null)[];
+  gold: number;
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
@@ -266,6 +277,8 @@ export type ServerMessage =
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
   | { t: 'partyInvite'; from: string }
+  /** The trader's shared stock, oldest first. */
+  | { t: 'trader'; stock: TraderEntry[] }
   /** `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system` is the server. */
   | { t: 'chat'; kind: 'game' | 'party' | 'whisper' | 'system'; from: string; to: string | null; text: string }
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */

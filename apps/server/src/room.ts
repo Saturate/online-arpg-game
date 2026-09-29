@@ -1,6 +1,9 @@
 import {
   applyDev,
+  buyItem,
   pendingItems,
+  sellItem,
+  type Item,
   restoreStash,
   type StashSave,
   can,
@@ -95,6 +98,16 @@ export class Room {
   placeMember(client: Client, x: number, y: number): void {
     const m = this.members.get(client.id);
     if (m) applyDev(this.sim, m.playerId, { c: 'teleport', x, y });
+  }
+
+  sell(client: Client, uid: number): Item | string {
+    const m = this.members.get(client.id);
+    return m ? sellItem(this.sim, m.playerId, uid) : 'Not in this room';
+  }
+
+  buy(client: Client, item: Item, price: number): string | null {
+    const m = this.members.get(client.id);
+    return m ? buyItem(this.sim, m.playerId, item, price) : 'Not in this room';
   }
 
   /** Items waiting for room in the bag or stash; see pendingItems. */

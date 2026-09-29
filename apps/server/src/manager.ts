@@ -4,7 +4,10 @@ import {
   INSTANCE_CAPACITY,
   jsonCodec,
   parseClientMessage,
+  buyPrice,
+  sellPrice,
   SETTINGS_LIMITS,
+  TRADER,
   SIM,
   splitStash,
   WILDS,
@@ -25,7 +28,7 @@ import {
   type WorldInfo,
   type ZoneId,
 } from '@rune/shared';
-import type { AccountStore } from './accounts.js';
+import type { AccountStore, Market } from './accounts.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { Room } from './room.js';
@@ -93,6 +96,7 @@ export class RoomManager implements AdminHooks {
   private timer: NodeJS.Timeout | null = null;
   private ticksSinceSave = 0;
   private current: ServerSettings;
+  private market: Market;
 
   constructor(
     seed: number,
@@ -102,6 +106,7 @@ export class RoomManager implements AdminHooks {
   ) {
     this.seedCounter = seed;
     this.current = store.loadSettings();
+    this.market = store.loadMarket();
     this.townLayout = loadTownLayout();
     this.arena = this.createRoom('arena', { kind: 'arena' }, null);
   }
@@ -392,6 +397,15 @@ export class RoomManager implements AdminHooks {
       case 'townPortal':
         this.goHome(client);
         return;
+      case 'traderList':
+        client.send({ t: 'trader', stock: this.market.stock });
+        return;
+      case 'sell':
+        this.sell(client, msg.uid);
+        return;
+      case 'buy':
+        this.buy(client, msg.id);
+        return;
       case 'partyInvite':
         this.partyInvite(client, msg.name);
         return;
@@ -467,6 +481,42 @@ export class RoomManager implements AdminHooks {
     this.move(client, this.zoneRoom(inst, HOME_ZONE));
     if (before && before !== inst) this.sendWorldToAll(before);
     this.sendWorldToAll(inst);
+  }
+
+  // Trader ------------------------------------------------------------------------------------
+
+  private sell(client: Client, uid: number): void {
+    const room = client.room;
+    if (!room) return;
+    const sold = room.sell(client, uid);
+    if (typeof sold === 'string') return client.send({ t: 'notice', text: sold });
+    const next = [...this.market.stock, { id: this.market.nextId, item: { ...sold, uid: 0 }, price: buyPrice(sold) }];
+    // Past capacity the oldest item is destroyed for good, which keeps the shelf fresh.
+    this.market = { nextId: this.market.nextId + 1, stock: next.slice(Math.max(0, next.length - TRADER.capacity)) };
+    this.saveTrade(client, room);
+    this.system(client, `Sold ${sold.name} for ${sellPrice(sold)} gold`);
+  }
+
+  private buy(client: Client, id: number): void {
+    const room = client.room;
+    const entry = this.market.stock.find((e) => e.id === id);
+    if (!room) return;
+    if (!entry) return client.send({ t: 'notice', text: 'Someone else bought that' });
+    const error = room.buy(client, entry.item, entry.price);
+    if (error) return client.send({ t: 'notice', text: error });
+    this.market = { ...this.market, stock: this.market.stock.filter((e) => e.id !== id) };
+    this.saveTrade(client, room);
+    this.system(client, `Bought ${entry.item.name} for ${entry.price} gold`);
+  }
+
+  /** The character and the shelf are written together, then everyone at a trader sees the new shelf. */
+  private saveTrade(client: Client, room: Room): void {
+    const save = room.exportMember(client);
+    if (save && client.characterId !== null && client.accountId !== null) {
+      const { character, stash } = splitStash(save);
+      this.store.saveCharacterAndStash(client.characterId, character, client.accountId, stash, this.market);
+    }
+    for (const c of this.clients.values()) if (c.room?.sim.mapDef.trader) c.send({ t: 'trader', stock: this.market.stock });
   }
 
   // Worlds and parties ------------------------------------------------------------------------

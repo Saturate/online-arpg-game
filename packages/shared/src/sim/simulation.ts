@@ -44,6 +44,7 @@ export interface PlayerSave {
   waypoints: ZoneId[];
   level: number;
   xp: number;
+  gold: number;
 }
 
 export interface PortalRequest {
@@ -151,6 +152,7 @@ export class Simulation {
       waypoints: [HOME_ZONE],
       level: 1,
       xp: 0,
+      gold: 0,
     });
     if (save) inv.restoreSave(this, id, save);
     else inv.giveStarterKit(this, id);
@@ -181,6 +183,7 @@ export class Simulation {
       waypoints: [...p.waypoints],
       level: p.level,
       xp: p.xp,
+      gold: p.gold,
     };
   }
 

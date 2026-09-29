@@ -19,6 +19,7 @@ import {
   type SigilItem,
 } from '../items/items.js';
 import { rollDrops } from '../items/drops.js';
+import { sellPrice, TRADER } from '../items/prices.js';
 import { anchorOf, BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
 import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
@@ -146,6 +147,7 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   p.waypoints = [...save.waypoints];
   p.level = save.level;
   p.xp = save.xp;
+  p.gold = save.gold;
   save.sigils.forEach((u, slot) => {
     const item = p.items.get(re(u) ?? -1);
     p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(p, item) : null;
@@ -554,4 +556,38 @@ export function restoreStash(sim: Simulation, pid: EntityId, stash: StashSave): 
   // anything left over stays pending with the character rather than vanishing.
   placePending(p);
   changed(p);
+}
+
+export function nearTrader(sim: Simulation, pid: EntityId): boolean {
+  const at = sim.mapDef.trader;
+  const pos = sim.world.position.get(pid);
+  return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= TRADER.reach * TRADER.reach;
+}
+
+/**
+ * Sells a bag item to the trader: it leaves the character and the gold comes in. Returns the item
+ * for the shared stock, or why not. The server stores the stock and the character together.
+ */
+export function sellItem(sim: Simulation, pid: EntityId, uid: ItemUid): Item | string {
+  const p = sim.world.player.get(pid);
+  const item = p?.items.get(uid);
+  if (!p || !item || !p.inventory.includes(uid)) return 'Only bag items can be sold';
+  if (!nearTrader(sim, pid)) return 'Stand at the trader to sell';
+  removeFrom(p.inventory, uid);
+  p.items.delete(uid);
+  p.gold += sellPrice(item);
+  changed(p);
+  return item;
+}
+
+/** Buys an item from the stock into the bag. Checked here: reach, gold and room. */
+export function buyItem(sim: Simulation, pid: EntityId, item: Item, price: number): string | null {
+  const p = sim.world.player.get(pid);
+  if (!p) return 'No player';
+  if (!nearTrader(sim, pid)) return 'Stand at the trader to buy';
+  if (p.gold < price) return `That costs ${price} gold`;
+  const bought = { ...item, uid: sim.newItemUid() };
+  if (!addItem(p, bought)) return 'No room in your bag';
+  p.gold -= price;
+  return null;
 }

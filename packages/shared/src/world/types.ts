@@ -108,6 +108,8 @@ export interface WorldMap {
   decor: Decor[];
   /** Where the stash chest stands; only maps with a town have one. */
   stash?: Vec2;
+  /** Where the trader stands; only maps with a town have one. */
+  trader?: Vec2;
 }
 
 export interface Decor {

@@ -26,7 +26,9 @@ export type ItemPlace =
   | { at: 'stash'; x: number; y: number }
   | { at: 'sigil'; slot: number }
   | { at: 'warband'; slot: number }
-  | { at: 'gear'; slot: GearSlot };
+  | { at: 'gear'; slot: GearSlot }
+  /** On the trader's shelf: only for tooltips, never dragged or dropped. */
+  | { at: 'trader'; price: number };
 
 export interface DragPayload {
   uid: ItemUid;
@@ -80,7 +82,9 @@ function firstEmpty(slots: readonly (ItemUid | null)[]): number | null {
  * Right-click behaviour, D2 style: equipped things come off, bag things go on. Sigils and vessels
  * only take a free slot: replacing a skill by accident is worse than having to drag.
  */
-export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false): ClientMessage | null {
+export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false, traderOpen = false): ClientMessage | null {
+  // At the trader, right-click on a bag item sells it.
+  if (traderOpen && place.at === 'bag') return { t: 'sell', uid: item.uid };
   // At the stash, right-click moves things across instead, like D2's ctrl-click.
   if (stashOpen && (place.at === 'bag' || place.at === 'stash')) {
     const to = place.at === 'bag' ? 'stash' : 'bag';
@@ -89,6 +93,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
   }
   switch (place.at) {
     case 'stash':
+    case 'trader':
       return null;
     case 'sigil':
       return { t: 'unequipSigil', slot: place.slot };
@@ -110,6 +115,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
   const fromGrid = drag.from.at === 'bag' || drag.from.at === 'stash';
+  if (target.at === 'trader' || drag.from.at === 'trader') return null;
   if (target.at === 'bag' || target.at === 'stash') {
     if (!fromGrid) return target.at === 'bag' ? quickAction(inv, item, drag.from, classId) : null;
     if (target.x === undefined || target.y === undefined) return null;

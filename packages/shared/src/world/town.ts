@@ -152,6 +152,10 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     map.stash = { x: layout.spawn.x - 150, y: layout.spawn.y + 70 };
     map.obstacles.push({ kind: 'chest', shape: PROP_DEFS.chest.shape(prop('chest', map.stash.x, map.stash.y)), blocksMove: true, blocksShots: false, visual: 30 });
   }
+  // The stall nearest the spawn is the trader's; a town without one gets the trader by the spawn.
+  const stalls = layout.props.filter((p) => p.kind === 'stall').sort((a, b) => Math.hypot(a.x - layout.spawn.x, a.y - layout.spawn.y) - Math.hypot(b.x - layout.spawn.x, b.y - layout.spawn.y));
+  const stall = stalls[0];
+  map.trader = stall ? { x: stall.x, y: stall.y } : { x: layout.spawn.x + 160, y: layout.spawn.y + 70 };
   for (const portal of layout.portals) map.portals.push({ x: portal.x, y: portal.y, r: portal.target === 'wilds' ? 70 : 60, target: portal.target, label: PORTAL_LABELS[portal.target] });
   return map;
 }

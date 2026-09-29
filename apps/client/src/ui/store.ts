@@ -5,6 +5,7 @@ import {
   type ClassId,
   type GameMode,
   type PartyInfo,
+  type TraderEntry,
   type WorldInfo,
   type MapTheme,
   type ClientMessage,
@@ -120,6 +121,9 @@ interface UiState {
   rightSkill: number;
   /** Standing at the stash chest: the stash panel shows and right-click moves items across. */
   stashOpen: boolean;
+  /** Standing at the trader: the shelf shows and right-click sells. */
+  traderOpen: boolean;
+  traderStock: TraderEntry[];
   characterOpen: boolean;
   devOpen: boolean;
   devTools: boolean;
@@ -226,6 +230,8 @@ export const useUi = create<UiState>((set, get) => ({
   leftSkill: 0,
   rightSkill: 1,
   stashOpen: false,
+  traderOpen: false,
+  traderStock: [],
   characterOpen: false,
   devOpen: false,
   devTools: false,

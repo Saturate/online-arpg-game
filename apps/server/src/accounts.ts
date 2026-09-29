@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave } from '@rune/shared';
+import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -8,6 +8,12 @@ import { DatabaseSync } from 'node:sqlite';
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
 const SESSION_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The trader's shelf, shared by every player on the server. */
+export interface Market {
+  nextId: number;
+  stock: TraderEntry[];
+}
 
 export interface Account {
   id: number;
@@ -92,6 +98,8 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     return {
       ...v,
       stash: Array.isArray(stash) ? stash.map((c: unknown) => (typeof c === 'number' ? c : null)) : [],
+      // Saves from before gold have none.
+      gold: typeof Reflect.get(v, 'gold') === 'number' && Number.isFinite(Reflect.get(v, 'gold')) ? Math.max(0, Math.floor(Number(Reflect.get(v, 'gold')))) : 0,
       waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
@@ -331,15 +339,34 @@ export class AccountStore {
     }
   }
 
-  saveCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave): void {
+  saveCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave, market?: Market): void {
     this.db.exec('BEGIN');
     try {
       this.saveCharacter(characterId, save);
       this.db.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run(JSON.stringify(stash), accountId);
+      // A trade saves the trader's stock in the same transaction, so a crash cannot leave the item
+      // both sold and still in the bag, or bought and still on the shelf.
+      if (market) this.db.prepare("INSERT INTO settings (key, value) VALUES ('trader', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(market));
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
+    }
+  }
+
+  /** The trader's shared stock; empty when never saved. A damaged row starts a fresh shelf. */
+  loadMarket(): Market {
+    const raw = row(this.db.prepare("SELECT value FROM settings WHERE key = 'trader'").get())?.value;
+    if (typeof raw !== 'string') return { nextId: 1, stock: [] };
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return { nextId: 1, stock: [] };
+      const stock = v.stock.flatMap((e: unknown) =>
+        isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: e.price, item: e.item }] : [],
+      );
+      return { nextId: v.nextId, stock };
+    } catch {
+      return { nextId: 1, stock: [] };
     }
   }
 
