@@ -4,7 +4,7 @@
  * never from the database, so nobody can grant it through the admin page.
  */
 
-export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'settings', 'townEdit', 'devTools', 'manageRoles'] as const;
+export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles'] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** Lowest to highest; the index is the rank. */
@@ -17,15 +17,15 @@ export const ASSIGNABLE_ROLES: readonly AssignableRole[] = ['player', 'builder',
 const GRANTS: Record<Role, readonly Permission[]> = {
   player: [],
   builder: ['viewAdmin', 'townEdit', 'devTools'],
-  moderator: ['viewAdmin', 'announce', 'kick', 'ban'],
-  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'settings', 'townEdit', 'devTools'],
+  moderator: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport'],
+  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools'],
   owner: PERMISSIONS,
 };
 
 export const ROLE_INFO: Record<Role, { name: string; blurb: string }> = {
   player: { name: 'Player', blurb: 'No staff powers' },
   builder: { name: 'Builder', blurb: 'Town editor and F3 dev tools; can look at the admin page' },
-  moderator: { name: 'Moderator', blurb: 'Announce, kick and ban players' },
+  moderator: { name: 'Moderator', blurb: 'Announce, kick, ban and teleport to players' },
   admin: { name: 'Admin', blurb: 'Everything except handing out roles' },
   owner: { name: 'Owner', blurb: 'Everything; set with ADMIN_USERS on the server' },
 };

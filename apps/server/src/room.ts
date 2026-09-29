@@ -88,6 +88,12 @@ export class Room {
     return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
+  /** Moves a member within this room, onto open ground near the spot. */
+  placeMember(client: Client, x: number, y: number): void {
+    const m = this.members.get(client.id);
+    if (m) applyDev(this.sim, m.playerId, { c: 'teleport', x, y });
+  }
+
   /** After a role change: the welcome carries the dev and editor flags, so it is resent. */
   refreshMember(client: Client): void {
     const m = this.members.get(client.id);

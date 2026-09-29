@@ -154,6 +154,35 @@ export class RoomManager implements AdminHooks {
     for (const c of [...this.clients.values()]) if (c.accountId === accountId) this.endSession(c, 'This account has been banned');
   }
 
+  gotoCharacter(staffAccountId: number, characterId: number): string | null {
+    const staff = [...this.clients.values()].find((c) => c.accountId === staffAccountId && c.characterId !== null);
+    const target = [...this.clients.values()].find((c) => c.characterId === characterId);
+    if (!staff) return 'Enter the game first; teleporting moves your character';
+    if (!target) return 'That character is not online';
+    return this.goto(staff, target);
+  }
+
+  /** Staff jump to a player: same world copy and room, beside them. Party worlds too, to check on things. */
+  private goto(staff: Client, target: Client): string | null {
+    if (staff === target) return 'That is you';
+    const room = target.room;
+    const at = room?.playerState(target);
+    if (!room || !at) return 'That player is between rooms, try again';
+    if (room === this.arena || isSandbox(room)) return 'That player is in the Arena';
+    const beside = { x: at.x + 40, y: at.y };
+    if (staff.room === room) room.placeMember(staff, beside.x, beside.y);
+    else {
+      const before = this.instanceOf(staff);
+      staff.instanceId = target.instanceId;
+      this.move(staff, room, beside);
+      if (before) this.sendWorldToAll(before);
+      const inst = this.instanceOf(target);
+      if (inst) this.sendWorldToAll(inst);
+    }
+    console.log(`[admin] ${staff.accountName}: teleported to ${this.playerName(target)}`);
+    return null;
+  }
+
   currentTown(): TownLayout {
     return this.townLayout;
   }
@@ -643,6 +672,17 @@ export class RoomManager implements AdminHooks {
           const inst = this.instanceOf(client);
           const names = inst ? this.membersOf(inst).map((c) => this.playerName(c)) : [from];
           this.system(client, `In this world: ${names.join(', ')}`);
+          return;
+        }
+        case 'goto': {
+          if (!can(client.role, 'teleport')) {
+            this.system(client, 'Unknown command /goto. Try /help');
+            return;
+          }
+          const name = rest.join(' ').trim().toLowerCase();
+          const target = [...this.clients.values()].find((c) => c.characterId !== null && this.playerName(c).toLowerCase() === name);
+          const error = target ? this.goto(client, target) : `${rest.join(' ')} is not online`;
+          if (error) this.system(client, error);
           return;
         }
         case 'invite':

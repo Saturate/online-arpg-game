@@ -75,6 +75,8 @@ export interface AdminHooks {
   kickAccount(accountId: number): void;
   /** The live town, for `pnpm town:pull`. Every player is sent it on entering town, so it is public. */
   currentTown(): TownLayout;
+  /** Moves the staff member's live character next to the target; returns why not, or null. */
+  gotoCharacter(staffAccountId: number, characterId: number): string | null;
   /** Applies a new role to the account's live session, if it has one. */
   roleChanged(accountId: number, role: Role): void;
 }
@@ -300,6 +302,16 @@ export class AccountApi {
       this.store.setBanned(id, banned);
       if (banned) this.admin.kickAccount(id);
       log(`${banned ? 'ban' : 'unban'} ${target.username}`);
+      return [200, { ok: true }];
+    }
+    if (method === 'POST' && path === '/api/admin/goto') {
+      need('teleport');
+      const body = await readJson(req);
+      const id = isRecord(body) ? body.characterId : undefined;
+      if (typeof id !== 'number' || !Number.isSafeInteger(id)) throw new HttpError(400, 'characterId is required');
+      const error = this.admin.gotoCharacter(account.id, id);
+      if (error) throw new HttpError(409, error);
+      log(`goto character ${id}`);
       return [200, { ok: true }];
     }
     const roleRoute = /^\/api\/admin\/accounts\/(\d{1,9})\/role$/.exec(path);

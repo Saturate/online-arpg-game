@@ -127,6 +127,7 @@ export const adminApi = {
   saveSettings: async (token: string, patch: Partial<ServerSettings>) => narrow(await call('PUT', '/api/admin/settings', token, patch), isSettings),
   setRole: async (token: string, accountId: number, role: AssignableRole) => narrow(await call('POST', `/api/admin/accounts/${accountId}/role`, token, { role }), isOk),
   ban: async (token: string, accountId: number, banned: boolean) => narrow(await call('POST', `/api/admin/accounts/${accountId}/ban`, token, { banned }), isOk),
+  goto: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/goto', token, { characterId }), isOk),
   kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
   announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),
 };

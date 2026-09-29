@@ -144,6 +144,7 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     kickAccount: (id) => kicked.push(id),
     roleChanged: (id, role) => roles.push([id, role]),
     currentTown: () => DEFAULT_TOWN_LAYOUT,
+    gotoCharacter: () => null,
   };
 }
 

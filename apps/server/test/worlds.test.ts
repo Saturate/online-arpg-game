@@ -38,9 +38,9 @@ class FakeSocket implements GameSocket {
   }
 }
 
-async function setup(players: number) {
+async function setup(players: number, owners: ReadonlySet<string> = new Set()) {
   const store = new AccountStore(':memory:');
-  const rooms = new RoomManager(1, store);
+  const rooms = new RoomManager(1, store, owners);
   const sockets: FakeSocket[] = [];
   for (let i = 0; i < players; i++) {
     const acc = await store.register(`player${i}`, 'password123');
@@ -106,5 +106,21 @@ describe('parties', () => {
     b.emit({ t: 'partyWorld' });
     expect(b.worldName()).toBe('Public world 1');
     expect(b.sent.some((m) => m.t === 'chat' && m.text.includes('Only the party leader'))).toBe(true);
+  });
+});
+
+describe('staff teleport', () => {
+  it('takes staff into the player\'s world and room, and refuses everyone else', async () => {
+    const { sockets } = await setup(INSTANCE_CAPACITY + 1, new Set([`player${INSTANCE_CAPACITY}`]));
+    const staff = sockets[INSTANCE_CAPACITY];
+    const player = sockets[0];
+    const other = sockets[1];
+    if (!staff || !player || !other) throw new Error('no sockets');
+    expect(staff.worldName()).toBe('Public world 2');
+    staff.emit({ t: 'chat', text: '/goto Hero0' });
+    expect(staff.worldName()).toBe('Public world 1');
+
+    other.emit({ t: 'chat', text: '/goto Hero0' });
+    expect(other.sent.some((m) => m.t === 'chat' && m.text.includes('Unknown command /goto'))).toBe(true);
   });
 });

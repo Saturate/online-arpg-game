@@ -133,7 +133,18 @@ function Overview({ token, role, notify }: TabProps) {
                   {p.room}
                   {p.game ? <span className="muted"> ({p.game})</span> : null}
                 </td>
-                <td>
+                <td className="adm-row-actions">
+                  {can(role, 'teleport') && (
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => {
+                        void adminApi.goto(token, p.characterId).then((r) => notify(r.ok ? `Teleported to ${p.name}` : r.error));
+                      }}
+                    >
+                      Go to
+                    </button>
+                  )}
                   {can(role, 'kick') && (
                     <button
                       type="button"
