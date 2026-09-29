@@ -549,14 +549,23 @@ export class RoomManager implements AdminHooks {
   private join(client: Client, token: string, characterId: number, mode: 'world' | 'arena'): void {
     if (client.characterId !== null) return;
     const account = this.store.accountForToken(token);
-    const character = account ? this.store.loadCharacter(account.id, characterId) : null;
-    if (!account || !character) {
+    if (!account) {
       this.endSession(client, 'Your session has expired, log in again');
       return;
     }
-    // One character per account in the world at a time, so the same items cannot exist twice.
+    // One character per account in the world at a time, so the same items cannot exist twice. The
+    // other window is saved before the character is loaded, or its latest progress would be lost.
     for (const other of this.clients.values()) {
       if (other !== client && other.accountId === account.id) this.endSession(other, 'Logged in from another window');
+    }
+    const character = this.store.loadCharacter(account.id, characterId);
+    if (!character) {
+      this.endSession(client, 'That character no longer exists');
+      return;
+    }
+    if (character.saveUnreadable) {
+      this.endSession(client, 'This character could not be loaded. Nothing was lost; ask the server owner to look at it.');
+      return;
     }
     client.accountId = account.id;
     client.accountName = account.username;

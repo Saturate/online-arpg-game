@@ -23,6 +23,8 @@ function storedRole(v: unknown): AssignableRole {
 export interface StoredCharacter extends CharacterSummary {
   accountId: number;
   save: PlayerSave | null;
+  /** A save exists but could not be read. It must not be overwritten by a fresh start. */
+  saveUnreadable: boolean;
 }
 
 function hashPassword(password: string, salt: Buffer): Promise<Buffer> {
@@ -296,8 +298,9 @@ export class AccountStore {
     if (!r || !isClassId(classId)) return null;
     const json = r.save_json;
     const save = typeof json === 'string' ? parseSave(json, classId) : null;
-    if (typeof json === 'string' && !save) console.warn(`character ${characterId} has an unreadable save, starting fresh`);
-    return { id: num(r.id), accountId: num(r.account_id), name: str(r.name), classId, createdAt: num(r.created_at), playedAt: num(r.played_at), save };
+    const saveUnreadable = typeof json === 'string' && !save;
+    if (saveUnreadable) console.error(`character ${characterId} has an unreadable save; it is kept as is and the character cannot join`);
+    return { id: num(r.id), accountId: num(r.account_id), name: str(r.name), classId, createdAt: num(r.created_at), playedAt: num(r.played_at), save, saveUnreadable };
   }
 
   saveCharacter(characterId: number, save: PlayerSave): void {
