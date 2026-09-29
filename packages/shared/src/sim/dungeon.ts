@@ -5,7 +5,8 @@ import type { Simulation } from './simulation.js';
 
 /** The end of a dungeon run: marks it cleared and opens the boss cache. Only dungeons have one. */
 export function onBossKilled(sim: Simulation, x: number, y: number, level: number): void {
-  if (sim.mapDef.theme !== 'dungeon' || sim.cleared) return;
+  // Arena runs never drop loot, whatever map they use.
+  if (sim.mapDef.theme !== 'dungeon' || sim.arena || sim.cleared) return;
   sim.cleared = true;
   const rng = sim.rand.loot;
   const items: Item[] = [];

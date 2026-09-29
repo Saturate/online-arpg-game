@@ -178,9 +178,10 @@ function spellRecord(sim: Simulation, e: SpellEntity): SpellSnap {
   return { ...e, age: round2(z?.spell.age ?? 0), dur: z?.duration ?? 1 };
 }
 
-/** What would make a sent record stale: only a projectile's motion changes (a reflect, homing). */
-function motionKey(r: SpellSnap): string {
-  return r.k === 'projectile' ? `${r.vx},${r.vy},${r.team},${r.r}` : r.k;
+/** What would make a sent projectile record stale: its motion changing (a reflect, homing). */
+function projectileKey(sim: Simulation, e: Extract<EntitySnap, { k: 'projectile' }>): string {
+  const v = sim.world.velocity.get(e.id);
+  return `${round1(v?.x ?? 0)},${round1(v?.y ?? 0)},${e.team},${e.r}`;
 }
 
 /**
@@ -243,11 +244,11 @@ export function snapshotFor(
         continue;
       }
       seen.add(e.id);
-      const record = spellRecord(sim, e);
-      const key = motionKey(record);
+      // Only a projectile's motion can change; build the full record only when the key says so.
+      const key = e.k === 'projectile' ? projectileKey(sim, e) : e.k;
       if (known.get(e.id) === key) continue;
       known.set(e.id, key);
-      spells.push(record);
+      spells.push(spellRecord(sim, e));
     }
     for (const id of known.keys()) {
       if (seen.has(id)) continue;

@@ -38,6 +38,11 @@ export interface LeaderboardEntry {
   wave: number;
   seconds: number;
   finishedAt: number;
+  /**
+   * Someone in the party has dev tools (builder and up), who can give themselves gear anywhere. Such
+   * runs stay on the board, marked, rather than hidden, since the owner plays too.
+   */
+  staff: boolean;
 }
 
 export interface SeasonWinners {
@@ -81,6 +86,7 @@ function isEntry(v: unknown): v is LeaderboardEntry {
     typeof v.score === 'number' &&
     typeof v.wave === 'number' &&
     typeof v.seconds === 'number' &&
+    typeof v.staff === 'boolean' &&
     typeof v.finishedAt === 'number'
   );
 }

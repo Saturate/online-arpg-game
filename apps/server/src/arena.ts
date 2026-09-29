@@ -1,4 +1,4 @@
-import { arenaOver, SIM, type ArenaStatus, type ClassId } from '@rune/shared';
+import { arenaOver, can, SIM, type ArenaStatus, type ClassId } from '@rune/shared';
 import type { Room } from './room.js';
 
 /**
@@ -9,6 +9,8 @@ import type { Room } from './room.js';
 export class ArenaRun {
   readonly startTick: number;
   readonly party: { name: string; cls: ClassId }[];
+  /** A builder or above was in the party at the start; see LeaderboardEntry.staff. */
+  readonly staff: boolean;
   /** Ticks left on the score screen; null while the run is live. */
   returnIn: number | null = null;
   private lastSentKey = '';
@@ -23,6 +25,7 @@ export class ArenaRun {
       const p = room.sim.world.player.get(m.playerId);
       return p ? [{ name: p.name, cls: p.classId }] : [];
     });
+    this.staff = [...room.members.values()].some((m) => can(m.client.role, 'devTools'));
   }
 
   get finished(): boolean {

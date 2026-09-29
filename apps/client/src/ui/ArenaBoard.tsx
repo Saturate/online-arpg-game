@@ -15,7 +15,9 @@ export function seasonName(season: string): string {
 }
 
 function who(e: LeaderboardEntry): string {
-  return e.names.map((n, i) => `${n} (${CLASSES[e.classes[i] ?? 'warrior'].name})`).join(', ');
+  const names = e.names.map((n, i) => { const c = e.classes[i]; return c ? `${n} (${CLASSES[c].name})` : n; }).join(', ');
+  // Staff can give themselves gear, so their runs are marked rather than hidden.
+  return e.staff ? `${names} [staff]` : names;
 }
 
 function Board({ title, entries }: { title: string; entries: LeaderboardEntry[] }) {

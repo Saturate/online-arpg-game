@@ -119,6 +119,7 @@ export interface ArenaRunRow {
   wave: number;
   seconds: number;
   finishedAt: number;
+  staff: boolean;
 }
 
 export function boardOf(partySize: number): ArenaBoard {
@@ -144,14 +145,18 @@ function arenaEntry(r: Record<string, unknown> | null): LeaderboardEntry | null 
   if (!r) return null;
   const names = stringList(r.names_json);
   if (names.length === 0) return null;
+  // A class that no longer exists drops the whole list, so the rest stay lined up with the names.
+  const listed = stringList(r.classes_json);
+  const classes = listed.filter(isClassId);
   return {
     names,
-    classes: stringList(r.classes_json).filter(isClassId),
+    classes: classes.length === listed.length ? classes : [],
     partySize: num(r.party_size),
     score: num(r.score),
     wave: num(r.wave),
     seconds: num(r.seconds),
     finishedAt: num(r.finished_at),
+    staff: num(r.staff) === 1,
   };
 }
 
@@ -211,7 +216,8 @@ export class AccountStore {
         score INTEGER NOT NULL,
         wave INTEGER NOT NULL,
         seconds INTEGER NOT NULL,
-        finished_at INTEGER NOT NULL
+        finished_at INTEGER NOT NULL,
+        staff INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS arena_runs_board ON arena_runs(season, party_size, score DESC);
     `);
@@ -221,6 +227,8 @@ export class AccountStore {
     if (!accountCols.includes('role')) this.db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
     if (!accountCols.includes('stash_json')) this.db.exec('ALTER TABLE accounts ADD COLUMN stash_json TEXT');
     if (!accountCols.includes('is_guest')) this.db.exec('ALTER TABLE accounts ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0');
+    const arenaCols = this.db.prepare('PRAGMA table_info(arena_runs)').all().map((c) => str(row(c)?.name));
+    if (!arenaCols.includes('staff')) this.db.exec('ALTER TABLE arena_runs ADD COLUMN staff INTEGER NOT NULL DEFAULT 0');
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   }
 
@@ -530,8 +538,8 @@ export class AccountStore {
   /** Stores a finished run and returns its place on its season's board (1 is the top). */
   recordArenaRun(run: ArenaRunRow): number {
     const res = this.db
-      .prepare('INSERT INTO arena_runs (season, names_json, classes_json, party_size, score, wave, seconds, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(run.season, JSON.stringify(run.names), JSON.stringify(run.classes), run.names.length, run.score, run.wave, run.seconds, run.finishedAt);
+      .prepare('INSERT INTO arena_runs (season, names_json, classes_json, party_size, score, wave, seconds, finished_at, staff) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(run.season, JSON.stringify(run.names), JSON.stringify(run.classes), run.names.length, run.score, run.wave, run.seconds, run.finishedAt, run.staff ? 1 : 0);
     const id = num(res.lastInsertRowid);
     // Ties go to whoever got there first, the same order the board lists them in.
     const ahead = row(

@@ -14,6 +14,8 @@ export interface ArenaState {
   kills: number;
   /** Highest wave whose monsters have all died. */
   cleared: number;
+  /** Seconds the current wave has been live, for the time limit that keeps a run from stalling. */
+  waveAge: number;
 }
 
 /** What one wave brings. Pure, so the scaling can be tested and tuned without running a fight. */
@@ -58,7 +60,7 @@ export function partyLevel(levels: readonly number[]): number {
 
 /** Turns a fresh simulation into an Arena run. The first wave comes after a short delay. */
 export function startArena(sim: Simulation, level: number): void {
-  sim.arena = { partyLevel: Math.max(1, level), score: 0, kills: 0, cleared: 0 };
+  sim.arena = { partyLevel: Math.max(1, level), score: 0, kills: 0, cleared: 0, waveAge: 0 };
   sim.wave = 0;
   sim.waveTimer = ARENA.firstWaveDelaySeconds;
 }
@@ -89,13 +91,23 @@ export function updateArenaWaves(sim: Simulation, dt: number): void {
   if (!arena) return;
   const players = livingPlayers(sim);
   if (players.length === 0) return;
+  arena.waveAge += dt;
+  let alive = false;
   for (const id of sim.world.enemy.keys()) {
     if (sim.world.isAlive(id)) {
-      sim.waveTimer = Math.max(sim.waveTimer, ARENA.breatherSeconds);
-      return;
+      alive = true;
+      break;
     }
   }
-  if (sim.wave > arena.cleared) {
+  // Past the time limit the next wave comes anyway, without the clear bonus, so a party cannot
+  // stall a wave by keeping one summoner alive and farm its adds, and a monster stuck out of reach
+  // cannot end the run's progress.
+  if (alive && arena.waveAge < ARENA.waveTimeLimitSeconds) {
+    sim.waveTimer = Math.max(sim.waveTimer, ARENA.breatherSeconds);
+    return;
+  }
+  if (alive) sim.waveTimer = 0;
+  else if (sim.wave > arena.cleared) {
     arena.cleared = sim.wave;
     arena.score += waveClearBonus(sim.wave);
     sim.waveTimer = ARENA.breatherSeconds;
@@ -104,6 +116,7 @@ export function updateArenaWaves(sim: Simulation, dt: number): void {
   if (sim.waveTimer > 0) return;
 
   sim.wave++;
+  arena.waveAge = 0;
   const spec = arenaWave(sim.wave, players.length, arena.partyLevel);
   // The pit cycles through the biomes, so every monster family turns up over a long run.
   const biome = BIOMES[(sim.wave - 1) % BIOMES.length] ?? 'meadow';

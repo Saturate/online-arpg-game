@@ -227,8 +227,14 @@ describe('leaderboard endpoint', () => {
   let server: Server;
   let base = '';
   const store = new AccountStore(':memory:');
+  it('marks runs by staff on the board instead of hiding them', () => {
+    const own = new AccountStore(':memory:');
+    own.recordArenaRun({ season: '2026-09', names: ['Owner'], classes: ['mage'], score: 500, wave: 5, seconds: 60, finishedAt: 1, staff: true });
+    expect(own.leaderboard('2026-09').solo).toEqual([expect.objectContaining({ names: ['Owner'], staff: true })]);
+  });
+
   const run = (season: string, names: string[], score: number) =>
-    store.recordArenaRun({ season, names, classes: names.map(() => 'mage'), score, wave: Math.ceil(score / 100), seconds: 60, finishedAt: 1 });
+    store.recordArenaRun({ season, names, classes: names.map(() => 'mage'), score, wave: Math.ceil(score / 100), seconds: 60, finishedAt: 1, staff: false });
 
   beforeAll(async () => {
     const rooms = new RoomManager(1, store);

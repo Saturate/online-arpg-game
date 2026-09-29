@@ -103,6 +103,7 @@ export class RoomManager implements AdminHooks {
   private townLayout: TownLayout;
   private nextClientId = 1;
   private nextInstanceId = 1;
+  private nextArenaRun = 1;
   private seedCounter: number;
   private timer: NodeJS.Timeout | null = null;
   private ticksSinceSave = 0;
@@ -410,7 +411,9 @@ export class RoomManager implements AdminHooks {
     if (!inst) return;
     const target = staging.target;
     if (target.kind === 'arena') {
-      const room = this.createRoom(`${inst.id}-ar-${staging.runs++}`, { kind: 'arena' }, inst);
+      // A server-wide counter: the gate can close and reopen during a long run, and a per-gate count
+      // starting over would reuse a live run's room id.
+      const room = this.createRoom(`${inst.id}-ar-${this.nextArenaRun++}`, { kind: 'arena' }, inst);
       // Before anyone arrives, so their welcome already carries the run's rules (no pause, no dev tools).
       startArena(room.sim, partyLevel(staging.levels()));
       for (const m of [...staging.room.members.values()]) this.move(m.client, room);
@@ -450,7 +453,7 @@ export class RoomManager implements AdminHooks {
     // A run that ended before the first wave is not a run anyone would want on the board.
     const recorded = sim.wave >= 1 && run.party.length > 0;
     const rank = recorded
-      ? this.store.recordArenaRun({ season, names: run.party.map((p) => p.name), classes: run.party.map((p) => p.cls), score, wave: sim.wave, seconds: run.seconds, finishedAt: Date.now() })
+      ? this.store.recordArenaRun({ season, names: run.party.map((p) => p.name), classes: run.party.map((p) => p.cls), score, wave: sim.wave, seconds: run.seconds, finishedAt: Date.now(), staff: run.staff })
       : null;
     const result: ArenaResult = { t: 'arenaResult', score, wave: sim.wave, seconds: run.seconds, kills: sim.arena?.kills ?? 0, party: run.party, season, board, rank, returnIn: ARENA.resultSeconds };
     run.broadcast(true);

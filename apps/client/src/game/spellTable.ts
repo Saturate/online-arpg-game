@@ -10,8 +10,9 @@ export class SpellTable {
 
   /** The snapshot with its spell entities filled in at the snapshot's tick. */
   expand(snap: Snapshot): Snapshot {
-    for (const id of snap.gone) this.records.delete(id);
-    for (const record of snap.spells) this.records.set(record.id, { record, tick: snap.tick });
+    // Replays recorded before spells were sent once have neither field; their spells are in entities.
+    for (const id of snap.gone ?? []) this.records.delete(id);
+    for (const record of snap.spells ?? []) this.records.set(record.id, { record, tick: snap.tick });
     if (this.records.size === 0) return snap;
     const spells: EntitySnap[] = [];
     for (const { record, tick } of this.records.values()) spells.push(advanceSpell(record, snap.tick - tick));

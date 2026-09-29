@@ -77,3 +77,21 @@ describe('Arena scoring', () => {
     expect(sim.world.player.get(pid)?.respawnIn).toBeNull();
   });
 });
+
+describe('Arena wave time limit', () => {
+  it('sends the next wave when one drags past the limit, without the clear bonus', () => {
+    const sim = new Simulation(3, { kind: 'arena' });
+    sim.addPlayer('p', 'warrior');
+    startArena(sim, 1);
+    const p = [...sim.world.player.values()][0];
+    if (p) p.god = true;
+    let guard = 0;
+    while (sim.wave < 1 && guard++ < 10 * SIM.tickRate) sim.step();
+    expect(sim.wave).toBe(1);
+    // Nobody fights: the wave stays alive until the limit, then wave 2 joins it.
+    for (let i = 0; i < (ARENA.waveTimeLimitSeconds + 1) * SIM.tickRate; i++) sim.step();
+    expect(sim.wave).toBe(2);
+    expect(sim.arena?.cleared).toBe(0);
+    expect(sim.arena?.score).toBe(0);
+  });
+});

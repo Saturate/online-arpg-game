@@ -160,6 +160,8 @@ export const ARENA = {
   /** Monster level starts at the party's average level and climbs half a level per wave. */
   levelPerWave: 0.5,
   bossEvery: 5,
+  /** A wave still alive after this long is joined by the next one (no clear bonus for it). */
+  waveTimeLimitSeconds: 90,
   /** Clearing wave n adds n times this to the score, so surviving longer pays beyond the kills. */
   waveClearBonus: 40,
   /** Share of normal XP. Arena kills come fast and in bulk, so full XP would outpace the world. */
