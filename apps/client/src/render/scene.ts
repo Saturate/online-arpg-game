@@ -38,6 +38,12 @@ export interface GroundBasis {
 applyGrit();
 
 const MOONLIGHT = new Color(0x7488c8);
+/**
+ * Night multipliers on the day rig, so the brighter sunny day does not brighten the night: they
+ * bring night back to where it was tuned before days were brightened.
+ */
+const NIGHT_EXPOSURE = 0.8;
+const NIGHT_DIM = 0.75;
 /** The sun's colour under heavy cloud: grey and cold. */
 const CLOUDLIGHT = new Color(0x9aa0a8);
 
@@ -60,7 +66,9 @@ const LIGHTING: Record<MapTheme, Lighting> = {
   // the weather (overcast spells dim it) and the night, not from a permanently dim sun.
   town: { sky: 0xc4b69c, groundLight: 0x3a2e20, hemi: 1.45, ambient: 0.6, sun: 2.7, sunColor: 0xffd6a0, exposure: 1.6, playerLight: 2.2 },
   wilds: { sky: 0xa6aeb6, groundLight: 0x30251a, hemi: 1.3, ambient: 0.55, sun: 2.55, sunColor: 0xf2e4ca, exposure: 1.52, playerLight: 2.0 },
-  arena: { sky: 0x9aa8d0, groundLight: 0x3a2a1c, hemi: 1.0, ambient: 0.6, sun: 1.6, sunColor: 0xffe2c0, exposure: 1.3, playerLight: 2.2 },
+  // The Arena pit is underground: torches and the hero's light, a touch brighter than a dungeon so a
+  // scored fight stays readable.
+  arena: { sky: 0x6a7090, groundLight: 0x2a2018, hemi: 1, ambient: 0.65, sun: 0.7, sunColor: 0x9098c0, exposure: 1.4, playerLight: 2, playerDecay: 0 },
   // Underground: almost no sky, torches and the hero's own light do the work.
   dungeon: { sky: 0x6a7aa0, groundLight: 0x2a2018, hemi: 0.7, ambient: 0.45, sun: 0.5, sunColor: 0x8090c0, exposure: 1.3, playerLight: 1.8, playerDecay: 0 },
   staging: { sky: 0x7a80a0, groundLight: 0x2a2018, hemi: 0.85, ambient: 0.5, sun: 0.6, sunColor: 0x9098c0, exposure: 1.3, playerLight: 1.6, playerDecay: 0 },
@@ -80,7 +88,7 @@ export class WorldScene {
   private readonly base: Lighting;
   private readonly outdoors: boolean;
   private readonly sunDay = new Color();
-  private lastNight = -1;
+  private lastLight = { night: -1, cloud: -1, brightness: -1 };
   private readonly offset: Vector3;
   private readonly raycaster = new Raycaster();
   private readonly ground = new Plane(new Vector3(0, 1, 0), 0);
@@ -102,7 +110,7 @@ export class WorldScene {
   ) {
     const light = LIGHTING[def.theme];
     this.base = light;
-    this.outdoors = def.theme === 'town' || def.theme === 'wilds' || def.theme === 'arena';
+    this.outdoors = def.theme === 'town' || def.theme === 'wilds';
     this.sunDay.setHex(light.sunColor);
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -197,15 +205,15 @@ export class WorldScene {
     const cloud = this.outdoors ? overcast() : 0;
     lampLevel.value = 1 + night * 1.4 + cloud * 0.3;
     // The light only changes over minutes; skipping unchanged frames saves the uniform churn.
-    const key = night + lighting.nightBrightness * 10 + cloud * 100;
-    if (Math.abs(key - this.lastNight) < 0.002) return;
-    this.lastNight = key;
+    const last = this.lastLight;
+    if (Math.abs(night - last.night) < 0.002 && Math.abs(cloud - last.cloud) < 0.002 && lighting.nightBrightness === last.brightness) return;
+    this.lastLight = { night, cloud, brightness: lighting.nightBrightness };
     const b = this.base;
     const mix = (day: number, dark: number) => day + (dark - day) * night;
     // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 is daylight.
     const keep = 0.3 + 0.7 * lighting.nightBrightness;
     // Cloud mostly takes the sun away and flattens the light; the sky light dims less, so an
-    // overcast day is grey and shadowless rather than dark.
+    // overcast day is grey and soft-shadowed rather than dark.
     const sunCloud = 1 - 0.5 * cloud;
     const skyCloud = 1 - 0.1 * cloud;
     this.hemi.intensity = mix(b.hemi, b.hemi * keep) * skyCloud;
@@ -217,6 +225,13 @@ export class WorldScene {
     this.playerLight.intensity = mix(b.playerLight, b.playerLight * 3);
     this.playerLight.distance = mix(520, 700);
     this.playerLight.decay = mix(b.playerDecay ?? 1.4, 0.9);
+    // The day's exposure is set for sun; carried into the night it would lift the dark the admin's
+    // night brightness is tuned for, so it eases back as night falls.
+    this.renderer.toneMappingExposure = mix(b.exposure, b.exposure * NIGHT_EXPOSURE);
+    const dim = mix(1, NIGHT_DIM);
+    this.hemi.intensity *= dim;
+    this.sun.intensity *= dim;
+    this.ambient.intensity *= dim;
   }
 
   /** Replaces the static world geometry, for the town editor's live preview. */

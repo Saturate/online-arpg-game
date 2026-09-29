@@ -18,11 +18,18 @@ function smooth(t: number): number {
   return c * c * (3 - 2 * c);
 }
 
+/** A number pinned in the URL (`?time=`, `?weather=`), read once: these run every frame. */
+function pinnedParam(name: string): number | null {
+  const raw = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get(name);
+  const n = raw === null ? NaN : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+const PINNED_TIME = pinnedParam('time');
+const PINNED_WEATHER = pinnedParam('weather');
+
 /** Where in the day we are, 0 to 1. `?time=0.7` in the URL pins it, for looking at nights. */
 export function dayPhase(now = Date.now()): number {
-  const pinned = new URLSearchParams(location.search).get('time');
-  const n = pinned === null ? NaN : Number(pinned);
-  if (Number.isFinite(n)) return ((n % 1) + 1) % 1;
+  if (PINNED_TIME !== null) return ((PINNED_TIME % 1) + 1) % 1;
   return dayPhaseAt(now, lighting);
 }
 
@@ -49,9 +56,7 @@ function stepNoise(step: number): number {
  * eases in and out over minutes. `?weather=0.8` in the URL pins it, for looking at it.
  */
 export function overcast(now = Date.now()): number {
-  const pinned = new URLSearchParams(location.search).get('weather');
-  const n = pinned === null ? NaN : Number(pinned);
-  if (Number.isFinite(n)) return Math.min(1, Math.max(0, n));
+  if (PINNED_WEATHER !== null) return Math.min(1, Math.max(0, PINNED_WEATHER));
   const t = now / WEATHER_STEP_MS;
   const step = Math.floor(t);
   const blend = smooth(t - step);
