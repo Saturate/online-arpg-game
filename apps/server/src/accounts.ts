@@ -358,15 +358,24 @@ export class AccountStore {
   loadMarket(): Market {
     const raw = row(this.db.prepare("SELECT value FROM settings WHERE key = 'trader'").get())?.value;
     if (typeof raw !== 'string') return { nextId: 1, stock: [] };
+    // Shelf items belong to nobody (their sellers were paid), so a damaged row may start a fresh
+    // shelf; it is logged first, since the next trade writes over it.
+    const fresh = (why: string): Market => {
+      console.error(`trader shelf unreadable (${why}); starting an empty one. Old row: ${raw.slice(0, 200)}`);
+      return { nextId: 1, stock: [] };
+    };
     try {
       const v: unknown = JSON.parse(raw);
-      if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return { nextId: 1, stock: [] };
+      if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
       const stock = v.stock.flatMap((e: unknown) =>
         isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: e.price, item: e.item }] : [],
       );
-      return { nextId: v.nextId, stock };
+      if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
+      // Never hand out an id already on the shelf, whatever the stored counter says.
+      const nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
+      return { nextId, stock };
     } catch {
-      return { nextId: 1, stock: [] };
+      return fresh('not JSON');
     }
   }
 

@@ -1,4 +1,4 @@
-import { BAG, categoryForSlot, sellPrice, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
+import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
 import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
@@ -111,7 +111,9 @@ export function ItemTooltip() {
         {place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`
           : place?.at === 'bag' && useUi.getState().traderOpen
-            ? `Right-click to sell for ${sellPrice(item)} gold`
+            ? isBound(item)
+              ? 'Starter item: cannot be sold'
+              : `Right-click to sell for ${sellPrice(item)} gold`
             : place?.at === 'stash'
           ? 'Right-click to take it out · Drag to move'
           : place?.at === 'bag'
@@ -406,7 +408,7 @@ export function TraderWindow() {
       <header className="inv-header">
         <h2>Trader</h2>
         <span className="muted">
-          {stock.length} / 50 · shared by everyone · <span className="gold">{gold} gold</span>
+          {stock.length} / {TRADER.capacity} · shared by everyone · <span className="gold">{gold} gold</span>
         </span>
       </header>
       <div className="trader-shelf">
@@ -435,7 +437,7 @@ export function TraderWindow() {
         <span>
           <kbd>Right-click</kbd> a bag item to sell
         </span>
-        <span>The oldest item goes when a 51st is sold</span>
+        <span>When the shelf is full, the oldest item goes for good</span>
       </footer>
     </section>
   );

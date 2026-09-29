@@ -8,6 +8,7 @@ import {
   createSigil,
   createGear,
   createVessel,
+  isBound,
   ITEM_TIERS,
   rollTier,
   sigilCapacity,
@@ -99,6 +100,7 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
   const p = sim.world.player.get(pid);
   if (!p) return;
   const weapon = createGear(sim.newItemUid(), sim.rand.loot, 'common', 1, { base: STARTER_WEAPONS[p.classId] });
+  weapon.bound = true;
   p.items.set(weapon.uid, weapon);
   p.gear.weapon = weapon.uid;
   classSkills(p.classId)
@@ -106,6 +108,7 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
     .forEach((skill, slot) => {
       const item = createSigil(sim.newItemUid(), sim.rand.loot, 'common', { skill: skill.id });
       item.name = skill.name;
+      item.bound = true;
       p.items.set(item.uid, item);
       p.sigils[slot] = compileSigil(p, item);
       // Starter persistent skills only go in if they fit, so a class can never start over its spirit.
@@ -117,10 +120,12 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
   const test = createSigil(sim.newItemUid(), sim.rand.loot, TEST_SIGIL.tier);
   test.corrupted = TEST_SIGIL.corrupted;
   test.name = TEST_SIGIL.name;
+  test.bound = true;
   addItem(p, test);
   if (p.classId === 'binder') {
     STARTER_VESSELS.forEach((type, slot) => {
       const v = createVessel(sim.newItemUid(), sim.rand.loot, 'common', type);
+      v.bound = true;
       p.items.set(v.uid, v);
       p.warband[slot] = v.uid;
     });
@@ -572,6 +577,7 @@ export function sellItem(sim: Simulation, pid: EntityId, uid: ItemUid): Item | s
   const p = sim.world.player.get(pid);
   const item = p?.items.get(uid);
   if (!p || !item || !p.inventory.includes(uid)) return 'Only bag items can be sold';
+  if (isBound(item)) return 'Starter items cannot be sold';
   if (!nearTrader(sim, pid)) return 'Stand at the trader to sell';
   removeFrom(p.inventory, uid);
   p.items.delete(uid);

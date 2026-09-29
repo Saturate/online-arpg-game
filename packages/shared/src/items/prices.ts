@@ -1,4 +1,4 @@
-import type { Item, ItemTier } from './items.js';
+import { isBound, type Item, type ItemTier } from './items.js';
 
 /**
  * Trader prices. Selling pays a little, buying costs three times as much, so the trader is a way
@@ -16,6 +16,7 @@ export const TRADER = {
 } as const;
 
 export function sellPrice(item: Item): number {
+  if (isBound(item)) return 0;
   return Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
 }
 

@@ -15,7 +15,7 @@ function atTrader() {
 }
 
 describe('trader', () => {
-  it('buys a bag item for gold and hands it over for the shared stock', () => {
+  it('sells a bag item for gold and hands it over for the shared stock', () => {
     const { sim, pid, p } = atTrader();
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 5, { category: 'ring' });
     addItem(p, ring);
@@ -24,6 +24,15 @@ describe('trader', () => {
     expect(p.gold).toBe(sellPrice(ring));
     expect(p.inventory.includes(ring.uid)).toBe(false);
     expect(p.items.has(ring.uid)).toBe(false);
+  });
+
+  it('refuses to sell starter items, so new characters cannot mint gold', () => {
+    const { sim, pid, p } = atTrader();
+    const starter = [...p.items.values()].find((i) => i.kind === 'sigil' && p.inventory.includes(i.uid));
+    if (!starter) throw new Error('no starter sigil in the bag');
+    expect(sellItem(sim, pid, starter.uid)).toBe('Starter items cannot be sold');
+    expect(sellPrice(starter)).toBe(0);
+    expect(p.gold).toBe(0);
   });
 
   it('only trades at the stall', () => {

@@ -43,6 +43,8 @@ export interface SigilItem {
   corrupted: boolean;
   /** Prebaked skill id. Null for a blank or hand-inscribed sigil. */
   skill: string | null;
+  /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
+  bound?: boolean;
 }
 
 export interface VesselItem {
@@ -54,6 +56,8 @@ export interface VesselItem {
   level: number;
   ilvl: number;
   affixes: AffixRoll[];
+  /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
+  bound?: boolean;
 }
 
 export interface GearItem {
@@ -65,6 +69,8 @@ export interface GearItem {
   base: string;
   category: GearCategory;
   affixes: AffixRoll[];
+  /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
+  bound?: boolean;
 }
 
 export type Item = SigilItem | VesselItem | GearItem;
@@ -306,5 +312,10 @@ export function gearStats(items: readonly GearItem[]): StatBlock {
 
 /** A blank corrupted relic so rune combinations can be tried in the test arena. */
 export const TEST_SIGIL = { tier: 'relic', corrupted: true, name: 'Test Sigil' } as const;
+
+/** Starter items cannot be sold. Test Sigils from before the flag existed count too. */
+export function isBound(item: Item): boolean {
+  return item.bound === true || (item.kind === 'sigil' && item.name === TEST_SIGIL.name && item.tier === TEST_SIGIL.tier && item.corrupted);
+}
 
 export const STARTER_VESSELS: MinionTypeId[] = ['zombie_brute', 'skeleton_archer'];
