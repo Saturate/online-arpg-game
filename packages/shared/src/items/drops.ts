@@ -8,10 +8,11 @@ import { createGear, createSigil, createVessel, rollTier, type Item, type ItemTi
  */
 
 export const DROP_TIER_WEIGHTS = {
-  normal: { common: 60, magic: 30, rare: 9, relic: 1 },
-  rare: { common: 0, magic: 40, rare: 45, relic: 15 },
-  // 18% relic: at 40% a boss averaged 1.6 relics, which made normal drops pointless next to it.
-  boss: { common: 0, magic: 15, rare: 67, relic: 18 },
+  // Slowed on purpose: a rare from a normal monster is now a find, and a relic about 1 in 300 drops.
+  normal: { common: 72, magic: 24, rare: 3.7, relic: 0.3 },
+  rare: { common: 0, magic: 55, rare: 38, relic: 7 },
+  // 10% relic: at 40% a boss averaged 1.6 relics, which made normal drops pointless next to it.
+  boss: { common: 0, magic: 30, rare: 60, relic: 10 },
 } as const satisfies Record<string, Record<ItemTier, number>>;
 
 export const BOSS_DROPS = 4;

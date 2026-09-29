@@ -128,7 +128,8 @@ export const WAVES = {
 export const LOOT = {
   bagLifetimeSeconds: 90,
   bagRadius: 16,
-  normalDropChance: 0.14,
+  /** Slowed on purpose (was 0.14): drops should feel like an event, and gear should last a while. */
+  normalDropChance: 0.08,
   gearShareOfDrops: 0.5,
   vesselShareOfDrops: 0.15,
   rareDropCount: { min: 1, max: 2 },
@@ -238,9 +239,9 @@ export const CURSE = {
 
 export const PROGRESSION = {
   maxLevel: 50,
-  /** XP from level L to L+1 is xpBase * L^xpExponent: 60 for the first level, ~3.4k at 10, ~52k at 40. */
-  xpBase: 60,
-  xpExponent: 1.75,
+  /** XP from level L to L+1 is xpBase * L^xpExponent: 90 for the first level, ~7.1k at 10, ~99k at 40. Slowed from 60 * L^1.75 so level requirements on gear gate longer. */
+  xpBase: 90,
+  xpExponent: 1.9,
   /** Per level: a share of the class's base life, flat Force and spirit, and increased damage. */
   lifePerLevel: 0.06,
   forcePerLevel: 12,
