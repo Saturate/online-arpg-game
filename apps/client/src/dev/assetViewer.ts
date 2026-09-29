@@ -43,6 +43,8 @@ export class AssetViewer {
   private current: { inst: AssetInstance; mixer: AnimationMixer; action: AnimationAction | null } | null = null;
   private raf = 0;
   private disposed = false;
+  /** Per-frame hook for procedural rigs, which animate in code instead of through a mixer. */
+  private onFrame: ((dt: number) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -76,6 +78,7 @@ export class AssetViewer {
       this.timer.update();
       const dt = this.timer.getDelta();
       for (const m of this.mixers) m.update(dt);
+      this.onFrame?.(dt);
       this.controls.update();
       this.resize();
       this.renderer.render(this.scene, this.camera);
@@ -99,6 +102,7 @@ export class AssetViewer {
     this.placed = [];
     this.mixers.length = 0;
     this.current = null;
+    this.onFrame = null;
   }
 
   private scaleRef(x: number, z: number): void {
@@ -157,6 +161,19 @@ export class AssetViewer {
     this.controls.target.set(0, def.height * 0.45, 0);
     this.camera.position.set(d * 0.7, def.height * 0.9 + 20, d);
     return inst.clips.map((c) => c.name);
+  }
+
+  /** An already built object (a procedural rig), shown like a single asset. */
+  showObject(root: Object3D, onFrame: (dt: number) => void): void {
+    this.clear();
+    this.scene.add(root);
+    this.placed.push(root);
+    const height = new Box3().setFromObject(root).getSize(new Vector3()).y;
+    this.scaleRef(-Math.max(40, height) * 0.6 - 30, 0);
+    this.onFrame = onFrame;
+    const d = Math.max(90, height * 2.4);
+    this.controls.target.set(0, height * 0.45, 0);
+    this.camera.position.set(d * 0.7, height * 0.9 + 20, d);
   }
 
   play(clipName: string, once: boolean): void {

@@ -23,7 +23,7 @@ const PLAYER_ASSETS: Record<ClassId, string> = {
   binder: 'hero_rogue',
 };
 /** Beasts, slimes, totems and spirits have no KayKit model and stay procedural (see models.ts). */
-const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = {
+export const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = {
   chaser: 'skel_minion',
   shooter: 'skel_rogue',
   spinner: 'skel_mage',
@@ -41,7 +41,7 @@ const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = {
   butcher: 'mon_butcher',
   lich: 'mon_lich',
 };
-const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = {
+export const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = {
   zombie_brute: 'minion_brute',
   skeleton_archer: 'minion_archer',
 };

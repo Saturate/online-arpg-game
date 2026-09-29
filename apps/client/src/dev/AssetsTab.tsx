@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { ASSETS, type AssetCategory } from '../render/assets.js';
+import { animate } from '../render/models.js';
 import { AssetViewer } from './assetViewer.js';
+import { BUILTIN_MODELS, buildBuiltin, exportBuiltin } from './builtinModels.js';
 
-const CATEGORIES: AssetCategory[] = ['hero', 'monster', 'building', 'nature', 'prop', 'dungeon', 'graveyard'];
+/** `built-in` is the monsters models.ts builds in code; the rest are model files in the registry. */
+type Category = AssetCategory | 'built-in';
+const CATEGORIES: Category[] = ['hero', 'monster', 'built-in', 'building', 'nature', 'prop', 'dungeon', 'graveyard'];
 
 export function AssetsTab() {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<AssetViewer | null>(null);
-  const [category, setCategory] = useState<AssetCategory>('hero');
+  const [category, setCategory] = useState<Category>('hero');
   const [selected, setSelected] = useState<string | null>(null);
   const [clips, setClips] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -21,13 +25,28 @@ export function AssetsTab() {
   useEffect(() => {
     const v = viewer.current;
     if (!v) return;
+    if (category === 'built-in') {
+      const m = BUILTIN_MODELS.find((b) => b.id === selected) ?? BUILTIN_MODELS[0];
+      if (!m) return;
+      const rig = buildBuiltin(m);
+      let t = 0;
+      v.showObject(rig.root, (dt) => {
+        t += dt;
+        animate(rig, t, dt, 0, 0, 1);
+      });
+      setClips([]);
+      setStatus('');
+      return;
+    }
     setStatus('Loading...');
     const def = selected ? ASSETS.find((a) => a.id === selected) : undefined;
     const job = def ? v.showSingle(def).then(setClips) : v.showGallery(ASSETS.filter((a) => a.category === category)).then(() => setClips([]));
     job.then(() => setStatus('')).catch((e: unknown) => setStatus(e instanceof Error ? e.message : 'Failed to load'));
   }, [category, selected]);
 
-  const list = ASSETS.filter((a) => a.category === category);
+  const builtin = category === 'built-in';
+  const list = builtin ? [] : ASSETS.filter((a) => a.category === category);
+  const shownBuiltin = builtin ? (BUILTIN_MODELS.find((b) => b.id === selected) ?? BUILTIN_MODELS[0]) : undefined;
   return (
     <div className="dev-split">
       <aside className="dev-side">
@@ -46,9 +65,33 @@ export function AssetsTab() {
             </button>
           ))}
         </div>
-        <button type="button" className={selected === null ? 'on wide' : 'wide'} onClick={() => setSelected(null)}>
-          Gallery: all {list.length}
-        </button>
+        {builtin ? (
+          <>
+            <p className="muted small">Built in code (models.ts), not from a file. Export saves a .glb in metres for Blender; the walk and attack motion lives in code and is not included.</p>
+            {shownBuiltin && (
+              <button
+                type="button"
+                className="wide"
+                onClick={() => exportBuiltin(shownBuiltin).catch((e: unknown) => setStatus(e instanceof Error ? e.message : 'Export failed'))}
+              >
+                Export {shownBuiltin.label} as .glb
+              </button>
+            )}
+            <ul className="dev-list">
+              {BUILTIN_MODELS.map((m) => (
+                <li key={m.id}>
+                  <button type="button" className={m.id === shownBuiltin?.id ? 'on' : ''} onClick={() => setSelected(m.id)}>
+                    {m.label} <span className="muted">r {m.radius}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <button type="button" className={selected === null ? 'on wide' : 'wide'} onClick={() => setSelected(null)}>
+            Gallery: all {list.length}
+          </button>
+        )}
         <ul className="dev-list">
           {list.map((a) => (
             <li key={a.id}>
