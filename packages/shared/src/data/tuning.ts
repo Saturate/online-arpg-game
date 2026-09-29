@@ -143,7 +143,8 @@ export const MINION_STATS: Record<MinionStatKey, NumberSpec> = {
   radius: { label: 'Radius', min: 4, max: 80 },
   attackCooldown: { label: 'Attack cooldown', min: 0.05, max: 30 },
   attackRange: { label: 'Attack range', min: 1, max: 2000 },
-  projectileSpeed: { label: 'Projectile speed', min: 0, max: 3000 },
+  // Above zero: an arrow's lifetime is its range over its speed.
+  projectileSpeed: { label: 'Projectile speed', min: 10, max: 3000 },
   kiteDistance: { label: 'Kite distance', min: 0, max: 1500 },
 };
 
@@ -178,10 +179,43 @@ export function isMonsterModelId(v: unknown): v is MonsterModelId {
   return typeof v === 'string' && MONSTER_MODEL_IDS.some((m) => m === v);
 }
 
+/**
+ * Which model file each type is drawn with by default; types left out use a procedural model built
+ * in code (render/models.ts). Here rather than in the client so the server knows which types a
+ * height override can apply to. render/characters.ts reads it.
+ */
+export const ENEMY_MODELS: Partial<Record<EnemyTypeId, MonsterModelId>> = {
+  chaser: 'skel_minion',
+  shooter: 'skel_rogue',
+  spinner: 'skel_mage',
+  grave_brute: 'mon_grave_brute',
+  ogre: 'mon_ogre',
+  bandit_archer: 'mon_bandit_archer',
+  bone_archer: 'mon_bone_archer',
+  frost_adept: 'mon_frost_adept',
+  pyromancer: 'mon_pyromancer',
+  storm_caller: 'mon_storm_caller',
+  necromancer: 'mon_necromancer',
+  tomb_guard: 'mon_tomb_guard',
+  grave_priest: 'mon_grave_priest',
+  ghoul: 'mon_ghoul',
+  butcher: 'mon_butcher',
+  lich: 'mon_lich',
+};
+export const MINION_MODELS: Partial<Record<MinionTypeId, MonsterModelId>> = {
+  zombie_brute: 'minion_brute',
+  skeleton_archer: 'minion_archer',
+};
+
 /** Model height in world units; heroes are 54. */
 export const MODEL_HEIGHT = { min: 8, max: 400 } as const;
 
-export type AbilityPatch = Partial<Record<AbilityNumberKey, number>>;
+/**
+ * An ability's overridden numbers. The kind is stored with them because patches are keyed by the
+ * ability's index: if the code later reorders or replaces abilities, a patch whose kind no longer
+ * matches is dropped instead of landing on a different ability.
+ */
+export type AbilityPatch = { kind: AbilityKind } & Partial<Record<AbilityNumberKey, number>>;
 
 export type EnemyOverride = Partial<Record<EnemyStatKey, number>> & {
   /** Keyed by the ability's index in the type's list, as text since it travels as JSON. */
@@ -257,7 +291,8 @@ function isOneOf<K extends string>(keys: readonly K[], v: string): v is K {
   return keys.some((k) => k === v);
 }
 
-function parseModelFields(value: Record<string, unknown>, out: { model?: MonsterModelId; height?: number }): string | null {
+/** `defaultModel` is the type's own model file; without one or a chosen model, a height has nothing to size. */
+function parseModelFields(value: Record<string, unknown>, out: { model?: MonsterModelId; height?: number }, defaultModel: MonsterModelId | undefined): string | null {
   if (value.model !== undefined) {
     if (!isMonsterModelId(value.model)) return 'model must be a monster model from the asset registry';
     out.model = value.model;
@@ -265,12 +300,24 @@ function parseModelFields(value: Record<string, unknown>, out: { model?: Monster
   if (value.height !== undefined) {
     const h = checkNumber('height', { label: 'Height', ...MODEL_HEIGHT }, value.height);
     if (typeof h === 'string') return h;
+    if (out.model === undefined && defaultModel === undefined) return 'height needs a model: this type is drawn procedurally, so pick a model first';
     out.height = h;
   }
   return null;
 }
 
-export function parseEnemyOverride(typeId: EnemyTypeId, value: unknown): EnemyOverride | string {
+/** Ability indexes as JSON keys: plain decimal, so "01" and "1" cannot both name ability 1. */
+const ABILITY_INDEX = /^(0|[1-9]\d?)$/;
+
+/** Minimum time between two uses of an ability that fires bullets, so a tuning slip cannot make it fire every tick. */
+export const MIN_BULLET_INTERVAL = 0.1;
+
+/**
+ * Checks a request's override for one type. `stale` switches to the loading rules: an ability patch
+ * that no longer fits the code (its kind changed, or the ability is gone) is reported and dropped,
+ * keeping the rest of the type's override, instead of failing the whole type.
+ */
+export function parseEnemyOverride(typeId: EnemyTypeId, value: unknown, stale?: (why: string) => void): EnemyOverride | string {
   if (!isRecord(value)) return 'Expected a JSON object';
   const def = ENEMIES[typeId];
   const stats = enemyStatKeys(def);
@@ -282,29 +329,52 @@ export function parseEnemyOverride(typeId: EnemyTypeId, value: unknown): EnemyOv
     if (typeof n === 'string') return n;
     out[key] = n;
   }
-  const modelError = parseModelFields(value, out);
+  const modelError = parseModelFields(value, out, ENEMY_MODELS[typeId]);
   if (modelError) return modelError;
   if (value.abilities !== undefined) {
     if (!isRecord(value.abilities)) return 'abilities must be an object keyed by ability index';
     const list = def.behaviour === 'monster' ? def.abilities : [];
     const abilities: Partial<Record<string, AbilityPatch>> = {};
     for (const [index, patch] of Object.entries(value.abilities)) {
-      const ability = /^\d{1,2}$/.test(index) ? list[Number(index)] : undefined;
-      if (!ability) return `${typeId} has no ability ${index}`;
+      if (!ABILITY_INDEX.test(index)) return `ability index "${index}" must be a plain number like 0 or 1`;
       if (!isRecord(patch)) return `abilities.${index} must be an object`;
+      const ability = list[Number(index)];
+      const mismatch = !ability ? `${typeId} has no ability ${index}` : patch.kind !== ability.kind ? `abilities.${index} is for a ${String(patch.kind)} ability, but ability ${index} is a ${ability.kind}` : null;
+      if (mismatch || !ability) {
+        if (!stale) return mismatch ?? `${typeId} has no ability ${index}`;
+        stale(mismatch ?? `${typeId} has no ability ${index}`);
+        continue;
+      }
       const fields = ABILITY_FIELDS[ability.kind];
-      const parsed: AbilityPatch = {};
+      const parsed: AbilityPatch = { kind: ability.kind };
       for (const [key, v] of Object.entries(patch)) {
+        if (key === 'kind') continue;
         if (!isOneOf(ABILITY_NUMBER_KEYS, key) || !fields.includes(key)) return `a ${ability.kind} ability has no field "${key}"`;
         const n = checkNumber(`abilities.${index}.${key}`, ABILITY_NUMBERS[key], v);
         if (typeof n === 'string') return n;
         parsed[key] = n;
       }
-      abilities[String(Number(index))] = parsed;
+      const pace = abilityPaceError(ability, parsed, index);
+      if (pace) return pace;
+      abilities[index] = parsed;
     }
     out.abilities = abilities;
   }
   return normalizeEnemyOverride(typeId, out);
+}
+
+const BULLET_KINDS: ReadonlySet<AbilityKind> = new Set(['shoot', 'ring']);
+
+/**
+ * A cooldown of 0 is only allowed where the code uses it (a suicide explode fires once and dies);
+ * bullet abilities also need cooldown plus telegraph of at least MIN_BULLET_INTERVAL.
+ */
+function abilityPaceError(a: Ability, patch: AbilityPatch, index: string): string | null {
+  const cooldown = patch.cooldown ?? a.cooldown;
+  const windup = patch.windup ?? a.windup;
+  if (patch.cooldown !== undefined && patch.cooldown < MIN_BULLET_INTERVAL && a.cooldown > 0) return `abilities.${index}.cooldown must be at least ${MIN_BULLET_INTERVAL} for this ability`;
+  if (BULLET_KINDS.has(a.kind) && cooldown + windup < MIN_BULLET_INTERVAL) return `abilities.${index}: cooldown plus telegraph must be at least ${MIN_BULLET_INTERVAL} for an ability that fires bullets`;
+  return null;
 }
 
 export function parseMinionOverride(typeId: MinionTypeId, value: unknown): MinionOverride | string {
@@ -317,7 +387,7 @@ export function parseMinionOverride(typeId: MinionTypeId, value: unknown): Minio
     if (typeof n === 'string') return n;
     out[key] = n;
   }
-  const modelError = parseModelFields(value, out);
+  const modelError = parseModelFields(value, out, MINION_MODELS[typeId]);
   if (modelError) return modelError;
   return normalizeMinionOverride(typeId, out);
 }
@@ -334,13 +404,17 @@ export function normalizeEnemyOverride(typeId: EnemyTypeId, o: EnemyOverride): E
     const abilities: Partial<Record<string, AbilityPatch>> = {};
     def.abilities.forEach((a, i) => {
       const patch = o.abilities?.[String(i)];
-      if (!patch) return;
-      const kept: AbilityPatch = {};
+      if (!patch || patch.kind !== a.kind) return;
+      const kept: AbilityPatch = { kind: a.kind };
+      let changed = false;
       for (const key of ABILITY_FIELDS[a.kind]) {
         const v = patch[key];
-        if (v !== undefined && v !== abilityDefault(a, key)) kept[key] = v;
+        if (v !== undefined && v !== abilityDefault(a, key)) {
+          kept[key] = v;
+          changed = true;
+        }
       }
-      if (Object.keys(kept).length > 0) abilities[String(i)] = kept;
+      if (changed) abilities[String(i)] = kept;
     });
     if (Object.keys(abilities).length > 0) out.abilities = abilities;
   }
@@ -375,7 +449,7 @@ export function parseTuningOverrides(value: unknown, warn: (why: string) => void
       warn(`unknown monster type ${id}`);
       continue;
     }
-    const o = parseEnemyOverride(id, raw);
+    const o = parseEnemyOverride(id, raw, (why) => warn(`${id}: dropped an ability patch: ${why}`));
     if (typeof o === 'string') warn(`${id}: ${o}`);
     else if (!isEmptyOverride(o)) out.monsters[id] = o;
   }
@@ -425,14 +499,14 @@ export function parseModelOverrides(value: unknown): ModelOverrides | string {
   for (const [id, raw] of Object.entries(value.monsters)) {
     if (!isEnemyTypeId(id) || !isRecord(raw)) return `bad monster entry ${id}`;
     const m: ModelOverride = {};
-    const err = unknownModelKey(raw) ?? parseModelFields(raw, m);
+    const err = unknownModelKey(raw) ?? parseModelFields(raw, m, ENEMY_MODELS[id]);
     if (err) return err;
     out.monsters[id] = m;
   }
   for (const [id, raw] of Object.entries(value.minions)) {
     if (!isMinionTypeId(id) || !isRecord(raw)) return `bad minion entry ${id}`;
     const m: ModelOverride = {};
-    const err = unknownModelKey(raw) ?? parseModelFields(raw, m);
+    const err = unknownModelKey(raw) ?? parseModelFields(raw, m, MINION_MODELS[id]);
     if (err) return err;
     out.minions[id] = m;
   }
@@ -453,7 +527,7 @@ function pickNumbers<K extends string>(keys: readonly K[], o: Partial<Record<K, 
 }
 
 function resolveAbility(a: Ability, patch: AbilityPatch | undefined): Ability {
-  if (!patch) return a;
+  if (!patch || patch.kind !== a.kind) return a;
   // Only the kind's own fields, so a patch can never add a number the ability does not read.
   return Object.assign({}, a, pickNumbers(ABILITY_FIELDS[a.kind], patch));
 }
@@ -469,6 +543,9 @@ export function resolveEnemy(def: EnemyDef, o: EnemyOverride | undefined): Enemy
 export function resolveMinion(def: MinionDef, o: MinionOverride | undefined): MinionDef {
   return o ? Object.assign({}, def, pickNumbers(MINION_STAT_KEYS, o)) : def;
 }
+
+/** Slowest shot the simulation will fire. A ranged shot lives range / speed seconds, so zero would never expire. */
+export const MIN_PROJECTILE_SPEED = 10;
 
 /**
  * The definitions a simulation spawns from: the code's, with the admin's overrides on top. Resolved

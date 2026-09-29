@@ -8,6 +8,8 @@ import {
   enemySource,
   minionSource,
   modelOverridesOf,
+  killScore,
+  killXp,
   monsterXp,
   parseEnemyOverride,
   parseMinionOverride,
@@ -22,7 +24,7 @@ import {
 
 describe('override validation', () => {
   it('accepts known numbers and drops the ones equal to the code', () => {
-    expect(parseEnemyOverride('ogre', { life: 400, moveSpeed: 62, abilities: { '1': { cooldown: 5, damage: 26 } } })).toEqual({ life: 400, abilities: { '1': { cooldown: 5 } } });
+    expect(parseEnemyOverride('ogre', { life: 400, moveSpeed: 62, abilities: { '1': { kind: 'slam', cooldown: 5, damage: 26 } } })).toEqual({ life: 400, abilities: { '1': { kind: 'slam', cooldown: 5 } } });
     expect(parseEnemyOverride('ogre', { xp: 2, model: 'mon_butcher', height: 90 })).toEqual({ xp: 2, model: 'mon_butcher', height: 90 });
     expect(parseMinionOverride('wraith', { damage: 20, kiteDistance: 0 })).toEqual({ damage: 20 });
   });
@@ -35,14 +37,43 @@ describe('override validation', () => {
     expect(parseEnemyOverride('ogre', { life: 0 })).toMatch(/between/);
     expect(parseEnemyOverride('ogre', { life: Number.POSITIVE_INFINITY })).toMatch(/number/);
     expect(parseEnemyOverride('ogre', { life: '300' })).toMatch(/number/);
-    expect(parseEnemyOverride('ogre', { abilities: { '2': { cooldown: 1 } } })).toMatch(/no ability 2/);
-    expect(parseEnemyOverride('ogre', { abilities: { '0': { bullets: 3 } } })).toMatch(/slam ability has no field "bullets"/);
-    expect(parseEnemyOverride('bone_archer', { abilities: { '0': { bullets: 2.5 } } })).toMatch(/whole number/);
+    expect(parseEnemyOverride('ogre', { abilities: { '2': { kind: 'slam', cooldown: 1 } } })).toMatch(/no ability 2/);
+    expect(parseEnemyOverride('ogre', { abilities: { '0': { kind: 'slam', bullets: 3 } } })).toMatch(/slam ability has no field "bullets"/);
+    expect(parseEnemyOverride('bone_archer', { abilities: { '0': { kind: 'shoot', bullets: 2.5 } } })).toMatch(/whole number/);
     expect(parseEnemyOverride('ogre', { abilities: [] })).toMatch(/object/);
     expect(parseEnemyOverride('ogre', { model: 'hero_mage' })).toMatch(/model/);
     expect(parseEnemyOverride('ogre', { height: 2000 })).toMatch(/between/);
+    // Index keys are plain numbers, so two spellings of one ability cannot both arrive.
+    expect(parseEnemyOverride('ogre', { abilities: { '01': { kind: 'slam', cooldown: 5 }, '1': { kind: 'slam', cooldown: 6 } } })).toMatch(/plain number/);
+    expect(parseEnemyOverride('ogre', { abilities: { '0': { cooldown: 5 } } })).toMatch(/is for a undefined ability/);
+    expect(parseEnemyOverride('ogre', { abilities: { '0': { kind: 'shoot', cooldown: 5 } } })).toMatch(/is a slam/);
+    // A procedural type has no model file for a height to size.
+    expect(parseEnemyOverride('dire_wolf', { height: 40 })).toMatch(/pick a model first/);
+    expect(parseEnemyOverride('dire_wolf', { model: 'mon_ghoul', height: 40 })).toEqual({ model: 'mon_ghoul', height: 40 });
+    expect(parseMinionOverride('wraith', { height: 60 })).toMatch(/pick a model first/);
+    expect(parseMinionOverride('skeleton_archer', { projectileSpeed: 0 })).toMatch(/between 10/);
     expect(parseEnemyOverride('ogre', null)).toMatch(/object/);
     expect(parseMinionOverride('zombie_brute', { ranged: true })).toMatch(/no field "ranged"/);
+  });
+
+  it('keeps ability cooldowns from reaching zero, except where the code has zero', () => {
+    expect(parseEnemyOverride('bone_archer', { abilities: { '0': { kind: 'shoot', cooldown: 0 } } })).toMatch(/at least 0.1/);
+    expect(parseEnemyOverride('bone_spire', { abilities: { '0': { kind: 'ring', cooldown: 0.05, windup: 0 } } })).toMatch(/at least 0.1/);
+    expect(parseEnemyOverride('bone_spire', { abilities: { '0': { kind: 'ring', cooldown: 0.1, windup: 0 } } })).toEqual({ abilities: { '0': { kind: 'ring', cooldown: 0.1, windup: 0 } } });
+    expect(parseEnemyOverride('ogre', { abilities: { '0': { kind: 'slam', cooldown: 0 } } })).toMatch(/at least 0.1/);
+    // The volatile's suicide blast has cooldown 0 in the code, so it may keep it.
+    expect(parseEnemyOverride('volatile', { abilities: { '0': { kind: 'explode', cooldown: 0, damage: 50 } } })).toEqual({ abilities: { '0': { kind: 'explode', damage: 50 } } });
+  });
+
+  it('drops only a stored ability patch whose kind no longer matches', () => {
+    const warnings: string[] = [];
+    const t = parseTuningOverrides({ monsters: { ogre: { life: 500, abilities: { '0': { kind: 'shoot', cooldown: 5 }, '1': { kind: 'slam', damage: 30 }, '7': { kind: 'slam', damage: 1 } } } }, minions: {} }, (w) => warnings.push(w));
+    expect(t.monsters.ogre).toEqual({ life: 500, abilities: { '1': { kind: 'slam', damage: 30 } } });
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toMatch(/ogre: dropped an ability patch/);
+    // And the resolver never lands a patch on an ability of another kind.
+    const def = resolveEnemy(ENEMIES.ogre, { abilities: { '0': { kind: 'shoot', damage: 999 } } });
+    expect(def.behaviour === 'monster' ? def.abilities[0] : null).toBe(ENEMIES.ogre.behaviour === 'monster' ? ENEMIES.ogre.abilities[0] : null);
   });
 
   it('skips stored types that no longer pass instead of dropping everything', () => {
@@ -53,9 +84,9 @@ describe('override validation', () => {
   });
 
   it('sends only models and heights to game clients, and checks them on arrival', () => {
-    const t: TuningOverrides = { monsters: { ogre: { life: 500, model: 'mon_butcher' }, chaser: { life: 50 } }, minions: { wraith: { height: 60 } } };
+    const t: TuningOverrides = { monsters: { ogre: { life: 500, model: 'mon_butcher' }, chaser: { life: 50 } }, minions: { skeleton_archer: { height: 60 } } };
     const m = modelOverridesOf(t);
-    expect(m).toEqual({ monsters: { ogre: { model: 'mon_butcher' } }, minions: { wraith: { height: 60 } } });
+    expect(m).toEqual({ monsters: { ogre: { model: 'mon_butcher' } }, minions: { skeleton_archer: { height: 60 } } });
     expect(parseModelOverrides(JSON.parse(JSON.stringify(m)))).toEqual(m);
     expect(parseModelOverrides({ monsters: { ogre: { life: 5 } }, minions: {} })).toMatch(/unknown field/);
     expect(parseModelOverrides({ monsters: { ogre: { model: '../x' } }, minions: {} })).toMatch(/model/);
@@ -64,7 +95,7 @@ describe('override validation', () => {
 
 describe('override layer at spawn', () => {
   const tuning = new MonsterTuning({
-    monsters: { grave_brute: { life: 999, moveSpeed: 10, radius: 30, contactDamage: 50, xp: 3, abilities: { '0': { damage: 77, cooldown: 9 } } } },
+    monsters: { grave_brute: { life: 999, moveSpeed: 10, radius: 30, contactDamage: 50, xp: 3, abilities: { '0': { kind: 'slam', damage: 77, cooldown: 9 } } } },
     minions: { zombie_brute: { damage: 99, moveSpeed: 11 }, skeleton_archer: { damage: 99 }, wraith: { damage: 99 } },
   });
 
@@ -82,11 +113,38 @@ describe('override layer at spawn', () => {
     expect(ENEMIES.grave_brute.life).toBe(210);
   });
 
-  it('scales kill XP by the multiplier', () => {
+  it('scales kill XP by the multiplier but leaves Arena score alone', () => {
     const sim = new Simulation(1, { kind: 'flat' }, {}, tuning);
     const e = sim.world.enemy.get(sim.spawnEnemy('grave_brute', 400, 400));
     if (!e) throw new Error('no enemy');
-    expect(monsterXp(e)).toBeCloseTo(monsterXp({ level: 1, rare: false, boss: false }) * 3);
+    const base = monsterXp({ level: 1, rare: false, boss: false });
+    expect(killXp(e)).toBeCloseTo(base * 3);
+    expect(killScore(e)).toBe(Math.round(base));
+  });
+
+  it('never fires a minion shot that cannot expire', () => {
+    // Past validation on purpose: the spawn guard is the last line if a zero speed ever gets in.
+    const slow = new MonsterTuning({ monsters: {}, minions: { skeleton_archer: { projectileSpeed: 0 } } });
+    expect(slow.minion('skeleton_archer').projectileSpeed).toBe(0);
+    const sim = new Simulation(1, { kind: 'flat' }, {}, slow);
+    const pid = sim.addPlayer('c', 'binder');
+    // Binders start with a melee brute; turning the vessel into an archer's gives a ranged minion.
+    const p = sim.world.player.get(pid);
+    const uid = p?.warband.find((u) => u !== null);
+    const vessel = uid === undefined || uid === null ? undefined : p?.items.get(uid);
+    if (vessel?.kind !== 'vessel') throw new Error('binder has no vessel');
+    vessel.minion = 'skeleton_archer';
+    sim.step();
+    const pos = sim.world.position.get(pid);
+    if (!pos) throw new Error('no player');
+    sim.spawnEnemy('chaser', pos.x + 200, pos.y);
+    let lifetimes: number[] = [];
+    for (let i = 0; i < 200 && lifetimes.length === 0; i++) {
+      sim.step();
+      lifetimes = [...sim.world.projectile.entries()].filter(([id]) => sim.world.minion.has(sim.world.projectile.get(id)?.ownerId ?? -1)).map(([, p]) => p.lifetime);
+    }
+    expect(lifetimes.length).toBeGreaterThan(0);
+    for (const l of lifetimes) expect(Number.isFinite(l)).toBe(true);
   });
 
   it('leaves monsters already alive with their numbers when the tuning changes', () => {
@@ -171,7 +229,7 @@ describe('export format', () => {
   });
 
   it('round-trips an overridden type', () => {
-    const o = parseEnemyOverride('bone_archer', { life: 50, xp: 1.5, preferredRange: 300, abilities: { '0': { homing: 0.5, bullets: 4 } } });
+    const o = parseEnemyOverride('bone_archer', { life: 50, xp: 1.5, preferredRange: 300, abilities: { '0': { kind: 'shoot', homing: 0.5, bullets: 4 } } });
     if (typeof o === 'string') throw new Error(o);
     const def = resolveEnemy(ENEMIES.bone_archer, o);
     expect(evaluate(enemySource(def))).toEqual({ bone_archer: def });

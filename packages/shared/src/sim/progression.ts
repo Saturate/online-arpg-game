@@ -15,11 +15,16 @@ export function levelRequirement(item: Item): number {
 }
 
 /** Base XP for killing one monster, before sharing and the level-gap penalty. */
-export function monsterXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss'> & { summonerId?: EntityId | null; def?: { xp?: number } }): number {
-  const base = PROGRESSION.monsterXpBase * e.level ** PROGRESSION.monsterXpExponent * (e.def?.xp ?? 1);
+export function monsterXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss'> & { summonerId?: EntityId | null }): number {
+  const base = PROGRESSION.monsterXpBase * e.level ** PROGRESSION.monsterXpExponent;
   // Summoned adds are worth a little, so killing them is not wasted, but not enough to farm.
   const summoned = e.summonerId !== undefined && e.summonerId !== null ? PROGRESSION.summonedXpMultiplier : 1;
   return base * summoned * (e.boss ? PROGRESSION.bossXpMultiplier : e.rare ? PROGRESSION.rareXpMultiplier : 1);
+}
+
+/** What a kill pays out: the base value times the type's XP multiplier (an admin override, usually 1). */
+export function killXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss' | 'summonerId' | 'def'>): number {
+  return monsterXp(e) * (e.def.xp ?? 1);
 }
 
 function grayFactor(playerLevel: number, monsterLevel: number): number {
@@ -42,7 +47,7 @@ export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number)
   }
   if (near.length === 0) return;
   const arena = sim.arena ? ARENA.xpMultiplier : 1;
-  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;
+  const pool = killXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;
   for (const id of near) {
     const p = w.player.get(id);
     if (p) addXp(sim, id, (pool / near.length) * grayFactor(p.level, e.level));

@@ -1,4 +1,5 @@
 import { MINIONS, NAV } from '../config/sim.js';
+import { MIN_PROJECTILE_SPEED } from '../data/tuning.js';
 import { affixValue, behaviourOf } from '../items/items.js';
 import { dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp } from './ecs.js';
@@ -320,7 +321,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
               x: pos.x,
               y: pos.y,
               angle: base + (k - (volley - 1) / 2) * MINIONS.volleySpreadRadians,
-              speed: def.projectileSpeed,
+              speed: Math.max(MIN_PROJECTILE_SPEED, def.projectileSpeed),
               radius: MINIONS.arrowRadius,
               range: def.attackRange * MINIONS.arrowRangeMultiplier,
               damage: m.damage,

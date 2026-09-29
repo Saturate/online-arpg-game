@@ -70,6 +70,11 @@ describe('tuning routes', () => {
     expect((await call('PUT', '/api/admin/monsters/ogre', 'boss', { abilities: { '0': { cooldown: 'soon' } } })).status).toBe(400);
     expect((await call('PUT', '/api/admin/minions/wraith', 'boss', { model: 'nope' })).status).toBe(400);
     expect((await call('PUT', '/api/admin/monsters', 'boss', { ogre: {} })).status).toBe(405);
+    expect((await call('PUT', '/api/admin/monsters/dire_wolf', 'boss', { height: 40 })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/monsters/ogre', 'boss', { abilities: { '01': { kind: 'slam', cooldown: 5 } } })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/monsters/ogre', 'boss', { abilities: { '0': { kind: 'shoot', cooldown: 5 } } })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/monsters/bone_archer', 'boss', { abilities: { '0': { kind: 'shoot', cooldown: 0 } } })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/minions/skeleton_archer', 'boss', { projectileSpeed: 0 })).status).toBe(400);
     // Nothing above changed what was stored.
     expect(rooms.tuningOverrides().monsters).toEqual({ ogre: { life: 400 } });
   });
@@ -121,18 +126,23 @@ describe('tuning in the running game', () => {
     const sentBefore = count();
     rooms.setMonsterOverride('ogre', { life: 400 });
     expect(count()).toBe(sentBefore);
-    rooms.setMinionOverride('wraith', { height: 70 });
+    rooms.setMinionOverride('skeleton_archer', { height: 70 });
     expect(count()).toBe(sentBefore + 1);
-    expect(socket.last('models')?.models.minions).toEqual({ wraith: { height: 70 } });
+    expect(socket.last('models')?.models.minions).toEqual({ skeleton_archer: { height: 70 } });
   });
 
   it('keeps overrides across a restart', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'rune-tuning-')), 'rune.db');
     const first = new AccountStore(path);
-    new RoomManager(1, first).setMonsterOverride('ghoul', { moveSpeed: 200, abilities: { '0': { damage: 40 } } });
+    new RoomManager(1, first).setMonsterOverride('ghoul', { moveSpeed: 200, abilities: { '0': { kind: 'leap', damage: 40 } } });
+    // As if the ogre's first ability had since changed from a shoot to the slam it is now.
+    first.tuning.save('monsters', 'ogre', { life: 500, abilities: { '0': { kind: 'shoot', cooldown: 4 }, '1': { kind: 'slam', damage: 30 } } });
     first.close();
     const second = new AccountStore(path);
-    expect(new RoomManager(1, second).tuningOverrides().monsters).toEqual({ ghoul: { moveSpeed: 200, abilities: { '0': { damage: 40 } } } });
+    expect(new RoomManager(1, second).tuningOverrides().monsters).toEqual({
+      ghoul: { moveSpeed: 200, abilities: { '0': { kind: 'leap', damage: 40 } } },
+      ogre: { life: 500, abilities: { '1': { kind: 'slam', damage: 30 } } },
+    });
     second.close();
   });
 });
