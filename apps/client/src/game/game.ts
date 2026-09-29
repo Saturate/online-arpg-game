@@ -25,6 +25,7 @@ import {
   type ZoneId,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
+  parseModelOverrides,
   HOME_ZONE,
   ZONES,
   enemyDisplayName,
@@ -49,6 +50,8 @@ import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
+import { setModelOverrides } from '../render/characters.js';
+import { applyTryOns, watchTryOns } from '../render/tryOn.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
@@ -217,6 +220,7 @@ export class Game {
   private readonly name: string;
   /** Set when the server ends the session, so the socket close that follows keeps its reason. */
   private ended = false;
+  private unwatchTryOns: (() => void) | null = null;
 
   constructor(
     private readonly mounts: GameMounts,
@@ -238,6 +242,18 @@ export class Game {
         if (!this.destroyed && !this.ended) useUi.getState().connectionLost('Disconnected from server');
       },
     });
+    void this.loadTryOns();
+    this.unwatchTryOns = watchTryOns(() => void this.loadTryOns());
+  }
+
+  /** Local models the admin page's Model check is trying on; only this browser draws them. */
+  private async loadTryOns(): Promise<void> {
+    try {
+      const names = await applyTryOns();
+      if (names.length > 0 && !this.destroyed) useUi.getState().notify(`Model check: trying ${names.join(', ')}`);
+    } catch {
+      // No IndexedDB (a private window, say) just means nothing is being tried on.
+    }
   }
 
   /** Interpolation runs on the replay's virtual clock during playback, so slow motion and fast forward both work. */
@@ -284,6 +300,7 @@ export class Game {
 
   destroy(): void {
     this.destroyed = true;
+    this.unwatchTryOns?.();
     cancelAnimationFrame(this.rafId);
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.teardownRoom();
@@ -544,6 +561,11 @@ export class Game {
       case 'lighting':
         Object.assign(lighting, msg.lighting);
         return;
+      case 'models': {
+        const models = parseModelOverrides(msg.models);
+        if (typeof models !== 'string') setModelOverrides(models);
+        return;
+      }
       case 'partyInvite':
         useUi.setState({ partyInvite: msg.from });
         useUi.getState().notify(`${msg.from} invited you to a party`);

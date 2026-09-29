@@ -217,6 +217,16 @@ function loadFile(url: string): Promise<LoadedFile> {
   return p;
 }
 
+/**
+ * Makes an already parsed file available under `url`, as if it had been loaded from there. The
+ * Model check uses it for a local .glb that never leaves the browser.
+ */
+export function registerFile(url: string, scene: Group, clips: AnimationClip[]): void {
+  const file = { scene, clips };
+  ready.set(url, file);
+  files.set(url, Promise.resolve(file));
+}
+
 export interface AssetInstance {
   root: Group;
   clips: AnimationClip[];

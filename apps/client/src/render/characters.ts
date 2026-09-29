@@ -1,4 +1,4 @@
-import type { ClassId, EnemyTypeId, EntitySnap, MinionTypeId } from '@rune/shared';
+import type { ClassId, EnemyTypeId, EntitySnap, MinionTypeId, ModelOverride, ModelOverrides } from '@rune/shared';
 import {
   AnimationMixer,
   Color,
@@ -50,10 +50,53 @@ export const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = {
 /** Rare enemies swap to a heavier model so a champion reads differently from its pack. */
 const RARE_ASSETS: Partial<Record<EnemyTypeId, string>> = { chaser: 'skel_warrior' };
 
+/** Admin model overrides from the server's 'models' message. */
+let serverModels: ModelOverrides = { monsters: {}, minions: {} };
+/** Local .glb files the Model check is trying on, for this browser only. Beat the server's overrides. */
+const tryOns = new Map<string, AssetDef>();
+
+export function setModelOverrides(models: ModelOverrides): void {
+  serverModels = models;
+}
+
+export function setTryOn(key: `monsters:${EnemyTypeId}` | `minions:${MinionTypeId}`, def: AssetDef | null): void {
+  if (def) tryOns.set(key, def);
+  else tryOns.delete(key);
+}
+
+export function clearTryOns(): void {
+  tryOns.clear();
+}
+
+/** Registry copies at another height, keyed so their fit and materials are cached apart from the original. */
+const resized = new Map<string, AssetDef>();
+
+/** The asset at `height` world units tall; the same object for the same pair, since caches key on the id. */
+export function sizedAsset(def: AssetDef, height: number | undefined): AssetDef {
+  if (height === undefined || height === def.height) return def;
+  const id = `${def.id}@${height}`;
+  let out = resized.get(id);
+  if (!out) {
+    out = { ...def, id, height };
+    resized.set(id, out);
+  }
+  return out;
+}
+
+/** A type's model with an admin override applied; undefined keeps the procedural model. */
+export function overriddenAsset(defaultId: string | undefined, o: ModelOverride | undefined): AssetDef | undefined {
+  const base = assetById(o?.model ?? defaultId ?? '');
+  return base ? sizedAsset(base, o?.height) : undefined;
+}
+
 export function characterAsset(s: EntitySnap): AssetDef | undefined {
   if (s.k === 'player') return assetById(PLAYER_ASSETS[s.cls]);
-  if (s.k === 'enemy') return assetById((s.rare ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et] ?? '');
-  if (s.k === 'minion') return assetById(MINION_ASSETS[s.mt] ?? '');
+  if (s.k === 'enemy') {
+    const o = serverModels.monsters[s.et];
+    // An overridden type uses its model for champions too; the rare swap is for the code's own models.
+    return tryOns.get(`monsters:${s.et}`) ?? overriddenAsset((s.rare && !o ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et], o);
+  }
+  if (s.k === 'minion') return tryOns.get(`minions:${s.mt}`) ?? overriddenAsset(MINION_ASSETS[s.mt], serverModels.minions[s.mt]);
   return undefined;
 }
 
