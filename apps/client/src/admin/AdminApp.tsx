@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
 import { LeaderboardTables } from '../ui/ArenaBoard.js';
+import { ModelCheckTab } from './monsters/ModelCheckTab.js';
+import { TuningTab } from './monsters/TuningTab.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -10,9 +12,11 @@ import { LeaderboardTables } from '../ui/ArenaBoard.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'arena' | 'settings';
+type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck';
 
-const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings' };
+const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check' };
+/** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -554,7 +558,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'arena', 'settings'] as const).map((t) => (
+          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck'] as const).map((t) => (
             <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
               {TAB_NAMES[t]}
             </button>
@@ -568,11 +572,14 @@ function AdminPage({ access }: { access: StaffAccess }) {
         {can(role, 'townEdit') && <span className="muted" title="Open the game, stand in town and press F2">Town editor: F2 in town</span>}
         <a href="/">Back to game</a>
       </header>
-      <main className="adm-main">
+      <main className={WIDE_TABS.has(tab) ? 'adm-main adm-wide' : 'adm-main'}>
         {tab === 'overview' && <Overview token={token} role={role} notify={notify} />}
         {tab === 'players' && <Players token={token} role={role} notify={notify} />}
         {tab === 'arena' && <Arena notify={notify} />}
         {tab === 'settings' && <Settings token={token} role={role} notify={notify} />}
+        {tab === 'monsters' && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} />}
+        {tab === 'minions' && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} />}
+        {tab === 'modelCheck' && <ModelCheckTab notify={notify} />}
       </main>
       {toast && (
         <div className="adm-toast" role="status">
