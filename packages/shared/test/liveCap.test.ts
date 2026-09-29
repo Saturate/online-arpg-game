@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { compile, NEUTRAL_MODS, SPELL, Simulation } from '../src/index.js';
+import { SPELL, Simulation } from '../src/index.js';
+import { compileText } from './helpers/spell.js';
 import { spawnSpell } from '../src/sim/spells.js';
 
-const bolt = compile(['bolt', 'fire'], { classId: 'mage', capacity: 7, mods: NEUTRAL_MODS });
-const zone = compile(['zone', 'fire'], { classId: 'mage', capacity: 7, mods: NEUTRAL_MODS });
+const bolt = compileText('bolt fire');
+const zone = compileText('zone fire');
 
 describe('live spell cap', () => {
   it('ends a player\'s oldest spell entities instead of passing the cap', () => {

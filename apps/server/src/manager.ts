@@ -612,7 +612,7 @@ export class RoomManager implements AdminHooks {
     if (typeof sold === 'string') return client.send({ t: 'notice', text: sold });
     const next = [...this.market.stock, { id: this.market.nextId, item: { ...sold, uid: 0 }, price: buyPrice(sold) }];
     // Past capacity the oldest item is destroyed for good, which keeps the shelf fresh.
-    this.market = { nextId: this.market.nextId + 1, stock: next.slice(Math.max(0, next.length - TRADER.capacity)) };
+    this.market = { nextId: this.market.nextId + 1, stock: next.slice(Math.max(0, next.length - TRADER.capacity)), runeFormat: 2 };
     this.saveTrade(client, room);
     this.system(client, `Sold ${sold.name} for ${sellPrice(sold)} gold`);
   }

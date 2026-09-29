@@ -9,7 +9,7 @@ const MOVES = [
   ['moveRight', 1, 0],
 ] as const;
 
-const SKILLS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
+const SKILL_KEYS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 
 export interface SampledInput {
   moveDir: Vec2;
@@ -187,7 +187,7 @@ export class InputState {
     const moveDir = this.keyboardMove(basis);
     // No basic attack: the mouse buttons cast the picked skills, added by the game loop.
     let buttons = 0;
-    SKILLS.forEach((action, i) => {
+    SKILL_KEYS.forEach((action, i) => {
       const bit = SKILL_BUTTONS[i];
       if (bit !== undefined && this.keys.has(bindings[action])) buttons |= bit;
     });

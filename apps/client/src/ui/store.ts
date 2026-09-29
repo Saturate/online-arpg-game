@@ -10,12 +10,11 @@ import {
   type WorldInfo,
   type MapTheme,
   type ClientMessage,
-  type CompileResult,
+  type SigilCompile,
   type EntityId,
   type InventoryMessage,
   type Item,
   type ItemUid,
-  type RuneId,
   type SigilItem,
   type Snapshot,
   type Stance,
@@ -404,8 +403,8 @@ export function initSkillPicks(inv: InventoryMessage): void {
   useUi.setState({ leftSkill: castable[0] ?? 0, rightSkill: castable[1] ?? castable[0] ?? 1 });
 }
 
-export function compileFor(item: SigilItem, classId: ClassId, draft?: readonly RuneId[]): CompileResult {
-  return compileSigilItem(item, classId, draft);
+export function compileFor(item: SigilItem, classId: ClassId): SigilCompile {
+  return compileSigilItem(item, classId);
 }
 
 // Game state lives in module scope. A hot update would split it between an old and a new copy

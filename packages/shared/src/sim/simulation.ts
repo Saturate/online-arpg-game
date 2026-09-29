@@ -3,8 +3,8 @@ import { CLASSES, type ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { STANCES, type Stance } from '../data/minions.js';
 import type { GearSlot } from '../data/gear.js';
-import type { RuneId } from '../data/runes.js';
 import type { Item, ItemUid } from '../items/items.js';
+import type { RuneRef } from '../protocol/messages.js';
 import { BAG, emptyGrid, STASH } from '../items/grid.js';
 import { BUTTON, SKILL_BUTTONS, type GameEvent, type InputFrame } from '../protocol/messages.js';
 import type { GameMap } from '../world/gamemap.js';
@@ -46,6 +46,8 @@ export interface PlayerSave {
   level: number;
   xp: number;
   gold: number;
+  /** Rune items and sigil slots (v2). A save without it is v1 and is converted before it is read. */
+  runeFormat: 2;
 }
 
 export interface PortalRequest {
@@ -237,6 +239,7 @@ export class Simulation {
       level: p.level,
       xp: p.xp,
       gold: p.gold,
+      runeFormat: 2,
     };
   }
 
@@ -309,8 +312,8 @@ export class Simulation {
   // Commands from the inventory and editor UI. Each returns an error message, or null on success.
 
   /** `devTools`: the caller may use the free test bench, which only works on editorAllowed maps. */
-  inscribe(id: EntityId, uid: ItemUid, runes: RuneId[], devTools = false): string | null {
-    return inv.inscribe(this, id, uid, runes, devTools && this.editorAllowed);
+  inscribe(id: EntityId, uid: ItemUid, slots: readonly RuneRef[], devTools = false): string | null {
+    return inv.inscribe(this, id, uid, slots, devTools && this.editorAllowed);
   }
 
   equipSigil(id: EntityId, uid: ItemUid, slot: number): string | null {

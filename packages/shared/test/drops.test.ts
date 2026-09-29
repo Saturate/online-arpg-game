@@ -4,7 +4,11 @@ import { spawnEnemy } from '../src/sim/enemies.js';
 import { dropLoot } from '../src/sim/inventory.js';
 
 function withoutUid(items: readonly Item[]): unknown[] {
-  return items.map(({ uid: _uid, ...rest }) => rest);
+  return items.map((item) => {
+    const { uid: _uid, ...rest } = item;
+    // Runes inside a sigil carry uids of their own.
+    return item.kind === 'sigil' ? { ...rest, slots: item.slots.map(({ uid: _r, ...r }) => r) } : rest;
+  });
 }
 
 describe('rollDrops', () => {

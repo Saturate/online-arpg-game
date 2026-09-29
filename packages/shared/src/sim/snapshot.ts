@@ -51,7 +51,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
           const node = eq.compiled.program;
           if (node.form === 'aura') auras.push({ r: round1(auraRadius(node)), fx: spellFx(node), el: node.elements[0] ?? null });
           const link = p.links[slot];
-          if (node.form === 'link' && link?.connected && link.targetId !== null) links.push(link.targetId);
+          if (node.form === 'bond' && link?.connected && link.targetId !== null) links.push(link.targetId);
         });
         out.push({
           ...base,

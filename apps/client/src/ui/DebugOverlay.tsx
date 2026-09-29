@@ -40,7 +40,7 @@ export function DebugOverlay() {
             const item = itemByUid(inv, uid);
             if (!item || item.kind !== 'sigil') return <li key={slot}>-</li>;
             const r = compileFor(item, classId);
-            return <li key={slot}>{r.ok ? `ok, ${r.persistent ? `${r.spirit} spirit` : `${r.heat} force`}, ${r.worstCaseEntities} ent` : `dud: ${r.dud}`}</li>;
+            return <li key={slot}>{r.ok ? `ok, ${r.persistent ? `${r.spirit} spirit` : `${r.force} force`}, ${r.peakEntities} ent` : `dud: ${r.errors[0]?.rule ?? '?'}`}</li>;
           })}
         </ol>
       )}

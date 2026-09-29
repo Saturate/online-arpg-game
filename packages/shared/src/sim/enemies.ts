@@ -1,7 +1,7 @@
 import { AILMENTS, CURSE, ENEMY_LEVEL, SIM, SPELL, WAVES, WILDS } from '../config/sim.js';
 import { ENEMIES, type Ability, type EnemyDef, type EnemyTypeId, type HazardKind, type MonsterDef } from '../data/enemies.js';
 import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
-import type { ElementId } from '../data/runes.js';
+import type { ElementId } from './program.js';
 import { affixValue, rollAffixes } from '../items/items.js';
 import { dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';

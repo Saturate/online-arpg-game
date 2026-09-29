@@ -1,5 +1,5 @@
 import { AFFIXES, type AffixId } from './affixes.js';
-import type { ElementId } from './runes.js';
+import type { ElementId } from '../sim/program.js';
 
 /**
  * Monster definitions. The three originals (chaser, shooter, spinner) keep their bespoke AI; every

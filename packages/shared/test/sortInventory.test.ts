@@ -19,7 +19,7 @@ describe('sortInventory', () => {
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 3, { category: 'ring' });
     const helmCommon = createGear(sim.newItemUid(), sim.rand.loot, 'common', 3, { category: 'helmet' });
     const helmRare = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 3, { category: 'helmet' });
-    const sigil = createSigil(sim.newItemUid(), sim.rand.loot, 'relic', { ilvl: 3, skill: 'random' });
+    const sigil = createSigil(sim.newItemUid(), sim.rand.loot, 'relic', { ilvl: 3 });
     give(sim, pid, sigil, 9, 5);
     give(sim, pid, ring, 4, 1);
     give(sim, pid, helmCommon, 6, 0);

@@ -1,4 +1,4 @@
-import { MINION_DEFS, RUNES, skillById, type FormId, type GearCategory, type Item, type RuneId } from '@rune/shared';
+import { DEFAULTS, isShapeId, MINION_DEFS, runeColor as runeTint, runeKind, runeName, toRuneInstance, type GearCategory, type Item, type RuneInstance, type ShapeId } from '@rune/shared';
 import { useEffect, useId } from 'react';
 import { cssColor, ELEMENT_COLORS, TIER_COLORS } from '../render/config.js';
 import { requestModelIcon, useModelIcons } from './itemIconRenderer.js';
@@ -10,33 +10,37 @@ import { iconModelFor } from './itemView.js';
  * show a render of it; everything else has a drawn, shaded silhouette per base type.
  */
 
-const FORM_GLYPHS: Record<FormId, string> = {
-  bolt: 'M12 52 L40 24 M40 24 L30 24 M40 24 L40 34 M20 44 L44 20',
+const BOLT_GLYPH = 'M12 52 L40 24 M40 24 L30 24 M40 24 L40 34 M20 44 L44 20';
+
+/** Shapes without their own glyph yet (the phase 4 ones) draw as a bolt. */
+const SHAPE_GLYPHS: Partial<Record<ShapeId, string>> = {
+  bolt: BOLT_GLYPH,
+  orb: 'M32 32 m-14 0 a14 14 0 1 0 28 0 a14 14 0 1 0 -28 0 M26 28 a6 6 0 0 1 8 -4',
   nova: 'M32 32 m-18 0 a18 18 0 1 0 36 0 a18 18 0 1 0 -36 0 M32 32 m-8 0 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0',
   zone: 'M10 40 Q32 26 54 40 Q32 54 10 40 Z M20 40 Q32 33 44 40',
   dash: 'M14 22 L28 32 L14 42 M28 22 L42 32 L28 42 M42 22 L52 32 L42 42',
   aura: 'M32 12 L36 28 L52 32 L36 36 L32 52 L28 36 L12 32 L28 28 Z',
-  link: 'M20 38 a8 8 0 0 1 0 -12 l6 -6 a8 8 0 0 1 12 12 M44 26 a8 8 0 0 1 0 12 l-6 6 a8 8 0 0 1 -12 -12',
+  bond: 'M20 38 a8 8 0 0 1 0 -12 l6 -6 a8 8 0 0 1 12 12 M44 26 a8 8 0 0 1 0 12 l-6 6 a8 8 0 0 1 -12 -12',
 };
 
-function isForm(r: RuneId | undefined): r is FormId {
-  return r === 'bolt' || r === 'nova' || r === 'zone' || r === 'dash' || r === 'aura' || r === 'link';
+function glyphFor(runes: readonly RuneInstance[]): string {
+  const first = runes[0]?.id;
+  return (first && isShapeId(first) ? SHAPE_GLYPHS[first] : undefined) ?? BOLT_GLYPH;
 }
 
-function runeColor(runes: readonly RuneId[]): number {
-  for (const r of runes) {
-    if (r === 'fire' || r === 'cold' || r === 'lightning') return ELEMENT_COLORS[r];
+function runeColor(runes: readonly RuneInstance[]): number {
+  for (const { id } of runes) {
+    if (id === 'fire' || id === 'cold' || id === 'lightning') return ELEMENT_COLORS[id];
   }
-  for (const r of runes) if (RUNES[r].category === 'effect') return RUNES[r].color;
+  for (const { id } of runes) if (runeKind(id) === 'effect') return runeTint(id);
   return 0xd0d8e8;
 }
 
-export function SkillIcon({ runes, size = 44, dim = false }: { runes: readonly RuneId[]; size?: number; dim?: boolean }) {
-  const first = runes[0];
-  const form: FormId = isForm(first) ? first : 'bolt';
+export function SkillIcon({ runes, size = 44, dim = false }: { runes: readonly RuneInstance[]; size?: number; dim?: boolean }) {
+  const glyph = glyphFor(runes);
   const color = cssColor(runeColor(runes));
-  const splits = runes.filter((r) => r === 'split').length;
-  const triggered = runes.some((r) => RUNES[r].category === 'trigger');
+  const copies = runes.reduce((n, r) => (r.id === 'split' ? n * (r.affixes.count ?? DEFAULTS.splitCount) : n), 1);
+  const triggered = runes.some((r) => runeKind(r.id) === 'trigger' || r.affixes.release !== undefined);
   const id = `g${useId().replace(/:/g, '')}`;
   return (
     <svg className="skill-icon" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" style={{ opacity: dim ? 0.45 : 1 }}>
@@ -47,10 +51,10 @@ export function SkillIcon({ runes, size = 44, dim = false }: { runes: readonly R
         </radialGradient>
       </defs>
       <rect x="1" y="1" width="62" height="62" rx="6" fill={`url(#${id})`} stroke="#6b5634" strokeWidth="2" />
-      <path d={FORM_GLYPHS[form]} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      {splits > 0 && (
+      <path d={glyph} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      {copies > 1 && (
         <text x="50" y="58" fontSize="13" fontWeight="700" fill={color} textAnchor="middle">
-          x{3 ** splits}
+          x{copies}
         </text>
       )}
       {triggered && <circle cx="52" cy="12" r="5" fill="#ffb347" stroke="#000" strokeWidth="1" />}
@@ -274,15 +278,16 @@ export function ItemIcon({ item, size = 44 }: { item: Item; size?: number }) {
   return <SigilIcon item={item} size={size} />;
 }
 
-/** A carved stone with the rune's syllable, tinted by the rune, and the stack count in the corner. */
+/** A carved stone with the rune's first letters, tinted by the rune, and the stack count in the corner. Rolled runes get a second, brighter rim. */
 function RuneIcon({ item, size }: { item: Extract<Item, { kind: 'rune' }>; size: number }) {
-  const def = RUNES[item.rune];
-  const c = cssColor(def.color);
+  const c = cssColor(runeTint(item.rune));
+  const rolled = item.affixes.length > 0;
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
       <path d="M32 6 L54 18 L54 46 L32 58 L10 46 L10 18 Z" fill="#1c1813" stroke={c} strokeWidth="3" />
-      <text x="32" y="40" textAnchor="middle" fontSize="20" fontWeight="700" fill={c} fontFamily="Cinzel, serif">
-        {def.syllable}
+      {rolled && <path d="M32 11 L50 21 L50 43 L32 53 L14 43 L14 21 Z" fill="none" stroke={cssColor(TIER_COLORS.magic)} strokeWidth="1.5" />}
+      <text x="32" y="40" textAnchor="middle" fontSize="18" fontWeight="700" fill={c} fontFamily="Cinzel, serif">
+        {runeName(item.rune).slice(0, 2)}
       </text>
       {item.count > 1 && (
         <text x="56" y="60" textAnchor="end" fontSize="16" fontWeight="700" fill="#f0e6d0" stroke="#000" strokeWidth="3" paintOrder="stroke">
@@ -320,10 +325,8 @@ function VesselIcon({ item, size }: { item: Extract<Item, { kind: 'vessel' }>; s
 
 function SigilIcon({ item, size }: { item: Extract<Item, { kind: 'sigil' }>; size: number }) {
   const tier = cssColor(TIER_COLORS[item.tier]);
-  const skill = skillById(item.skill);
-  const runes = skill ? skill.runes : item.runes;
-  const first = runes[0];
-  const glyph = FORM_GLYPHS[isForm(first) ? first : 'bolt'];
+  const runes = item.slots.map(toRuneInstance);
+  const glyph = glyphFor(runes);
   const color = cssColor(runeColor(runes));
   const uid = useId().replace(/:/g, '');
   return (

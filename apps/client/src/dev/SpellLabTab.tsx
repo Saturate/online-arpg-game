@@ -1,20 +1,35 @@
 import type { InjectedSpell } from './SpellStudioTab.js';
-import { grammarV2 } from '@rune/shared';
+import {
+  bracketTree,
+  compileRunes,
+  DEFAULT_CONTEXT,
+  DEFAULT_SIGIL_CONTEXT,
+  describeTree,
+  EFFECT_IDS,
+  EXAMPLE_SPELLS,
+  INFUSION_IDS,
+  parseSpellText,
+  PLAIN_MODIFIER_IDS,
+  RULES,
+  runeName,
+  SHAPE_IDS,
+  SHAPER_IDS,
+  SHAPES,
+  tokenizeSpell,
+  TRIGGER_IDS,
+  type GrammarContext,
+  type RuneId,
+  type SpellNode,
+} from '@rune/shared';
 import { useMemo, useState } from 'react';
 
-type GrammarContext = grammarV2.GrammarContext;
-type SpellNode = grammarV2.SpellNode;
-type RuneId = grammarV2.RuneId;
-
-const { EXAMPLE_SPELLS, RULES, DEFAULT_CONTEXT, parseSpellText, describeTree, bracketTree, runeName, SHAPES } = grammarV2;
-
 const PALETTE: readonly { label: string; runes: readonly RuneId[] }[] = [
-  { label: 'Shapes', runes: grammarV2.SHAPE_IDS },
-  { label: 'Infusions', runes: grammarV2.INFUSION_IDS },
-  { label: 'Shapers', runes: grammarV2.SHAPER_IDS },
-  { label: 'Effects', runes: grammarV2.EFFECT_IDS },
-  { label: 'Triggers', runes: grammarV2.TRIGGER_IDS },
-  { label: 'Plain modifiers', runes: grammarV2.PLAIN_MODIFIER_IDS },
+  { label: 'Shapes', runes: SHAPE_IDS },
+  { label: 'Infusions', runes: INFUSION_IDS },
+  { label: 'Shapers', runes: SHAPER_IDS },
+  { label: 'Effects', runes: EFFECT_IDS },
+  { label: 'Triggers', runes: TRIGGER_IDS },
+  { label: 'Plain modifiers', runes: PLAIN_MODIFIER_IDS },
 ];
 
 const AFFIX_SNIPPETS: readonly string[] = ['[onhit]', '[onexpire]', '[every 0.2s]', '[after 0.5s]', '[onrelease]', '[onland]', '[slow]', '[small]', '[large]', '[long]', '[homing]', '[pierce 2]', '[+30% damage]', '(4)'];
@@ -78,7 +93,11 @@ export function SpellLabTab({ onCast }: { onCast?: (spell: InjectedSpell) => voi
   const result = useMemo(() => parseSpellText(text, ctx), [text, ctx]);
   const badIndices = useMemo(() => new Set(result.errors.map((e) => e.runeIndex)), [result.errors]);
   const example = EXAMPLE_SPELLS.find((e) => e.id === exampleId);
-  const runtime = useMemo(() => (result.ok && result.tree ? grammarV2.toRuntime(result.tree) : null), [result]);
+  // Castability is the real compiler's call, on a sigil with this context and room for any spell.
+  const runtime = useMemo(
+    () => (result.ok ? compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage', multicast: ctx.multicast, maxDepth: ctx.maxDepth }) : null),
+    [result, text, ctx],
+  );
 
   const append = (snippet: string, glue: boolean): void => {
     setText((t) => (glue || t.trim() === '' ? `${t.trimEnd()}${snippet}` : `${t.trimEnd()} ${snippet}`));
@@ -189,12 +208,12 @@ export function SpellLabTab({ onCast }: { onCast?: (spell: InjectedSpell) => voi
 
         <div className={`lab-verdict ${result.ok ? 'good' : 'bad'}`}>{result.ok ? 'Valid spell' : `${result.errors.length} rule${result.errors.length === 1 ? '' : 's'} broken`}</div>
         {runtime?.ok && onCast && (
-          <button type="button" className="lab-cast" onClick={() => onCast({ label: text.trim(), compiled: runtime.compiled, notes: runtime.notes })}>
+          <button type="button" className="lab-cast" onClick={() => onCast({ label: text.trim(), compiled: runtime, notes: runtime.notes })}>
             Cast at dummies in Spell Studio
           </button>
         )}
         {runtime && !runtime.ok && (
-          <p className="muted small">Not castable yet; the engine does not have: {runtime.unsupported.join(', ')}.</p>
+          <p className="muted small">Not castable yet: {runtime.errors.map((e) => e.message).join(' ')}</p>
         )}
 
         {result.errors.length > 0 && (

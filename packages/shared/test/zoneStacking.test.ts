@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { compile, NEUTRAL_MODS, SIM, Simulation, type EntityId } from '../src/index.js';
+import { SIM, Simulation, type EntityId } from '../src/index.js';
+import { compileText } from './helpers/spell.js';
 import { spawnSpell } from '../src/sim/spells.js';
 
-const fireZone = compile(['zone', 'fire'], { classId: 'mage', capacity: 7, mods: NEUTRAL_MODS });
+const fireZone = compileText('zone fire');
 
 /** Damage a dummy takes in two seconds standing in `zones` fire zones from each caster. */
 function damageTaken(casters: number, zonesEach: number): number {

@@ -59,6 +59,13 @@ export const RULES = {
    * releases whose payloads overlap in time (payload lifetime / interval), not every pulse.
    */
   ENTITY_CAP: { id: 'entity-cap', text: 'The most entities alive at once must stay within liveCap.' },
+  /** Compiler rules: the grammar reads these spells, but the sigil or the engine cannot hold them. */
+  OVER_CAPACITY: { id: 'over-capacity', text: 'A sigil holds at most as many runes as it has slots.' },
+  RUNE_NOT_CASTABLE: { id: 'rune-not-castable', text: 'This rune is not in the game yet (phase 4); the grammar reads it but nothing can cast it.' },
+  ENGINE_NOT_READY: {
+    id: 'engine-not-ready',
+    text: 'The engine cannot run this part yet: shapes cast together, homing, bounce, or a payload of several shapes.',
+  },
   PLAIN_MODIFIER_OFF: {
     id: 'plain-modifier-off',
     text: 'Swift and Large are affixes; as plain runes they only work when plainModifierRunes is on (open question 1).',

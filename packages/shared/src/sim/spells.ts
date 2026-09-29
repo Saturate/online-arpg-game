@@ -1,9 +1,8 @@
 import { HEAT, MINIONS, SIM, SPELL } from '../config/sim.js';
 import type { PrimaryAttackDef } from '../data/classes.js';
-import type { TriggerId } from '../data/runes.js';
 import { misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
-import type { SpellNode } from '../runes/compiler.js';
+import type { SpellNode, TriggerId } from './program.js';
 import { acquireLink } from './auras.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
@@ -54,7 +53,7 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   const res = eq.compiled;
 
   if (res.ok && res.persistent) {
-    if (pressed && res.program.form === 'link') acquireLink(sim, pid, slot);
+    if (pressed && res.program.form === 'bond') acquireLink(sim, pid, slot);
     return;
   }
   if (p.castCooldown > 0) return;
@@ -62,22 +61,22 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   if (!res.ok) {
     // Holding the key on a dud would drain heat every cast cooldown; only fizzle on a fresh press.
     if (!pressed) return;
-    const cost = res.heat * HEAT.dudHeatFraction * sim.rates.forceCost;
+    const cost = res.force * HEAT.dudHeatFraction * sim.rates.forceCost;
     if (p.heat + cost > p.stats.heatMax * (HEAT.overheatMax / HEAT.max)) return;
     p.heat += cost;
     p.heatPause = HEAT.coolPauseSeconds;
-    p.castCooldown = HEAT.castCooldownSeconds;
-    sim.emit({ e: 'fizzle', id: pid, x: pos.x, y: pos.y, why: 'dud', reason: res.dud }, pos.x, pos.y);
+    p.castCooldown = eq.castDelay;
+    sim.emit({ e: 'fizzle', id: pid, x: pos.x, y: pos.y, why: 'dud', reason: res.errors[0]?.rule ?? null }, pos.x, pos.y);
     return;
   }
 
   const overheatMax = p.stats.heatMax * (HEAT.overheatMax / HEAT.max);
-  const cost = res.heat * sim.rates.forceCost;
+  const cost = res.force * sim.rates.forceCost;
   if (p.heat + cost > overheatMax) return;
   const chance = misfireChance(p.heat, eq.misfireMultiplier, p.stats.heatMax);
   p.heat += cost;
   p.heatPause = HEAT.coolPauseSeconds;
-  p.castCooldown = HEAT.castCooldownSeconds / p.stats.castSpeedMult;
+  p.castCooldown = eq.castDelay / p.stats.castSpeedMult;
   if (chance > 0 && sim.rand.combat.next() < chance) {
     sim.emit({ e: 'fizzle', id: pid, x: pos.x, y: pos.y, why: 'misfire', reason: null }, pos.x, pos.y);
     selfDamage(sim, pid, h.maxLife * HEAT.misfireLifeFraction);
@@ -300,14 +299,14 @@ function spawnForm(
     case 'dash': {
       const p = w.player.get(casterId);
       if (!p || p.dash || p.respawnIn !== null) return;
-      const distance = SPELL.dash.distance * modPow(SPELL.modifiers.swiftDash, m.swift);
+      const distance = SPELL.dash.distance * modPow(SPELL.modifiers.swiftDash, m.swift) * node.tuning.speed;
       const v = distance / (SPELL.dash.ticks * SIM.dt);
       p.dash = { vx: Math.cos(angle) * v, vy: Math.sin(angle) * v, ticksLeft: SPELL.dash.ticks };
       p.dashSpell = { inst, hitIds: new Set(), hitFired: false };
       return;
     }
     case 'aura':
-    case 'link':
+    case 'bond':
       return;
   }
 }

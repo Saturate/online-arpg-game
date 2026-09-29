@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
-import { addItem, discard, inscribe, moveItem, pickupLoot, spawnBag } from '../src/sim/inventory.js';
+import { addItem, discard, moveItem, pickupLoot, spawnBag } from '../src/sim/inventory.js';
 import { buyItem, createGear, createRune, createSigil, sellItem, sellPrice, Simulation, type Item, type RuneItem } from '../src/index.js';
 
 function town() {
@@ -21,10 +21,7 @@ function standAt(pos: { x: number; y: number }, at: { x: number; y: number } | u
 }
 
 function blankSigil(sim: Simulation) {
-  const s = createSigil(sim.newItemUid(), sim.rand.loot, 'rare');
-  s.runes = [];
-  s.skill = null;
-  return s;
+  return createSigil(sim.newItemUid(), sim.rand.loot, 'rare');
 }
 
 /** Fills every free bag cell with junk rings. */
@@ -49,47 +46,6 @@ describe('item safety', () => {
     expect(p.gold).toBe(1000);
   });
 
-  it('runes come out of a sigil exactly as bound as they went in', () => {
-    const { sim, pid, p, pos } = town();
-    standAt(pos, sim.mapDef.forge);
-    const sigil = blankSigil(sim);
-    addItem(p, sigil);
-    const bound = createRune(sim.newItemUid(), 'fire', 2);
-    bound.bound = true;
-    addItem(p, bound);
-    addItem(p, createRune(sim.newItemUid(), 'cold', 1));
-    expect(inscribe(sim, pid, sigil.uid, ['fire', 'fire', 'cold'])).toBeNull();
-    expect(inscribe(sim, pid, sigil.uid, [])).toBeNull();
-    expect(runeStacks(p, 'fire').every((s) => s.bound === true)).toBe(true);
-    expect(runeStacks(p, 'cold').every((s) => s.bound !== true)).toBe(true);
-  });
-
-  it('a found rune put into a bound starter sigil comes back unbound', () => {
-    const { sim, pid, p, pos } = town();
-    standAt(pos, sim.mapDef.forge);
-    const starter = blankSigil(sim);
-    starter.bound = true;
-    addItem(p, starter);
-    addItem(p, createRune(sim.newItemUid(), 'swift', 1));
-    expect(inscribe(sim, pid, starter.uid, ['swift'])).toBeNull();
-    expect(inscribe(sim, pid, starter.uid, [])).toBeNull();
-    const swift = runeStacks(p, 'swift');
-    expect(swift.map((s) => [s.count, s.bound === true])).toEqual([[1, false]]);
-  });
-
-  it('refuses to take runes out when only stacks of the other binding have room', () => {
-    const { sim, pid, p, pos } = town();
-    standAt(pos, sim.mapDef.forge);
-    const sigil = blankSigil(sim);
-    sigil.runes = ['split'];
-    sigil.boundSlots = [true];
-    addItem(p, sigil);
-    addItem(p, createRune(sim.newItemUid(), 'split', 1));
-    fillBag(sim, p);
-    expect(inscribe(sim, pid, sigil.uid, [])).toBe('No room in your bag for the runes you take out');
-    expect(sigil.runes).toEqual(['split']);
-  });
-
   it('prices a rune stack by its count', () => {
     const { sim } = town();
     const one = createRune(sim.newItemUid(), 'fire', 1);
@@ -103,8 +59,9 @@ describe('item safety', () => {
     bound.bound = true;
     addItem(p, bound);
     const carrier = blankSigil(sim);
-    carrier.runes = ['fire'];
-    carrier.boundSlots = [true];
+    const rune = createRune(sim.newItemUid(), 'fire', 1);
+    rune.bound = true;
+    carrier.slots = [rune];
     addItem(p, carrier);
     expect(discard(sim, pid, bound.uid)).toBe('Bound items stay with this character');
     expect(discard(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
@@ -112,30 +69,6 @@ describe('item safety', () => {
     expect(moveItem(sim, pid, bound.uid, 'stash', 0, 0)).toBe('Bound items stay with this character');
     standAt(pos, sim.mapDef.trader);
     expect(sellItem(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
-  });
-
-  it('the free test bench mints nothing, but gives back runes paid for at the forge', () => {
-    const { sim, pid, p, pos } = town();
-    const sigil = blankSigil(sim);
-    addItem(p, sigil);
-    expect(inscribe(sim, pid, sigil.uid, ['bolt', 'fire'], true)).toBeNull();
-    expect(inscribe(sim, pid, sigil.uid, [], true)).toBeNull();
-    expect([...p.items.values()].some((i) => i.kind === 'rune')).toBe(false);
-    standAt(pos, sim.mapDef.forge);
-    addItem(p, createRune(sim.newItemUid(), 'cold', 1));
-    expect(inscribe(sim, pid, sigil.uid, ['cold'])).toBeNull();
-    expect(inscribe(sim, pid, sigil.uid, [], true)).toBeNull();
-    expect(runeStacks(p, 'cold').map((s) => [s.count, s.bound === true])).toEqual([[1, false]]);
-  });
-
-  it('cannot inscribe a sigil that sits in the stash', () => {
-    const { sim, pid, p, pos } = town();
-    standAt(pos, sim.mapDef.stash);
-    const sigil = blankSigil(sim);
-    addItem(p, sigil);
-    expect(moveItem(sim, pid, sigil.uid, 'stash', 0, 0)).toBeNull();
-    standAt(pos, sim.mapDef.forge);
-    expect(inscribe(sim, pid, sigil.uid, ['bolt'], true)).toBe('Take the sigil out of the stash first');
   });
 
   it('bound items found on load go to the bag, never the shared stash', () => {
@@ -170,15 +103,6 @@ describe('item safety', () => {
     expect(sim.world.enemy.size).toBe(0);
     expect(sim.world.loot.size).toBe(0);
     expect(p.xp).toBe(xp);
-  });
-
-  it('saving an unchanged sigil keeps its prebaked skill', () => {
-    const { sim, pid, p, pos } = town();
-    standAt(pos, sim.mapDef.forge);
-    const sigil = [...p.items.values()].find((i) => i.kind === 'sigil' && i.skill !== null);
-    if (sigil?.kind !== 'sigil') throw new Error('no starter skill sigil');
-    expect(inscribe(sim, pid, sigil.uid, [...sigil.runes])).toBeNull();
-    expect(sigil.skill).not.toBeNull();
   });
 
   it('dev items are bound and dev monsters drop nothing', () => {
@@ -232,25 +156,44 @@ describe('item safety', () => {
     expect(pickupLoot(sim, pid, bagId)).toBe('Out of reach');
   });
 
-  it('an old Test Sigil is taken out on load, its runes kept', () => {
-    const { sim, pid } = town();
-    const save = sim.exportPlayer(pid);
-    if (!save) throw new Error('no save');
-    const test = createSigil(9999, sim.rand.loot, 'relic');
-    test.name = 'Test Sigil';
-    test.corrupted = true;
-    test.runes = ['fire', 'fire', 'split'];
-    save.items.push(test);
-    const other = new Simulation(5, { kind: 'zone', zone: 'barrens', seed: 3 });
-    const id = other.addPlayer('c', 'mage', 'P', save);
-    const p = other.world.player.get(id);
-    if (!p) throw new Error('setup');
-    expect([...p.items.values()].some((i) => i.name === 'Test Sigil')).toBe(false);
-    // Bag, stash or pending: wherever they landed, they are still the character's.
-    const all = [...p.items.values()].filter((i): i is RuneItem => i.kind === 'rune');
-    const count = (rune: string): number => all.reduce((n, r) => n + (r.rune === rune ? r.count : 0), 0);
-    expect([count('fire'), count('split')]).toEqual([2, 1]);
-    expect(all.every((r) => r.bound === true)).toBe(true);
+  // The forge is rebuilt around rune items (agent D); these cover what the v1 forge tests did.
+  it.todo('inscribe takes plain runes from the bag first, bound stacks first, then the account stash');
+  it.todo('inscribe takes a rolled rune from the bag or the stash, each uid at most once');
+  it.todo('inscribe with keep refs moves slots for free, and refunds every slot not kept to the bag, else pending, never the stash');
+  it.todo('inscribe is all or nothing: not enough gold, a missing rune or no room leaves everything unchanged');
+  it.todo('inscribe charges each plain or rolled insert its forge price in gold');
+  it.todo('inscribe refuses a sigil in the stash and anywhere but the forge');
+  it.todo('the free bench inserts plain runes bound, costs nothing and refunds only unbound runes');
+  it.todo('a found rune put into a bound starter sigil comes back unbound');
+  it.todo('a rune comes out of a sigil with the uid, rolls and binding it went in with');
+  it.todo('inscribing past spirit for a persistent skill is refused and changes nothing');
+  // v1 saves are converted before they are read (agent E).
+  it.todo('an old Test Sigil in a v1 save is taken apart on conversion, its runes kept bound');
+
+  it('rolled runes never stack, plain ones do', () => {
+    const { sim, p } = town();
+    const rolled = (): RuneItem => ({ ...createRune(sim.newItemUid(), 'orb', 1), affixes: [{ id: 'rune_damage', tier: 0, value: 20 }] });
+    addItem(p, createRune(sim.newItemUid(), 'orb', 1));
+    addItem(p, createRune(sim.newItemUid(), 'orb', 1));
+    addItem(p, rolled());
+    addItem(p, rolled());
+    const cells = runeStacks(p, 'orb').map((r) => [r.count, r.affixes.length]).sort();
+    expect(cells).toEqual([[1, 1], [1, 1], [2, 0]]);
+  });
+
+  it('a sigil bought from the shelf and its runes get fresh uids', () => {
+    const { sim, pid, p, pos } = town();
+    standAt(pos, sim.mapDef.trader);
+    p.gold = 1000;
+    const shelf = blankSigil(sim);
+    shelf.slots = [createRune(sim.newItemUid(), 'bolt', 1), createRune(sim.newItemUid(), 'fire', 1)];
+    const owned = new Set(p.items.keys());
+    expect(buyItem(sim, pid, shelf, 10)).toBeNull();
+    const bought = [...p.items.values()].find((i) => !owned.has(i.uid));
+    if (bought?.kind !== 'sigil') throw new Error('not bought');
+    const shelfUids = [shelf.uid, ...shelf.slots.map((r) => r.uid)];
+    for (const uid of [bought.uid, ...bought.slots.map((r) => r.uid)]) expect(shelfUids).not.toContain(uid);
+    expect(bought.slots.map((r) => r.rune)).toEqual(['bolt', 'fire']);
   });
 
   it('rooms can keep their item ids apart', () => {

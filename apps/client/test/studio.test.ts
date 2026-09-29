@@ -1,15 +1,15 @@
-import { skillById, SIM, type SkillDef } from '@rune/shared';
+import { SIM, starterSigilById, tokenizeSpell } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
-import { formatSkill, skillIdFromName, tuningDelta } from '../src/dev/studio/exportSkill.js';
+import { formatSkill, skillIdFromName } from '../src/dev/studio/exportSkill.js';
 import { StudioMetrics } from '../src/dev/studio/metrics.js';
-import { StudioSim, type StudioSetup } from '../src/dev/studio/studioSim.js';
+import { StudioSim, studioSkillOf, type StudioSetup, type StudioSkill } from '../src/dev/studio/studioSim.js';
 
 const SETUP: StudioSetup = { seed: 42, classId: 'mage', dummies: 6, dummyType: 'chaser', layout: 'pack', distance: 320 };
 
-function fireball(): SkillDef {
-  const def = skillById('fireball');
+function fireball(): StudioSkill {
+  const def = starterSigilById('fireball');
   if (!def) throw new Error('fireball missing');
-  return def;
+  return studioSkillOf(def);
 }
 
 describe('studio metrics', () => {
@@ -26,15 +26,12 @@ describe('studio metrics', () => {
 });
 
 describe('skill export', () => {
-  it('keeps only non-neutral tuning and matches the skills.ts shape', () => {
-    expect(tuningDelta({ speed: 1, damage: 1.3, phase: 0 })).toEqual({ damage: 1.3 });
+  it('matches the starterSigils.ts shape, with runes the tokenizer reads back', () => {
     const out = formatSkill({ ...fireball(), name: "Ro'ka" });
     expect(out).toContain("name: 'Ro\\'ka',");
-    expect(out).toContain("runes: ['bolt', 'fire', 'onhit', 'nova', 'timer', 'zone', 'linger'],");
-    // Read from the definition, so retuning Fireball does not break the format test.
-    expect(out).toContain(`tuning: { speed: ${fireball().tuning?.speed}, damage: ${fireball().tuning?.damage} },`);
-    // Read from the definition, so balance changes to the heat cost do not break the format test.
-    expect(out).toContain(`heat: ${fireball().heat},`);
+    const text = /spell\('(.*)'\)/.exec(out)?.[1];
+    expect(text).toBe(fireball().text);
+    expect(tokenizeSpell(text ?? '').runes).toEqual(starterSigilById('fireball')?.runes);
     expect(skillIdFromName('  Frost Wave 2! ')).toBe('frost_wave_2');
   });
 });
@@ -69,7 +66,7 @@ describe('studio sim', () => {
 
 describe('studio duds', () => {
   it('hold mode keeps fizzling a dud instead of casting it once', () => {
-    const s = new StudioSim(SETUP, { ...fireball(), runes: ['fire', 'bolt'] });
+    const s = new StudioSim(SETUP, { ...fireball(), text: 'fire bolt' });
     for (let i = 0; i < 200; i++) s.step();
     expect(s.metrics.summary().fizzles).toBeGreaterThan(1);
   });

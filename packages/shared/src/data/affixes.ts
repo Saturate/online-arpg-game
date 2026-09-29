@@ -1,6 +1,7 @@
 import type { GearCategory } from './gear.js';
+import { CASTABLE_SHAPES, isPersistentShape, PROJECTILE_SHAPES, TRIGGERS_FOR_SHAPE, type ReleaseKind, type RuneId, type ShapeId } from '../runes/v2/runes.js';
 
-export type AffixTarget = 'sigil' | 'vessel' | 'enemy' | 'gear';
+export type AffixTarget = 'sigil' | 'vessel' | 'enemy' | 'gear' | 'rune';
 export type AffixSlot = 'prefix' | 'suffix';
 
 export interface AffixTierDef {
@@ -25,6 +26,10 @@ export interface AffixDef {
   decimals?: number;
   /** Gear only: which item categories can roll it. Missing means every category. */
   slots?: readonly GearCategory[];
+  /** Runes only: which runes can roll it. */
+  runes?: readonly RuneId[];
+  /** Shown with a sign ("-64% speed"), because hand-rolled starter runes go below zero. */
+  signed?: boolean;
 }
 
 export const AFFIX_IDS = [
@@ -59,6 +64,21 @@ export const AFFIX_IDS = [
   'gear_regen',
   'gear_minion_damage',
   'gear_minion_life',
+  'sigil_slots',
+  'cast_delay',
+  'multicast',
+  'first_rune_free',
+  'release_onhit',
+  'release_onexpire',
+  'release_after',
+  'release_every',
+  'release_onland',
+  'rune_speed',
+  'rune_size',
+  'rune_duration',
+  'rune_damage',
+  'rune_pierce',
+  'split_count',
 ] as const;
 export type AffixId = (typeof AFFIX_IDS)[number];
 
@@ -95,7 +115,7 @@ export const AFFIXES: Record<AffixId, AffixDef> = {
   },
   max_depth: {
     id: 'max_depth',
-    text: '+{v} maximum sub-spell depth',
+    text: '+{v} maximum payload depth',
     slot: 'suffix',
     targets: ['sigil'],
     group: 'depth',
@@ -306,6 +326,99 @@ export const AFFIXES: Record<AffixId, AffixDef> = {
   gear_regen: gearAffix('gear_regen', 'Regenerate {v} life per second', 'suffix', 'of Mending', [[1, 2], [2, 3.5], [3.5, 5]], ['body', 'belt', 'ring', 'amulet'], 1),
   gear_minion_damage: gearAffix('gear_minion_damage', 'Minions deal {v}% increased damage', 'prefix', 'Commanding', [[8, 15], [15, 25], [25, 40]], ['weapon', 'helmet', 'amulet']),
   gear_minion_life: gearAffix('gear_minion_life', 'Minions have {v}% increased life', 'suffix', 'of the Horde', [[8, 15], [15, 25], [25, 40]], ['body', 'belt', 'helmet']),
+  sigil_slots: {
+    id: 'sigil_slots',
+    text: '+{v} rune slots',
+    slot: 'suffix',
+    targets: ['sigil'],
+    group: 'slots',
+    nameWord: 'of Chambers',
+    tiers: [
+      { weight: 70, min: 1, max: 1 },
+      { weight: 45, min: 1, max: 2 },
+      { weight: 25, min: 2, max: 3 },
+    ],
+  },
+  cast_delay: {
+    id: 'cast_delay',
+    text: '{v}% reduced cast delay',
+    slot: 'prefix',
+    targets: ['sigil'],
+    group: 'cast_delay',
+    nameWord: 'Quick',
+    tiers: [
+      { weight: 80, min: 5, max: 10 },
+      { weight: 50, min: 10, max: 18 },
+      { weight: 20, min: 18, max: 25 },
+    ],
+  },
+  // Rule-breaking rolls permit one of a kind (PLAN-runes.md), so these only reach +1 and only on rares.
+  multicast: {
+    id: 'multicast',
+    text: '+{v} shape cast together (multicast)',
+    slot: 'suffix',
+    targets: ['sigil'],
+    group: 'multicast',
+    nameWord: 'of Echoes',
+    tiers: [
+      { weight: 0, min: 1, max: 1 },
+      { weight: 0, min: 1, max: 1 },
+      { weight: 15, min: 1, max: 1 },
+    ],
+  },
+  first_rune_free: {
+    id: 'first_rune_free',
+    text: 'The first rune costs no Force',
+    slot: 'prefix',
+    targets: ['sigil'],
+    group: 'first_rune_free',
+    nameWord: 'Primed',
+    tiers: [
+      { weight: 0, min: 1, max: 1 },
+      { weight: 0, min: 1, max: 1 },
+      { weight: 12, min: 1, max: 1 },
+    ],
+  },
+  release_onhit: releaseAffix('release_onhit', 'onhit', 'Releases its payload on hit', 'of Impact'),
+  release_onexpire: releaseAffix('release_onexpire', 'onexpire', 'Releases its payload when it expires', 'of Endings'),
+  release_after: {
+    ...releaseAffix('release_after', 'after', 'Releases its payload after {v} s', 'of Fuses'),
+    decimals: 1,
+    tiers: [{ weight: 100, min: 0.3, max: 1.2 }],
+  },
+  release_every: {
+    ...releaseAffix('release_every', 'every', 'Releases its payload every {v} s', 'of Pulses'),
+    decimals: 2,
+    // Faster pulses are the stronger roll, so the short intervals wait for higher item levels.
+    tiers: [
+      { weight: 60, min: 0.4, max: 0.6 },
+      { weight: 40, min: 0.3, max: 0.45 },
+      { weight: 20, min: 0.2, max: 0.3 },
+    ],
+  },
+  release_onland: releaseAffix('release_onland', 'onland', 'Releases its payload on landing', 'of Landing'),
+  rune_speed: runeAffix('rune_speed', '{v}% speed', 'Fleet', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'dash'), [[10, 20], [20, 35], [35, 50]]),
+  rune_size: runeAffix('rune_size', '{v}% size', 'Broad', shapesWhere((s) => s !== 'dash' && s !== 'bond'), [[10, 20], [20, 35], [35, 50]]),
+  rune_duration: runeAffix('rune_duration', '{v}% duration', 'Lasting', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'zone'), [[15, 30], [30, 50], [50, 75]]),
+  rune_damage: runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 20], [20, 35], [35, 55]]),
+  rune_pierce: {
+    ...runeAffix('rune_pierce', 'Pierces {v} enemies', 'Piercing', shapesWhere((s) => PROJECTILE_SHAPES.includes(s)), [[1, 1], [1, 2], [2, 3]]),
+    signed: false,
+  },
+  split_count: {
+    id: 'split_count',
+    text: 'Makes {v} copies',
+    slot: 'prefix',
+    targets: ['rune'],
+    group: 'split_count',
+    nameWord: 'Manifold',
+    runes: ['split'],
+    tiers: [
+      { weight: 100, min: 2, max: 3 },
+      { weight: 60, min: 3, max: 4 },
+      { weight: 25, min: 5, max: 6 },
+    ],
+  },
   coward: {
     id: 'coward',
     text: 'Coward: retreats at low life to heal',
@@ -336,6 +449,38 @@ function gearAffix(
     decimals,
     tiers: ranges.map(([min, max], i) => ({ weight: [100, 55, 22][i] ?? 10, min, max })),
     ...(slots ? { slots } : {}),
+  };
+}
+
+function shapesWhere(pred: (s: ShapeId) => boolean): ShapeId[] {
+  return CASTABLE_SHAPES.filter(pred);
+}
+
+/** Release affixes share one group, so a rune rolls at most one, and only shapes that accept that release. */
+function releaseAffix(id: AffixId, kind: ReleaseKind, text: string, nameWord: string): AffixDef {
+  return {
+    id,
+    text,
+    slot: 'suffix',
+    targets: ['rune'],
+    group: 'release',
+    nameWord,
+    runes: shapesWhere((s) => TRIGGERS_FOR_SHAPE[s].includes(kind)),
+    tiers: [{ weight: 100, min: 1, max: 1 }],
+  };
+}
+
+function runeAffix(id: AffixId, text: string, nameWord: string, runes: readonly RuneId[], ranges: readonly [number, number][]): AffixDef {
+  return {
+    id,
+    text,
+    slot: 'prefix',
+    targets: ['rune'],
+    group: id,
+    nameWord,
+    runes,
+    signed: true,
+    tiers: ranges.map(([min, max], i) => ({ weight: [100, 60, 25][i] ?? 10, min, max })),
   };
 }
 

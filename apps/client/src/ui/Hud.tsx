@@ -1,4 +1,4 @@
-import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, skillById, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, starterSigilById, toRuneInstance, type SigilItem } from '@rune/shared';
 import { useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -42,9 +42,9 @@ function SkillSlot({ slot }: { slot: number }) {
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
   const result = sigil && classId ? compileFor(sigil, classId) : null;
   const persistent = result?.ok === true && result.persistent;
-  const skill = skillById(sigil?.skill);
-  const name = skill?.name ?? (sigil?.runes.length ? 'Custom skill' : 'Empty');
-  const cost = !result ? '' : !result.ok ? 'unstable' : persistent ? `${result.spirit} spirit` : `${Math.round(result.heat)}`;
+  const skill = starterSigilById(sigil?.starter);
+  const name = skill?.name ?? (sigil?.slots.length ? 'Custom skill' : 'Empty');
+  const cost = !result ? '' : !result.ok ? 'unstable' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
   const cd = persistent ? 0 : Math.min(1, castCooldown / HEAT.castCooldownSeconds);
   const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
 
@@ -78,7 +78,7 @@ function SkillSlot({ slot }: { slot: number }) {
       }}
       title={`${skill ? `${skill.name}: ${skill.description}` : name}. Left-click or right-click to put it on that mouse button.`}
     >
-      {sigil && sigil.runes.length > 0 ? <SkillIcon runes={skill?.runes ?? sigil.runes} size={56} /> : <div className="skill-blank" />}
+      {sigil && sigil.slots.length > 0 ? <SkillIcon runes={sigil.slots.map(toRuneInstance)} size={56} /> : <div className="skill-blank" />}
       {cd > 0 && <div className="skill-cd" style={sweep} />}
       <kbd className="skill-key">{keyLabel(binding)}</kbd>
       {(onLeft || onRight) && <span className="skill-rmb">{onLeft && onRight ? 'L+R' : onLeft ? 'LMB' : 'RMB'}</span>}

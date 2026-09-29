@@ -1,38 +1,43 @@
 import type { CSSProperties } from 'react';
 import {
-  COMBOS,
   HEAT,
-  describeSpell,
+  describeTree,
   formatAffix,
   MINION_DEFS,
-  RUNES,
   gearBase,
   levelRequirement,
+  runeColor,
+  runeKind,
+  runeName,
   sigilCapacity,
+  starterSigilById,
   STAT_IDS,
   STAT_LABELS,
-  skillById,
   vesselSpirit,
   type ClassId,
-  type CompileResult,
   type Item,
   type RuneId,
+  type RuneItem,
+  type SigilCompile,
 } from '@rune/shared';
 import { cssColor, TIER_COLORS } from '../render/config.js';
 import { compileFor, useUi } from './store.js';
 
-export function RuneChip({ id, small = false, onClick }: { id: RuneId; small?: boolean; onClick?: () => void }) {
-  const def = RUNES[id];
-  const style: CSSProperties & Record<'--rune', string> = { '--rune': cssColor(def.color) };
+/** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
+export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
+  const kind = runeKind(id);
+  const style: CSSProperties & Record<'--rune', string> = { '--rune': cssColor(runeColor(id)) };
+  const rolls = item?.affixes.map(formatAffix) ?? [];
   return (
     <span
-      className={`rune-chip cat-${def.category}${small ? ' small' : ''}`}
+      className={`rune-chip cat-${kind === 'shape' ? 'form' : kind}${small ? ' small' : ''}`}
       style={style}
-      title={`${def.name} (${def.category})`}
+      title={[`${runeName(id)} (${kind})`, ...rolls].join('\n')}
       onClick={onClick}
     >
-      <b>{def.syllable}</b>
-      {!small && <i>{def.name}</i>}
+      <b>{runeName(id).slice(0, 2)}</b>
+      {!small && <i>{runeName(id)}</i>}
+      {rolls.length > 0 && <sup>*</sup>}
     </span>
   );
 }
@@ -42,18 +47,18 @@ export function tierColor(item: Item): string {
 }
 
 /** Stability wording only. The reason for a dud is deliberately hidden outside the debug overlay. */
-export function CostLine({ result }: { result: CompileResult }) {
+export function CostLine({ result }: { result: SigilCompile }) {
   if (!result.ok) {
     return (
       <span className="cost unstable">
-        Unstable <em>{Math.round(result.heat * 0.5)} {HEAT.displayName} on fizzle</em>
+        Unstable <em>{Math.round(result.force * HEAT.dudHeatFraction)} {HEAT.displayName} on fizzle</em>
       </span>
     );
   }
   if (result.persistent) return <span className="cost stable">Persistent, reserves {result.spirit} spirit</span>;
   return (
     <span className="cost stable">
-      {Math.round(result.heat)} {HEAT.displayName}
+      {Math.round(result.force)} {HEAT.displayName}
     </span>
   );
 }
@@ -128,15 +133,17 @@ export function ItemDetails({ item, classId }: { item: Item; classId: ClassId })
 }
 
 function RuneDetails({ item }: { item: Extract<Item, { kind: 'rune' }> }) {
-  const def = RUNES[item.rune];
+  const kind = runeKind(item.rune);
+  const rolled = item.affixes.length > 0;
   return (
     <div className="tt-body">
       <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
       <p className="muted">
-        {def.category[0]?.toUpperCase()}
-        {def.category.slice(1)} rune · {item.count} in this stack
+        {kind[0]?.toUpperCase()}
+        {kind.slice(1)} rune · {rolled ? 'rolled' : `${item.count} in this stack`}
       </p>
-      <p>Inscribe it into a sigil at the forge in town. It is used up; runes taken back out return to your bag.</p>
+      {rolled && <Affixes item={item} />}
+      <p>Inscribe it into a sigil at the forge in town. Runes taken back out return to your bag exactly as they went in.</p>
     </div>
   );
 }
@@ -164,7 +171,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
-  const skill = skillById(item.skill);
+  const skill = starterSigilById(item.starter);
   return (
     <div className="item-details">
       <Head item={item} sub={item.corrupted ? 'Corrupted Sigil' : 'Sigil'} />
@@ -177,17 +184,11 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
       {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />
       <div className="rune-row">
-        {item.runes.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span> : item.runes.map((r, i) => <RuneChip key={i} id={r} small />)}
+        {item.slots.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span> : item.slots.map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)}
       </div>
-      {item.runes.length > 0 && <CostLine result={result} />}
-      {result.ok &&
-        result.combos.map((c) => (
-          <p key={c} className="combo">
-            {COMBOS.find((x) => x.id === c)?.name}
-          </p>
-        ))}
-      {debug && item.runes.length > 0 && (
-        <p className="debug-line">{result.ok ? describeSpell(result.program) : `dud: ${result.dud}`}</p>
+      {item.slots.length > 0 && <CostLine result={result} />}
+      {debug && item.slots.length > 0 && (
+        <p className="debug-line">{result.ok ? describeTree(result.tree) : result.errors.map((e) => e.message).join(' ')}</p>
       )}
       <Requirements item={item} />
       <p className="tt-foot">Item level {item.ilvl}</p>

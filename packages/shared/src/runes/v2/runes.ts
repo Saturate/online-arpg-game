@@ -1,7 +1,4 @@
-/**
- * Rune data for the v2 spell grammar prototype (PLAN-runes.md). Pure data, no simulation.
- * Nothing here is wired into the game; the Spell Lab dev tab and grammarV2 tests use it.
- */
+/** Rune data for the spell grammar (PLAN-runes.md). Pure data, no simulation. */
 
 export const SHAPE_IDS = [
   'orb',
@@ -283,3 +280,64 @@ export const DEFAULTS = {
   stackLimit: 2,
   chargeStages: 3,
 } as const;
+
+/**
+ * What the engine runs in phases 2 and 3. Only these drop, roll or appear in the forge's pool; the
+ * rest stay in the grammar and the compiler reports them by name.
+ */
+export const CASTABLE_RUNES = [
+  'orb',
+  'bolt',
+  'nova',
+  'zone',
+  'dash',
+  'aura',
+  'bond',
+  'fire',
+  'cold',
+  'lightning',
+  'split',
+  'impact',
+  'ward',
+  'restore',
+  'onhit',
+  'onexpire',
+  'timer',
+  'pulse',
+  'onland',
+  'swift',
+  'large',
+] as const satisfies readonly RuneId[];
+export type CastableRuneId = (typeof CASTABLE_RUNES)[number];
+
+const CASTABLE_SET: ReadonlySet<string> = new Set(CASTABLE_RUNES);
+export const isCastableRune = (id: string): id is CastableRuneId => CASTABLE_SET.has(id);
+
+export const CASTABLE_SHAPES: readonly ShapeId[] = SHAPE_IDS.filter((s) => CASTABLE_SET.has(s));
+
+/** Inventory and tooltip colour per rune: shapes bone white, infusions their element, the rest by kind. */
+const KIND_COLOR: Record<RuneKind, number> = { shape: 0xd0d8e8, infusion: 0xd0d8e8, shaper: 0xff7eb6, effect: 0xb08cff, trigger: 0xffb347, modifier: 0xe0e0e0 };
+const RUNE_COLOR: Partial<Record<RuneId, number>> = {
+  fire: 0xff6a2b,
+  cold: 0x6ad0ff,
+  lightning: 0xf5e663,
+  ward: 0x7fe0c0,
+  restore: 0x8cf08c,
+};
+
+export function runeColor(id: RuneId): number {
+  return RUNE_COLOR[id] ?? KIND_COLOR[runeKind(id)];
+}
+
+export interface ComboDef {
+  id: string;
+  name: string;
+  runes: readonly [RuneId, RuneId];
+  description: string;
+}
+
+/** Hidden combos: matched when both runes attach to the same shape (infusions it carries count). */
+export const COMBOS: readonly ComboDef[] = [
+  { id: 'burning_ward', name: 'Burning Ward', runes: ['ward', 'fire'], description: 'The ward also burns enemies that touch it.' },
+  { id: 'frostfire', name: 'Frostfire', runes: ['fire', 'cold'], description: 'Deals both damage types and applies both ailments.' },
+];

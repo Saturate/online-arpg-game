@@ -1,6 +1,7 @@
 import { ENEMY_TYPE_IDS, type EnemyTypeId } from '../data/enemies.js';
 import { GEAR_SLOTS, categoryForSlot, type GearCategory } from '../data/gear.js';
-import { ITEM_TIERS, createGear, createSigil, createVessel, type ItemTier } from '../items/items.js';
+import { ITEM_TIERS, createGear, createVessel, type ItemTier } from '../items/items.js';
+import { dropSigil } from '../items/drops.js';
 import type { EntityId } from './ecs.js';
 import { spawnEnemy } from './enemies.js';
 import { addItem } from './inventory.js';
@@ -107,9 +108,10 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
           ? createGear(sim.newItemUid(), rng, cmd.tier, cmd.level, cmd.category ? { category: cmd.category } : {})
           : cmd.item === 'vessel'
             ? createVessel(sim.newItemUid(), rng, cmd.tier, undefined, cmd.level)
-            : createSigil(sim.newItemUid(), rng, cmd.tier, { ilvl: cmd.level, skill: 'random' });
-      // Bound, so dev items can be tried but never sold, stashed or handed on.
+            : dropSigil(rng, () => sim.newItemUid(), cmd.tier, cmd.level);
+      // Bound, so dev items can be tried but never sold, stashed or handed on; runes in a sigil too.
       item.bound = true;
+      if (item.kind === 'sigil') for (const r of item.slots) r.bound = true;
       return addItem(p, item) ? `Gave ${item.name}` : 'Inventory is full';
     }
     case 'teleport': {

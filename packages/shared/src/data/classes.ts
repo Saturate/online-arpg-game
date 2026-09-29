@@ -1,4 +1,5 @@
 import type { ARMOR } from '../config/sim.js';
+import type { RuneId } from '../runes/v2/runes.js';
 
 export type ArmorType = keyof typeof ARMOR.values;
 
@@ -27,7 +28,8 @@ export interface ClassDef {
   life: number;
   moveSpeed: number;
   primary: PrimaryAttackDef;
-  affinityRunes: string[];
+  /** Runes this class casts for less Force (HEAT.affinityMultiplier). */
+  affinityRunes: RuneId[];
   baseSpirit: number;
   color: number;
   /** Reserved for ascendancies, which are out of scope for the demo. */
@@ -57,7 +59,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     life: 100,
     moveSpeed: 220,
     primary: { kind: 'bolt', damage: 9, cooldown: 0.2, speed: 700, range: 520, radius: 5 },
-    affinityRunes: ['pierce', 'swift'],
+    affinityRunes: ['bolt', 'swift'],
     baseSpirit: 100,
     color: 0x6aa84f,
     ascendancies: [],
@@ -93,7 +95,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     life: 95,
     moveSpeed: 200,
     primary: { kind: 'bolt', damage: 12, cooldown: 0.35, speed: 500, range: 460, radius: 7 },
-    affinityRunes: ['link'],
+    affinityRunes: ['bond'],
     baseSpirit: 120,
     color: 0x8e7cc3,
     ascendancies: [],

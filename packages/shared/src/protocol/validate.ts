@@ -1,5 +1,6 @@
 import { MINIONS } from '../config/sim.js';
-import { isRuneId, type RuneId } from '../data/runes.js';
+import { SIGIL_MAX_SLOTS } from '../items/items.js';
+import { isRuneId } from '../runes/v2/runes.js';
 import { GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 
 function isGearSlot(v: unknown): v is GearSlot {
@@ -9,10 +10,7 @@ import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken } from './accounts.js';
 import { isZoneId } from '../data/zones.js';
-import { BUTTON_MASK, type ClientMessage, type ServerMessage } from './messages.js';
-
-/** Longer than any sigil can hold; the simulation enforces the real capacity. */
-const MAX_RUNES = 12;
+import { BUTTON_MASK, type ClientMessage, type RuneRef, type ServerMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
 function isWarbandSlot(value: unknown): value is number {
@@ -35,12 +33,42 @@ function isSlot(value: unknown): value is number {
   return isNonNegativeInt(value) && value < SLOT_COUNT;
 }
 
-function parseRunes(value: unknown): RuneId[] | null {
-  if (!Array.isArray(value) || value.length > MAX_RUNES) return null;
-  const out: RuneId[] = [];
-  for (const r of value) {
-    if (!isRuneId(r)) return null;
-    out.push(r);
+function parseRuneRef(value: unknown): RuneRef | null {
+  if (!isRecord(value)) return null;
+  switch (value.from) {
+    case 'keep':
+      return isNonNegativeInt(value.index) && value.index < SIGIL_MAX_SLOTS ? { from: 'keep', index: value.index } : null;
+    case 'plain':
+      return typeof value.rune === 'string' && isRuneId(value.rune) ? { from: 'plain', rune: value.rune } : null;
+    case 'rolled':
+      return isNonNegativeInt(value.uid) ? { from: 'rolled', uid: value.uid } : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A sigil's new slot list. No sigil holds more than SIGIL_MAX_SLOTS; the simulation checks the
+ * sigil's real capacity and ownership. A slot kept twice or a rolled rune named twice would put one
+ * rune in two slots, so the whole request is refused here already.
+ */
+function parseRuneRefs(value: unknown): RuneRef[] | null {
+  if (!Array.isArray(value) || value.length > SIGIL_MAX_SLOTS) return null;
+  const out: RuneRef[] = [];
+  const kept = new Set<number>();
+  const rolled = new Set<number>();
+  for (const v of value) {
+    const ref = parseRuneRef(v);
+    if (!ref) return null;
+    if (ref.from === 'keep') {
+      if (kept.has(ref.index)) return null;
+      kept.add(ref.index);
+    }
+    if (ref.from === 'rolled') {
+      if (rolled.has(ref.uid)) return null;
+      rolled.add(ref.uid);
+    }
+    out.push(ref);
   }
   return out;
 }
@@ -103,8 +131,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'ping':
       return isFiniteNumber(value.clientTime) ? { t: 'ping', clientTime: value.clientTime } : null;
     case 'inscribe': {
-      const runes = parseRunes(value.runes);
-      return isNonNegativeInt(value.uid) && runes ? { t: 'inscribe', uid: value.uid, runes } : null;
+      const slots = parseRuneRefs(value.slots);
+      return isNonNegativeInt(value.uid) && slots ? { t: 'inscribe', uid: value.uid, slots } : null;
     }
     case 'equipSigil':
       return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipSigil', uid: value.uid, slot: value.slot } : null;

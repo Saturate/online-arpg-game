@@ -1,36 +1,27 @@
 import {
+  CASTABLE_RUNES,
   CLASS_IDS,
   CLASSES,
-  classSkills,
-  describeSpell,
+  classStarterSigils,
+  describeTree,
   ENEMY_TYPE_IDS,
-  NEUTRAL_TUNING,
-  RUNE_IDS,
-  RUNES,
+  runeColor,
+  runeKind,
+  runeName,
   type ClassId,
-  type CompileResult,
   type EnemyTypeId,
-  type RuneCategory,
-  type RuneId,
-  type SkillDef,
-  type SpellTuning,
+  type RuneKind,
+  type SigilCompile,
 } from '@rune/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cssColor } from '../render/config.js';
 import { formatSkill, skillIdFromName } from './studio/exportSkill.js';
 import type { MetricsSummary, TickSample } from './studio/metrics.js';
 import { TIMELINE_TICKS } from './studio/metrics.js';
-import { compileSkill, StudioSim, type CastMode, type DummyLayout, type StudioSetup } from './studio/studioSim.js';
+import { compileSkill, StudioSim, studioSkillOf, type CastMode, type DummyLayout, type StudioSetup, type StudioSkill } from './studio/studioSim.js';
 import { StudioView } from './studio/studioView.js';
 
-const CATEGORY_ORDER: readonly RuneCategory[] = ['form', 'element', 'effect', 'modifier', 'trigger', 'action'];
-const TUNING_FIELDS: readonly { key: keyof SpellTuning; label: string; max: number }[] = [
-  { key: 'speed', label: 'Speed', max: 3 },
-  { key: 'range', label: 'Range', max: 3 },
-  { key: 'damage', label: 'Damage', max: 4 },
-  { key: 'radius', label: 'Radius', max: 4 },
-  { key: 'phase', label: 'Phase', max: 1 },
-];
+const KIND_ORDER: readonly RuneKind[] = ['shape', 'infusion', 'effect', 'modifier', 'trigger', 'shaper'];
 const TIME_SCALES = [0.1, 0.25, 0.5, 1, 2, 4];
 const LAYOUTS: readonly DummyLayout[] = ['pack', 'line', 'ring'];
 const CAST_MODES: readonly { id: CastMode; label: string }[] = [
@@ -40,33 +31,38 @@ const CAST_MODES: readonly { id: CastMode; label: string }[] = [
 ];
 const EMPTY_SUMMARY: MetricsSummary = { seconds: 0, damage: 0, hits: 0, casts: 0, fizzles: 0, dpsWindow: 0, dpsRun: 0, hitsPerCast: 0, heatPerSecond: 0, peakLive: 0 };
 
-function firstSkill(classId: ClassId): SkillDef {
-  const skill = classSkills(classId)[0];
-  if (skill) return { ...skill, runes: [...skill.runes] };
-  return { id: 'custom_skill', name: 'Custom Skill', description: '', classId, runes: ['bolt'] };
+function blankSkill(classId: ClassId): StudioSkill {
+  return { id: 'custom_skill', name: 'Custom Skill', description: '', classId, text: 'bolt' };
 }
 
-function optionalNumber(v: string): number | undefined {
-  if (v.trim() === '') return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+function firstSkill(classId: ClassId): StudioSkill {
+  const def = classStarterSigils(classId)[0];
+  return def ? studioSkillOf(def) : blankSkill(classId);
 }
 
-function CompileBox({ result }: { result: CompileResult }) {
+function CompileBox({ result }: { result: SigilCompile }) {
   if (!result.ok) {
     return (
       <div className="studio-compile bad">
-        <strong>Dud: {result.dud}</strong>
-        <span>A cast fizzles for {Math.round(result.heat)} Force</span>
+        {result.errors.map((e, i) => (
+          <strong key={i}>
+            {e.rule}: {e.message}
+          </strong>
+        ))}
+        <span>A cast fizzles for {Math.round(result.force)} Force</span>
       </div>
     );
   }
   return (
     <div className="studio-compile">
-      <strong>{result.persistent ? `Persistent, ${result.spirit} spirit` : `${Math.round(result.heat)} Force per cast`}</strong>
-      <span>Worst case {result.worstCaseEntities} entities</span>
-      {result.combos.length > 0 && <span>Combos: {result.combos.join(', ')}</span>}
-      <span className="muted">{describeSpell(result.program)}</span>
+      <strong>{result.persistent ? `Persistent, ${result.spirit} spirit` : `${Math.round(result.force)} Force per cast`}</strong>
+      <span>Peak {result.peakEntities} entities</span>
+      <span className="muted">{describeTree(result.tree)}</span>
+      {result.notes.map((n) => (
+        <span key={n} className="muted">
+          {n}
+        </span>
+      ))}
     </div>
   );
 }
@@ -124,7 +120,7 @@ function Timeline({ samples }: { samples: readonly TickSample[] }) {
 /** A spell handed over from the Spell Lab, cast instead of the draft skill until cleared. */
 export interface InjectedSpell {
   label: string;
-  compiled: CompileResult;
+  compiled: SigilCompile;
   notes: string[];
 }
 
@@ -135,7 +131,7 @@ export function SpellStudioTab({ injected = null, onClearInjected }: { injected?
   const studio = useRef<StudioSim | null>(null);
 
   const [setup, setSetup] = useState<StudioSetup>({ seed: 1337, classId: 'mage', dummies: 6, dummyType: 'chaser', layout: 'pack', distance: 260 });
-  const [draft, setDraft] = useState<SkillDef>(() => firstSkill('mage'));
+  const [draft, setDraft] = useState<StudioSkill>(() => firstSkill('mage'));
   const [castMode, setCastMode] = useState<CastMode>('hold');
   const [interval, setIntervalSeconds] = useState(1);
   const [infiniteForce, setInfiniteForce] = useState(false);
@@ -196,13 +192,11 @@ export function SpellStudioTab({ injected = null, onClearInjected }: { injected?
     return () => window.clearInterval(timer);
   }, []);
 
-  const edit = (patch: Partial<SkillDef>) => setDraft((d) => ({ ...d, ...patch }));
-  const setRunes = (runes: RuneId[]) => edit({ runes });
-  const setTuning = (key: keyof SpellTuning, value: number) => edit({ tuning: { ...draft.tuning, [key]: value } });
-  const classList = classSkills(setup.classId);
+  const edit = (patch: Partial<StudioSkill>) => setDraft((d) => ({ ...d, ...patch }));
+  const classList = classStarterSigils(setup.classId);
 
   const exportSkill = () => {
-    const def: SkillDef = { ...draft, id: draft.id || skillIdFromName(draft.name), classId: setup.classId };
+    const def: StudioSkill = { ...draft, id: draft.id || skillIdFromName(draft.name), classId: setup.classId };
     const text = formatSkill(def);
     setExported(text);
     navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -230,11 +224,11 @@ export function SpellStudioTab({ injected = null, onClearInjected }: { injected?
         <h3>Start from</h3>
         <div className="chip-row">
           {classList.map((sk) => (
-            <button key={sk.id} type="button" className={sk.id === draft.id ? 'on' : ''} onClick={() => setDraft({ ...sk, runes: [...sk.runes] })}>
+            <button key={sk.id} type="button" className={sk.id === draft.id ? 'on' : ''} onClick={() => setDraft(studioSkillOf(sk))}>
               {sk.name}
             </button>
           ))}
-          <button type="button" onClick={() => setDraft({ id: 'custom_skill', name: 'Custom Skill', description: '', classId: setup.classId, runes: ['bolt'] })}>
+          <button type="button" onClick={() => setDraft(blankSkill(setup.classId))}>
             Blank
           </button>
         </div>
@@ -256,86 +250,24 @@ export function SpellStudioTab({ injected = null, onClearInjected }: { injected?
         </div>
 
         <h3>Runes</h3>
-        <ol className="studio-runes">
-          {draft.runes.map((r, i) => (
-            <li key={`${r}-${i}`} style={{ borderColor: cssColor(RUNES[r].color) }}>
-              <span>{RUNES[r].name}</span>
-              <small>{RUNES[r].category}</small>
-              <button type="button" aria-label={`Move ${RUNES[r].name} up`} disabled={i === 0} onClick={() => setRunes(draft.runes.map((x, j) => (j === i - 1 ? r : j === i ? (draft.runes[i - 1] ?? x) : x)))}>
-                ↑
-              </button>
-              <button
-                type="button"
-                aria-label={`Move ${RUNES[r].name} down`}
-                disabled={i === draft.runes.length - 1}
-                onClick={() => setRunes(draft.runes.map((x, j) => (j === i + 1 ? r : j === i ? (draft.runes[i + 1] ?? x) : x)))}
-              >
-                ↓
-              </button>
-              <button type="button" aria-label={`Remove ${RUNES[r].name}`} onClick={() => setRunes(draft.runes.filter((_, j) => j !== i))}>
-                ×
-              </button>
-            </li>
-          ))}
-        </ol>
-        {CATEGORY_ORDER.map((cat) => {
-          const runes = RUNE_IDS.filter((r) => RUNES[r].category === cat);
+        <textarea className="studio-export" rows={3} spellCheck={false} value={draft.text} onChange={(e) => edit({ text: e.target.value })} aria-label="Runes, in the Spell Lab's text form" />
+        {KIND_ORDER.map((kind) => {
+          const runes = CASTABLE_RUNES.filter((r) => runeKind(r) === kind);
           if (runes.length === 0) return null;
           return (
-            <div key={cat} className="studio-palette">
-              <small>{cat}</small>
+            <div key={kind} className="studio-palette">
+              <small>{kind}</small>
               <div className="chip-row">
                 {runes.map((r) => (
-                  <button key={r} type="button" style={{ borderColor: cssColor(RUNES[r].color) }} onClick={() => setRunes([...draft.runes, r])}>
-                    {RUNES[r].name}
+                  <button key={r} type="button" style={{ borderColor: cssColor(runeColor(r)) }} onClick={() => edit({ text: `${draft.text.trim()} ${r}`.trim() })}>
+                    {runeName(r)}
                   </button>
                 ))}
               </div>
             </div>
           );
         })}
-
-        <h3>Tuning</h3>
-        <div className="studio-tuning">
-          {TUNING_FIELDS.map((f) => {
-            const value = draft.tuning?.[f.key] ?? NEUTRAL_TUNING[f.key];
-            return (
-              <label key={f.key}>
-                <span>{f.label}</span>
-                <input type="range" min={0} max={f.max} step={f.key === 'phase' ? 1 : 0.05} value={value} onChange={(e) => setTuning(f.key, Number(e.target.value))} />
-                <input type="number" min={0} max={f.max} step={0.05} value={value} onChange={(e) => setTuning(f.key, Number(e.target.value) || 0)} />
-              </label>
-            );
-          })}
-        </div>
-        <div className="studio-fields">
-          <label>
-            Force override
-            <input
-              type="number"
-              min={0}
-              placeholder="formula"
-              value={draft.heat ?? ''}
-              onChange={(e) => {
-                const heat = optionalNumber(e.target.value);
-                setDraft(({ heat: _, ...rest }) => (heat === undefined ? rest : { ...rest, heat }));
-              }}
-            />
-          </label>
-          <label>
-            Max entities
-            <input
-              type="number"
-              min={1}
-              placeholder="default"
-              value={draft.maxEntities ?? ''}
-              onChange={(e) => {
-                const maxEntities = optionalNumber(e.target.value);
-                setDraft(({ maxEntities: _, ...rest }) => (maxEntities === undefined ? rest : { ...rest, maxEntities: Math.floor(maxEntities) }));
-              }}
-            />
-          </label>
-        </div>
+        <p className="muted small">Affixes go in brackets, as in the Spell Lab: orb[onhit, -15% speed] fire split(3) bolt.</p>
         {injected && (
           <div className="studio-injected">
             <p>
@@ -475,7 +407,7 @@ export function SpellStudioTab({ injected = null, onClearInjected }: { injected?
 
         <h3>Export</h3>
         <button type="button" className="wide" onClick={exportSkill}>
-          Copy as skills.ts entry
+          Copy as starterSigils.ts entry
         </button>
         {exported && <textarea className="studio-export" readOnly value={exported} rows={exported.split('\n').length} onFocus={(e) => e.target.select()} />}
       </aside>

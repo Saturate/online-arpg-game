@@ -227,7 +227,7 @@ export function measureSkill(options: SkillDpsOptions): SkillDpsResult {
   const probe = setup(opts, 0);
   const compiled = probe.sim.world.player.get(probe.pid)?.sigils[0]?.compiled;
   if (!compiled) throw new Error('equip did not produce a sigil');
-  if (!compiled.ok) throw new Error(`skill does not compile: ${compiled.dud}`);
+  if (!compiled.ok) throw new Error(`skill does not compile: ${compiled.errors.map((e) => e.message).join('; ')}`);
   if (compiled.persistent) {
     return {
       kind: 'persistent',

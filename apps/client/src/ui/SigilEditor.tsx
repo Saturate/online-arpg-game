@@ -1,34 +1,11 @@
-import { COMBOS, describeSpell, RUNE_IDS, RUNES, sigilCapacity, isRuneId, type RuneCategory, type RuneId, type SigilItem } from '@rune/shared';
-import { useEffect, useState, type DragEvent } from 'react';
+import { bracketTree, describeTree, sigilCapacity, type SigilItem } from '@rune/shared';
 import { CostLine, RuneChip, tierColor } from './parts.js';
-import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
+import { compileFor, itemByUid, useUi } from './store.js';
 
-const CATEGORIES: RuneCategory[] = ['form', 'element', 'effect', 'modifier', 'trigger', 'action'];
-
-/** The compiler fixtures from the spec, loadable from the debug view to try each one in play. */
-const FIXTURES: string[] = [
-  'bolt fire',
-  'bolt fire timer split',
-  'bolt fire split',
-  'bolt fire split timer',
-  'dash impact onland nova',
-  'bolt pierce swift',
-  'zone restore linger',
-  'nova restore',
-  'aura restore',
-  'link ward',
-  'aura fire onhit nova',
-  'split bolt',
-  'bolt timer split timer split timer split',
-];
-
-function parseFixture(s: string): RuneId[] {
-  return s.split(' ').filter(isRuneId);
-}
-
-const DRAG_RUNE = 'application/x-rune';
-const DRAG_SLOT = 'application/x-rune-slot';
-
+/**
+ * A read-only view of a sigil's runes while the forge is rebuilt around rune items: the server
+ * refuses every inscribe until then, so this panel sends nothing.
+ */
 export function SigilEditor() {
   const open = useUi((s) => s.editorOpen);
   const inv = useUi((s) => s.inventory);
@@ -37,81 +14,17 @@ export function SigilEditor() {
   const debug = useUi((s) => s.debugVisible);
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
-  const [draft, setDraftState] = useState<RuneId[]>([]);
-  const [original, setOriginal] = useState<RuneId[]>([]);
-
-  useEffect(() => {
-    setDraftState(sigil ? [...sigil.runes] : []);
-    // Reset the draft when switching sigils or when the server confirms or rejects a change.
-  }, [sigil?.uid, sigil?.runes.join(',')]);
-  useEffect(() => {
-    setOriginal(sigil ? [...sigil.runes] : []);
-  }, [sigil?.uid]);
-
-  /** Edits apply immediately, so a change can be tried in play right away; the server still validates. */
-  const setDraft = (next: RuneId[]) => {
-    setDraftState(next);
-    if (sigil) sendCommand({ t: 'inscribe', uid: sigil.uid, runes: next });
-  };
 
   if (!open || !inv || !classId) return null;
   const sigils = inv.items.filter((i): i is SigilItem => i.kind === 'sigil');
   const capacity = sigil ? sigilCapacity(sigil) : 0;
-  const result = sigil ? compileFor(sigil, classId, draft) : null;
-  const changed = draft.join(',') !== original.join(',');
+  const result = sigil ? compileFor(sigil, classId) : null;
   const equippedSlot = (u: number) => inv.sigils.indexOf(u);
-
-  // At the forge only runes in the bag can go in (the server takes them); the builders' bench is free.
-  const free = useUi.getState().editorAllowed && useUi.getState().devTools;
-  const owned = new Map<RuneId, number>();
-  for (const u of new Set(inv.inventory)) {
-    const it = u === null ? undefined : inv.items.find((i) => i.uid === u);
-    if (it?.kind === 'rune') owned.set(it.rune, (owned.get(it.rune) ?? 0) + it.count);
-  }
-  const insert = (rune: RuneId, at: number) => {
-    if (!free && (owned.get(rune) ?? 0) === 0) {
-      useUi.getState().notify(`You have no ${RUNES[rune].name} Rune. Runes drop from monsters.`);
-      return;
-    }
-    const next = [...draft];
-    if (draft.length >= capacity) {
-      // Full: dropping onto a slot replaces what is there instead of silently doing nothing.
-      if (at >= capacity) {
-        useUi.getState().notify(`This sigil holds ${capacity} runes. Drop onto a slot to replace it.`);
-        return;
-      }
-      next[at] = rune;
-    } else {
-      next.splice(Math.min(at, next.length), 0, rune);
-    }
-    setDraft(next);
-  };
-  const removeAt = (i: number) => setDraft(draft.filter((_, k) => k !== i));
-  const move = (from: number, to: number) => {
-    const next = [...draft];
-    const [r] = next.splice(from, 1);
-    if (r === undefined) return;
-    next.splice(Math.min(to, next.length), 0, r);
-    setDraft(next);
-  };
-
-  const onDropSlot = (e: DragEvent, index: number) => {
-    e.preventDefault();
-    const rune = e.dataTransfer.getData(DRAG_RUNE);
-    const from = e.dataTransfer.getData(DRAG_SLOT);
-    if (from !== '') move(Number(from), index);
-    else if (isRuneId(rune)) insert(rune, index);
-  };
-  const onDropPalette = (e: DragEvent) => {
-    e.preventDefault();
-    const from = e.dataTransfer.getData(DRAG_SLOT);
-    if (from !== '') removeAt(Number(from));
-  };
 
   return (
     <section className="panel editor" aria-label="Sigil editor">
       <header>
-        <h2>{free ? 'Sigil editor (test bench)' : 'Forge'}</h2>
+        <h2>Forge</h2>
         <button type="button" className="close" onClick={() => useUi.setState({ editorOpen: false })} aria-label="Close editor">
           x
         </button>
@@ -138,88 +51,21 @@ export function SigilEditor() {
         {sigil && result ? (
           <div className="workbench">
             <h3 style={{ color: tierColor(sigil) }}>{sigil.name}</h3>
-            <div className="slots" onDragOver={(e) => e.preventDefault()}>
+            <div className="slots">
               {Array.from({ length: capacity }, (_, i) => {
-                const rune = draft[i];
+                const rune = sigil.slots[i];
                 return (
-                  <div
-                    key={i}
-                    className={`slot${rune ? ' filled' : ''}`}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => onDropSlot(e, i)}
-                  >
-                    {rune && (
-                      <div draggable onDragStart={(e) => e.dataTransfer.setData(DRAG_SLOT, String(i))}>
-                        <RuneChip id={rune} onClick={() => removeAt(i)} />
-                      </div>
-                    )}
+                  <div key={i} className={`slot${rune ? ' filled' : ''}`}>
+                    {rune && <RuneChip id={rune.rune} item={rune} />}
                   </div>
                 );
               })}
             </div>
 
-            <div className="verdict">
-              {draft.length === 0 ? <span className="muted">Drag runes into the slots. The first rune must be a Form.</span> : <CostLine result={result} />}
-              {result.ok &&
-                result.combos.map((c) => (
-                  <span key={c} className="combo">
-                    {COMBOS.find((x) => x.id === c)?.name}
-                  </span>
-                ))}
-            </div>
-            {debug && draft.length > 0 && (
-              <p className="debug-line">
-                {result.ok ? `${describeSpell(result.program)}, ${result.worstCaseEntities} entities` : `dud: ${result.dud}`}
-              </p>
-            )}
-
-            <div className="editor-actions">
-              <button type="button" disabled={!changed} onClick={() => setDraft([...original])}>
-                Undo changes
-              </button>
-              <button type="button" disabled={draft.length === 0} onClick={() => setDraft([])}>
-                Clear
-              </button>
-              {debug && (
-                <select
-                  aria-label="Load a compiler fixture"
-                  value=""
-                  onChange={(e) => setDraft(parseFixture(e.target.value).slice(0, capacity))}
-                >
-                  <option value="">Load fixture...</option>
-                  {FIXTURES.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div className="palette" onDragOver={(e) => e.preventDefault()} onDrop={onDropPalette}>
-              {CATEGORIES.map((cat) => (
-                <div key={cat} className="palette-group">
-                  <h4>{cat}</h4>
-                  <div className="rune-row">
-                    {RUNE_IDS.filter((r) => RUNES[r].category === cat).map((r) => {
-                      const have = owned.get(r) ?? 0;
-                      return (
-                        <div key={r} className={`palette-rune${free || have > 0 ? '' : ' none'}`} draggable={free || have > 0} onDragStart={(e) => e.dataTransfer.setData(DRAG_RUNE, r)}>
-                          <RuneChip id={r} onClick={() => insert(r, draft.length)} />
-                          {!free && <span className="rune-count">{have}</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              <p className="muted">
-                {free
-                  ? 'Test bench: any rune, nothing spent. '
-                  : 'Runes come from your bag and are used up; runes you take out go back into it. '}
-                Click a rune to append it, click a slotted rune to remove it, or drag to place, replace and reorder.
-              </p>
-            </div>
+            <div className="verdict">{sigil.slots.length === 0 ? <span className="muted">No runes inscribed.</span> : <CostLine result={result} />}</div>
+            {result.ok ? <p>{describeTree(result.tree)}</p> : result.errors.map((e, i) => <p key={i} className="muted">{e.message}</p>)}
+            {debug && result.ok && <p className="debug-line">{bracketTree(result.tree)}</p>}
+            <p className="muted">The forge is being rebuilt. Runes cannot be inscribed or taken out until it reopens.</p>
           </div>
         ) : (
           <p className="muted">Pick a sigil on the left.</p>

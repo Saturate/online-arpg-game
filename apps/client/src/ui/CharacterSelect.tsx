@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, can, CLASS_IDS, CLASSES, classSkills, type CharacterSummary, type ClassId } from '@rune/shared';
+import { ACCOUNT_RULES, can, CLASS_IDS, CLASSES, classStarterSigils, type CharacterSummary, type ClassId } from '@rune/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { takeResume } from '../game/update.js';
 import { api } from '../net/api.js';
@@ -44,7 +44,7 @@ function CreateCharacter({ token, onCreated, onCancel }: { token: string; onCrea
                 <span className="swatch" style={{ background: cssColor(def.color) }} />
                 <strong>{def.name}</strong>
                 <span>
-                  {classSkills(id)
+                  {classStarterSigils(id)
                     .map((sk) => sk.name)
                     .join(', ')}
                   {id === 'binder' ? '. Commands minions.' : ''}

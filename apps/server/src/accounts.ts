@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, DEFAULT_SERVER_SETTINGS, isLegacyTestSigil, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertTraderShelf, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -12,10 +12,7 @@ const GUEST_SESSION_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The trader's shelf, shared by every player on the server. */
-export interface Market {
-  nextId: number;
-  stock: TraderEntry[];
-}
+export type Market = TraderShelfSave;
 
 export interface Account {
   id: number;
@@ -87,7 +84,9 @@ function isPlayerSave(v: unknown, classId: ClassId): v is PlayerSave {
 
 function parseSave(json: string, classId: ClassId): PlayerSave | null {
   try {
-    const v: unknown = JSON.parse(json);
+    const raw: unknown = JSON.parse(json);
+    // v1 saves are converted before anything else reads them.
+    const v: unknown = isRuneFormat2(raw) ? raw : convertCharacterSave(raw).save;
     if (!isPlayerSave(v, classId)) return null;
     // Saves from before waypoints existed have none; everyone owns the town's.
     const waypoints: unknown = Reflect.get(v, 'waypoints');
@@ -105,8 +104,10 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
       waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
+      runeFormat: 2,
     };
-  } catch {
+  } catch (err) {
+    console.error(`save could not be read: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -463,13 +464,15 @@ export class AccountStore {
     const raw = row(this.db.prepare('SELECT stash_json FROM accounts WHERE id = ?').get(accountId))?.stash_json;
     if (typeof raw !== 'string') return null;
     try {
-      const v: unknown = JSON.parse(raw);
+      const stored: unknown = JSON.parse(raw);
+      const v: unknown = isRuneFormat2(stored) ? stored : convertStash(stored).stash;
       if (!isRecord(v) || !Array.isArray(v.items) || !Array.isArray(v.cells)) return 'unreadable';
       const items = v.items.filter(isStoredItem);
       if (items.length !== v.items.length) return 'unreadable';
       const cells = v.cells.map((c: unknown) => (typeof c === 'number' ? c : null));
-      return { items, cells };
-    } catch {
+      return { items, cells, runeFormat: 2 };
+    } catch (err) {
+      console.error(`account ${accountId} stash could not be read: ${err instanceof Error ? err.message : String(err)}`);
       return 'unreadable';
     }
   }
@@ -513,26 +516,28 @@ export class AccountStore {
   /** The trader's shared stock; empty when never saved. A damaged row starts a fresh shelf. */
   loadMarket(): Market {
     const raw = row(this.db.prepare("SELECT value FROM settings WHERE key = 'trader'").get())?.value;
-    if (typeof raw !== 'string') return { nextId: 1, stock: [] };
+    if (typeof raw !== 'string') return { nextId: 1, stock: [], runeFormat: 2 };
     // Shelf items belong to nobody (their sellers were paid), so a damaged row may start a fresh
     // shelf; it is logged first, since the next trade writes over it.
     const fresh = (why: string): Market => {
       console.error(`trader shelf unreadable (${why}); starting an empty one. Old row: ${raw.slice(0, 200)}`);
-      return { nextId: 1, stock: [] };
+      return { nextId: 1, stock: [], runeFormat: 2 };
     };
+    let stored: unknown;
     try {
-      const v: unknown = JSON.parse(raw);
-      if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
-      const stock = v.stock.flatMap((e: unknown) =>
-        isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) && !isLegacyTestSigil(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : [],
-      );
-      if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
-      // Never hand out an id already on the shelf, whatever the stored counter says.
-      const nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
-      return { nextId, stock };
+      stored = JSON.parse(raw);
     } catch {
       return fresh('not JSON');
     }
+    // A v1 shelf is readable data, not damage: a conversion failure stops the server rather than
+    // starting a fresh shelf that the next trade would write over it.
+    const v: unknown = isRuneFormat2(stored) ? stored : convertTraderShelf(stored).shelf;
+    if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
+    const stock = v.stock.flatMap((e: unknown) => (isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : []));
+    if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
+    // Never hand out an id already on the shelf, whatever the stored counter says.
+    const nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
+    return { nextId, stock, runeFormat: 2 };
   }
 
   /** Stores a finished run and returns its place on its season's board (1 is the top). */

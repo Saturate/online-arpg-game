@@ -3,9 +3,10 @@ import type { BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { MinionTypeId, Stance } from '../data/minions.js';
-import type { ElementId } from '../data/runes.js';
+import type { ElementId } from './program.js';
 import type { AffixRoll, Item, ItemUid } from '../items/items.js';
-import type { CompileResult, SpellNode } from '../runes/compiler.js';
+import type { SigilCompile } from '../runes/v2/compile.js';
+import type { SpellNode } from './program.js';
 import type { GearSlot } from '../data/gear.js';
 import type { DashState } from './movement.js';
 import type { PlayerStats } from './stats.js';
@@ -47,8 +48,10 @@ export interface LinkState {
 
 export interface EquippedSigil {
   uid: ItemUid;
-  compiled: CompileResult;
+  compiled: SigilCompile;
   misfireMultiplier: number;
+  /** Seconds before the next cast after this one, from the sigil's cast delay stat. */
+  castDelay: number;
 }
 
 export interface PlayerComp {

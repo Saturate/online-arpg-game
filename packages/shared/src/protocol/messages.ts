@@ -5,9 +5,10 @@ import type { ClassId } from '../data/classes.js';
 import type { ZoneId } from '../data/zones.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { MinionTypeId, Stance } from '../data/minions.js';
-import type { ElementId, RuneId } from '../data/runes.js';
+import type { ElementId } from '../sim/program.js';
+import type { RuneId } from '../runes/v2/runes.js';
+import type { RuleId } from '../runes/v2/rules.js';
 import type { Item, ItemTier, ItemUid } from '../items/items.js';
-import type { DudReason } from '../runes/compiler.js';
 import type { EntityId, Team } from '../sim/ecs.js';
 import type { DashState } from '../sim/movement.js';
 import type { PlayerStats } from '../sim/stats.js';
@@ -15,6 +16,15 @@ import type { GearSlot } from '../data/gear.js';
 import type { DevCommand } from '../sim/dev.js';
 import type { TownLayout } from '../world/town.js';
 import type { MapDescriptor } from '../world/types.js';
+
+/**
+ * One slot of a sigil in an inscribe request, left to right.
+ * - `keep`: the rune now in slot `index` of this sigil, maybe moved; free, each index at most once.
+ * - `plain`: one plain rune of that id, from the bag first (bound stacks first), then the stash.
+ * - `rolled`: that rolled rune item, from the bag or the stash; each uid at most once.
+ * Every current slot not kept is refunded to the bag, else pending.
+ */
+export type RuneRef = { from: 'keep'; index: number } | { from: 'plain'; rune: RuneId } | { from: 'rolled'; uid: ItemUid };
 
 export const BUTTON = {
   primary: 1 << 0,
@@ -53,7 +63,7 @@ export type ClientMessage =
   | { t: 'useWaypoint'; zone: ZoneId }
   | ({ t: 'input' } & InputFrame)
   | { t: 'ping'; clientTime: number }
-  | { t: 'inscribe'; uid: ItemUid; runes: RuneId[] }
+  | { t: 'inscribe'; uid: ItemUid; slots: RuneRef[] }
   | { t: 'equipSigil'; uid: ItemUid; slot: number }
   | { t: 'unequipSigil'; slot: number }
   /** Reorders the skill bar: the skills in slots a and b trade places. */
@@ -169,7 +179,7 @@ export type GameEvent =
   | { e: 'dmg'; id: EntityId; amt: number; x: number; y: number; el: ElementId | null }
   | { e: 'heal'; id: EntityId; amt: number; x: number; y: number }
   | { e: 'death'; id: EntityId; x: number; y: number; k: 'enemy' | 'player' | 'minion'; color: number; big: boolean }
-  | { e: 'fizzle'; id: EntityId; x: number; y: number; why: 'dud' | 'misfire'; reason: DudReason | null }
+  | { e: 'fizzle'; id: EntityId; x: number; y: number; why: 'dud' | 'misfire'; reason: RuleId | null }
   | { e: 'explode'; x: number; y: number; r: number }
   | { e: 'pickup'; id: EntityId; x: number; y: number; count: number }
   | { e: 'cast'; id: EntityId; x: number; y: number; el: ElementId | null }

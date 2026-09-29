@@ -2,7 +2,7 @@ import { AILMENTS, ARMOR, CURSE, MINIONS, SIM } from '../config/sim.js';
 import { CLASSES } from '../data/classes.js';
 import { ENEMIES } from '../data/enemies.js';
 import { MINION_DEFS } from '../data/minions.js';
-import type { ElementId } from '../data/runes.js';
+import type { ElementId } from './program.js';
 import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
 import { alertPack, knockbackImmune, onEnemyDeath } from './enemies.js';

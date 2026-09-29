@@ -1,15 +1,18 @@
 import {
-  compile,
-  NEUTRAL_MODS,
+  compileRunes,
+  DEFAULT_SIGIL_CONTEXT,
+  formatRunes,
+  HEAT,
   SIM,
   SKILL_BUTTONS,
   Simulation,
+  tokenizeSpell,
   type ClassId,
-  type CompileResult,
   type EntityId,
   type EnemyTypeId,
   type GameEvent,
-  type SkillDef,
+  type SigilCompile,
+  type StarterSigilDef,
 } from '@rune/shared';
 import { StudioMetrics, type TickSample } from './metrics.js';
 
@@ -36,17 +39,24 @@ export interface CastSettings {
 const DUMMY_LIFE = 1e9;
 const DUMMY_SPACING = 46;
 
-/** Mirrors `compileSigilItem` for a prebaked skill, so the studio prices skills exactly like the game. */
-export function compileSkill(def: SkillDef): CompileResult {
-  const result = compile(def.runes, {
-    classId: def.classId,
-    capacity: Infinity,
-    mods: NEUTRAL_MODS,
-    ...(def.tuning ? { tuning: def.tuning } : {}),
-    ...(def.maxEntities !== undefined ? { maxEntities: def.maxEntities } : {}),
-  });
-  if (result.ok && def.heat !== undefined && !result.persistent) return { ...result, heat: def.heat };
-  return result;
+/** A skill being drafted: a starter sigil's fields, with its runes in the text form. */
+export interface StudioSkill {
+  id: string;
+  name: string;
+  description: string;
+  classId: ClassId;
+  text: string;
+}
+
+export function studioSkillOf(def: StarterSigilDef): StudioSkill {
+  return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(def.runes) };
+}
+
+/** Compiles like an unrolled starter sigil, so the studio prices skills the way the game does. */
+export function compileSkill(def: StudioSkill): SigilCompile {
+  const t = tokenizeSpell(def.text);
+  if (t.errors.length > 0) return { ok: false, errors: t.errors, force: 0 };
+  return compileRunes(t.runes, { ...DEFAULT_SIGIL_CONTEXT, classId: def.classId });
 }
 
 function dummyPositions(setup: StudioSetup, cx: number, cy: number): { x: number; y: number }[] {
@@ -83,7 +93,7 @@ export class StudioSim {
   readonly metrics = new StudioMetrics();
   readonly dummies: { id: EntityId; x: number; y: number }[] = [];
   readonly home: { x: number; y: number };
-  compiled: CompileResult;
+  compiled: SigilCompile;
   cast: CastSettings = { mode: 'hold', intervalSeconds: 1, infiniteForce: false };
   /** Events from the last step, for the renderer. */
   lastEvents: GameEvent[] = [];
@@ -93,7 +103,7 @@ export class StudioSim {
 
   constructor(
     readonly setup: StudioSetup,
-    skill: SkillDef,
+    skill: StudioSkill,
   ) {
     this.sim = new Simulation(setup.seed, { kind: 'flat' });
     this.playerId = this.sim.addPlayer('studio', setup.classId, 'Studio');
@@ -120,12 +130,12 @@ export class StudioSim {
   }
 
   /** Swaps the skill under test without resetting the world. Metrics restart so numbers stay honest. */
-  setSkill(skill: SkillDef): void {
+  setSkill(skill: StudioSkill): void {
     this.setCompiled(compileSkill(skill));
   }
 
   /** Tests an already compiled spell, such as one from the Spell Lab. */
-  setCompiled(compiled: CompileResult): void {
+  setCompiled(compiled: SigilCompile): void {
     this.compiled = compiled;
     this.equip();
     this.metrics.reset();
@@ -134,7 +144,7 @@ export class StudioSim {
   private equip(): void {
     const p = this.sim.world.player.get(this.playerId);
     if (!p) return;
-    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1 };
+    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds };
     p.sigils[1] = null;
     p.sigils[2] = null;
     p.sigils[3] = null;

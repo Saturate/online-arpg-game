@@ -3,15 +3,16 @@ import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffix
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
-import { RUNE_IDS, RUNES, type RuneId } from '../data/runes.js';
-import { skillById, SKILLS } from '../data/skills.js';
-import { compile, NEUTRAL_MODS, type CompileMods, type CompileResult } from '../runes/compiler.js';
+import { starterSigilById } from '../data/starterSigils.js';
+import { CASTABLE_RUNES, runeKind, runeName, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
 
 export const SIGIL_CAPACITY: Record<ItemTier, number> = { common: 3, magic: 4, rare: 5, relic: 6 };
+/** No sigil holds more runes than this, whatever it rolled. */
+export const SIGIL_MAX_SLOTS = 10;
 
 /** How many affixes an item of each tier rolls, and the highest affix tier index it can reach. */
 const TIER_ROLLS: Record<ItemTier, { min: number; max: number; maxAffixTier: number }> = {
@@ -38,18 +39,19 @@ export interface SigilItem {
   name: string;
   /** Item level: the monster level it dropped from. Gates which affix tiers can roll. */
   ilvl: number;
+  /** Wand stats. */
   affixes: AffixRoll[];
-  runes: RuneId[];
+  /**
+   * The runes inscribed, left to right. Each is a whole rune item with count 1, its own uid, rolls
+   * and binding, and lives only here (never also in the character's items), so taking it out gives
+   * back exactly what went in.
+   */
+  slots: RuneItem[];
   corrupted: boolean;
-  /** Prebaked skill id. Null for a blank or hand-inscribed sigil. */
-  skill: string | null;
   /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
   bound?: boolean;
-  /**
-   * Per rune slot: whether the rune in it was bound when it went in, so it comes back out exactly
-   * as it went in. Sigils from before this existed follow the sigil's own binding.
-   */
-  boundSlots?: boolean[];
+  /** The starter sigil this was made from, for its name and icon only. */
+  starter?: string;
 }
 
 export interface VesselItem {
@@ -78,7 +80,10 @@ export interface GearItem {
   bound?: boolean;
 }
 
-/** A rune to inscribe at the forge. Runes stack: one bag cell holds up to RUNE_STACK of the same one. */
+/**
+ * A rune to inscribe at the forge. A plain rune (no affixes) stacks: one bag cell holds up to
+ * RUNE_STACK of the same one. A rolled rune (any affixes) is always a single item and never stacks.
+ */
 export interface RuneItem {
   uid: ItemUid;
   kind: 'rune';
@@ -87,7 +92,7 @@ export interface RuneItem {
   ilvl: number;
   rune: RuneId;
   count: number;
-  /** Always empty: runes have no rolls. Present so code that lists any item's affixes needs no case for it. */
+  /** Rune affixes (target 'rune'). Empty means plain. */
   affixes: AffixRoll[];
   bound?: boolean;
 }
@@ -96,50 +101,138 @@ export type Item = SigilItem | VesselItem | GearItem | RuneItem;
 
 export const RUNE_STACK = 20;
 
-/** Shapes are common, what they do is rarer, and triggers (which chain spells) are the rare finds. */
+/** Shapes and infusions are common, what they do is rarer, and triggers and shapers (which chain spells) are the rare finds. */
 export function runeTier(rune: RuneId): ItemTier {
-  const c = RUNES[rune].category;
-  return c === 'form' || c === 'element' ? 'common' : c === 'effect' || c === 'modifier' ? 'magic' : 'rare';
+  const k = runeKind(rune);
+  return k === 'shape' || k === 'infusion' ? 'common' : k === 'effect' || k === 'modifier' ? 'magic' : 'rare';
 }
 
 export function createRune(uid: ItemUid, rune: RuneId, count = 1): RuneItem {
-  return { uid, kind: 'rune', tier: runeTier(rune), name: `${RUNES[rune].name} Rune`, ilvl: 1, rune, count, affixes: [] };
+  return { uid, kind: 'rune', tier: runeTier(rune), name: `${runeName(rune)} Rune`, ilvl: 1, rune, count, affixes: [] };
 }
 
-/** A random rune, weighted toward the common ones. */
+export function isPlainRune(item: RuneItem): boolean {
+  return item.affixes.length === 0;
+}
+
+/** A random rune the engine can run, weighted toward the common ones. */
 export function rollRune(rng: Rng): RuneId {
   const weight = { common: 6, magic: 3, rare: 1, relic: 0 } as const;
-  return weightedPick(rng, RUNE_IDS.map((id) => ({ item: id, weight: weight[runeTier(id)] }))) ?? 'bolt';
-}
-
-export function sigilCapacity(item: SigilItem): number {
-  return SIGIL_CAPACITY[item.tier] + (item.corrupted ? 1 : 0);
-}
-
-/** Affix tier unlocked by item level: T2 from level 3, T3 from level 5. */
-function ilvlAffixTier(ilvl: number): number {
-  return ilvl >= 5 ? 2 : ilvl >= 3 ? 1 : 0;
+  return weightedPick(rng, CASTABLE_RUNES.map((id) => ({ item: id, weight: weight[runeTier(id)] }))) ?? 'bolt';
 }
 
 /**
- * Compiles whatever a sigil holds. Prebaked skills ignore slot capacity (they are not hand-built)
- * and carry their own tuning and entity budget.
+ * The grammar's view of a rune item: its id and what its affixes set. Values add up, so two rolls
+ * of the same number affix stack like doubled runes do.
  */
-export function compileSigilItem(item: SigilItem, classId: ClassId, draft?: readonly RuneId[]): CompileResult {
-  const skill = skillById(item.skill);
-  const mods = sigilMods(item);
-  if (skill && draft === undefined) {
-    const result = compile(skill.runes, {
-      classId,
-      capacity: Infinity,
-      mods,
-      ...(skill.tuning ? { tuning: skill.tuning } : {}),
-      ...(skill.maxEntities !== undefined ? { maxEntities: skill.maxEntities } : {}),
-    });
-    if (result.ok && skill.heat !== undefined && !result.persistent) return { ...result, heat: skill.heat * mods.heatMultiplier };
-    return result;
+export function toRuneInstance(item: RuneItem): RuneInstance {
+  const a: RuneAffixes = {};
+  const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count', v: number): void => {
+    a[key] = (a[key] ?? 0) + v;
+  };
+  for (const roll of item.affixes) {
+    switch (roll.id) {
+      case 'release_onhit':
+        a.release = { kind: 'onhit', seconds: 0 };
+        break;
+      case 'release_onexpire':
+        a.release = { kind: 'onexpire', seconds: 0 };
+        break;
+      case 'release_onland':
+        a.release = { kind: 'onland', seconds: 0 };
+        break;
+      case 'release_after':
+        a.release = { kind: 'after', seconds: roll.value };
+        break;
+      case 'release_every':
+        a.release = { kind: 'every', seconds: roll.value };
+        break;
+      case 'rune_speed':
+        add('speed', roll.value);
+        break;
+      case 'rune_size':
+        add('size', roll.value);
+        break;
+      case 'rune_duration':
+        add('duration', roll.value);
+        break;
+      case 'rune_damage':
+        add('damage', roll.value);
+        break;
+      case 'rune_pierce':
+        add('pierce', roll.value);
+        break;
+      case 'split_count':
+        add('count', roll.value);
+        break;
+      default:
+        break;
+    }
   }
-  return compile(draft ?? item.runes, { classId, capacity: sigilCapacity(item), mods });
+  return { id: item.rune, affixes: a };
+}
+
+const AFFIX_FOR_KEY = { speed: 'rune_speed', size: 'rune_size', duration: 'rune_duration', damage: 'rune_damage', pierce: 'rune_pierce', count: 'split_count' } as const;
+const AFFIX_FOR_RELEASE = { onhit: 'release_onhit', onexpire: 'release_onexpire', onland: 'release_onland', after: 'release_after', every: 'release_every' } as const;
+
+/**
+ * The inverse of toRuneInstance, for hand-written rune lists (starter sigils): each number the
+ * grammar reads becomes the affix that sets it, at tier 0. Throws on a number no rune affix sets,
+ * since that is a mistake in the data, not something a player can cause.
+ */
+export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: boolean): RuneItem {
+  const item = createRune(uid, rune.id, 1);
+  const a = rune.affixes;
+  for (const key of Object.keys(a)) {
+    if (key === 'release') {
+      const r = a.release;
+      if (!r) continue;
+      if (r.kind === 'onrelease') throw new Error(`${rune.id}: no rune affix releases on release`);
+      item.affixes.push({ id: AFFIX_FOR_RELEASE[r.kind], tier: 0, value: r.kind === 'after' || r.kind === 'every' ? r.seconds : 1 });
+      continue;
+    }
+    if (key !== 'speed' && key !== 'size' && key !== 'duration' && key !== 'damage' && key !== 'pierce' && key !== 'count') {
+      throw new Error(`${rune.id}: no rune affix sets ${key}`);
+    }
+    const v = a[key];
+    if (v !== undefined) item.affixes.push({ id: AFFIX_FOR_KEY[key], tier: 0, value: v });
+  }
+  if (bound) item.bound = true;
+  return item;
+}
+
+/**
+ * Rune slots: the tier's base, plus the slots affix and one for corruption, capped at
+ * SIGIL_MAX_SLOTS. A starter sigil always has room for its own runes.
+ */
+export function sigilCapacity(item: SigilItem): number {
+  const rolled = SIGIL_CAPACITY[item.tier] + affixValue(item.affixes, 'sigil_slots') + (item.corrupted ? 1 : 0);
+  const starter = item.starter ? (starterSigilById(item.starter)?.runes.length ?? 0) : 0;
+  return Math.min(SIGIL_MAX_SLOTS, Math.max(rolled, starter));
+}
+
+/** Seconds before the next cast after casting this sigil (before cast speed). */
+export function sigilCastDelay(item: SigilItem): number {
+  return HEAT.castCooldownSeconds * (1 - affixValue(item.affixes, 'cast_delay') / 100);
+}
+
+export function sigilMisfireMultiplier(item: SigilItem): number {
+  return item.corrupted ? LOOT.corruptMisfireMultiplier : 1;
+}
+
+/**
+ * A copy of an item under new uids, with every rune inside a sigil reissued too, so no uid ever
+ * exists in two places. Used wherever items arrive from outside the room (saves, the stash, the shelf).
+ */
+export function reissueUids(item: Item, newUid: () => ItemUid): Item {
+  const uid = newUid();
+  if (item.kind === 'sigil') return { ...item, uid, slots: item.slots.map((r) => ({ ...r, uid: newUid(), affixes: [...r.affixes] })) };
+  return { ...item, uid };
+}
+
+/** Affix tier unlocked by item level: T2 from level 3, T3 from level 5. */
+export function ilvlAffixTier(ilvl: number): number {
+  return ilvl >= 5 ? 2 : ilvl >= 3 ? 1 : 0;
 }
 
 const NAME_FIRST = ['Grim', 'Hollow', 'Storm', 'Ash', 'Blood', 'Dusk', 'Rune', 'Wraith', 'Ember', 'Frost', 'Bone', 'Star', 'Viper', 'Oath', 'Gloom', 'Raven'];
@@ -171,7 +264,8 @@ function roundTo(v: number, decimals: number): number {
  * The generic affix engine. Picks `count` affixes for `target`, weighted per tier, respecting
  * exclusive groups and the prefix/suffix limit.
  */
-export function rollAffixes(rng: Rng, target: AffixTarget, count: number, maxAffixTier: number, category?: GearCategory): AffixRoll[] {
+export function rollAffixes(rng: Rng, target: AffixTarget, count: number, maxAffixTier: number, filter: { category?: GearCategory; rune?: RuneId } = {}): AffixRoll[] {
+  const { category, rune } = filter;
   const out: AffixRoll[] = [];
   const usedGroups = new Set<string>();
   const slotCounts = { prefix: 0, suffix: 0 };
@@ -181,6 +275,7 @@ export function rollAffixes(rng: Rng, target: AffixTarget, count: number, maxAff
       const def = AFFIXES[id];
       if (!def.targets.includes(target) || usedGroups.has(def.group)) continue;
       if (category && def.slots && !def.slots.includes(category)) continue;
+      if (def.runes && (rune === undefined || !def.runes.includes(rune))) continue;
       if (slotCounts[def.slot] >= MAX_PER_SLOT) continue;
       def.tiers.forEach((t, tier) => {
         if (tier <= maxAffixTier && t.weight > 0) candidates.push({ item: { id, tier }, weight: t.weight });
@@ -214,21 +309,9 @@ export function behaviourOf(affixes: readonly AffixRoll[]): BehaviourAffixId | n
 }
 
 export function formatAffix(a: AffixRoll): string {
-  return AFFIXES[a.id].text.replace('{v}', formatNumber(a.value, AFFIXES[a.id].decimals ?? 0));
-}
-
-export function sigilMods(item: SigilItem): CompileMods & { misfireMultiplier: number } {
-  const a = item.affixes;
-  return {
-    ...NEUTRAL_MODS,
-    maxDepthBonus: affixValue(a, 'max_depth'),
-    splitEfficiencyBonus: affixValue(a, 'split_efficiency'),
-    heatMultiplier: HEAT.costMultiplier * (1 - affixValue(a, 'heat_reduced') / 100),
-    spiritMultiplier: 1 - affixValue(a, 'spirit_reduced') / 100,
-    areaMultiplier: 1 + affixValue(a, 'area_increased') / 100,
-    damageMultiplier: 1 + affixValue(a, 'damage_increased') / 100,
-    misfireMultiplier: item.corrupted ? LOOT.corruptMisfireMultiplier : 1,
-  };
+  const def = AFFIXES[a.id];
+  const n = formatNumber(a.value, def.decimals ?? 0);
+  return def.text.replace('{v}', def.signed && a.value > 0 ? `+${n}` : n);
 }
 
 export function vesselSpirit(item: VesselItem): number {
@@ -254,29 +337,16 @@ export function rollTier(rng: Rng, weights: Record<ItemTier, number>): ItemTier 
 export interface SigilOptions {
   ilvl?: number;
   allowCorrupt?: boolean;
-  /** A prebaked skill id, `'random'` for any skill from the pool, or null for a blank sigil. */
-  skill?: string | 'random' | null;
 }
 
+/** A blank sigil with rolled wand stats. Sigils that come with a spell are made in data/starterSigils.ts. */
 export function createSigil(uid: ItemUid, rng: Rng, tier: ItemTier, opts: SigilOptions = {}): SigilItem {
   const ilvl = opts.ilvl ?? 1;
   const rolls = TIER_ROLLS[tier];
   const affixes = rollAffixes(rng, 'sigil', rng.int(rolls.min, rolls.max), Math.min(rolls.maxAffixTier, ilvlAffixTier(ilvl)));
   const corrupted = (opts.allowCorrupt ?? false) && tier !== 'common' && rng.next() < LOOT.corruptChance;
-  const skill = opts.skill === 'random' ? (SKILLS[rng.int(0, SKILLS.length - 1)] ?? null) : (skillById(opts.skill) ?? null);
-  const base = skill ? skill.name : `${tierLabel(tier)} Sigil`;
-  const name = tier === 'rare' || tier === 'relic' ? rareName(rng) : nameFromAffixes(base, affixes);
-  return {
-    uid,
-    kind: 'sigil',
-    tier,
-    name: (corrupted ? 'Corrupted ' : '') + name,
-    ilvl,
-    affixes,
-    runes: skill ? [...skill.runes] : [],
-    corrupted,
-    skill: skill?.id ?? null,
-  };
+  const name = tier === 'rare' || tier === 'relic' ? rareName(rng) : nameFromAffixes(`${tierLabel(tier)} Sigil`, affixes);
+  return { uid, kind: 'sigil', tier, name: (corrupted ? 'Corrupted ' : '') + name, ilvl, affixes, slots: [], corrupted };
 }
 
 export function createVessel(uid: ItemUid, rng: Rng, tier: ItemTier, minion?: MinionTypeId, ilvl = 1): VesselItem {
@@ -319,7 +389,7 @@ export function createGear(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: number,
   const base = (opts.base ? gearBase(opts.base) : undefined) ?? pool[rng.int(0, Math.max(0, pool.length - 1))] ?? GEAR_BASES[0];
   if (!base) throw new Error('no gear bases defined');
   const rolls = TIER_ROLLS[tier];
-  const affixes = rollAffixes(rng, 'gear', rng.int(rolls.min, rolls.max), Math.min(rolls.maxAffixTier, ilvlAffixTier(ilvl)), base.category);
+  const affixes = rollAffixes(rng, 'gear', rng.int(rolls.min, rolls.max), Math.min(rolls.maxAffixTier, ilvlAffixTier(ilvl)), { category: base.category });
   const name = tier === 'rare' || tier === 'relic' ? `${rareName(rng)} ${base.name}` : nameFromAffixes(base.name, affixes);
   return { uid, kind: 'gear', tier, name, ilvl, base: base.id, category: base.category, affixes };
 }
@@ -347,27 +417,14 @@ export function gearStats(items: readonly GearItem[]): StatBlock {
   return out;
 }
 
-/**
- * The old blank corrupted relic every character started with. It is gone from starter kits and is
- * taken out of saves on load (its runes come back, bound).
- */
-export function isLegacyTestSigil(item: Item): item is SigilItem {
-  return item.kind === 'sigil' && item.name === 'Test Sigil' && item.tier === 'relic' && item.corrupted;
-}
-
 /** Starter items cannot be sold, dropped or stashed. */
 export function isBound(item: Item): boolean {
   return item.bound === true;
 }
 
-/** Whether rune slot `i` of a sigil holds a bound rune. */
-export function slotBound(item: SigilItem, i: number): boolean {
-  return item.boundSlots?.[i] ?? isBound(item);
-}
-
 /** A sigil holding bound runes would carry them to another player or the stash, so it stays too. */
 export function holdsBoundRunes(item: Item): boolean {
-  return item.kind === 'sigil' && item.runes.some((_, i) => slotBound(item, i));
+  return item.kind === 'sigil' && item.slots.some(isBound);
 }
 
 /**

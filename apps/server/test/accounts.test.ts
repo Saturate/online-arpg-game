@@ -54,6 +54,29 @@ describe('AccountStore', () => {
   });
 });
 
+describe('v1 data', () => {
+  it('goes through the conversion before it is read, and is kept untouched when that fails', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rune-v1-')), 'rune.db');
+    const store = new AccountStore(file);
+    const acc = await store.register('erin', 'password123');
+    if (acc === 'taken') throw new Error('unexpected');
+    const made = store.createCharacter(acc.id, 'Old', 'mage');
+    if (typeof made === 'string') throw new Error(made);
+    const v1Save = '{"classId":"mage","name":"Old","items":[],"inventory":[],"sigils":[],"warband":[],"gear":{},"stance":"defensive"}';
+    const raw = new DatabaseSync(file);
+    raw.prepare('UPDATE characters SET save_json = ? WHERE id = ?').run(v1Save, made.id);
+    raw.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run('{"items":[],"cells":[]}', acc.id);
+    // The conversion is not written yet, so v1 rows are refused and left as they were.
+    expect(store.loadCharacter(acc.id, made.id)?.saveUnreadable).toBe(true);
+    expect(store.loadStash(acc.id)).toBe('unreadable');
+    const kept = raw.prepare('SELECT save_json FROM characters WHERE id = ?').get(made.id);
+    expect(kept).toMatchObject({ save_json: v1Save });
+    // A v1 shelf stops the server instead of being replaced by an empty one.
+    raw.prepare("INSERT INTO settings (key, value) VALUES ('trader', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run('{"nextId":1,"stock":[]}');
+    expect(() => store.loadMarket()).toThrow(/conversion/);
+  });
+});
+
 describe('server settings', () => {
   it('round-trip through the store, and fall back to defaults when missing or corrupt', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'rune-settings-')), 'rune.db');

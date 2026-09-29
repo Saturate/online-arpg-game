@@ -6,4 +6,4 @@ export * from './tokenize.js';
 export * from './sentence.js';
 export * from './examples.js';
 export * from './text.js';
-export * from './runtime.js';
+export * from './compile.js';

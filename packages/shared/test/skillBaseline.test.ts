@@ -1,63 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { SKILLS, compileSigilItem, sigilMods, type SigilItem, type SkillDef } from '../src/index.js';
+import { compileSigilItem, createStarterSigil, sigilCastDelay, sigilMisfireMultiplier, STARTER_SIGILS, type StarterSigilDef } from '../src/index.js';
 import { measureSkill, type EquipSkill, type SkillDpsResult } from './harness/skillDps.js';
 
 /**
- * Records how strong each v1 built-in skill is, so the v2 rebuilds can be tuned to match. This
- * test never compares against the fixture: v1 goes away with the rework, and the file is the record.
- *
- * Regenerate the fixture with:
- *   WRITE_BASELINE=1 pnpm vitest run packages/shared/test/skillBaseline.test.ts -u
- * (`-u` lets vitest overwrite a fixture that already exists.)
+ * Measures every starter sigil with the harness that recorded the v1 baseline
+ * (fixtures/skill-baseline-v1.json, kept as the record of v1; nothing writes it any more). The
+ * balance pass compares these numbers against it; this test only checks that they are sane.
  */
 
-/** The same path the game takes for a plain, affix-free sigil of a prebaked skill. */
-function equipV1(skill: SkillDef): EquipSkill {
+/** The same path the game takes for a starter kit sigil. */
+function equipStarter(def: StarterSigilDef): EquipSkill {
   return (sim, pid) => {
     const p = sim.world.player.get(pid);
     if (!p) throw new Error('no player');
-    const item: SigilItem = {
-      uid: sim.newItemUid(),
-      kind: 'sigil',
-      tier: 'common',
-      name: skill.name,
-      ilvl: 1,
-      affixes: [],
-      runes: [...skill.runes],
-      corrupted: false,
-      skill: skill.id,
-    };
+    const item = createStarterSigil(() => sim.newItemUid(), def, { bound: true });
     p.items.set(item.uid, item);
-    return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMods(item).misfireMultiplier };
+    return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelay: sigilCastDelay(item) };
   };
 }
 
-/** Vitest runs in Node, but this package is typed without Node, so `process` is narrowed from globalThis. */
-function envFlag(name: string): boolean {
-  const proc: unknown = Reflect.get(globalThis, 'process');
-  if (typeof proc !== 'object' || proc === null || !('env' in proc)) return false;
-  const env = proc.env;
-  if (typeof env !== 'object' || env === null) return false;
-  return Reflect.get(env, name) === '1';
-}
-
-/**
- * Novas and zones go off on the caster in v1, so at 250 units they miss the target. They are
- * measured with the target just outside the player's body, the way they are played.
- */
+/** Novas and zones go off on the caster, so they are measured with the target just outside the player's body. */
 const SELF_CENTRED_DISTANCE = 40;
 
-function distanceFor(skill: SkillDef): number | undefined {
-  const form = skill.runes[0];
-  return form === 'nova' || form === 'zone' ? SELF_CENTRED_DISTANCE : undefined;
+function distanceFor(def: StarterSigilDef): number | undefined {
+  const shape = def.runes[0]?.id;
+  return shape === 'nova' || shape === 'zone' ? SELF_CENTRED_DISTANCE : undefined;
 }
 
-describe('v1 skill baseline', () => {
+describe('starter sigil strength', () => {
   const results: Record<string, { class: string } & SkillDpsResult> = {};
-  for (const skill of SKILLS) {
-    const distance = distanceFor(skill);
-    const r = measureSkill({ classId: skill.classId, equip: equipV1(skill), ...(distance !== undefined ? { distance } : {}) });
-    results[skill.id] = { class: skill.classId, ...r };
+  for (const def of STARTER_SIGILS) {
+    const distance = distanceFor(def);
+    const r = measureSkill({ classId: def.classId, equip: equipStarter(def), ...(distance !== undefined ? { distance } : {}) });
+    results[def.id] = { class: def.classId, ...r };
   }
 
   it('measures every damage skill with finite, positive numbers', () => {
@@ -71,7 +46,12 @@ describe('v1 skill baseline', () => {
     }
   });
 
-  it.runIf(envFlag('WRITE_BASELINE'))('writes the fixture', async () => {
-    await expect(`${JSON.stringify(results, null, 2)}\n`).toMatchFileSnapshot('./fixtures/skill-baseline-v1.json');
+  it('measures the same kind of skill as v1 for every starter', async () => {
+    const { default: v1 } = await import('./fixtures/skill-baseline-v1.json');
+    for (const [id, r] of Object.entries(results)) {
+      const old: unknown = Reflect.get(v1, id);
+      expect(old, id).toBeDefined();
+      expect(r.kind, id).toBe(typeof old === 'object' && old !== null ? Reflect.get(old, 'kind') : undefined);
+    }
   });
 });

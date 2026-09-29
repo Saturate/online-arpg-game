@@ -1,6 +1,7 @@
 import { LOOT } from '../config/sim.js';
 import type { Rng } from '../sim/rng.js';
-import { createGear, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid } from './items.js';
+import { STARTER_SIGILS, createStarterSigil } from '../data/starterSigils.js';
+import { createGear, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
 
 /**
  * The monster drop roll without the Simulation around it. The game's `dropLoot` and the loot
@@ -71,8 +72,23 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
         ? createGear(newUid(), rng, tier, src.level)
         : rest < tuning.gearShare + tuning.vesselShare
           ? createVessel(newUid(), rng, tier, undefined, src.level)
-          : createSigil(newUid(), rng, tier, { ilvl: src.level, allowCorrupt: true, skill: 'random' }),
+          : dropSigil(rng, newUid, tier, src.level),
     );
   }
   return items;
+}
+
+/**
+ * Mostly blank sigils with wand stats; some carry a starter sigil's runes, unbound, so a drop can
+ * still hand a new player a spell to try.
+ */
+export function dropSigil(rng: Rng, newUid: () => ItemUid, tier: ItemTier, ilvl: number): SigilItem {
+  const sigil = createSigil(newUid(), rng, tier, { ilvl, allowCorrupt: true });
+  if (rng.next() >= LOOT.sigilSpellShare) return sigil;
+  const def = STARTER_SIGILS[rng.int(0, STARTER_SIGILS.length - 1)];
+  if (!def) return sigil;
+  const spell = createStarterSigil(newUid, def, { bound: false });
+  // Rares keep their rolled name; lower tiers are named for the spell they carry.
+  const name = tier === 'rare' || tier === 'relic' ? sigil.name : `${sigil.corrupted ? 'Corrupted ' : ''}${def.name}`;
+  return { ...sigil, name, slots: spell.slots, starter: def.id };
 }

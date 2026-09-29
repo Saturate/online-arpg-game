@@ -153,7 +153,7 @@ describe('stash', () => {
 
     const sim2 = new Simulation(3, { kind: 'flat' });
     const pid = sim2.addPlayer('c', 'warrior', 'Second', old);
-    restoreStash(sim2, pid, { items: stashItems, cells: stashCells });
+    restoreStash(sim2, pid, { items: stashItems, cells: stashCells, runeFormat: 2 });
     const p = sim2.world.player.get(pid);
     if (!p) throw new Error('no player');
     const isArmour = (uid: number) => { const it = p.items.get(uid); return it?.kind === 'gear' && it.category === 'body'; };

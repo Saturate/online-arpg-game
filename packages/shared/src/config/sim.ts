@@ -190,6 +190,8 @@ export const LOOT = {
   /** Extra server-side reach: two input frames of walking, for a request that overtakes its inputs. */
   pickupLagSlack: 20,
   corruptChance: 0.08,
+  /** Share of sigil drops that come inscribed with a starter sigil's runes; the rest are blank. */
+  sigilSpellShare: 0.3,
   corruptMisfireMultiplier: 1.5,
   inventorySize: 20,
 } as const;

@@ -4,6 +4,7 @@ import {
   SKILL_BUTTONS,
   AURA,
   BUTTON,
+  compileSigilItem,
   createSigil,
   createVessel,
   HEAT,
@@ -16,24 +17,24 @@ import {
   SPELL,
   type EntityId,
   type InputFrame,
-  type RuneId,
   type SigilItem,
 } from '../src/index.js';
+import { slotsFor } from './helpers/spell.js';
 
 function frame(seq: number, over: Partial<InputFrame> = {}): InputFrame {
   return { seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0, ...over };
 }
 
 /** A player with one custom sigil equipped in slot 0 and no enemies around. */
-function setup(runes: RuneId[], classId: 'mage' | 'priest' | 'binder' | 'warrior' = 'mage') {
+function setup(spell: string, classId: 'mage' | 'priest' | 'binder' | 'warrior' = 'mage') {
   const sim = new Simulation(3);
   const id = sim.addPlayer('c1', classId, 'Tester');
   const p = sim.world.player.get(id)!;
-  const item: SigilItem = { ...createSigil(sim.newItemUid(), sim.rng, 'relic'), corrupted: true, runes: [] };
+  const item: SigilItem = { ...createSigil(sim.newItemUid(), sim.rng, 'relic'), affixes: [], corrupted: true };
+  item.slots = slotsFor(spell, () => sim.newItemUid());
   p.items.set(item.uid, item);
   p.inventory[p.inventory.indexOf(null)] = item.uid;
   p.sigils[0] = null;
-  expect(sim.inscribe(id, item.uid, runes, true)).toBeNull();
   expect(sim.equipSigil(id, item.uid, 0)).toBeNull();
   let seq = 0;
   const cast = (over: Partial<InputFrame> = {}) => {
@@ -57,7 +58,7 @@ function events(sim: Simulation) {
 
 describe('heat', () => {
   it('adds the compiled heat cost, then cools after the pause', () => {
-    const { p, cast, idle } = setup(['bolt', 'fire']);
+    const { p, cast, idle } = setup('bolt fire');
     cast();
     const afterCast = p.heat;
     expect(afterCast).toBeGreaterThan(0);
@@ -66,13 +67,13 @@ describe('heat', () => {
   });
 
   it('never lets heat exceed the overheat cap', () => {
-    const { p, cast } = setup(['nova', 'fire', 'large']);
+    const { p, cast } = setup('nova fire large');
     for (let i = 0; i < 40; i++) cast();
     expect(p.heat).toBeLessThanOrEqual(HEAT.overheatMax);
   });
 
   it('misfires sometimes above max heat and hurts the caster', () => {
-    const { sim, p, id, cast } = setup(['bolt']);
+    const { sim, p, id, cast } = setup('bolt');
     let misfires = 0;
     for (let i = 0; i < 200; i++) {
       p.heat = HEAT.max + (HEAT.overheatMax - HEAT.max) * 0.5;
@@ -85,34 +86,35 @@ describe('heat', () => {
     expect(misfires).toBeLessThan(170);
   });
 
-  it('a dud fizzles, costs half its heat and reports the reason', () => {
-    const { sim, p, cast } = setup(['bolt', 'fire', 'split', 'timer']);
+  it('a dud fizzles, costs half its Force and reports the rule it broke', () => {
+    const { sim, p, cast } = setup('bolt fire split timer');
     const eq = p.sigils[0]!;
     expect(eq.compiled.ok).toBe(false);
+    expect(eq.compiled.force).toBeGreaterThan(0);
     cast();
     const fizzle = events(sim).find((e) => e.e === 'fizzle');
-    expect(fizzle).toMatchObject({ why: 'dud', reason: 'trailing_trigger' });
-    expect(p.heat).toBeCloseTo(eq.compiled.heat * HEAT.dudHeatFraction, 0);
+    expect(fizzle).toMatchObject({ why: 'dud', reason: 'trailing-release' });
+    expect(p.heat).toBeCloseTo(eq.compiled.force * HEAT.dudHeatFraction, 0);
   });
 });
 
 describe('fixtures in play', () => {
-  it('Bolt Fire Timer Split travels, then becomes 3 projectiles', () => {
-    const { sim, cast, idle } = setup(['bolt', 'fire', 'timer', 'split']);
+  it('Bolt Fire Timer Split Bolt travels, then releases 3 bolts and flies on', () => {
+    const { sim, cast, idle } = setup('bolt fire timer split(3) bolt');
     cast();
     expect(sim.world.projectile.size).toBe(1);
     idle(Math.ceil(SPELL.timerSeconds / SIM.dt));
-    expect(sim.world.projectile.size).toBe(3);
+    expect(sim.world.projectile.size).toBe(4);
   });
 
   it('Bolt Fire Split fires a 3-way spread immediately', () => {
-    const { sim, cast } = setup(['bolt', 'fire', 'split']);
+    const { sim, cast } = setup('bolt fire split(3)');
     cast();
     expect(sim.world.projectile.size).toBe(3);
   });
 
   it('Dash Impact OnLand Nova moves the caster and spawns a nova on landing', () => {
-    const { sim, id, cast, idle } = setup(['dash', 'impact', 'onland', 'nova']);
+    const { sim, id, cast, idle } = setup('dash impact onland nova');
     const start = { ...sim.world.position.get(id)! };
     cast();
     idle(SPELL.dash.ticks + 1);
@@ -122,7 +124,7 @@ describe('fixtures in play', () => {
   });
 
   it('Nova Restore heals the caster', () => {
-    const { sim, id, cast } = setup(['nova', 'restore'], 'priest');
+    const { sim, id, cast } = setup('nova restore', 'priest');
     const h = sim.world.health.get(id)!;
     h.life = 10;
     cast();
@@ -130,15 +132,15 @@ describe('fixtures in play', () => {
     expect(h.life).toBeGreaterThan(10);
   });
 
-  it('Zone Restore Linger lasts longer than a plain zone', () => {
-    const { sim, cast, idle } = setup(['zone', 'restore', 'linger']);
+  it('a long Zone Restore lasts longer than a plain zone', () => {
+    const { sim, cast, idle } = setup('zone[long] restore');
     cast();
     idle(Math.ceil(SPELL.zone.durationSeconds / SIM.dt) + 2);
     expect(sim.world.zone.size).toBe(1);
   });
 
-  it('Bolt Pierce Swift passes through enemies', () => {
-    const { sim, id, cast } = setup(['bolt', 'pierce', 'swift']);
+  it('a piercing Bolt passes through enemies', () => {
+    const { sim, id, cast } = setup('bolt[pierce 2] swift');
     const p = sim.world.position.get(id)!;
     const a = sim.spawnEnemy('chaser', p.x + 60, p.y);
     const b = sim.spawnEnemy('chaser', p.x + 120, p.y);
@@ -153,9 +155,9 @@ describe('fixtures in play', () => {
 
 describe('spirit, auras and links', () => {
   it('refuses to equip past maximum spirit', () => {
-    const { sim, id, p } = setup(['aura', 'restore'], 'mage');
-    const extra = createSigil(sim.newItemUid(), sim.rng, 'relic');
-    extra.runes = ['aura', 'fire', 'cold', 'lightning', 'large', 'large'];
+    const { sim, id, p } = setup('aura restore', 'mage');
+    const extra = { ...createSigil(sim.newItemUid(), sim.rng, 'relic'), affixes: [] };
+    extra.slots = slotsFor('aura fire cold lightning large large', () => sim.newItemUid());
     p.items.set(extra.uid, extra);
     p.inventory[p.inventory.indexOf(null)] = extra.uid;
     expect(sim.equipSigil(id, extra.uid, 1)).toMatch(/spirit/);
@@ -185,7 +187,7 @@ describe('spirit, auras and links', () => {
     // Park the binder's minions far away so the ally is the only candidate in the cone.
     sim.world.position.set(ally, { x: bp.x + 200, y: bp.y });
     for (const m of p.minions) if (m !== null) sim.world.position.set(m, { x: bp.x - 300, y: bp.y });
-    const slot = p.sigils.findIndex((s) => s?.compiled.ok && s.compiled.program.form === 'link');
+    const slot = p.sigils.findIndex((s) => s?.compiled.ok && s.compiled.program.form === 'bond');
     expect(slot).toBeGreaterThanOrEqual(0);
     const bits = [BUTTON.skill1, BUTTON.skill2, BUTTON.skill3, BUTTON.skill4];
     sim.applyInput(binder, frame(0, { buttons: bits[slot]!, aimAngle: 0 }));
@@ -234,11 +236,12 @@ describe('items and loot', () => {
     const sim = new Simulation(13);
     const id = sim.addPlayer('c1', 'mage');
     const p = sim.world.player.get(id)!;
-    const rare = createSigil(sim.newItemUid(), sim.rng, 'rare');
+    const rare = { ...createSigil(sim.newItemUid(), sim.rng, 'rare'), affixes: [], corrupted: false };
     p.items.set(rare.uid, rare);
     p.inventory[p.inventory.indexOf(null)] = rare.uid;
-    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split'], true)).toBeNull();
-    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split', 'large'], true)).toMatch(/Too many/);
+    rare.slots = slotsFor('bolt fire cold swift split(3) large', () => sim.newItemUid());
+    expect(compileSigilItem(rare, 'mage')).toMatchObject({ ok: false, errors: [{ rule: 'over-capacity' }] });
+    rare.slots = slotsFor('bolt fire cold swift split(3)', () => sim.newItemUid());
     expect(sim.equipSigil(id, rare.uid, 3)).toBeNull();
     expect(p.sigils[3]?.compiled.ok).toBe(true);
     sim.applyInput(id, frame(0, { buttons: BUTTON.skill4 }));
@@ -250,7 +253,7 @@ describe('items and loot', () => {
     const a = sim.addPlayer('a', 'mage');
     const b = sim.addPlayer('b', 'mage');
     const theirs = sim.world.player.get(b)!.inventory.find((x) => x !== null)!;
-    expect(sim.inscribe(a, theirs, ['bolt'])).not.toBeNull();
+    expect(sim.inscribe(a, theirs, [{ from: 'plain', rune: 'bolt' }])).not.toBeNull();
     expect(sim.equipSigil(a, theirs, 0)).not.toBeNull();
   });
 });
