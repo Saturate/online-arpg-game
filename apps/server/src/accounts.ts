@@ -111,6 +111,13 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
   }
 }
 
+export interface CharacterSaveRow {
+  characterId: number;
+  save: PlayerSave;
+  accountId: number;
+  stash: StashSave;
+}
+
 export class AccountStore {
   private readonly db: DatabaseSync;
 
@@ -119,6 +126,9 @@ export class AccountStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
+      -- In WAL mode NORMAL still survives a process crash; only a power cut can lose the last
+      -- commits. FULL made every save wait on a disk flush.
+      PRAGMA synchronous = NORMAL;
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY,
@@ -399,13 +409,34 @@ export class AccountStore {
   }
 
   saveCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave, market?: Market): void {
-    this.db.exec('BEGIN');
-    try {
-      this.saveCharacter(characterId, save);
-      this.db.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run(JSON.stringify(stash), accountId);
+    this.transaction(() => {
+      this.writeCharacterAndStash(characterId, save, accountId, stash);
       // A trade saves the trader's stock in the same transaction, so a crash cannot leave the item
       // both sold and still in the bag, or bought and still on the shelf.
       if (market) this.db.prepare("INSERT INTO settings (key, value) VALUES ('trader', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(market));
+    });
+  }
+
+  /**
+   * Many saves in one transaction. Each commit waits for the disk, so the autosave used to stall
+   * every room for about 250 ms on the Linux host saving players one by one; batched it is under 1 ms.
+   */
+  saveMany(saves: readonly CharacterSaveRow[]): void {
+    if (saves.length === 0) return;
+    this.transaction(() => {
+      for (const s of saves) this.writeCharacterAndStash(s.characterId, s.save, s.accountId, s.stash);
+    });
+  }
+
+  private writeCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave): void {
+    this.saveCharacter(characterId, save);
+    this.db.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run(JSON.stringify(stash), accountId);
+  }
+
+  private transaction(write: () => void): void {
+    this.db.exec('BEGIN');
+    try {
+      write();
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');

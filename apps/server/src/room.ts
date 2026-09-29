@@ -277,6 +277,7 @@ export class Room {
         if (inv) m.client.send(inv);
         m.sentInventoryVersion = p.inventoryVersion;
       }
+      if (m.client.congested) continue;
       const snap = snapshotFor(this.sim, m.playerId, entities, events, NET.interestRadius);
       snap.paused = this.paused;
       m.client.send(snap);

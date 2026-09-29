@@ -29,7 +29,7 @@ import {
   type WorldInfo,
   type ZoneId,
 } from '@rune/shared';
-import type { AccountStore, Market } from './accounts.js';
+import type { AccountStore, CharacterSaveRow, Market } from './accounts.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { Room } from './room.js';
@@ -297,13 +297,28 @@ export class RoomManager implements AdminHooks {
     if (this.timer) clearTimeout(this.timer);
   }
 
+  private readonly roomErrors = new Map<string, number>();
+
+  /** Logged once per room per minute at most, so a room that throws every tick cannot flood the log. */
+  private reportRoomError(room: Room, err: unknown): void {
+    const now = performance.now();
+    if (now - (this.roomErrors.get(room.id) ?? -Infinity) < 60_000) return;
+    this.roomErrors.set(room.id, now);
+    console.error(`[room ${room.id}] tick failed`, err);
+  }
+
   private tick(): void {
     if (++this.ticksSinceSave >= AUTOSAVE_SECONDS * SIM.tickRate) {
       this.ticksSinceSave = 0;
       this.saveAll();
     }
     for (const room of [...this.rooms.values()]) {
-      for (const { client, request } of room.tick()) this.usePortal(client, room, request);
+      // One broken room must not stop every other room, or kill the process before anyone is saved.
+      try {
+        for (const { client, request } of room.tick()) this.usePortal(client, room, request);
+      } catch (err) {
+        this.reportRoomError(room, err);
+      }
       if (this.closable(room)) this.close(room);
     }
     for (const staging of this.stagings.values()) {
@@ -874,9 +889,17 @@ export class RoomManager implements AdminHooks {
   }
 
   saveAll(): void {
+    const saves: CharacterSaveRow[] = [];
     for (const room of this.rooms.values()) {
-      for (const m of room.members.values()) this.persist(m.client, room.exportMember(m.client));
+      for (const m of room.members.values()) {
+        const save = room.exportMember(m.client);
+        const { characterId, accountId } = m.client;
+        if (!save || characterId === null || accountId === null) continue;
+        const { character, stash } = splitStash(save);
+        saves.push({ characterId, save: character, accountId, stash });
+      }
     }
+    this.store.saveMany(saves);
   }
 
   /** Saves, removes and disconnects. Used for duplicate logins and deleted characters. */

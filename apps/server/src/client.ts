@@ -3,7 +3,14 @@ import type { WebSocket } from 'ws';
 import type { Room } from './room.js';
 
 /** The parts of a ws socket a client uses, so tests can pass a stand-in. */
-export type ClientSocket = Pick<WebSocket, 'readyState' | 'OPEN' | 'send' | 'close'>;
+export type ClientSocket = Pick<WebSocket, 'readyState' | 'OPEN' | 'send' | 'close'> & { readonly bufferedAmount?: number };
+
+/**
+ * Past this much unsent data the connection cannot keep up. Snapshots are full state, so skipping
+ * some loses nothing lasting, while queueing them without limit grows the server's memory and the
+ * client's delay together.
+ */
+const CONGESTED_BYTES = 256 * 1024;
 
 /** What the room manager listens to on a connection; a ws socket fits, and so does a test double. */
 export interface GameSocket extends ClientSocket {
@@ -38,6 +45,10 @@ export class Client {
     readonly id: string,
     readonly socket: ClientSocket,
   ) {}
+
+  get congested(): boolean {
+    return (this.socket.bufferedAmount ?? 0) > CONGESTED_BYTES;
+  }
 
   send(msg: ServerMessage): void {
     if (this.socket.readyState !== this.socket.OPEN) return;

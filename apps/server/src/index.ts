@@ -48,7 +48,15 @@ const http = createServer((req, res) => {
     });
 });
 // Gameplay messages are tiny; the cap leaves room for a saved town layout and nothing much bigger.
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 256 * 1024 });
+// Snapshots are repetitive JSON: deflate took a busy 8-player snapshot from 35.6 KB to 6.0 KB for
+// about 0.03 ms of CPU. Level 1 because higher levels cost far more for little extra; tiny messages
+// (inputs, pongs) are not worth compressing.
+const wss = new WebSocketServer({
+  server: http,
+  path: '/ws',
+  maxPayload: 256 * 1024,
+  perMessageDeflate: { zlibDeflateOptions: { level: 1 }, threshold: 1024 },
+});
 wss.on('connection', (socket) => rooms.connect(socket));
 http.listen(port, () => console.log(`rune server listening on http://localhost:${port} (api and websocket)`));
 
@@ -62,3 +70,16 @@ function shutdown(): void {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// A crash used to skip the save that SIGTERM gets, so up to 30 s of play (including items handed
+// over on the ground) could be lost or duplicated. Save what can be saved, then let Kubernetes
+// restart the process rather than run on in an unknown state.
+process.on('uncaughtException', (err) => {
+  console.error('uncaught exception, saving and exiting', err);
+  try {
+    rooms.stop();
+    rooms.saveAll();
+    store.close();
+  } finally {
+    process.exit(1);
+  }
+});
