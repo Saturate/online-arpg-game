@@ -35,26 +35,34 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - `apps/server`: `ws` server running one 20 Hz simulation per room, with interest-managed snapshots.
 - `apps/client`: Vite + Three.js for the world (`render/`), React + Zustand for UI panels (`ui/`), and prediction, interpolation and input in `game/`.
 
-## Handoff (2026-09-29)
+## Handoff (2026-09-29, end of session 2)
 
-**Where things stand.** Everything through commit `6bc04ea` is live at arpg.akj.io. Later commits (docs only) are local until the next deploy. All 240 tests pass. Live accounts: `LANGSOMT` (owner, via `ADMIN_USERS` in the server repo's `k3s/apps/arpg/deployment.yaml`) and `Bho`.
+**Where things stand.** Live at arpg.akj.io through `fbb1097`: the Arena as a zone with scored runs and monthly leaderboards, spells sent once instead of every tick, the weighted live spell cap, the castable Spell Lab, the item-safety fixes (phase 0), Force tuning on the admin page, the zone damage lockout, zone gates, waypoint models, click-to-open stations, WebSocket compression and batched saves. Seven commits after that are **local, reviewed clean, waiting for the owner's go to deploy**: the minion walk/run stutter fix, tooltips closing with their window, sunny days with shared overcast weather (nights kept at their tuned darkness), the Arena entrance building and the underground colosseum pit, dev tools deep links, and faceted Blender exports. 334 tests pass. Live data: 7 characters on 3 accounts; `LANGSOMT` is the owner (via `ADMIN_USERS` in the server repo's `k3s/apps/arpg/deployment.yaml`).
 
 **Working rules that carry over.**
 
-- Don't push to `main` without the owner's go: every push deploys and restarts the live server.
-- Commit unsigned (`git -c commit.gpgsign=false`) while 1Password is locked; SSH to `svr.akj.io` also needs 1Password approval.
+- Don't push to `main` without the owner's go: every push deploys and restarts the live server. Use the push skill (gates, then a fresh-eyes review loop until clean).
+- Do most implementation in subagents with a precise brief and file ownership; keep the main session for planning, verification and review. Agents in the same checkout stage only their own files.
+- Commit unsigned (`git -c commit.gpgsign=false`) while 1Password is locked; SSH to `svr.akj.io` also needs 1Password approval. A local hook blocks `Claude-Session:` lines in commits.
 - Keep the look dark and gritty (D2 Act 1, PoE). Nights must stay playable.
-- Anything that moves items (bag, stash, trader, ground, forge) gets a fresh-eyes review for loss and duplication before it ships.
+- Anything that moves items gets a fresh-eyes review for loss and duplication before it ships.
 
-**Open items.**
+**Next, in the owner's order.**
 
-- **Unreviewed:** click pickup, gold drops, runes and the forge went live without that review. Do it first.
-- **Reported, not reproduced:** "movement can get stuck". The stuck-key fix (Cmd release, tab hide) is live; if it still happens, find out whether it's terrain, input or desync.
-- **Tune live:** grime strength, the hero's light radius at night, the slower loot and level pace, Force cooling, minion strength after the buff.
-- **Asked, not answered:** put the most-tuned balance numbers (minion strength, Force cost and cooling, drop chances) on the admin page, so balance changes need no deploy.
-- **Parked:** weapon-gated skills (see DECISIONS.md, Parked ideas).
-- **CI:** a docs-only push still rebuilds and restarts the server; a `paths-ignore` for `*.md` in `.github/workflows/image.yml` would stop that.
-- **Owner chores:** rotate the Steam API key and the GHCR pull token that were pasted in chat, and decide on the overhead Postgres password rotation (restarting it also upgrades that image).
+1. **Deploy** the 7 local commits once the owner says so.
+2. **The rune rework**, phases 2 and 3 of PLAN-runes.md, approved: the v2 grammar as the real compiler behind a switch, rolled runes as items, sigils as wands, the built-in skills rebuilt as pre-rolled starter sigils, the new forge editor (left-to-right slots, the Spell Lab's sentence and bracket view, a preview, gold per inserted rune), save conversion tested on a copy of the live saves, and a balance pass with the Spell Studio harness. All owner decisions are in PLAN-runes.md, "Decisions". The current forge UI is poor (shows built-in skills as "Unstable", lists every rune at count 0, no description); the rework replaces it.
+3. **Monster browser** on the admin page: every monster type with its model and animations, editable life, speed, size, damage, XP and ability numbers, stored in the database and applied to new spawns without a deploy, with reset and an export back to `data/enemies.ts`. Plan agreed in chat, not built.
+4. **Loot piles** (parked until after the rework, since both touch item code): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all.
+
+**Open ideas and small items.**
+
+- Town editor only edits the town; zones and dungeons are generated. Hand-placed set pieces on generated zones were proposed, not decided.
+- Minion abilities with cooldowns and vessel ability affixes, the channelled Beam and the Charge rune, and vessels with a rolled casting sigil are in PLAN-runes.md.
+- Skill tooltips show base Force cost, not the admin's cost multiplier.
+- Replays started mid-room miss spells that were already alive.
+- Unbound legacy items already in account stashes stay there (old data only).
+- Owner chores: rotate the Steam API key and the GHCR pull token that were pasted in chat.
+- CI: a docs-only push still rebuilds and restarts the server; `paths-ignore` for `*.md` in `.github/workflows/image.yml` would stop that.
 
 **Infrastructure.**
 
