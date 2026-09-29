@@ -9,10 +9,11 @@ import {
   LoopRepeat,
   Mesh,
   MeshStandardMaterial,
+  SkinnedMesh,
   type AnimationAction,
   type Object3D,
 } from 'three';
-import { assetById, instantiate, type AnimRole, type AssetDef } from './assets.js';
+import { assetById, cloneMaterial, instantiate, instantiateNow, type AnimRole, type AssetDef, type AssetInstance } from './assets.js';
 
 /** Which registered asset each gameplay entity uses. Kinds without an entry keep their procedural model. */
 const PLAYER_ASSETS: Record<ClassId, string> = {
@@ -61,9 +62,10 @@ export interface CharacterModel {
   mixer: AnimationMixer;
   actions: Map<AnimRole, AnimationAction>;
   current: AnimRole | null;
-  materials: MeshStandardMaterial[];
-  baseEmissive: Color[];
-  baseIntensity: number[];
+  /** Meshes that take the hit flash and status tint; their materials may still be shared. */
+  tintMeshes: Mesh[];
+  /** Per-instance GPU resources to free with the model. The file's geometry and shared materials are not listed. */
+  owned: { dispose(): void }[];
   attackRole: AnimRole;
 }
 
@@ -90,13 +92,14 @@ function findBySuffix(root: Object3D, suffix: string): Object3D | undefined {
 const arrowShaft = new CylinderGeometry(0.018, 0.018, 0.55, 5);
 const arrowHead = new ConeGeometry(0.04, 0.1, 5);
 const arrowMat = new MeshStandardMaterial({ color: 0x6b4a2a, flatShading: true });
+const arrowFeather = new ConeGeometry(0.05, 0.12, 3);
 const featherMat = new MeshStandardMaterial({ color: 0xd8d0c0, flatShading: true });
 
 /**
  * Seeded wear and tear for undead monsters and minions: missing arms or jaw, arrows stuck in the
  * body, bone colour and size jitter. Still the same low-poly model, just never quite identical.
  */
-function vary(root: Object3D, seed: number, def: AssetDef): void {
+function vary(root: Object3D, seed: number, def: AssetDef, owned: CharacterModel['owned']): void {
   const rnd = seeded(seed);
   const isSkeleton = def.url.includes('/skeletons/');
   if (!isSkeleton) return;
@@ -127,7 +130,7 @@ function vary(root: Object3D, seed: number, def: AssetDef): void {
       const head = new Mesh(arrowHead, arrowMat);
       head.position.y = -0.3;
       head.rotation.x = Math.PI;
-      const feather = new Mesh(new ConeGeometry(0.05, 0.12, 3), featherMat);
+      const feather = new Mesh(arrowFeather, featherMat);
       feather.position.y = 0.28;
       arrow.add(shaft, head, feather);
       arrow.position.set((rnd() - 0.5) * 0.3, 0.9 + rnd() * 0.4, (rnd() - 0.5) * 0.25);
@@ -136,15 +139,35 @@ function vary(root: Object3D, seed: number, def: AssetDef): void {
     }
   }
   const tint = new Color().setHSL(0.1 + rnd() * 0.05, 0.1 + rnd() * 0.2, 0.75 + rnd() * 0.25);
+  // The colour jitter is per entity, so this model needs its own materials from the start.
+  const copies = new Map<MeshStandardMaterial, MeshStandardMaterial>();
   root.traverse((o) => {
-    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial) o.material.color.multiply(tint);
+    if (!(o instanceof Mesh) || !(o.material instanceof MeshStandardMaterial)) return;
+    let m = copies.get(o.material);
+    if (!m) {
+      m = cloneMaterial(o.material);
+      m.color.multiply(tint);
+      copies.set(o.material, m);
+      owned.push(m);
+    }
+    o.material = m;
   });
   root.scale.multiplyScalar(0.92 + rnd() * 0.16);
 }
 
 export async function loadCharacter(def: AssetDef, seed: number): Promise<CharacterModel> {
-  const inst = await instantiate(def);
-  vary(inst.root, seed, def);
+  return fromInstance(await instantiate(def), def, seed);
+}
+
+/** Builds the character right away when its files are already loaded; null means use loadCharacter. */
+export function characterNow(def: AssetDef, seed: number): CharacterModel | null {
+  const inst = instantiateNow(def);
+  return inst ? fromInstance(inst, def, seed) : null;
+}
+
+function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): CharacterModel {
+  const owned: CharacterModel['owned'] = [];
+  vary(inst.root, seed, def, owned);
   const mixer = new AnimationMixer(inst.root);
   const actions = new Map<AnimRole, AnimationAction>();
   for (const [role, name] of Object.entries(def.clips ?? {})) {
@@ -158,18 +181,19 @@ export async function loadCharacter(def: AssetDef, seed: number): Promise<Charac
     // Validated at runtime: every key in AnimRole comes from the registry's typed clip map.
     if (isRole(role)) actions.set(role, action);
   }
-  const materials: MeshStandardMaterial[] = [];
+  const tintMeshes: Mesh[] = [];
   inst.root.traverse((o) => {
-    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial) materials.push(o.material);
+    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial) tintMeshes.push(o);
+    // Each clone has its own skeleton, and with it a bone texture on the GPU.
+    if (o instanceof SkinnedMesh) owned.push(o.skeleton);
   });
   return {
     root: inst.root,
     mixer,
     actions,
     current: null,
-    materials,
-    baseEmissive: materials.map((m) => m.emissive.clone()),
-    baseIntensity: materials.map((m) => m.emissiveIntensity),
+    tintMeshes,
+    owned,
     attackRole: def.clips?.attack === 'Spellcast_Shoot' || def.id === 'hero_mage' || def.id === 'hero_rogue' || def.id === 'skel_mage' ? 'cast' : 'attack',
   };
 }

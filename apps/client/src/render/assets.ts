@@ -201,11 +201,17 @@ interface LoadedFile {
 
 const loader = new GLTFLoader();
 const files = new Map<string, Promise<LoadedFile>>();
+/** Files that have finished loading, so a model can be built without waiting a frame. */
+const ready = new Map<string, LoadedFile>();
 
 function loadFile(url: string): Promise<LoadedFile> {
   let p = files.get(url);
   if (!p) {
-    p = loader.loadAsync(url).then((gltf) => ({ scene: gltf.scene, clips: gltf.animations }));
+    p = loader.loadAsync(url).then((gltf) => {
+      const file = { scene: gltf.scene, clips: gltf.animations };
+      ready.set(url, file);
+      return file;
+    });
     files.set(url, p);
   }
   return p;
@@ -218,54 +224,100 @@ export interface AssetInstance {
 }
 
 /**
- * A ready-to-place copy of an asset, scaled to its target height with its feet at y = 0 and facing
- * +x like the rest of the game. Skinned models are cloned with their skeletons so each instance
- * animates on its own.
+ * Copies a material with its shader hooks: Material.clone skips onBeforeCompile, which would drop
+ * the corruption repaint from a monster built on a hero model.
  */
-export async function instantiate(def: AssetDef): Promise<AssetInstance> {
-  const file = await loadFile(def.url);
+export function cloneMaterial(m: MeshStandardMaterial): MeshStandardMaterial {
+  const c = m.clone();
+  c.onBeforeCompile = m.onBeforeCompile;
+  c.customProgramCacheKey = m.customProgramCacheKey;
+  return c;
+}
+
+/** Tinted and glowing copies of a file's materials, one set per asset def, shared by every instance. */
+const defMaterials = new Map<string, Map<MeshStandardMaterial, MeshStandardMaterial>>();
+
+function prepared(def: AssetDef, source: MeshStandardMaterial): MeshStandardMaterial {
+  let byDef = defMaterials.get(def.id);
+  if (!byDef) {
+    byDef = new Map();
+    defMaterials.set(def.id, byDef);
+  }
+  let m = byDef.get(source);
+  if (!m) {
+    m = source.clone();
+    // Monsters built on the hero models must never read as a player at a glance.
+    if (def.category === 'monster' && def.url.includes('/adventurers/')) corruptMaterial(m, def.tint ?? 0xb0a0a0);
+    else if (def.tint !== undefined) m.color.multiply(new Color(def.tint));
+    if (def.glow !== undefined) {
+      m.emissive.setHex(def.glow);
+      m.emissiveIntensity = 0.8;
+    }
+    byDef.set(source, m);
+  }
+  return m;
+}
+
+/**
+ * Scale and foot offset per asset def. Measuring a skinned model skins every vertex on the CPU,
+ * close to a millisecond per instance, and the bind pose is the same for every copy.
+ */
+const fits = new Map<string, { scale: number; minY: number }>();
+
+function build(def: AssetDef, file: LoadedFile, weapon: LoadedFile | null): AssetInstance {
   const model = cloneSkinned(file.scene);
   for (const name of def.hide ?? []) {
     const o = model.getObjectByName(name);
     if (o) o.visible = false;
   }
-  if (def.weapon) {
-    const weapon = await loadFile(def.weapon.url);
+  if (weapon && def.weapon) {
     const bone = model.getObjectByName(def.weapon.bone);
     if (bone) bone.add(weapon.scene.clone(true));
   }
-  // Monsters built on the hero models must never read as a player at a glance.
-  const corrupt = def.category === 'monster' && def.url.includes('/adventurers/');
   model.traverse((o: Object3D) => {
     if (!(o instanceof Mesh)) return;
     o.castShadow = true;
     o.receiveShadow = true;
-    // Materials are cloned per instance so hit flashes and tints never leak between copies.
-    if (o.material instanceof MeshStandardMaterial) {
-      const m = o.material.clone();
-      if (corrupt) corruptMaterial(m, def.tint ?? 0xb0a0a0);
-      else if (def.tint !== undefined) m.color.multiply(new Color(def.tint));
-      if (def.glow !== undefined) {
-        m.emissive.setHex(def.glow);
-        m.emissiveIntensity = 0.8;
-      }
-      o.material = m;
-    }
+    if (o.material instanceof MeshStandardMaterial) o.material = prepared(def, o.material);
   });
 
-  const box = new Box3().setFromObject(model);
-  const size = box.getSize(new Vector3());
-  const scale = size.y > 0 ? def.height / size.y : 1;
+  let fit = fits.get(def.id);
+  if (!fit) {
+    const box = new Box3().setFromObject(model);
+    const size = box.getSize(new Vector3());
+    fit = { scale: size.y > 0 ? def.height / size.y : 1, minY: box.min.y };
+    fits.set(def.id, fit);
+  }
   const root = new Group();
   const pivot = new Group();
   pivot.add(model);
-  model.position.y = -box.min.y;
-  pivot.scale.setScalar(scale);
+  model.position.y = -fit.minY;
+  pivot.scale.setScalar(fit.scale);
   // KayKit characters face +z; the game treats +x as forward.
   if (def.category === 'hero' || def.category === 'monster') pivot.rotation.y = Math.PI / 2;
   root.add(pivot);
   root.userData.assetId = def.id;
   return { root, clips: file.clips, def };
+}
+
+/**
+ * A ready-to-place copy of an asset, scaled to its target height with its feet at y = 0 and facing
+ * +x like the rest of the game. Skinned models are cloned with their skeletons so each instance
+ * animates on its own. Geometry and materials are shared between copies: anything that changes a
+ * material for one instance must clone it first (see cloneMaterial).
+ */
+export async function instantiate(def: AssetDef): Promise<AssetInstance> {
+  const file = await loadFile(def.url);
+  const weapon = def.weapon ? await loadFile(def.weapon.url) : null;
+  return build(def, file, weapon);
+}
+
+/** Same as instantiate, but only when the files are already loaded; null means use instantiate. */
+export function instantiateNow(def: AssetDef): AssetInstance | null {
+  const file = ready.get(def.url);
+  const weapon = def.weapon ? ready.get(def.weapon.url) : null;
+  if (!file || weapon === undefined) return null;
+  return build(def, file, weapon);
 }
 
 /**

@@ -23,14 +23,13 @@ import {
   TorusGeometry,
   Vector3,
   type Camera,
-  type Material,
   type Object3D,
   type Scene,
 } from 'three';
 import { COLORS, ELEMENT_COLORS, fxColor, TIER_COLORS } from './config.js';
-import { assetById, instantiate } from './assets.js';
-import { characterAsset, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
-import { animate, enemyModel, minionModel, playerModel, uniqueMaterials, type Rig } from './models.js';
+import { assetById, cloneMaterial, instantiate } from './assets.js';
+import { characterAsset, characterNow, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
+import { animate, enemyModel, minionModel, playerModel, type Rig } from './models.js';
 
 export interface RenderItem {
   /** `s<id>` for server entities, `l<n>` for local cosmetic effects. */
@@ -44,12 +43,25 @@ export interface RenderItem {
 
 const FLASH_SECONDS = 0.08;
 
+interface Disposable {
+  dispose(): void;
+}
+
 interface View {
   root: Group;
-  /** Materials that get the hit flash and status tint. */
-  tintable: MeshStandardMaterial[];
+  /** Meshes whose materials get the hit flash and status tint. */
+  tintMeshes: Mesh[];
+  /**
+   * This view's own copies of the tint meshes' materials. Null until a flash, ailment or death first
+   * changes them, so a pack that is never hit shares its materials with every other copy.
+   */
+  tintable: MeshStandardMaterial[] | null;
   baseEmissive: Color[];
   baseIntensity: number[];
+  /** Whether the materials currently show a flash or tint that has to be undone. */
+  tinted: boolean;
+  /** GPU resources this view created and frees on removal. Shared geometry and cached materials are never listed. */
+  owned: Set<Disposable>;
   body: Object3D | null;
   facing: Object3D | null;
   healthBar: { group: Group; fill: Mesh; width: number } | null;
@@ -105,6 +117,24 @@ const GEO = {
   torus: new TorusGeometry(1, 0.12, 8, 24),
 };
 
+/** Materials no view changes after creation, shared for the whole session and never disposed. */
+const sharedMats = new Map<string, MeshBasicMaterial>();
+
+function shared(key: string, make: () => MeshBasicMaterial): MeshBasicMaterial {
+  let m = sharedMats.get(key);
+  if (!m) {
+    m = make();
+    sharedMats.set(key, m);
+  }
+  return m;
+}
+
+function sharedBasic(color: number, opacity = 1, additive = false): MeshBasicMaterial {
+  return shared(`basic|${color}|${opacity}|${additive}`, () => basic(color, opacity, additive));
+}
+
+const moundMat = new MeshStandardMaterial({ color: 0x6a5238, roughness: 1, flatShading: true });
+
 function standard(color: number, extra: Partial<{ emissive: number; emissiveIntensity: number; roughness: number; metalness: number; transparent: boolean; opacity: number }> = {}): MeshStandardMaterial {
   return new MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, ...extra });
 }
@@ -128,46 +158,117 @@ function flatOnGround(mesh: Mesh, y = 1): Mesh {
 
 function makeHealthBar(width: number, color: number): { group: Group; fill: Mesh; width: number } {
   const group = new Group();
-  const bg = new Mesh(GEO.plane, basic(0x220808, 0.85));
+  const bg = new Mesh(GEO.plane, barMaterial(0x220808, 0.85));
   bg.scale.set(width + 2, 6, 1);
   // Opacity 0.99 keeps the fill in the transparent pass, so renderOrder puts it above the background.
-  const fill = new Mesh(GEO.plane, basic(color, 0.99));
+  const fill = new Mesh(GEO.plane, barMaterial(color, 0.99));
   fill.scale.set(width, 4, 1);
   fill.position.z = 0.1;
   bg.renderOrder = 10;
   fill.renderOrder = 11;
-  for (const m of [bg, fill]) {
-    const mat = m.material;
-    if (mat instanceof MeshBasicMaterial) mat.depthTest = false;
-  }
   group.add(bg, fill);
   return { group, fill, width };
 }
 
-function tintables(root: Object3D): MeshStandardMaterial[] {
-  const out: MeshStandardMaterial[] = [];
+function barMaterial(color: number, opacity: number): MeshBasicMaterial {
+  return shared(`bar|${color}|${opacity}`, () => {
+    const m = basic(color, opacity);
+    m.depthTest = false;
+    return m;
+  });
+}
+
+function tintMeshes(root: Object3D): Mesh[] {
+  const out: Mesh[] = [];
   root.traverse((o) => {
-    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && !o.userData.noTint) out.push(o.material);
+    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && !o.userData.noTint) out.push(o);
   });
   return out;
+}
+
+/** Gives the view its own copies of its tint materials the first time something needs to change them. */
+function ownTint(view: View): MeshStandardMaterial[] {
+  if (view.tintable) return view.tintable;
+  const copies = new Map<MeshStandardMaterial, MeshStandardMaterial>();
+  for (const mesh of view.tintMeshes) {
+    const src = mesh.material;
+    if (!(src instanceof MeshStandardMaterial)) continue;
+    let m = copies.get(src);
+    if (!m) {
+      m = src;
+      if (!view.owned.has(src)) {
+        m = cloneMaterial(src);
+        view.owned.add(m);
+      }
+      copies.set(src, m);
+    }
+    mesh.material = m;
+  }
+  const out = [...copies.values()];
+  view.tintable = out;
+  captureBase(view, out);
+  return out;
+}
+
+function captureBase(view: View, mats: MeshStandardMaterial[]): void {
+  view.baseEmissive = mats.map((m) => m.emissive.clone());
+  view.baseIntensity = mats.map((m) => m.emissiveIntensity);
+}
+
+/** Trash monsters come in packs; only champions and bosses are worth a shadow pass each. */
+function castsShadow(s: EntitySnap): boolean {
+  return s.k !== 'enemy' || s.rare || s.boss;
+}
+
+function noShadows(root: Object3D): void {
+  root.traverse((o) => {
+    if (o instanceof Mesh) o.castShadow = false;
+  });
+}
+
+function baseRadius(s: EntitySnap): number {
+  return s.k === 'enemy' ? ENEMIES[s.et].radius : s.k === 'minion' ? MINION_DEFS[s.mt].radius : s.r;
+}
+
+/** Puts a loaded glTF character on the view; the procedural rig, if any, stays hidden as a fallback. */
+function attachCharacter(view: View, cm: CharacterModel, s: EntitySnap): void {
+  // Rares are bigger in the simulation; the model follows the collision radius.
+  cm.root.scale.multiplyScalar(s.r / baseRadius(s));
+  if (!castsShadow(s)) noShadows(cm.root);
+  if (view.rig) view.rig.root.visible = false;
+  view.root.add(cm.root);
+  view.character = cm;
+  for (const r of cm.owned) view.owned.add(r);
+  view.tintMeshes = cm.tintMeshes;
+  view.tintable = null;
+  view.tinted = false;
 }
 
 function makeView(item: RenderItem): View {
   const root = new Group();
   const s = item.snap;
+  const owned = new Set<Disposable>();
+  const own = <T extends Disposable>(r: T): T => {
+    owned.add(r);
+    return r;
+  };
   let body: Object3D | null = null;
   let facing: Object3D | null = null;
   let rig: Rig | null = null;
   let healthBar: View['healthBar'] = null;
   let shield: Mesh | null = null;
+  // A cached glTF goes straight in; the procedural rig is only a stand-in while a file loads or if it fails.
+  const asset = characterAsset(s);
+  const character = asset ? characterNow(asset, s.id) : null;
 
   switch (s.k) {
     case 'player': {
-      rig = playerModel(s.cls, CLASSES[s.cls].color);
-      rig.root.scale.setScalar(s.r);
-      uniqueMaterials(rig.root);
-      root.add(rig.root);
-      const ring = flatOnGround(new Mesh(GEO.ring, basic(item.isSelf ? COLORS.selfRing : COLORS.allyRing, 0.8)));
+      if (!character) {
+        rig = playerModel(s.cls, CLASSES[s.cls].color);
+        rig.root.scale.setScalar(s.r);
+        root.add(rig.root);
+      }
+      const ring = flatOnGround(new Mesh(GEO.ring, sharedBasic(item.isSelf ? COLORS.selfRing : COLORS.allyRing, 0.8)));
       ring.scale.setScalar(s.r * 1.5);
       root.add(ring);
       if (!item.isSelf) {
@@ -179,26 +280,22 @@ function makeView(item: RenderItem): View {
     }
     case 'enemy': {
       const def = ENEMIES[s.et];
-      rig = enemyModel(s.et, def.color);
-      rig.root.scale.multiplyScalar(s.r);
-      uniqueMaterials(rig.root);
-      root.add(rig.root);
+      if (!character) {
+        rig = enemyModel(s.et, def.color);
+        rig.root.scale.multiplyScalar(s.r);
+        if (!castsShadow(s)) noShadows(rig.root);
+        root.add(rig.root);
+      }
       if (s.rare) {
         // Rares glow and wear a gold ring, so a champion is readable across the screen. Bosses get a red one.
         const ringColor = s.boss ? 0xff4030 : COLORS.rareOutline;
-        const crown = flatOnGround(new Mesh(GEO.ring, basic(ringColor, 0.9)));
+        const crown = flatOnGround(new Mesh(GEO.ring, sharedBasic(ringColor, 0.9)));
         crown.name = 'rare-ring';
         crown.scale.setScalar(s.r * (s.boss ? 1.9 : 1.6));
-        const glow = flatOnGround(new Mesh(GEO.disk, basic(ringColor, s.boss ? 0.2 : 0.14, true)), 0.6);
+        const glow = flatOnGround(new Mesh(GEO.disk, sharedBasic(ringColor, s.boss ? 0.2 : 0.14, true)), 0.6);
         glow.name = 'rare-glow';
         glow.scale.setScalar(s.r * (s.boss ? 2.8 : 2.2));
         root.add(crown, glow);
-        rig.root.traverse((o) => {
-          if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && o.material.emissiveIntensity < 1.5) {
-            o.material.emissive.setHex(COLORS.rareOutline);
-            o.material.emissiveIntensity = 0.18;
-          }
-        });
       }
       healthBar = makeHealthBar(s.boss ? 90 : s.rare ? 54 : 30, s.boss ? 0xff4030 : s.rare ? COLORS.rareOutline : 0xe0a040);
       // Flyers and floaters sit higher, so their bar clears the model.
@@ -209,11 +306,12 @@ function makeView(item: RenderItem): View {
     }
     case 'minion': {
       const def = MINION_DEFS[s.mt];
-      rig = minionModel(s.mt, def.color);
-      rig.root.scale.multiplyScalar(s.r);
-      uniqueMaterials(rig.root);
-      root.add(rig.root);
-      const ring = flatOnGround(new Mesh(GEO.thinRing, basic(0xb49cff, 0.7)));
+      if (!character) {
+        rig = minionModel(s.mt, def.color);
+        rig.root.scale.multiplyScalar(s.r);
+        root.add(rig.root);
+      }
+      const ring = flatOnGround(new Mesh(GEO.thinRing, sharedBasic(0xb49cff, 0.7)));
       ring.scale.setScalar(s.r * 1.4);
       root.add(ring);
       healthBar = makeHealthBar(24, 0xb49cff);
@@ -224,9 +322,9 @@ function makeView(item: RenderItem): View {
     case 'projectile': {
       const enemy = s.team === 'enemies';
       if (enemy) {
-        const core = new Mesh(GEO.sphere, new MeshBasicMaterial({ color: COLORS.enemyBullet }));
+        const core = new Mesh(GEO.sphere, shared('bullet', () => new MeshBasicMaterial({ color: COLORS.enemyBullet })));
         core.scale.setScalar(s.r);
-        const outline = new Mesh(GEO.sphere, new MeshBasicMaterial({ color: COLORS.enemyBulletOutline, side: BackSide }));
+        const outline = new Mesh(GEO.sphere, shared('bullet-outline', () => new MeshBasicMaterial({ color: COLORS.enemyBulletOutline, side: BackSide })));
         outline.scale.setScalar(s.r * 1.4);
         const g = new Group();
         g.add(core, outline);
@@ -235,9 +333,9 @@ function makeView(item: RenderItem): View {
       } else {
         // Solid core in the element colour plus a faint additive halo: additive alone washes out to white on bright ground.
         const color = s.el ? ELEMENT_COLORS[s.el] : s.fx === 'damage' ? COLORS.playerProjectile : fxColor(s.fx, null);
-        const core = new Mesh(GEO.sphere, basic(color, 0.9));
+        const core = new Mesh(GEO.sphere, sharedBasic(color, 0.9));
         core.scale.setScalar(s.r * 0.8);
-        const halo = new Mesh(GEO.sphere, basic(color, 0.25, true));
+        const halo = new Mesh(GEO.sphere, sharedBasic(color, 0.25, true));
         halo.scale.setScalar(s.r * 1.4);
         const g = new Group();
         g.add(core, halo);
@@ -248,26 +346,26 @@ function makeView(item: RenderItem): View {
     }
     case 'swing': {
       const half = s.arc / 2;
-      const m = new Mesh(new RingGeometry(s.r * 0.35, s.r, 24, 1, -s.a - half, s.arc), basic(0xffffff, 0.35, true));
+      const m = new Mesh(own(new RingGeometry(s.r * 0.35, s.r, 24, 1, -s.a - half, s.arc)), sharedBasic(0xffffff, 0.35, true));
       flatOnGround(m, 2);
       root.add(m);
       break;
     }
     case 'nova': {
       const color = fxColor(s.fx, s.el);
-      const m = flatOnGround(new Mesh(GEO.ring, basic(color, 0.8, true)), 3);
+      const m = flatOnGround(new Mesh(GEO.ring, own(basic(color, 0.8, true))), 3);
       m.name = 'ring';
-      const fill = flatOnGround(new Mesh(GEO.disk, basic(color, 0.15, true)), 2);
+      const fill = flatOnGround(new Mesh(GEO.disk, own(basic(color, 0.15, true))), 2);
       fill.name = 'fill';
       root.add(m, fill);
       break;
     }
     case 'zone': {
       const color = fxColor(s.fx, s.el);
-      const fill = flatOnGround(new Mesh(GEO.disk, basic(color, 0.22, true)), 1.5);
+      const fill = flatOnGround(new Mesh(GEO.disk, own(basic(color, 0.22, true))), 1.5);
       fill.scale.setScalar(s.r);
       fill.name = 'fill';
-      const edge = flatOnGround(new Mesh(GEO.thinRing, basic(color, 0.9, true)), 2);
+      const edge = flatOnGround(new Mesh(GEO.thinRing, own(basic(color, 0.9, true))), 2);
       edge.scale.setScalar(s.r);
       edge.name = 'edge';
       root.add(fill, edge);
@@ -275,11 +373,11 @@ function makeView(item: RenderItem): View {
     }
     case 'loot': {
       const color = TIER_COLORS[s.tier];
-      const bag = new Mesh(GEO.sphere, standard(0x8a6a3a, { roughness: 0.9 }));
+      const bag = new Mesh(GEO.sphere, own(standard(0x8a6a3a, { roughness: 0.9 })));
       bag.scale.set(s.r * 0.8, s.r * 0.65, s.r * 0.8);
       bag.position.y = s.r * 0.6;
       bag.castShadow = true;
-      const tie = new Mesh(GEO.cone, standard(color, { emissive: color, emissiveIntensity: 0.6 }));
+      const tie = new Mesh(GEO.cone, own(standard(color, { emissive: color, emissiveIntensity: 0.6 })));
       tie.scale.set(s.r * 0.35, s.r * 0.5, s.r * 0.35);
       tie.position.y = s.r * 1.3;
       body = new Group();
@@ -290,7 +388,7 @@ function makeView(item: RenderItem): View {
       if (s.tier !== 'common') {
         // A short tapered light shaft marks good drops across the screen without a pole sticking out of the ground.
         const strong = s.tier === 'relic' ? 1 : s.tier === 'rare' ? 0.7 : 0.4;
-        const beam = new Mesh(GEO.beam, basic(color, 0.28 * strong, true));
+        const beam = new Mesh(GEO.beam, own(basic(color, 0.28 * strong, true)));
         beam.scale.set(s.r * (0.9 + strong * 0.6), 60 + strong * 80, s.r * (0.9 + strong * 0.6));
         beam.position.y = beam.scale.y / 2;
         beam.name = 'beam';
@@ -298,7 +396,7 @@ function makeView(item: RenderItem): View {
         root.add(beam);
       }
       // Soft and small: a bright disk washed the sack out and read as a spell effect.
-      const glow = flatOnGround(new Mesh(GEO.disk, basic(color, s.tier === 'common' ? 0.06 : 0.12, true)), 0.8);
+      const glow = flatOnGround(new Mesh(GEO.disk, sharedBasic(color, s.tier === 'common' ? 0.06 : 0.12, true)), 0.8);
       glow.scale.setScalar(s.r * 1.4);
       root.add(glow);
       break;
@@ -306,19 +404,21 @@ function makeView(item: RenderItem): View {
   }
 
   if (s.k === 'player' || s.k === 'enemy' || s.k === 'minion') {
-    shield = new Mesh(GEO.sphere, basic(COLORS.shield, 0.18, true));
+    shield = new Mesh(GEO.sphere, own(basic(COLORS.shield, 0.18, true)));
     shield.scale.set(s.r * 1.6, s.r * 2.2, s.r * 1.6);
     shield.position.y = s.r * 1.4;
     shield.visible = false;
     root.add(shield);
   }
 
-  const tint = tintables(root);
-  return {
+  const view: View = {
     root,
-    tintable: tint,
-    baseEmissive: tint.map((m) => m.emissive.clone()),
-    baseIntensity: tint.map((m) => m.emissiveIntensity),
+    tintMeshes: tintMeshes(root),
+    tintable: null,
+    baseEmissive: [],
+    baseIntensity: [],
+    tinted: false,
+    owned,
     body,
     facing,
     healthBar,
@@ -338,6 +438,19 @@ function makeView(item: RenderItem): View {
     mound: null,
     typeId: s.k === 'enemy' ? s.et : null,
   };
+  if (character) attachCharacter(view, character, s);
+  else if (rig && s.k === 'enemy' && s.rare) {
+    // The glow lives on the procedural rig only; a loaded glTF champion is marked by its ring.
+    const mats = ownTint(view);
+    for (const m of mats) {
+      if (m.emissiveIntensity < 1.5) {
+        m.emissive.setHex(COLORS.rareOutline);
+        m.emissiveIntensity = 0.18;
+      }
+    }
+    captureBase(view, mats);
+  }
+  return view;
 }
 
 /** Scales a model so its widest horizontal extent is `width`. */
@@ -363,6 +476,12 @@ export class EntityRenderer {
   private readonly links = new Map<string, Mesh>();
   private readonly linkMat = basic(0x7fe0c0, 0.65, true);
   private time = 0;
+  // Reused every frame so rendering allocates nothing per entity.
+  private readonly seen = new Set<string>();
+  private readonly positions = new Map<number, RenderItem>();
+  private readonly linkSeen = new Set<string>();
+  private readonly linkFrom = new Vector3();
+  private readonly linkTo = new Vector3();
 
   constructor(
     private readonly scene: Scene,
@@ -389,20 +508,15 @@ export class EntityRenderer {
       return;
     }
     const def = characterAsset(item.snap);
-    if (!def || !view.rig) return;
+    if (!def || view.character) return;
     const s = item.snap;
-    const baseRadius = s.k === 'enemy' ? ENEMIES[s.et].radius : s.k === 'minion' ? MINION_DEFS[s.mt].radius : s.r;
     loadCharacter(def, s.id)
       .then((cm) => {
-        if (view.disposed || !view.rig) return;
-        // Rares are bigger in the simulation; the model follows the collision radius.
-        cm.root.scale.multiplyScalar(s.r / baseRadius);
-        view.rig.root.visible = false;
-        view.root.add(cm.root);
-        view.character = cm;
-        view.tintable = cm.materials;
-        view.baseEmissive = cm.baseEmissive;
-        view.baseIntensity = cm.baseIntensity;
+        if (view.disposed) {
+          for (const r of cm.owned) r.dispose();
+          return;
+        }
+        attachCharacter(view, cm, s);
       })
       .catch(() => {
         // Keep the procedural model if the file fails to load.
@@ -440,8 +554,10 @@ export class EntityRenderer {
 
   render(items: readonly RenderItem[], dt: number): void {
     this.time += dt;
-    const seen = new Set<string>();
-    const positions = new Map<number, { x: number; y: number }>();
+    const seen = this.seen;
+    const positions = this.positions;
+    seen.clear();
+    positions.clear();
 
     for (const item of items) {
       seen.add(item.key);
@@ -454,7 +570,7 @@ export class EntityRenderer {
         this.upgrade(view, item);
       }
       view.root.position.set(item.x, 0, item.y);
-      if (item.key.startsWith('s')) positions.set(item.snap.id, { x: item.x, y: item.y });
+      if (item.key.startsWith('s')) positions.set(item.snap.id, item);
       this.update(view, item, dt);
     }
 
@@ -501,7 +617,7 @@ export class EntityRenderer {
       if (o) o.visible = false;
     }
     // Bodies are darker than the living and do not glow, so a fight's aftermath does not read as more monsters.
-    view.tintable.forEach((m) => {
+    ownTint(view).forEach((m) => {
       m.color.multiplyScalar(0.55);
       m.emissiveIntensity = 0;
     });
@@ -537,13 +653,9 @@ export class EntityRenderer {
   private disposeView(view: View): void {
     view.disposed = true;
     this.scene.remove(view.root);
-    view.root.traverse((o) => {
-      if (!(o instanceof Mesh)) return;
-      const mats: Material[] = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) m.dispose();
-      // Shared geometries are reused; only per-view geometry is disposed.
-      if (!Object.values(GEO).some((g) => g === o.geometry)) o.geometry.dispose();
-    });
+    // Only what this view created: glTF geometry, procedural shapes and cached materials are shared with other entities.
+    for (const r of view.owned) r.dispose();
+    view.owned.clear();
   }
 
   private update(view: View, item: RenderItem, dt: number): void {
@@ -551,7 +663,8 @@ export class EntityRenderer {
     const t = this.time;
     if (view.facing && 'a' in s) view.facing.rotation.y = -s.a;
 
-    if (view.rig && (s.k === 'player' || s.k === 'enemy' || s.k === 'minion')) {
+    const rig = view.rig;
+    if ((rig || view.character) && (s.k === 'player' || s.k === 'enemy' || s.k === 'minion')) {
       // Walk cycles follow actual on-screen speed, so interpolated and predicted motion both animate right.
       const moved = Math.hypot(item.x - view.lastX, item.y - view.lastY);
       view.lastX = item.x;
@@ -569,14 +682,14 @@ export class EntityRenderer {
           dt,
         });
         view.attackPending = false;
-      } else {
-        view.rig.root.rotation.y = -s.a;
-        animate(view.rig, t, dt, view.speed, view.attack, view.bob);
+      } else if (rig) {
+        rig.root.rotation.y = -s.a;
+        animate(rig, t, dt, view.speed, view.attack, view.bob);
       }
       if (s.k === 'player') {
-        if (!view.character) {
-          view.rig.root.rotation.z = s.dead ? Math.PI / 2 : 0;
-          view.rig.root.position.y = s.dead ? s.r * 0.4 : s.dashing ? 6 : 0;
+        if (!view.character && rig) {
+          rig.root.rotation.z = s.dead ? Math.PI / 2 : 0;
+          rig.root.position.y = s.dead ? s.r * 0.4 : s.dashing ? 6 : 0;
         }
         this.syncAuras(view, s);
       }
@@ -633,7 +746,7 @@ export class EntityRenderer {
   private syncBurrow(view: View, st: number, r: number, t: number): void {
     const hidden = (st & STATUS.hidden) !== 0;
     if (hidden && !view.mound) {
-      const mound = new Mesh(GEO.sphereLow, new MeshStandardMaterial({ color: 0x6a5238, roughness: 1, flatShading: true }));
+      const mound = new Mesh(GEO.sphereLow, moundMat);
       mound.scale.set(r * 1.2, r * 0.35, r * 1.2);
       view.root.add(mound);
       view.mound = mound;
@@ -687,7 +800,11 @@ export class EntityRenderer {
       b += f * 0.3;
       k = Math.max(k, 0.5);
     }
-    view.tintable.forEach((m, i) => {
+    const active = view.flash > 0 || k > 0;
+    // Untouched views keep their shared materials; there is nothing to write or undo.
+    if (!active && !view.tinted) return;
+    view.tinted = active;
+    ownTint(view).forEach((m, i) => {
       const base = view.baseEmissive[i];
       if (!base) return;
       if (view.flash > 0) {
@@ -713,8 +830,8 @@ export class EntityRenderer {
     s.auras.forEach((a, i) => {
       let ring = view.auraRings[i];
       if (!ring) {
-        ring = flatOnGround(new Mesh(GEO.thinRing, basic(fxColor(a.fx, a.el), 0.5, true)), 1.2 + i * 0.1);
-        const fill = flatOnGround(new Mesh(GEO.disk, basic(fxColor(a.fx, a.el), 0.06, true)), -0.2);
+        ring = flatOnGround(new Mesh(GEO.thinRing, sharedBasic(fxColor(a.fx, a.el), 0.5, true)), 1.2 + i * 0.1);
+        const fill = flatOnGround(new Mesh(GEO.disk, sharedBasic(fxColor(a.fx, a.el), 0.06, true)), -0.2);
         ring.add(fill);
         fill.rotation.x = 0;
         view.root.add(ring);
@@ -727,8 +844,9 @@ export class EntityRenderer {
   }
 
   /** Links draw as glowing tethers between the caster and the target. */
-  private renderLinks(items: readonly RenderItem[], positions: Map<number, { x: number; y: number }>): void {
-    const seen = new Set<string>();
+  private renderLinks(items: readonly RenderItem[], positions: Map<number, RenderItem>): void {
+    const seen = this.linkSeen;
+    seen.clear();
     for (const item of items) {
       if (item.snap.k !== 'player') continue;
       for (const target of item.snap.links) {
@@ -742,8 +860,8 @@ export class EntityRenderer {
           this.links.set(key, m);
           this.scene.add(m);
         }
-        const a = new Vector3(item.x, 30, item.y);
-        const b = new Vector3(to.x, 30, to.y);
+        const a = this.linkFrom.set(item.x, 30, item.y);
+        const b = this.linkTo.set(to.x, 30, to.y);
         const len = a.distanceTo(b);
         m.position.copy(a).add(b).multiplyScalar(0.5);
         m.scale.set(2 + Math.sin(this.time * 8) * 0.6, len, 2 + Math.sin(this.time * 8) * 0.6);
