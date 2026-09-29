@@ -197,11 +197,19 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
  */
 function unpackLegacyTestSigil(sim: Simulation, p: PlayerComp, item: Item): boolean {
   if (!isLegacyTestSigil(item)) return false;
+  // Grouped into stacks, or a full sigil would come back as one bag cell per rune.
+  const stacks = new Map<string, RuneItem>();
   item.runes.forEach((rune, i) => {
-    const back = createRune(sim.newItemUid(), rune, 1);
     // Legacy sigils without per-slot binding count as bound, like the starter item they were.
-    back.bound = item.boundSlots?.[i] ?? true;
-    p.items.set(back.uid, back);
+    const bound = item.boundSlots?.[i] ?? true;
+    const stack = stacks.get(`${rune}:${bound}`);
+    if (stack) stack.count++;
+    else {
+      const back = createRune(sim.newItemUid(), rune, 1);
+      back.bound = bound;
+      stacks.set(`${rune}:${bound}`, back);
+      p.items.set(back.uid, back);
+    }
   });
   return true;
 }
@@ -297,7 +305,8 @@ export function nearForge(sim: Simulation, pid: EntityId): boolean {
 /**
  * Sets a sigil's runes. At the forge this costs runes: new ones come out of the bag and runes taken
  * out go back into it, each exactly as bound as it went in. `free` is the builders' test bench,
- * where nothing is spent and nothing comes back, so the bench can never mint runes.
+ * where nothing is spent and every rune put in is bound. Only unbound runes come back from it:
+ * those were paid for at the forge or came with a drop, while bench runes would be a free supply.
  */
 export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: RuneId[], free = false): string | null {
   const p = sim.world.player.get(pid);
@@ -330,7 +339,8 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
     const owned = ownedRunes(p);
     for (const [r, n] of spend) if ((owned.get(r) ?? 0) < n) return `You need a ${RUNES[r].name} Rune`;
   }
-  if (!free && !roomForRunes(p, refunds)) return 'No room in your bag for the runes you take out';
+  const returned = free ? refunds.filter((r) => !r.bound) : refunds;
+  if (!roomForRunes(p, returned)) return 'No room in your bag for the runes you take out';
 
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
   const previous = { runes: item.runes, boundSlots: item.boundSlots, skill: item.skill };
@@ -348,13 +358,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
     p.links[slot] = null;
   }
   item.boundSlots = runes.map((r, i) => slots[i] ?? (free ? true : takeRune(p, r)));
-  // The free bench hands nothing back: a refund there would be a free supply of runes to carry
-  // to the real forge.
-  if (free) {
-    changed(p);
-    return null;
-  }
-  for (const r of refunds) {
+  for (const r of returned) {
     const back = createRune(sim.newItemUid(), r.rune, r.count);
     if (r.bound) back.bound = true;
     // The room check above makes this fit; pending is the backstop so a rune is never lost.
@@ -574,6 +578,8 @@ function freeBagSpot(sim: Simulation, x: number, y: number, radius: number): { x
     }
     return false;
   };
+  // A boss cache or gold pile offset from the kill can start inside a rock.
+  ({ x, y } = sim.map.findOpen(x, y, radius));
   if (!taken(x, y)) return { x, y };
   for (let ring = 1; ring <= 4; ring++) {
     const d = radius * 2.4 * ring;

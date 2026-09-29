@@ -114,13 +114,18 @@ describe('item safety', () => {
     expect(sellItem(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
   });
 
-  it('the free test bench spends nothing and hands nothing back', () => {
-    const { sim, pid, p } = town();
+  it('the free test bench mints nothing, but gives back runes paid for at the forge', () => {
+    const { sim, pid, p, pos } = town();
     const sigil = blankSigil(sim);
     addItem(p, sigil);
     expect(inscribe(sim, pid, sigil.uid, ['bolt', 'fire'], true)).toBeNull();
     expect(inscribe(sim, pid, sigil.uid, [], true)).toBeNull();
     expect([...p.items.values()].some((i) => i.kind === 'rune')).toBe(false);
+    standAt(pos, sim.mapDef.forge);
+    addItem(p, createRune(sim.newItemUid(), 'cold', 1));
+    expect(inscribe(sim, pid, sigil.uid, ['cold'])).toBeNull();
+    expect(inscribe(sim, pid, sigil.uid, [], true)).toBeNull();
+    expect(runeStacks(p, 'cold').map((s) => [s.count, s.bound === true])).toEqual([[1, false]]);
   });
 
   it('cannot inscribe a sigil that sits in the stash', () => {

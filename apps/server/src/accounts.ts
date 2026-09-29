@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, DEFAULT_SERVER_SETTINGS, isLegacyTestSigil, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -458,7 +458,7 @@ export class AccountStore {
       const v: unknown = JSON.parse(raw);
       if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
       const stock = v.stock.flatMap((e: unknown) =>
-        isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : [],
+        isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) && !isLegacyTestSigil(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : [],
       );
       if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
       // Never hand out an id already on the shelf, whatever the stored counter says.
