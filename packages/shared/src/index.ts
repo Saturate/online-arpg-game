@@ -4,6 +4,8 @@ export * from './data/classes.js';
 export * from './data/enemies.js';
 export * from './data/minions.js';
 export * from './data/monsterPools.js';
+export * from './data/tuning.js';
+export * from './data/tuningSource.js';
 export * from './data/runes.js';
 export * from './items/drops.js';
 export * from './items/items.js';

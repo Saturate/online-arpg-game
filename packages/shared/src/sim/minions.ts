@@ -1,5 +1,4 @@
 import { MINIONS, NAV } from '../config/sim.js';
-import { MINION_DEFS } from '../data/minions.js';
 import { affixValue, behaviourOf } from '../items/items.js';
 import { dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp } from './ecs.js';
@@ -19,7 +18,7 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
   const item = uid === null || uid === undefined ? undefined : owner.items.get(uid);
   if (!item || item.kind !== 'vessel') return null;
 
-  const def = MINION_DEFS[item.minion];
+  const def = sim.tuning.minion(item.minion);
   const levelMult = 1 + MINIONS.levelScaling * (item.level - 1);
   const life = Math.round(def.life * MINIONS.lifeMultiplier * levelMult * (1 + affixValue(item.affixes, 'armored') / 100) * owner.stats.minionLifeMult);
   const a = (Math.PI * 2 * slot) / MINIONS.warbandSlots;
@@ -35,6 +34,7 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
     ownerId,
     slot,
     typeId: item.minion,
+    def,
     affixes: item.affixes,
     behaviour: behaviourOf(item.affixes),
     state: 'follow',
@@ -86,7 +86,7 @@ function engageRules(sim: Simulation, m: MinionComp): EngageRules | null {
   if (m.behaviour === 'bodyguard') {
     return { radius: MINIONS.bodyguardDistance * 3, leash: MINIONS.bodyguardDistance * 4, fromOwner: true };
   }
-  const defaultHunt = MINION_DEFS[m.typeId].defaultBehaviour === 'hunt';
+  const defaultHunt = m.def.defaultBehaviour === 'hunt';
   const mult = m.behaviour === 'hunter' ? MINIONS.hunterEngageMultiplier : defaultHunt ? MINIONS.defaultHuntEngageMultiplier : 1;
   if (stance === 'defensive') {
     return { radius: MINIONS.defensiveEngageRadius * mult, leash: MINIONS.defensiveLeash * mult, fromOwner: true };
@@ -205,7 +205,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
       w.destroy(id);
       continue;
     }
-    const def = MINION_DEFS[m.typeId];
+    const def = m.def;
     if (m.attackCooldown > 0) m.attackCooldown -= dt;
     // Road bonus applies per tick; the stored base speed never changes.
     const speed = m.moveSpeed * sim.map.speedAt(pos.x, pos.y);

@@ -1,8 +1,8 @@
 import type { ZoneId } from '../data/zones.js';
 import type { BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
-import type { EnemyTypeId } from '../data/enemies.js';
-import type { MinionTypeId, Stance } from '../data/minions.js';
+import type { EnemyDef, EnemyTypeId } from '../data/enemies.js';
+import type { MinionDef, MinionTypeId, Stance } from '../data/minions.js';
 import type { ElementId } from '../data/runes.js';
 import type { AffixRoll, Item, ItemUid } from '../items/items.js';
 import type { CompileResult, SpellNode } from '../runes/compiler.js';
@@ -105,6 +105,8 @@ export interface PlayerComp {
 
 export interface EnemyComp {
   typeId: EnemyTypeId;
+  /** The definition it spawned with, admin overrides included. It keeps it for life, so a later change only reaches new spawns. */
+  readonly def: EnemyDef;
   rare: boolean;
   boss: boolean;
   level: number;
@@ -167,6 +169,8 @@ export interface MinionComp {
   ownerId: EntityId;
   slot: number;
   typeId: MinionTypeId;
+  /** Spawn-time definition, admin overrides included; see EnemyComp.def. */
+  readonly def: MinionDef;
   affixes: AffixRoll[];
   behaviour: BehaviourAffixId | null;
   state: MinionState;

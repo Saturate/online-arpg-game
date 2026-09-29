@@ -157,7 +157,7 @@ export function grantShield(sim: Simulation, id: EntityId, amount: number, secon
 export function knockback(sim: Simulation, id: EntityId, fromX: number, fromY: number, strength: number): void {
   const e = sim.world.enemy.get(id);
   const pos = sim.world.position.get(id);
-  if (!e || !pos || strength <= 0 || knockbackImmune(e.typeId)) return;
+  if (!e || !pos || strength <= 0 || knockbackImmune(e)) return;
   const dx = pos.x - fromX;
   const dy = pos.y - fromY;
   const d = Math.hypot(dx, dy) || 1;
