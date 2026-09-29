@@ -217,6 +217,8 @@ export interface SelfState {
   respawnIn: number | null;
   primaryCooldown: number;
   castCooldown: number;
+  /** Full length of the cooldown the last cast set, for sweeping every skill slot against it. */
+  castCooldownFull: number;
   heat: number;
   heatMax: number;
   /** Effective speed with gear; the client predicts with it so gear never causes corrections. */

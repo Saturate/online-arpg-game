@@ -6,7 +6,7 @@ import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram 
 import { acquireLink } from './auras.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
-import type { EntityId, ProjectileComp, SpellInst, Team } from './ecs.js';
+import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
 import { angleDiff, distSq } from './math.js';
 import type { Simulation } from './simulation.js';
 
@@ -41,6 +41,24 @@ function spellDamage(sim: Simulation, node: SpellNode, casterId: EntityId, base:
 // ---------------------------------------------------------------------------------------------
 // Casting
 
+/**
+ * Full length of the cooldown each player's last cast or fizzle set. Sigils differ in cast delay, so
+ * the HUD measures the running cooldown against this rather than each slot's own delay.
+ */
+const castCooldownLengths = new WeakMap<Simulation, Map<EntityId, number>>();
+
+export function castCooldownLength(sim: Simulation, pid: EntityId): number {
+  return castCooldownLengths.get(sim)?.get(pid) ?? 0;
+}
+
+function startCastCooldown(sim: Simulation, pid: EntityId, p: PlayerComp, castDelay: number): void {
+  const seconds = castDelay / p.stats.castSpeedMult;
+  p.castCooldown = seconds;
+  const lengths = castCooldownLengths.get(sim) ?? new Map<EntityId, number>();
+  lengths.set(pid, seconds);
+  castCooldownLengths.set(sim, lengths);
+}
+
 export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed: boolean): void {
   const w = sim.world;
   const p = w.player.get(pid);
@@ -64,7 +82,7 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
     if (p.heat + cost > p.stats.heatMax * (HEAT.overheatMax / HEAT.max)) return;
     p.heat += cost;
     p.heatPause = HEAT.coolPauseSeconds;
-    p.castCooldown = eq.castDelay;
+    startCastCooldown(sim, pid, p, eq.castDelay);
     sim.emit({ e: 'fizzle', id: pid, x: pos.x, y: pos.y, why: 'dud', reason: res.errors[0]?.rule ?? null }, pos.x, pos.y);
     return;
   }
@@ -75,7 +93,7 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   const chance = misfireChance(p.heat, eq.misfireMultiplier, p.stats.heatMax);
   p.heat += cost;
   p.heatPause = HEAT.coolPauseSeconds;
-  p.castCooldown = eq.castDelay / p.stats.castSpeedMult;
+  startCastCooldown(sim, pid, p, eq.castDelay);
   if (chance > 0 && sim.rand.combat.next() < chance) {
     sim.emit({ e: 'fizzle', id: pid, x: pos.x, y: pos.y, why: 'misfire', reason: null }, pos.x, pos.y);
     selfDamage(sim, pid, h.maxLife * HEAT.misfireLifeFraction);

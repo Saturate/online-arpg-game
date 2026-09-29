@@ -8,7 +8,7 @@ import type { EntityId, StatusComp } from './ecs.js';
 import { bestTier } from './inventory.js';
 import { distSq } from './math.js';
 import type { PositionedEvent, Simulation } from './simulation.js';
-import { spellFx } from './spells.js';
+import { castCooldownLength, spellFx } from './spells.js';
 
 function round1(v: number): number {
   return Math.round(v * 10) / 10;
@@ -143,6 +143,7 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
     respawnIn: p.respawnIn,
     primaryCooldown: round2(p.primaryCooldown),
     castCooldown: round2(p.castCooldown),
+    castCooldownFull: round2(castCooldownLength(sim, pid)),
     heat: round1(p.heat),
     spiritMax: p.stats.spiritMax,
     heatMax: p.stats.heatMax,
