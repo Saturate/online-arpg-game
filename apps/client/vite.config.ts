@@ -13,8 +13,8 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // The game and the dev tools are separate pages; dev tools never ship inside the game bundle.
-      input: { main: resolve(import.meta.dirname, 'index.html'), dev: resolve(import.meta.dirname, 'dev.html'), admin: resolve(import.meta.dirname, 'admin.html') },
+      // The game and the staff pages are separate; admin and dev tools never ship inside the game bundle.
+      input: { main: resolve(import.meta.dirname, 'index.html'), admin: resolve(import.meta.dirname, 'admin/index.html'), dev: resolve(import.meta.dirname, 'admin/dev/index.html') },
     },
   },
 });

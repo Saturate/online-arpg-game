@@ -1,5 +1,6 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { StaffGate } from '../admin/access.js';
 import { AssetsTab } from './AssetsTab.js';
 import { LootTab } from './LootTab.js';
 import { ReplayTab } from './ReplayTab.js';
@@ -8,6 +9,14 @@ import { SpellStudioTab } from './SpellStudioTab.js';
 type Tab = 'assets' | 'studio' | 'loot' | 'replay';
 
 function DevApp() {
+  return (
+    <StaffGate title="Allan's ARPG dev tools" permission="devTools">
+      {() => <DevTools />}
+    </StaffGate>
+  );
+}
+
+function DevTools() {
   const [tab, setTab] = useState<Tab>('assets');
   return (
     <div className="dev-app">
@@ -27,6 +36,7 @@ function DevApp() {
             Replay
           </button>
         </nav>
+        <a href="/admin/">Admin</a>
         <a href="/">Back to game</a>
       </header>
       <main className="dev-main">{tab === 'assets' && <AssetsTab />}
@@ -38,7 +48,7 @@ function DevApp() {
 }
 
 const root = document.getElementById('root');
-if (!root) throw new Error('#root missing from dev.html');
+if (!root) throw new Error('#root missing from admin/dev/index.html');
 createRoot(root).render(
   <StrictMode>
     <DevApp />

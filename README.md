@@ -22,7 +22,7 @@ Server env: `PORT` (default 8080), `SEED` (default 1337), `ADMIN_USERS` (comma-s
 
 Controls: WASD to move (screen-relative), mouse to aim. There is no basic attack: left and right mouse cast the skills you pick on the skill bar (click a slot with that button, or scroll; Shift+scroll for the left), and 1 to 4 cast directly. I inventory, C character, K sigil editor (at the forge), T minion stance, Alt loot labels, Delete drops the hovered item, F1 debug, F2 town editor and F3 sandbox (builders), Enter chat (`/help` lists commands). Click-to-move and gamepad are under Esc, Settings.
 
-Create an account (or play as a guest) on the title screen; accounts are stored in `apps/server/data/rune.db`. Delete that file to wipe them. Dev tools live at http://localhost:5173/dev.html (Assets, Spell Studio, loot simulator) and the admin page at http://localhost:5173/admin.html.
+Create an account (or play as a guest) on the title screen; accounts are stored in `apps/server/data/rune.db`. Delete that file to wipe them. Staff pages live under `/admin`: the admin page at http://localhost:5173/admin/ and the dev tools (Assets with .glb export, Spell Studio, loot simulator, replays) at http://localhost:5173/admin/dev/. Both need a staff login; the dev tools need the builder role or higher.
 
 ## Layout
 

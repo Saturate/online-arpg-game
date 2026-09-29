@@ -1,6 +1,7 @@
 import { ASSIGNABLE_ROLES, can, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
+import { StaffGate, type StaffAccess } from './access.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -9,14 +10,6 @@ import { adminApi, api } from '../net/api.js';
  */
 
 type Tab = 'overview' | 'players' | 'settings';
-
-function readToken(): string | null {
-  try {
-    return localStorage.getItem('rune.session');
-  } catch {
-    return null;
-  }
-}
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -486,35 +479,21 @@ function Settings({ token, role, notify }: TabProps) {
 }
 
 export function AdminApp() {
-  const token = readToken();
+  return (
+    <StaffGate title="Allan's ARPG admin" permission="viewAdmin">
+      {(access) => <AdminPage access={access} />}
+    </StaffGate>
+  );
+}
+
+function AdminPage({ access }: { access: StaffAccess }) {
   const [tab, setTab] = useState<Tab>('overview');
-  /** null while checking, the viewer's role when staff, otherwise the reason to show. */
-  const [access, setAccess] = useState<{ role: Role; username: string } | string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const notify = useCallback((t: string) => {
     setToast(t);
     setTimeout(() => setToast((cur) => (cur === t ? null : cur)), 3500);
   }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    void api.characters(token).then((r) => {
-      if (r.ok) return setAccess(can(r.data.role, 'viewAdmin') ? { role: r.data.role, username: r.data.username } : 'This account has no staff role.');
-      setAccess(r.status === 401 ? 'Your session expired. Log in to the game again.' : `Could not reach the server (${r.error}). Reload to retry.`);
-    });
-  }, [token]);
-
-  if (!token || typeof access === 'string') {
-    return (
-      <main className="adm-gate">
-        <h1>Allan's ARPG admin</h1>
-        <p className="muted">{token && typeof access === 'string' ? access : 'Log in to the game first; this page uses the same login.'}</p>
-        <a href="/">Go to the game</a>
-      </main>
-    );
-  }
-  if (access === null) return <main className="adm-gate muted">Checking access</main>;
-  const { role } = access;
+  const { role, token } = access;
   return (
     <div className="adm">
       <header className="adm-header">
@@ -529,6 +508,9 @@ export function AdminApp() {
         <span className="muted adm-who">
           {access.username} <span className="badge gold">{ROLE_INFO[role].name}</span>
         </span>
+        {can(role, 'devTools') && <a href="/admin/dev/">Dev tools</a>}
+        {/* The town editor works on the live town from inside the game, so it has no page of its own. */}
+        {can(role, 'townEdit') && <span className="muted" title="Open the game, stand in town and press F2">Town editor: F2 in town</span>}
         <a href="/">Back to game</a>
       </header>
       <main className="adm-main">

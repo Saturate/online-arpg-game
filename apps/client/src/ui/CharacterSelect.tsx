@@ -214,7 +214,7 @@ export function CharacterSelect() {
         <span className="muted">
           {isStaff && (
             <>
-              <a className="link" href="/admin.html">
+              <a className="link" href="/admin/">
                 Admin
               </a>{' '}
             </>

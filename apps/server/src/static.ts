@@ -50,11 +50,20 @@ export function staticHandler(root: string): (req: IncomingMessage, res: ServerR
     } catch {
       return false;
     }
-    if (path === '/') path = '/index.html';
+    // Staff pages are folders (/admin/, /admin/dev/), each with its own index.html.
+    if (path.endsWith('/')) path += 'index.html';
     // normalize collapses "..", and the prefix check rejects anything that still escapes the root.
     const file = normalize(join(base, path));
     if (file !== base && !file.startsWith(base + sep)) return false;
     const info = await stat(file).catch(() => null);
+    if (info?.isDirectory()) {
+      // Only redirect to folders that are pages, so a bare /assets does not advertise the folder.
+      const index = await stat(join(file, 'index.html')).catch(() => null);
+      if (!index?.isFile()) return false;
+      res.writeHead(301, { location: `${path}/` });
+      res.end();
+      return true;
+    }
     if (!info?.isFile()) return false;
     const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
     res.writeHead(200, {

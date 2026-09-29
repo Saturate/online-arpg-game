@@ -1,0 +1,16 @@
+.staff-gate {
+  max-width: 480px;
+  margin: 15vh auto;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+}
+.staff-gate h1 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 20px;
+  margin: 0;
+}
+.staff-gate a {
+  color: var(--gold);
+}

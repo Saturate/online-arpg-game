@@ -126,7 +126,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 **Items.** Sigils and vessels have an item level, which is the monster level they dropped from. It gates affix tiers: T2 from level 3, T3 from level 5. Rares and relics get random two-word names. "Drop" puts an item on the ground as a bag that the dropper does not re-pick until they step away. Rare and relic ground labels always show; Alt shows all of them.
 
-**Town editor.** F2 in town opens it, and only when the server runs with `TOWN_EDITOR=1`; the dev script sets that. Tools: select/move, place prop, path brush, plaza brush and erase. Keys: Q/E rotate, [ ] scale or length, G snap, Ctrl+Z undo. Save sends the layout to the server. The server validates every field, writes `apps/server/data/town-layout.json` (commit it to keep a designed town), and rebuilds the town room with everyone in it carried over. Portals and the spawn point can be moved but not deleted, and a layout without a Wilds portal is rejected.
+**Town editor.** F2 in town opens it for builders and up (the `townEdit` permission); the admin page points to it. Tools: select/move, place prop, path brush, plaza brush and erase. Keys: Q/E rotate, [ ] scale or length, G snap, Ctrl+Z undo. Save sends the layout to the server. The server validates every field, writes `apps/server/data/town-layout.json` (commit it to keep a designed town), and rebuilds the town room with everyone in it carried over. Portals and the spawn point can be moved but not deleted, and a layout without a Wilds portal is rejected.
 
 ## Accounts and persistence
 
@@ -155,7 +155,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Replays:** a replay is every server message the client received, timestamped. Snapshots carry full state, so feeding them back through the normal `Game` reproduces the session from the recorder's point of view with no simulation on the client. `Game` takes a session that is either live (WebSocket) or replay (a virtual clock that sends nothing). Interpolation runs on that clock, so slow motion and fast forward work.
 - **Recording:** F8 or the Esc menu. Files are gzipped JSON and capped at 10 minutes; a 5.7 s town clip was 5.9 KB. A recording started mid-room is seeded with the last welcome, inventory and staging state.
 - **Seeking:** builds a fresh client at the target time from the last room entry before it. Combat events older than 0.5 s are stripped, so a seek doesn't burst every past hit.
-- **Loot simulator:** `/dev.html` Loot tab. `rollDrops` in `items/drops.ts` is the only drop roll, and both `dropLoot` and the simulator call it.
+- **Loot simulator:** `/admin/dev/` Loot tab. `rollDrops` in `items/drops.ts` is the only drop roll, and both `dropLoot` and the simulator call it.
 - **Dungeon clear:** killing the boss marks the room cleared once. It opens a cache of 3 rare-or-better items, 70% gear, one level up. Everyone inside gets a banner, and the antechamber shows "Last run cleared".
 
 ## Instances, seamless town and waypoints
@@ -195,7 +195,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 ## Admin, roles and accounts
 
 - **Roles:** owner (from `ADMIN_USERS`, never grantable), admin, moderator, builder, player, each a fixed permission set in `protocol/roles.ts`. Staff act only on accounts ranked below them. Builders get the town editor (F2) and the F3 dev tools; moderators and up kick, ban, announce and `/goto` players. Names in `ADMIN_USERS` can't be registered or claimed.
-- **Admin page** (`/admin.html`): online players, games and rooms, announcements, accounts with characters, roles, bans, and live settings (XP and loot rates, motd, registration, world seed, day length, night brightness, and the in-game clock, which can be set or held).
+- **Admin page** (`/admin/`, with the dev tools at `/admin/dev/` for builders and up): online players, games and rooms, announcements, accounts with characters, roles, bans, and live settings (XP and loot rates, motd, registration, world seed, day length, night brightness, and the in-game clock, which can be set or held).
 - **Guests:** "Play as guest" makes an account with a generated name and a one-year session; the character screen offers to claim it with a real name and password. Unclaimed guests are deleted after 90 days without play.
 
 ## Items, loot and economy
