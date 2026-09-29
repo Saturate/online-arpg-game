@@ -946,33 +946,53 @@ function applyCurse(sim: Simulation, pos: Vec2, radius: number): void {
 }
 
 /** Pushes overlapping enemies apart so groups stay readable. */
+/**
+ * Pushes overlapping enemies apart. A zone holds a few hundred enemies, and checking every pair was a
+ * third of an idle zone's tick, so pairs only come from neighbouring grid cells. A cell is as wide
+ * as the biggest pair of radii, so any two enemies that touch sit in the same or adjacent cells.
+ */
 function separateEnemies(sim: Simulation): void {
   const w = sim.world;
-  const ids = [...w.enemy.keys()];
-  for (let i = 0; i < ids.length; i++) {
-    const a = ids[i];
-    if (a === undefined) continue;
-    const pa = w.position.get(a);
-    const ra = w.radius.get(a) ?? 0;
-    if (!pa) continue;
-    for (let j = i + 1; j < ids.length; j++) {
-      const b = ids[j];
-      if (b === undefined) continue;
-      const pb = w.position.get(b);
-      const rb = w.radius.get(b) ?? 0;
-      if (!pb) continue;
-      const dx = pb.x - pa.x;
-      const dy = pb.y - pa.y;
-      // Cheap reject first: the wilds hold a few hundred enemies spread over a big map.
-      if (Math.abs(dx) > ra + rb || Math.abs(dy) > ra + rb) continue;
-      const d = Math.hypot(dx, dy);
-      const overlap = ra + rb - d;
-      if (overlap <= 0 || d === 0) continue;
-      const push = overlap / 2 / d;
-      pa.x -= dx * push;
-      pa.y -= dy * push;
-      pb.x += dx * push;
-      pb.y += dy * push;
+  const bodies: { pos: { x: number; y: number }; r: number; cx: number; cy: number; order: number }[] = [];
+  let maxR = 0;
+  for (const id of w.enemy.keys()) {
+    const pos = w.position.get(id);
+    if (!pos) continue;
+    const r = w.radius.get(id) ?? 0;
+    maxR = Math.max(maxR, r);
+    bodies.push({ pos, r, cx: 0, cy: 0, order: bodies.length });
+  }
+  const cell = Math.max(32, maxR * 2);
+  const cells = new Map<number, typeof bodies>();
+  // Wide enough that neighbouring keys never collide for any map size.
+  const key = (cx: number, cy: number): number => cx * 65536 + cy;
+  for (const b of bodies) {
+    b.cx = Math.floor(b.pos.x / cell);
+    b.cy = Math.floor(b.pos.y / cell);
+    const k = key(b.cx, b.cy);
+    const list = cells.get(k);
+    if (list) list.push(b);
+    else cells.set(k, [b]);
+  }
+  for (const a of bodies) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (const b of cells.get(key(a.cx + dx, a.cy + dy)) ?? []) {
+          // Each pair once, in the same order as before, so results stay deterministic.
+          if (b.order <= a.order) continue;
+          const ox = b.pos.x - a.pos.x;
+          const oy = b.pos.y - a.pos.y;
+          if (Math.abs(ox) > a.r + b.r || Math.abs(oy) > a.r + b.r) continue;
+          const d = Math.hypot(ox, oy);
+          const overlap = a.r + b.r - d;
+          if (overlap <= 0 || d === 0) continue;
+          const push = overlap / 2 / d;
+          a.pos.x -= ox * push;
+          a.pos.y -= oy * push;
+          b.pos.x += ox * push;
+          b.pos.y += oy * push;
+        }
+      }
     }
   }
 }

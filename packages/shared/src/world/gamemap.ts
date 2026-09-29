@@ -70,7 +70,8 @@ export class GameMap {
   private readonly cols: number;
   private readonly rows: number;
   private readonly grid: Obstacle[][];
-  private readonly roads: Shape[];
+  /** Roads per hash cell. Every mover asks for its ground speed every tick, so no full scan. */
+  private readonly roadGrid: Shape[][];
 
   constructor(readonly def: WorldMap) {
     this.width = def.width;
@@ -78,15 +79,9 @@ export class GameMap {
     this.cols = Math.ceil(def.width / HASH_CELL) + 1;
     this.rows = Math.ceil(def.height / HASH_CELL) + 1;
     this.grid = Array.from({ length: this.cols * this.rows }, () => []);
-    this.roads = def.ground.filter((g) => g.kind === 'road').map((g) => g.shape);
-    for (const o of def.obstacles) {
-      const b = shapeBounds(o.shape);
-      const cx0 = clamp(Math.floor(b.x0 / HASH_CELL), 0, this.cols - 1);
-      const cy0 = clamp(Math.floor(b.y0 / HASH_CELL), 0, this.rows - 1);
-      const cx1 = clamp(Math.floor(b.x1 / HASH_CELL), 0, this.cols - 1);
-      const cy1 = clamp(Math.floor(b.y1 / HASH_CELL), 0, this.rows - 1);
-      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) this.grid[cy * this.cols + cx]?.push(o);
-    }
+    this.roadGrid = Array.from({ length: this.cols * this.rows }, () => []);
+    for (const o of def.obstacles) this.forCells(o.shape, (i) => this.grid[i]?.push(o));
+    for (const g of def.ground) if (g.kind === 'road') this.forCells(g.shape, (i) => this.roadGrid[i]?.push(g.shape));
 
     const cell = NAV.cellSize;
     this.navCols = Math.ceil(def.width / cell);
@@ -98,6 +93,16 @@ export class GameMap {
         this.walkable[cy * this.navCols + cx] = blocked ? 0 : 1;
       }
     }
+  }
+
+  /** Calls `visit` with every hash cell a shape's bounds touch. */
+  private forCells(shape: Shape, visit: (cell: number) => void): void {
+    const b = shapeBounds(shape);
+    const cx0 = clamp(Math.floor(b.x0 / HASH_CELL), 0, this.cols - 1);
+    const cy0 = clamp(Math.floor(b.y0 / HASH_CELL), 0, this.rows - 1);
+    const cx1 = clamp(Math.floor(b.x1 / HASH_CELL), 0, this.cols - 1);
+    const cy1 = clamp(Math.floor(b.y1 / HASH_CELL), 0, this.rows - 1);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) visit(cy * this.cols + cx);
   }
 
   private nearby(x: number, y: number, pad: number): Set<Obstacle> {
@@ -175,7 +180,9 @@ export class GameMap {
 
   /** Movement speed multiplier at a point: faster on roads and paths. */
   speedAt(x: number, y: number): number {
-    for (const r of this.roads) {
+    const cx = clamp(Math.floor(x / HASH_CELL), 0, this.cols - 1);
+    const cy = clamp(Math.floor(y / HASH_CELL), 0, this.rows - 1);
+    for (const r of this.roadGrid[cy * this.cols + cx] ?? []) {
       const c = closest(r, x, y);
       if (c.inside || (x - c.cx) ** 2 + (y - c.cy) ** 2 <= c.pad * c.pad) return 1 + GROUND.roadSpeedBonus;
     }

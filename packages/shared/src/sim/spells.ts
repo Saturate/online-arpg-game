@@ -480,21 +480,30 @@ function hitAllies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numbe
 }
 
 /** Enemy bullets. Bodyguard minions are checked first with a bigger hitbox so they intercept shots aimed at their master. */
+/** The player side's targets for enemy bullets, bodyguards first. Built once per tick, not per bullet. */
+const bulletTargets = new WeakMap<Simulation, { tick: number; list: { tid: EntityId; bonus: number }[] }>();
+
+function playerSideTargets(sim: Simulation): { tid: EntityId; bonus: number }[] {
+  const cached = bulletTargets.get(sim);
+  if (cached?.tick === sim.tick) return cached.list;
+  const w = sim.world;
+  const list: { tid: EntityId; bonus: number }[] = [];
+  for (const [mid, m] of w.minion) list.push({ tid: mid, bonus: m.behaviour === 'bodyguard' ? MINIONS.bodyguardInterceptBonus : 0 });
+  list.sort((a, b) => b.bonus - a.bonus);
+  for (const pid of w.player.keys()) list.push({ tid: pid, bonus: 0 });
+  bulletTargets.set(sim, { tick: sim.tick, list });
+  return list;
+}
+
 function hitPlayersSide(sim: Simulation, id: EntityId, proj: ProjectileComp, x: number, y: number, r: number): void {
   const w = sim.world;
-  const candidates: { tid: EntityId; bonus: number }[] = [];
-  for (const [mid, m] of w.minion) {
-    candidates.push({ tid: mid, bonus: m.behaviour === 'bodyguard' ? MINIONS.bodyguardInterceptBonus : 0 });
-  }
-  candidates.sort((a, b) => b.bonus - a.bonus);
-  for (const pid of w.player.keys()) candidates.push({ tid: pid, bonus: 0 });
-
-  for (const { tid, bonus } of candidates) {
-    if (!isTargetable(sim, tid)) continue;
+  for (const { tid, bonus } of playerSideTargets(sim)) {
     const tpos = w.position.get(tid);
     if (!tpos) continue;
     const reach = r + (w.radius.get(tid) ?? 0) + bonus;
+    // Distance first: isTargetable is the costlier check and most targets are far from the bullet.
     if (distSq(x, y, tpos.x, tpos.y) > reach * reach) continue;
+    if (!isTargetable(sim, tid)) continue;
     dealDamage(sim, tid, proj.damage, proj.ownerId, proj.elements);
     w.destroy(id);
     return;
