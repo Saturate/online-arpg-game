@@ -822,6 +822,9 @@ export class Game {
       if (bubble && bubble.until > performance.now()) labels.push({ key: `b${self.id}`, x: px, y: py, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
     }
     for (const p of room.def.portals) labels.push({ key: `portal-${p.x}-${p.y}`, x: p.x, y: p.y, text: p.label, color: '#e0d0ff', height: p.r * 2 + 40, className: 'fx-label portal' });
+    // The trader's stall and the stash chest look like any other props, so they are named.
+    if (room.def.trader) labels.push({ key: 'trader', x: room.def.trader.x, y: room.def.trader.y, text: 'Trader', color: '#e8c860', height: 110, className: 'fx-label portal' });
+    if (room.def.stash) labels.push({ key: 'stash', x: room.def.stash.x, y: room.def.stash.y, text: 'Stash', color: '#e8c860', height: 70, className: 'fx-label portal' });
 
     this.playEvents(now);
     entities.render(items, dt);

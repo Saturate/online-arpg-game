@@ -224,7 +224,8 @@ function defaultLayout(): TownLayout {
     plazas: [{ x: cx, y: cy, r: 280 }],
     portals: [
       { target: 'wilds', x: cx, y: 150 },
-      { target: 'arena', x: width - 150, y: cy },
+      // Off the roads and away from the gates, so walking out of town never drops you in the Arena.
+      { target: 'arena', x: cx - 200, y: cy + 350 },
     ],
     decor: [
       ...[
