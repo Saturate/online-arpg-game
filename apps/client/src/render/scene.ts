@@ -20,6 +20,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { COLORS, VIEW } from './config.js';
+import { applyGrit } from './grit.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
@@ -31,6 +32,9 @@ export interface GroundBasis {
   right: Vec2;
   up: Vec2;
 }
+
+// Before any material compiles; see grit.ts.
+applyGrit();
 
 interface Lighting {
   sky: number;

@@ -2056,7 +2056,7 @@ kbd {
 }
 /* The KayKit models are bright toy colours; a global grade mutes them toward a D2/PoE palette. */
 .canvas-host canvas {
-  filter: saturate(0.68) contrast(1.08) sepia(0.12);
+  filter: saturate(0.8) contrast(1.08) sepia(0.1);
 }
 .skill.active .skill-icon,
 .skill.active .skill-blank {
