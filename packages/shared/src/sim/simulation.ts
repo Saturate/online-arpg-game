@@ -12,6 +12,7 @@ import { loadMap } from '../world/maps.js';
 import { FlowField } from '../world/nav.js';
 import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
 import { HOME_ZONE, type ZoneId } from '../data/zones.js';
+import type { ArenaState } from './arena.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
 import * as inv from './inventory.js';
@@ -70,6 +71,17 @@ export interface SimRates {
   forceRampMax: number;
 }
 
+/**
+ * Per-room switches the server sets when it opens a room, so rules follow the room's purpose rather
+ * than its map. Arena runs are switched on separately with `startArena`.
+ */
+export interface RoomRules {
+  /** Builders may inscribe for free here: the private sandbox. */
+  bench: boolean;
+  /** The map's own endless waves run. Off in the sandbox, where builders spawn what they test. */
+  waves: boolean;
+}
+
 export const DEFAULT_RATES: SimRates = { xp: 1, loot: 1, forceMax: HEAT.max, forceCost: 1, forceCool: 1, forceRampMax: HEAT.coolRampMax };
 
 export class Simulation {
@@ -98,6 +110,9 @@ export class Simulation {
       p.heat = Math.min(p.heat, p.stats.heatMax);
     }
   }
+  readonly rules: RoomRules;
+  /** Set by `startArena`: this room is a scored Arena run (one life, no loot, reduced XP). */
+  arena: ArenaState | null = null;
   /** A dungeon's boss has died. Set once; the server announces it. */
   cleared = false;
   /** Filled by the portal system; the server drains it and moves players between rooms. */
@@ -105,8 +120,10 @@ export class Simulation {
   private events: PositionedEvent[] = [];
   private nextItemUid = 1;
 
-  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }) {
+  /** Without explicit rules the flat test map keeps the bench, so tests and the spell studio can inscribe freely. */
+  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }, rules: Partial<RoomRules> = {}) {
     this.seed = seed;
+    this.rules = { bench: mapDesc.kind === 'flat', waves: true, ...rules };
     this.rng = new Rng(seed);
     this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world') };
     this.mapDesc = mapDesc;
@@ -284,9 +301,9 @@ export class Simulation {
     return spawnEnemy(this, typeId, x, y, { rare, level: 1, aggro: true });
   }
 
-  /** Maps where builders may inscribe freely (the test bench); everyone else uses the forge. */
+  /** Rooms where builders may inscribe freely (the test bench); everyone else uses the forge. */
   get editorAllowed(): boolean {
-    return this.mapDef.theme === 'arena' || this.mapDef.theme === 'flat';
+    return this.rules.bench && this.arena === null;
   }
 
   // Commands from the inventory and editor UI. Each returns an error message, or null on success.

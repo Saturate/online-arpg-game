@@ -640,8 +640,9 @@ export function dropLoot(sim: Simulation, enemyId: EntityId): void {
   const w = sim.world;
   const e = w.enemy.get(enemyId);
   const pos = w.position.get(enemyId);
-  // Summoned adds drop nothing, or a necromancer would be an endless loot fountain.
-  if (!e || !pos || e.summonerId !== null || !e.rewards) return;
+  // Summoned adds drop nothing, or a necromancer would be an endless loot fountain. Arena runs drop
+  // nothing at all: they pay in score and XP.
+  if (!e || !pos || e.summonerId !== null || !e.rewards || sim.arena) return;
   const items = rollDrops(sim.rand.loot, () => sim.newItemUid(), { level: e.level, rare: e.rare, boss: e.boss }, undefined, sim.rates.loot);
   if (items.length > 0) spawnBag(sim, pos.x, pos.y, items, LOOT.bagRadius * (e.rare ? WAVES.rareScale : 1), null);
   if (e.rare || e.boss || sim.rand.loot.next() < LOOT.goldChance * sim.rates.loot) {

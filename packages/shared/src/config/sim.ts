@@ -140,6 +140,35 @@ export const WAVES = {
   spinnerFromWave: 3,
 } as const;
 
+/** Arena runs: scored waves from the Arena gate. Separate from WAVES, which the sandbox-style maps keep. */
+export const ARENA = {
+  firstWaveDelaySeconds: 3,
+  /** Breather after a wave is cleared, long enough to reposition but not to rest fully. */
+  breatherSeconds: 5,
+  baseCount: 6,
+  perWave: 2,
+  maxCount: 40,
+  /** Each extra living player adds this share of the base count. */
+  perExtraPlayer: 0.6,
+  rareChanceBase: 0.05,
+  rareChancePerWave: 0.025,
+  rareChanceMax: 0.45,
+  /** Chance that a spawn slot brings a whole pack from the biome pool instead of one monster. */
+  packChancePerWave: 0.04,
+  packChanceMax: 0.4,
+  packSize: { min: 3, max: 5 },
+  /** Monster level starts at the party's average level and climbs half a level per wave. */
+  levelPerWave: 0.5,
+  bossEvery: 5,
+  /** Clearing wave n adds n times this to the score, so surviving longer pays beyond the kills. */
+  waveClearBonus: 40,
+  /** Share of normal XP. Arena kills come fast and in bulk, so full XP would outpace the world. */
+  xpMultiplier: 0.5,
+  /** How long the score screen shows before everyone is sent back to the gate. */
+  resultSeconds: 10,
+  leaderboardSize: 10,
+} as const;
+
 export const LOOT = {
   bagLifetimeSeconds: 90,
   bagRadius: 16,

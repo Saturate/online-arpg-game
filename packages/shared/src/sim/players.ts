@@ -36,7 +36,8 @@ export function updatePlayers(sim: Simulation, dt: number): void {
     } else p.heatIdle = 0;
     if (p.respawnIn === null && p.stats.lifeRegen > 0 && h.life < h.maxLife) h.life = Math.min(h.maxLife, h.life + p.stats.lifeRegen * dt);
 
-    if (p.respawnIn === null) continue;
+    // One life per Arena run: the fallen stay down and watch until the run ends.
+    if (p.respawnIn === null || sim.arena) continue;
     p.respawnIn -= dt;
     if (p.respawnIn > 0) continue;
     p.respawnIn = null;

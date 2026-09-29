@@ -999,7 +999,7 @@ function separateEnemies(sim: Simulation): void {
 }
 
 export function updateWaves(sim: Simulation, dt: number): void {
-  if (!sim.mapDef.waves) return;
+  if (!sim.mapDef.waves || !sim.rules.waves) return;
   const w = sim.world;
   const players = [...w.player.keys()];
   if (players.length === 0) return;
@@ -1047,7 +1047,7 @@ export function updateWaves(sim: Simulation, dt: number): void {
 }
 
 /** Near a random player, but never on top of any player or inside an obstacle. */
-function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
+export function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
   const w = sim.world;
   const m = WAVES.spawnMargin;
   const minD = WAVES.minSpawnDistance * WAVES.minSpawnDistance;

@@ -1,4 +1,4 @@
-import { PROGRESSION } from '../config/sim.js';
+import { ARENA, PROGRESSION } from '../config/sim.js';
 import type { Item } from '../items/items.js';
 import type { EnemyComp, EntityId } from './ecs.js';
 import { refreshStats } from './inventory.js';
@@ -41,7 +41,8 @@ export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number)
     if (p.respawnIn === null && pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) near.push(id);
   }
   if (near.length === 0) return;
-  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp;
+  const arena = sim.arena ? ARENA.xpMultiplier : 1;
+  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;
   for (const id of near) {
     const p = w.player.get(id);
     if (p) addXp(sim, id, (pool / near.length) * grayFactor(p.level, e.level));

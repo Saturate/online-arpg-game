@@ -253,12 +253,21 @@ export function generateDungeon(ref: DungeonRef, run: number): DungeonLayout {
  * The antechamber: a small safe hall where a party gathers before a run. The sealed gate at the east
  * end opens once everyone inside is ready, and stays open for latecomers while a run is live.
  */
-export function stagingMap(ref: DungeonRef): WorldMap {
-  const rng = new Rng(ref.seed ^ 0x5eed);
+interface AntechamberOptions {
+  name: string;
+  seed: number;
+  /** The way out, on the west wall. */
+  back: { target: 'wilds' | 'town'; label: string };
+  gateLabel: string;
+}
+
+/** A torch-lit hall with a narrowing throat toward the gate; dungeons and the Arena share it. */
+function antechamber(o: AntechamberOptions): { map: WorldMap; rng: Rng } {
+  const rng = new Rng(o.seed ^ 0x5eed);
   const width = 1400;
   const height = 900;
   const map = emptyMap({
-    name: `${dungeonName(ref.seed)}: Antechamber`,
+    name: o.name,
     theme: 'staging',
     width,
     height,
@@ -270,7 +279,6 @@ export function stagingMap(ref: DungeonRef): WorldMap {
   const cols = Math.round(width / CELL);
   const rows = Math.round(height / CELL);
   const floor = new Uint8Array(cols * rows);
-  // A hall with a narrowing throat toward the gate.
   for (let y = 3; y < rows - 3; y++) for (let x = 2; x < cols - 7; x++) floor[y * cols + x] = 1;
   for (let y = 8; y < rows - 8; y++) for (let x = cols - 7; x < cols - 2; x++) floor[y * cols + x] = 1;
   for (let y = 0; y < rows; y++) {
@@ -285,14 +293,20 @@ export function stagingMap(ref: DungeonRef): WorldMap {
     }
   }
   map.obstacles.push(...wallsFromGrid(floor, cols, rows));
-  map.portals.push({ x: 180, y: height / 2, r: 40, target: 'wilds', label: 'Back to the Wilds' });
-  map.portals.push({ x: (cols - 3) * CELL, y: height / 2, r: 50, target: 'dungeon', label: 'Gate' });
+  map.portals.push({ x: 180, y: height / 2, r: 40, target: o.back.target, label: o.back.label });
+  map.portals.push({ x: (cols - 3) * CELL, y: height / 2, r: 50, target: 'dungeon', label: o.gateLabel });
   map.lamps = [
     { x: 200, y: 180 },
     { x: 200, y: height - 180 },
     { x: 800, y: 180 },
     { x: 800, y: height - 180 },
   ];
+  return { map, rng };
+}
+
+export function stagingMap(ref: DungeonRef): WorldMap {
+  const { map, rng } = antechamber({ name: `${dungeonName(ref.seed)}: Antechamber`, seed: ref.seed, back: { target: 'wilds', label: 'Back to the Wilds' }, gateLabel: 'Gate' });
+  const height = map.height;
   for (const [asset, x, y] of [
     ['dungeon_banner_red', 520, 150],
     ['dungeon_banner_blue', 700, 150],
@@ -306,6 +320,38 @@ export function stagingMap(ref: DungeonRef): WorldMap {
     ['dungeon_crates_stacked', 300, height - 170],
   ] as const) {
     map.decor.push({ asset, x, y, angle: rng.range(-0.2, 0.2), scale: 1 });
+  }
+  return map;
+}
+
+/**
+ * The Arena gate: the same hall, hung with red, a pile of the pit's dead by the gate, and the
+ * champions' stone (the leaderboard) against the north wall.
+ */
+export function arenaGateMap(): WorldMap {
+  const { map, rng } = antechamber({ name: 'Arena Gate', seed: 0xa7e7a, back: { target: 'town', label: 'Back to town' }, gateLabel: 'The Pit' });
+  const height = map.height;
+  const board = { x: 620, y: 190 };
+  map.board = board;
+  for (const [asset, x, y, scale] of [
+    ['grave_gravestone', board.x, board.y, 2.4],
+    ['dungeon_candle_lit', board.x - 50, board.y + 24, 1.2],
+    ['dungeon_candle_lit', board.x + 50, board.y + 24, 1.2],
+    ['dungeon_banner_red', 440, 150, 1],
+    ['dungeon_banner_red', 800, 150, 1],
+    ['dungeon_banner_red', 440, height - 150, 1],
+    ['dungeon_banner_red', 800, height - 150, 1],
+    ['grave_ribcage', 1010, height / 2 - 110, 1.2],
+    ['grave_skull', 1040, height / 2 - 90, 1.4],
+    ['grave_bone_A', 990, height / 2 + 100, 1.3],
+    ['grave_skull', 1020, height / 2 + 120, 1.2],
+    ['dungeon_rubble_half', 960, height / 2 + 150, 1],
+    ['dungeon_barrel_large', 300, 170, 1],
+    ['dungeon_crates_stacked', 300, height - 170, 1],
+    ['dungeon_torch_lit', 1060, height / 2 - 150, 1],
+    ['dungeon_torch_lit', 1060, height / 2 + 150, 1],
+  ] as const) {
+    map.decor.push({ asset, x, y, angle: rng.range(-0.2, 0.2), scale });
   }
   return map;
 }

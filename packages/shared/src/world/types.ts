@@ -30,8 +30,9 @@ export interface Bridge {
 }
 
 /**
- * `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from there into the dungeon
- * itself; `zone` is an area transition at a zone's edge; `waypoint` opens the waypoint menu.
+ * `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from an antechamber (a
+ * dungeon's or the Arena gate) into the run itself; `arena` leads from town to the Arena gate;
+ * `zone` is an area transition at a zone's edge; `waypoint` opens the waypoint menu.
  */
 export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon' | 'zone' | 'waypoint';
 
@@ -112,6 +113,8 @@ export interface WorldMap {
   trader?: Vec2;
   /** Where sigils are inscribed with runes; only maps with a town have one. */
   forge?: Vec2;
+  /** The Arena leaderboard stone; only the Arena gate has one. */
+  board?: Vec2;
 }
 
 export interface Decor {
@@ -123,9 +126,11 @@ export interface Decor {
   scale: number;
 }
 
-/** `flat` is an empty open field used by tests. */
+/** `flat` is an empty open field, used by tests and the builders' sandbox. `arena` is the pit an Arena run is fought in. */
 export type MapDescriptor =
   | { kind: 'arena' }
+  /** The antechamber in front of the Arena: ready check and leaderboard. */
+  | { kind: 'arenaGate' }
   | { kind: 'town'; layout?: TownLayout }
   | { kind: 'flat' }
   | { kind: 'wilds'; seed: number }

@@ -3,14 +3,14 @@ import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, inRect, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
-import { dungeonMap, dungeonName, stagingMap } from './dungeon.js';
+import { arenaGateMap, dungeonMap, dungeonName, stagingMap } from './dungeon.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
 import type { MapDescriptor, MonsterPack, SafeZone, WorldMap } from './types.js';
 import type { Vec2 } from '../sim/math.js';
 import { HOME_ZONE, nextZone, previousZone, ZONES, type ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
-/** Test arena: one river, rocks, a forest and ruins. Endless waves. */
+/** The Arena pit: one river, rocks, a forest and ruins. Arena runs are fought here. */
 function arenaMap(): WorldMap {
   const rng = new Rng(7);
   const width = 2800;
@@ -366,6 +366,8 @@ function buildMap(desc: MapDescriptor): WorldMap {
   switch (desc.kind) {
     case 'arena':
       return arenaMap();
+    case 'arenaGate':
+      return arenaGateMap();
     case 'town':
       return layoutToMap(desc.layout ?? DEFAULT_TOWN_LAYOUT);
     case 'flat':

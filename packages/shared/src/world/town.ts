@@ -109,7 +109,7 @@ export function isOakAt(def: WorldMap, x: number, y: number): boolean {
 /** Town portals lead to fixed places; dungeon portals only exist out in the Wilds. */
 export type TownPortalTarget = Extract<PortalTarget, 'town' | 'wilds' | 'arena'>;
 
-const PORTAL_LABELS: Record<TownPortalTarget, string> = { town: 'Town', wilds: 'The Wilds', arena: 'Arena (test)' };
+const PORTAL_LABELS: Record<TownPortalTarget, string> = { town: 'Town', wilds: 'The Wilds', arena: 'Arena' };
 
 export function layoutToMap(layout: TownLayout): WorldMap {
   const map = emptyMap({

@@ -1,4 +1,5 @@
 import { NAV } from '../config/sim.js';
+import { updateArenaWaves } from './arena.js';
 import { updateAuras } from './auras.js';
 import { isTargetable } from './combat.js';
 import { updateStatuses } from './combat.js';
@@ -47,5 +48,5 @@ export const SYSTEMS: readonly System[] = [
   { name: 'zones', run: updateZones },
   { name: 'swings', run: updateSwings },
   { name: 'loot', run: updateLoot },
-  { name: 'waves', run: updateWaves },
+  { name: 'waves', run: (sim, dt) => (sim.arena ? updateArenaWaves(sim, dt) : updateWaves(sim, dt)) },
 ];
