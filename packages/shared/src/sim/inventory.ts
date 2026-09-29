@@ -191,21 +191,28 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
   changed(p);
 }
 
+/**
+ * Takes an old Test Sigil apart: the sigil goes, the runes in it come back as they went in (per
+ * slot), as pending items that placePending then finds room for. True when `item` was one.
+ */
+function unpackLegacyTestSigil(sim: Simulation, p: PlayerComp, item: Item): boolean {
+  if (!isLegacyTestSigil(item)) return false;
+  item.runes.forEach((rune, i) => {
+    const back = createRune(sim.newItemUid(), rune, 1);
+    // Legacy sigils without per-slot binding count as bound, like the starter item they were.
+    back.bound = item.boundSlots?.[i] ?? true;
+    p.items.set(back.uid, back);
+  });
+  return true;
+}
+
 /** Rebuilds a character that arrived from another room. Item uids are reissued for this room. */
 export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): void {
   const p = sim.world.player.get(pid);
   if (!p) return;
   const remap = new Map<ItemUid, ItemUid>();
   for (const item of save.items) {
-    if (isLegacyTestSigil(item)) {
-      // Anything inscribed into it comes back, bound like the sigil was; it lands as pending below.
-      for (const [rune, n] of countRunes(item.runes)) {
-        const back = createRune(sim.newItemUid(), rune, n);
-        back.bound = true;
-        p.items.set(back.uid, back);
-      }
-      continue;
-    }
+    if (unpackLegacyTestSigil(sim, p, item)) continue;
     const uid = sim.newItemUid();
     remap.set(item.uid, uid);
     p.items.set(uid, { ...item, uid });
@@ -290,14 +297,15 @@ export function nearForge(sim: Simulation, pid: EntityId): boolean {
 /**
  * Sets a sigil's runes. At the forge this costs runes: new ones come out of the bag and runes taken
  * out go back into it, each exactly as bound as it went in. `free` is the builders' test bench,
- * where nothing is spent and every rune put in is bound, so the bench can never mint runes that
- * can be sold, stashed or handed to someone else.
+ * where nothing is spent and nothing comes back, so the bench can never mint runes.
  */
 export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: RuneId[], free = false): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   const item = p.items.get(uid);
   if (!item || item.kind !== 'sigil') return 'Not a sigil you own';
+  // Only a sigil the character carries: one in the shared stash could carry bound runes to another.
+  if (!inBag(p, uid) && !p.sigils.some((s) => s?.uid === uid)) return 'Take the sigil out of the stash first';
   // Saving an unchanged sigil must not turn a prebaked skill into a hand-inscribed copy of it. Checked
   // before capacity, because prebaked skills hold more runes than their sigil's slots.
   if (runes.length === item.runes.length && runes.every((r, i) => r === item.runes[i])) return null;
@@ -322,7 +330,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
     const owned = ownedRunes(p);
     for (const [r, n] of spend) if ((owned.get(r) ?? 0) < n) return `You need a ${RUNES[r].name} Rune`;
   }
-  if (!roomForRunes(p, refunds)) return 'No room in your bag for the runes you take out';
+  if (!free && !roomForRunes(p, refunds)) return 'No room in your bag for the runes you take out';
 
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
   const previous = { runes: item.runes, boundSlots: item.boundSlots, skill: item.skill };
@@ -340,6 +348,12 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
     p.links[slot] = null;
   }
   item.boundSlots = runes.map((r, i) => slots[i] ?? (free ? true : takeRune(p, r)));
+  // The free bench hands nothing back: a refund there would be a free supply of runes to carry
+  // to the real forge.
+  if (free) {
+    changed(p);
+    return null;
+  }
   for (const r of refunds) {
     const back = createRune(sim.newItemUid(), r.rune, r.count);
     if (r.bound) back.bound = true;
@@ -568,7 +582,9 @@ function freeBagSpot(sim: Simulation, x: number, y: number, radius: number): { x
       const a = (i / steps) * Math.PI * 2 + ring * 0.5;
       const px = x + Math.cos(a) * d;
       const py = y + Math.sin(a) * d;
-      if (!taken(px, py) && !sim.map.pointBlocked(px, py, radius, 'move')) return { x: px, y: py };
+      // Also in sight of where it fell: pickup needs a clear line, so a bag behind a thin wall would
+      // be out of reach from everywhere.
+      if (!taken(px, py) && !sim.map.pointBlocked(px, py, radius, 'move') && sim.map.lineClear(x, y, px, py, 0, 'shots')) return { x: px, y: py };
     }
   }
   return { x, y };
@@ -710,6 +726,11 @@ function placePending(p: PlayerComp): void {
   for (const uid of pendingItems(p)) {
     const item = p.items.get(uid);
     if (!item) continue;
+    // Bound items stay with the character: bag or pending, never the account's shared stash.
+    if (isBound(item) || holdsBoundRunes(item)) {
+      stow(p, uid);
+      continue;
+    }
     const s = itemSize(item);
     const inStash = findSpot(p.stash, STASH, s);
     if (inStash) place(p.stash, STASH, uid, s, inStash.x, inStash.y);
@@ -738,6 +759,7 @@ export function restoreStash(sim: Simulation, pid: EntityId, stash: StashSave): 
   if (!p) return;
   const remap = new Map<ItemUid, ItemUid>();
   for (const item of stash.items) {
+    if (unpackLegacyTestSigil(sim, p, item)) continue;
     const uid = sim.newItemUid();
     remap.set(item.uid, uid);
     p.items.set(uid, { ...item, uid });

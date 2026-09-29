@@ -58,6 +58,8 @@ interface PendingSpawn {
   summonerId: EntityId | null;
   lifeShare: number;
   raised: boolean;
+  /** Carried from the monster that made it, so a dev-spawned splitter's children pay nothing either. */
+  rewards: boolean;
 }
 
 interface MonsterState {
@@ -440,7 +442,7 @@ function flushPendingSpawns(sim: Simulation): void {
     if (e) {
       e.summonerId = p.summonerId;
       e.raised = p.raised;
-      e.rewards = !p.raised;
+      e.rewards = p.rewards;
     }
     if (h) h.life = Math.max(1, Math.round(h.maxLife * p.lifeShare));
   }
@@ -718,7 +720,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
     case 'summon': {
       const room = a.cap - liveSummons(sim, id);
       for (const p of points.slice(0, Math.max(0, room))) {
-        state(sim).pending.push({ typeId: a.type, x: p.x, y: p.y, level: e.level, summonerId: id, lifeShare: 1, raised: false });
+        state(sim).pending.push({ typeId: a.type, x: p.x, y: p.y, level: e.level, summonerId: id, lifeShare: 1, raised: false, rewards: e.rewards });
       }
       break;
     }
@@ -750,7 +752,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       const found = corpsesNear(sim, pos.x, pos.y, a.radius).slice(0, a.count);
       for (const c of found) {
         s.corpses = s.corpses.filter((x) => x !== c);
-        s.pending.push({ typeId: c.typeId, x: c.x, y: c.y, level: c.level, summonerId: null, lifeShare: 0.6, raised: true });
+        s.pending.push({ typeId: c.typeId, x: c.x, y: c.y, level: c.level, summonerId: null, lifeShare: 0.6, raised: true, rewards: false });
         sim.emit({ e: 'cast', id, x: c.x, y: c.y, el: null }, c.x, c.y);
         sim.emit({ e: 'raise', x: c.x, y: c.y }, c.x, c.y);
       }
@@ -929,7 +931,7 @@ export function onEnemyDeath(sim: Simulation, id: EntityId, e: EnemyComp, pos: V
   if (t.splitInto) {
     for (let k = 0; k < t.splitInto.count; k++) {
       const a = (Math.PI * 2 * k) / t.splitInto.count + sim.rand.world.range(0, 0.6);
-      s.pending.push({ typeId: t.splitInto.type, x: pos.x + Math.cos(a) * 26, y: pos.y + Math.sin(a) * 26, level: e.level, summonerId: null, lifeShare: 1, raised: false });
+      s.pending.push({ typeId: t.splitInto.type, x: pos.x + Math.cos(a) * 26, y: pos.y + Math.sin(a) * 26, level: e.level, summonerId: null, lifeShare: 1, raised: false, rewards: e.rewards });
     }
   }
 }

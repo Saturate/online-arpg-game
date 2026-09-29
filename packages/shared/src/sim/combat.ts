@@ -182,12 +182,14 @@ function kill(sim: Simulation, id: EntityId): void {
 
   const e = w.enemy.get(id);
   if (e) {
+    // Dead first: the store entries stay readable until the end of the tick, and if a reward below
+    // throws, the monster must not survive at 0 life to pay out again on the next hit.
+    w.destroy(id);
     sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'enemy', color: ENEMIES[e.typeId].color, big: e.rare }, pos.x, pos.y);
     dropLoot(sim, id);
     onEnemyDeath(sim, id, e, pos);
     if (e.boss) onBossKilled(sim, pos.x, pos.y, e.level);
     grantKillXp(sim, e, pos.x, pos.y);
-    w.destroy(id);
     return;
   }
 

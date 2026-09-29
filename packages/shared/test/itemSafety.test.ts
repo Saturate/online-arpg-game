@@ -114,14 +114,57 @@ describe('item safety', () => {
     expect(sellItem(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
   });
 
-  it('the free test bench puts runes in bound, so it cannot mint sellable ones', () => {
-    const { sim, pid, p, pos } = town();
+  it('the free test bench spends nothing and hands nothing back', () => {
+    const { sim, pid, p } = town();
     const sigil = blankSigil(sim);
     addItem(p, sigil);
     expect(inscribe(sim, pid, sigil.uid, ['bolt', 'fire'], true)).toBeNull();
+    expect(inscribe(sim, pid, sigil.uid, [], true)).toBeNull();
+    expect([...p.items.values()].some((i) => i.kind === 'rune')).toBe(false);
+  });
+
+  it('cannot inscribe a sigil that sits in the stash', () => {
+    const { sim, pid, p, pos } = town();
+    standAt(pos, sim.mapDef.stash);
+    const sigil = blankSigil(sim);
+    addItem(p, sigil);
+    expect(moveItem(sim, pid, sigil.uid, 'stash', 0, 0)).toBeNull();
     standAt(pos, sim.mapDef.forge);
-    expect(inscribe(sim, pid, sigil.uid, [])).toBeNull();
-    expect([...runeStacks(p, 'bolt'), ...runeStacks(p, 'fire')].every((s) => s.bound === true)).toBe(true);
+    expect(inscribe(sim, pid, sigil.uid, ['bolt'], true)).toBe('Take the sigil out of the stash first');
+  });
+
+  it('bound items found on load go to the bag, never the shared stash', () => {
+    const { sim, pid } = town();
+    const save = sim.exportPlayer(pid);
+    if (!save) throw new Error('no save');
+    const bound = createGear(9998, sim.rand.loot, 'common', 1, { category: 'ring' });
+    bound.bound = true;
+    save.items.push(bound);
+    const other = new Simulation(5, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const id = other.addPlayer('c', 'mage', 'P', save);
+    const p = other.world.player.get(id);
+    if (!p) throw new Error('setup');
+    const ring = [...p.items.values()].find((i) => i.kind === 'gear' && i.bound === true && i.category === 'ring');
+    if (!ring) throw new Error('ring lost');
+    expect(p.stash.includes(ring.uid)).toBe(false);
+    expect(p.inventory.includes(ring.uid)).toBe(true);
+  });
+
+  it('children of a dev-spawned splitter pay nothing either', () => {
+    const sim = new Simulation(2);
+    const pid = sim.addPlayer('b', 'mage');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('setup');
+    applyDev(sim, pid, { c: 'spawn', enemy: 'ooze', count: 1, level: 20, rare: false, x: 900, y: 900 });
+    const xp = p.xp;
+    for (let round = 0; round < 4; round++) {
+      for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, 1e9, pid, []);
+      sim.step();
+      sim.step();
+    }
+    expect(sim.world.enemy.size).toBe(0);
+    expect(sim.world.loot.size).toBe(0);
+    expect(p.xp).toBe(xp);
   });
 
   it('saving an unchanged sigil keeps its prebaked skill', () => {

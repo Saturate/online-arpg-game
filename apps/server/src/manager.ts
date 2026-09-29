@@ -530,11 +530,13 @@ export class RoomManager implements AdminHooks {
     const entry = this.market.stock.find((e) => e.id === id);
     if (!room) return;
     if (!entry) return client.send({ t: 'notice', text: 'Someone else bought that' });
-    const error = room.buy(client, entry.item, entry.price);
+    // Priced now, not when it was sold, so a shelf saved under older prices cannot be bought cheap.
+    const price = buyPrice(entry.item);
+    const error = room.buy(client, entry.item, price);
     if (error) return client.send({ t: 'notice', text: error });
     this.market = { ...this.market, stock: this.market.stock.filter((e) => e.id !== id) };
     this.saveTrade(client, room);
-    this.system(client, `Bought ${entry.item.name} for ${entry.price} gold`);
+    this.system(client, `Bought ${entry.item.name} for ${price} gold`);
   }
 
   /** The character and the shelf are written together, then everyone at a trader sees the new shelf. */
@@ -892,11 +894,16 @@ export class RoomManager implements AdminHooks {
     const saves: CharacterSaveRow[] = [];
     for (const room of this.rooms.values()) {
       for (const m of room.members.values()) {
-        const save = room.exportMember(m.client);
-        const { characterId, accountId } = m.client;
-        if (!save || characterId === null || accountId === null) continue;
-        const { character, stash } = splitStash(save);
-        saves.push({ characterId, save: character, accountId, stash });
+        // One broken room or save must not cost everyone else theirs, least of all in the crash handler.
+        try {
+          const save = room.exportMember(m.client);
+          const { characterId, accountId } = m.client;
+          if (!save || characterId === null || accountId === null) continue;
+          const { character, stash } = splitStash(save);
+          saves.push({ characterId, save: character, accountId, stash });
+        } catch (err) {
+          console.error(`[room ${room.id}] could not export ${m.client.accountName ?? m.client.id} for saving`, err);
+        }
       }
     }
     this.store.saveMany(saves);
