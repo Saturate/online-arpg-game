@@ -5,6 +5,7 @@ import { ItemIcon, SlotSilhouette } from './icons.js';
 import { compareGear, DRAG_TYPE, dropAction, parseDrag, quickAction, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
 import { affixPips, placeTooltip, unusable } from './itemView.js';
 import { ItemDetails, tierColor } from './parts.js';
+import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, useUi } from './store.js';
 import './inventory.css';
 
@@ -69,6 +70,25 @@ function Comparison({ item }: { item: Item }) {
   );
 }
 
+/** For items that reserve spirit: what it holds now, or what equipping it would leave free. */
+function SpiritPreview({ item, place }: { item: Item; place: ItemPlace | null }) {
+  const classId = useUi((s) => s.classId);
+  const spiritMax = useUi((s) => s.spiritMax);
+  const reserved = useUi((s) => s.spiritReserved);
+  if (!classId) return null;
+  const cost = spiritCost(item, classId);
+  if (cost === null) return null;
+  const equipped = place?.at === 'sigil' || place?.at === 'warband';
+  const free = spiritMax - reserved;
+  if (equipped) return <p className="tt-spirit">Holds {cost} spirit while equipped</p>;
+  const after = free - cost;
+  return (
+    <p className={`tt-spirit${after < 0 ? ' bad' : ''}`}>
+      Reserves {cost} spirit · {free} free now{after < 0 ? `, needs ${-after} more` : `, ${after} after`}
+    </p>
+  );
+}
+
 export function ItemTooltip() {
   const { item, x, y, place } = useHover();
   const classId = useUi((s) => s.classId);
@@ -85,6 +105,7 @@ export function ItemTooltip() {
   return (
     <div className={`tooltip tt tt-${item.tier}`} style={tier} ref={ref} role="tooltip">
       <ItemDetails item={item} classId={classId} />
+      <SpiritPreview item={item} place={place} />
       {place?.at === 'bag' && <Comparison item={item} />}
       <footer className="tt-hint">
         {place?.at === 'stash'

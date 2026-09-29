@@ -1,10 +1,11 @@
 import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, skillById, type SigilItem } from '@rune/shared';
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
+import { spiritUses } from './spirit.js';
 import { compileFor, itemByUid, pickSkill, useUi } from './store.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
@@ -112,6 +113,56 @@ function PanelButtons() {
   );
 }
 
+/**
+ * Spirit as a segmented bar: one segment per persistent skill or bound minion, the rest free.
+ * Hovering lists what holds how much, so it is clear what to take off to fit something new.
+ */
+function SpiritBar() {
+  const spiritMax = useUi((s) => s.spiritMax);
+  const reserved = useUi((s) => s.spiritReserved);
+  const inv = useUi((s) => s.inventory);
+  const classId = useUi((s) => s.classId);
+  const [open, setOpen] = useState(false);
+  const uses = inv && classId ? spiritUses(inv, classId) : [];
+  const free = Math.max(0, spiritMax - reserved);
+  const pct = (n: number) => `${spiritMax > 0 ? (n / spiritMax) * 100 : 0}%`;
+  return (
+    <div className="spirit-bar" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      {uses.map((u) => (
+        <div key={u.key} className={`spirit-seg ${u.kind}`} style={{ width: pct(u.spirit) }} />
+      ))}
+      <span>
+        Spirit {reserved} reserved · {free} free
+      </span>
+      {open && (
+        <div className="spirit-pop panel" role="tooltip">
+          <h4>
+            Spirit {reserved} / {spiritMax}
+          </h4>
+          {uses.length === 0 ? (
+            <p className="muted">Nothing reserved. Persistent skills (auras, links) and bound minions each hold some spirit while equipped.</p>
+          ) : (
+            <ul>
+              {uses.map((u) => (
+                <li key={u.key}>
+                  <i className={`spirit-dot ${u.kind}`} />
+                  {u.name}
+                  <b>{u.spirit}</b>
+                </li>
+              ))}
+              <li className="free">
+                <i className="spirit-dot" />
+                Free
+                <b>{free}</b>
+              </li>
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Warband() {
   const classId = useUi((s) => s.classId);
   const inv = useUi((s) => s.inventory);
@@ -143,12 +194,9 @@ export function Hud() {
   const maxLife = useUi((s) => s.maxLife);
   const heat = useUi((s) => s.heat);
   const heatMax = useUi((s) => s.heatMax);
-  const spiritMax = useUi((s) => s.spiritMax);
-  const spiritReserved = useUi((s) => s.spiritReserved);
   const respawnIn = useUi((s) => s.respawnIn);
   const roomName = useUi((s) => s.roomName);
   const lowLife = maxLife > 0 && life / maxLife < 0.3;
-  const spiritRatio = spiritMax > 0 ? spiritReserved / spiritMax : 0;
   return (
     <>
       {lowLife && respawnIn === null && <div className="low-life-vignette" />}
@@ -156,12 +204,7 @@ export function Hud() {
         <Orb label="Life" value={life} max={maxLife} kind="life" danger={lowLife} />
         <div className="hud-center">
           <XpBar />
-          <div className="spirit-bar" title={`Spirit reserved ${spiritReserved} / ${spiritMax}`}>
-            <div style={{ width: `${spiritRatio * 100}%` }} />
-            <span>
-              Spirit {spiritReserved} / {spiritMax}
-            </span>
-          </div>
+          <SpiritBar />
           <div className="skillbar">
             {[0, 1, 2, 3].map((slot) => (
               <SkillSlot key={slot} slot={slot} />

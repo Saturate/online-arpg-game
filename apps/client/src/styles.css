@@ -1046,9 +1046,67 @@ kbd {
   border-radius: 5px;
   overflow: hidden;
 }
-.spirit-bar div {
+.spirit-bar {
+  display: flex;
+  overflow: visible;
+}
+.spirit-seg {
   height: 100%;
+  border-right: 1px solid #0c0a14;
+}
+.spirit-seg.skill,
+.spirit-dot.skill {
   background: linear-gradient(90deg, #5a3cc0, #9a7cff);
+}
+.spirit-seg.minion,
+.spirit-dot.minion {
+  background: linear-gradient(90deg, #3a8a5a, #7ad69a);
+}
+.spirit-pop {
+  position: absolute;
+  /* .panel positions itself from the top with a max height; this one hangs above the bar instead. */
+  top: auto;
+  right: auto;
+  max-height: none;
+  overflow: visible;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  padding: 8px 10px;
+  z-index: 20;
+  pointer-events: none;
+}
+.spirit-pop h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.spirit-pop ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+}
+.spirit-pop li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.spirit-pop li b {
+  margin-left: auto;
+}
+.spirit-pop li.free {
+  color: var(--muted, #aaa);
+  border-top: 1px solid #2a2240;
+  padding-top: 3px;
+}
+.spirit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #2a2240;
 }
 .spirit-bar span {
   position: absolute;
