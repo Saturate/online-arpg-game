@@ -128,6 +128,7 @@ export class Simulation {
       prevButtons: 0,
       heat: 0,
       heatPause: 0,
+      heatIdle: 0,
       dash: null,
       dashSpell: null,
       items: new Map(),

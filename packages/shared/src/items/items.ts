@@ -186,7 +186,7 @@ export function sigilMods(item: SigilItem): CompileMods & { misfireMultiplier: n
     ...NEUTRAL_MODS,
     maxDepthBonus: affixValue(a, 'max_depth'),
     splitEfficiencyBonus: affixValue(a, 'split_efficiency'),
-    heatMultiplier: 1 - affixValue(a, 'heat_reduced') / 100,
+    heatMultiplier: HEAT.costMultiplier * (1 - affixValue(a, 'heat_reduced') / 100),
     spiritMultiplier: 1 - affixValue(a, 'spirit_reduced') / 100,
     areaMultiplier: 1 + affixValue(a, 'area_increased') / 100,
     damageMultiplier: 1 + affixValue(a, 'damage_increased') / 100,

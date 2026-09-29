@@ -32,8 +32,16 @@ export const HEAT = {
   displayName: 'Force',
   max: 1000,
   overheatMax: 1300,
-  coolPerSecond: 25,
+  coolPerSecond: 30,
   coolPauseSeconds: 0.5,
+  /**
+   * Cooling speeds up the longer you go without casting: +100% of the base rate per second, up to
+   * six times, so a full bar clears in about eight seconds instead of making you wait it out.
+   */
+  coolRampPerSecond: 1,
+  coolRampMax: 6,
+  /** Every skill costs this share of its listed Force. */
+  costMultiplier: 0.75,
   /** Misfire chance grows linearly from 0 at `max` to this value at `overheatMax`. */
   misfireChanceAtCap: 0.5,
   misfireLifeFraction: 0.1,

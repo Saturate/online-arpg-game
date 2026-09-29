@@ -63,6 +63,8 @@ export interface PlayerComp {
   prevButtons: number;
   heat: number;
   heatPause: number;
+  /** Seconds cooling without a cast, which speeds the cooling up; see HEAT.coolRampPerSecond. */
+  heatIdle: number;
   dash: DashState | null;
   /** Server-only data for the dash spell in flight; the movement part lives in `dash`. */
   dashSpell: { inst: SpellInst; hitIds: Set<EntityId>; hitFired: boolean } | null;
