@@ -91,7 +91,7 @@ function isAccounts(v: unknown): v is AdminAccount[] {
 }
 
 function isSettings(v: unknown): v is ServerSettings {
-  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.devTools === 'boolean';
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean';
 }
 
 function isOk(v: unknown): v is { ok: true } {

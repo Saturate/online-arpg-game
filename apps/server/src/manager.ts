@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SERVER_SETTINGS,
   HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
@@ -28,8 +27,6 @@ import { Room } from './room.js';
 import { Staging } from './staging.js';
 import { loadTownLayout, saveTownLayout, townEditorEnabled } from './townStore.js';
 
-/** DEV_TOOLS=1 turns the encounter sandbox on at boot; admins can flip it later from the admin page. */
-const devToolsAtBoot = process.env.DEV_TOOLS === '1';
 const startedAt = Date.now();
 const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
 
@@ -77,10 +74,11 @@ export class RoomManager implements AdminHooks {
   constructor(
     seed: number,
     private readonly store: AccountStore,
+    /** Lower-cased usernames from ADMIN_USERS; they get dev tools in the world. */
+    private readonly adminUsers: ReadonlySet<string> = new Set(),
   ) {
     this.seedCounter = seed;
-    // DEV_TOOLS only seeds a fresh database; after that the admin page decides.
-    this.current = store.loadSettings({ ...DEFAULT_SERVER_SETTINGS, devTools: devToolsAtBoot });
+    this.current = store.loadSettings();
     this.townLayout = loadTownLayout();
     this.arena = this.createRoom('arena', { kind: 'arena' }, null);
   }
@@ -96,7 +94,6 @@ export class RoomManager implements AdminHooks {
   }
 
   private applySettings(room: Room): void {
-    room.devTools = this.current.devTools;
     room.sim.rates = { xp: this.current.xpRate, loot: this.current.lootRate };
   }
 
@@ -109,14 +106,7 @@ export class RoomManager implements AdminHooks {
   updateSettings(patch: Partial<ServerSettings>): ServerSettings {
     this.current = { ...this.current, ...patch };
     this.store.saveSettings(this.current);
-    for (const room of this.rooms.values()) {
-      const hadDev = room.devTools;
-      this.applySettings(room);
-      // Clients read the dev flag from the welcome, so they learn about a change on the next one.
-      if (hadDev === room.devTools) continue;
-      if (!room.devTools) room.clearDevEffects();
-      room.rewelcome();
-    }
+    for (const room of this.rooms.values()) this.applySettings(room);
     return this.settings();
   }
 
@@ -540,6 +530,7 @@ export class RoomManager implements AdminHooks {
     }
     client.accountId = account.id;
     client.accountName = account.username;
+    client.admin = this.adminUsers.has(account.username.toLowerCase());
     client.characterId = character.id;
     // Everyone starts in a game of their own, like D2; friends join it from the menu.
     const inst = this.newInstance(character.name);

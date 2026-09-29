@@ -19,6 +19,8 @@ export class Client {
   accountId: number | null = null;
   /** For the admin overview. */
   accountName = '';
+  /** Listed in ADMIN_USERS; gets the encounter sandbox and dev commands. */
+  admin = false;
   characterId: number | null = null;
   messageCount = 0;
   /** Recent chat send times, for the chat rate limit (separate from the general message limit). */

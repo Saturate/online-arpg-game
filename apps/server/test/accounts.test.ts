@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AccountStore } from '../src/accounts.js';
 import { AccountApi, RateLimiter, type AdminHooks } from '../src/http.js';
+import { Client, type ClientSocket } from '../src/client.js';
 import { Room } from '../src/room.js';
 
 describe('AccountStore', () => {
@@ -54,14 +55,12 @@ describe('AccountStore', () => {
 });
 
 describe('server settings', () => {
-  it('round-trip through the store, and fall back to the given defaults when missing or corrupt', () => {
+  it('round-trip through the store, and fall back to defaults when missing or corrupt', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'rune-settings-')), 'rune.db');
     const store = new AccountStore(file);
-    const devDefaults = { ...DEFAULT_SERVER_SETTINGS, devTools: true };
-    expect(store.loadSettings(devDefaults)).toEqual(devDefaults);
+    expect(store.loadSettings()).toEqual(DEFAULT_SERVER_SETTINGS);
     store.saveSettings({ ...DEFAULT_SERVER_SETTINGS, xpRate: 3, motd: 'hi' });
-    // Once saved, the stored value wins over the boot default.
-    expect(store.loadSettings(devDefaults)).toMatchObject({ xpRate: 3, motd: 'hi', devTools: false });
+    expect(store.loadSettings()).toMatchObject({ xpRate: 3, motd: 'hi' });
     store.close();
     const raw = new DatabaseSync(file);
     raw.prepare(`UPDATE settings SET value = '{"xpRate":999,"motd":"kept","registrationOpen":false}' WHERE key = 'server'`).run();
@@ -74,15 +73,32 @@ describe('server settings', () => {
     reopened.close();
   });
 
-  it('turning dev tools off undoes god mode and time scale', () => {
+  it('gives dev tools to admins only, and resets time scale when the last admin leaves', () => {
+    const sent = new Map<string, string[]>();
+    const client = (id: string, admin: boolean): Client => {
+      const out: string[] = [];
+      sent.set(id, out);
+      const socket: ClientSocket = { readyState: 1, OPEN: 1, send: (data) => out.push(String(data)), close: () => undefined };
+      const c = new Client(id, socket);
+      c.admin = admin;
+      return c;
+    };
     const room = new Room('t', { kind: 'flat' }, 1);
-    const pid = room.sim.addPlayer('c', 'warrior');
-    const p = room.sim.world.player.get(pid);
-    if (!p) throw new Error('no player');
-    p.god = true;
-    room.timeScale = 4;
-    room.clearDevEffects();
-    expect(p.god).toBe(false);
+    const admin = client('a', true);
+    const player = client('p', false);
+    room.add(admin, 'mage', 'Boss');
+    room.add(player, 'warrior', 'Pleb');
+    const welcomes = (id: string) => (sent.get(id) ?? []).filter((m) => m.includes('"t":"welcome"'));
+    expect(welcomes('a').at(-1)).toContain('"devTools":true');
+    expect(welcomes('p').at(-1)).toContain('"devTools":false');
+
+    room.handle(player, { t: 'dev', cmd: { c: 'timeScale', scale: 4 } });
+    expect(room.timeScale).toBe(1);
+    expect(sent.get('p')?.some((m) => m.includes('admins only'))).toBe(true);
+
+    room.handle(admin, { t: 'dev', cmd: { c: 'timeScale', scale: 4 } });
+    expect(room.timeScale).toBe(4);
+    room.remove(admin);
     expect(room.timeScale).toBe(1);
   });
 });

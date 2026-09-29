@@ -89,11 +89,9 @@ export interface ServerSettings {
   /** Shown to everyone as they enter the world; empty for none. */
   motd: string;
   registrationOpen: boolean;
-  /** The F3 encounter sandbox for every player. */
-  devTools: boolean;
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, devTools: false };
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true };
 
 /** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
 export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200 } as const;
@@ -113,7 +111,7 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     // Sent as a system chat line, so it gets the same cleaning as chat.
     out.motd = cleanChat(value.motd) ?? '';
   }
-  for (const key of ['registrationOpen', 'devTools'] as const) {
+  for (const key of ['registrationOpen'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     if (typeof v !== 'boolean') return `${key} must be true or false`;

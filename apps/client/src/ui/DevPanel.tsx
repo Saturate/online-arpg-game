@@ -48,7 +48,7 @@ export function DevPanel() {
         <header>
           <h2>Encounter sandbox</h2>
         </header>
-        <p className="muted">Dev tools are off on this server. Start it with DEV_TOOLS=1.</p>
+        <p className="muted">Dev tools are for admins. Add your username to ADMIN_USERS on the server.</p>
       </section>
     );
   }

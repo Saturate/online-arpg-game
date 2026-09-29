@@ -65,7 +65,7 @@ export type ClientMessage =
   | { t: 'unequipGear'; slot: GearSlot }
   /** Town editor: replace the town layout. Only honoured when the server enables the editor. */
   | { t: 'saveTown'; layout: TownLayout }
-  /** Encounter sandbox. Only honoured when the server runs with DEV_TOOLS=1. */
+  /** Encounter sandbox. Only honoured for accounts listed in ADMIN_USERS. */
   | { t: 'dev'; cmd: DevCommand };
 
 /** Status flags packed into one number per entity. */

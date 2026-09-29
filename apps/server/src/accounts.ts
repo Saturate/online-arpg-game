@@ -214,8 +214,9 @@ export class AccountStore {
       });
   }
 
-  /** `defaults` covers a fresh database and any field a stored row lacks or has corrupted. */
-  loadSettings(defaults: ServerSettings = DEFAULT_SERVER_SETTINGS): ServerSettings {
+  /** Defaults cover a fresh database and any field a stored row lacks or has corrupted. */
+  loadSettings(): ServerSettings {
+    const defaults = DEFAULT_SERVER_SETTINGS;
     const r = row(this.db.prepare("SELECT value FROM settings WHERE key = 'server'").get());
     const raw = r?.value;
     if (typeof raw !== 'string') return { ...defaults };

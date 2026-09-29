@@ -35,8 +35,6 @@ export class Room {
   paused = false;
   /** Set by the manager on the town room when the town editor is enabled on this server. */
   townEditor = false;
-  /** Dev tools (encounter sandbox) are enabled on this server. */
-  devTools = false;
   /** Encounter sandbox time scale: simulation steps per server tick, accumulated so fractions work. */
   timeScale = 1;
   private timeAccumulator = 0;
@@ -89,17 +87,6 @@ export class Room {
     return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
-  /** Undoes what dev commands left running, once an admin turns dev tools off. */
-  clearDevEffects(): void {
-    this.timeScale = 1;
-    for (const p of this.sim.world.player.values()) p.god = false;
-  }
-
-  /** Resends the welcome to everyone, after a setting it carries (like dev tools) changes. */
-  rewelcome(): void {
-    for (const m of this.members.values()) this.welcome(m);
-  }
-
   /** Removes the client's player and returns their character for the next room. */
   remove(client: Client): PlayerSave | null {
     const m = this.members.get(client.id);
@@ -108,6 +95,8 @@ export class Room {
     this.sim.removePlayer(m.playerId);
     this.members.delete(client.id);
     if (client.room === this) client.room = null;
+    // Time scale is room-wide, so it must not outlast the last admin who could set it back.
+    if (![...this.members.values()].some((o) => o.client.admin)) this.timeScale = 1;
     for (const other of this.members.values()) this.welcome(other);
     return save;
   }
@@ -157,8 +146,8 @@ export class Room {
         error = this.sim.unequipGear(pid, msg.slot);
         break;
       case 'dev': {
-        if (!this.devTools) {
-          client.send({ t: 'notice', text: 'Dev tools are disabled on this server' });
+        if (!client.admin) {
+          client.send({ t: 'notice', text: 'Dev tools are for admins only' });
           return;
         }
         if (msg.cmd.c === 'timeScale') {
@@ -217,7 +206,7 @@ export class Room {
       canPause: this.canPause,
       editor: this.sim.editorAllowed,
       townEditor: this.townEditor,
-      devTools: this.devTools,
+      devTools: m.client.admin,
       build: SERVER_BUILD,
     });
     m.sentInventoryVersion = -1;

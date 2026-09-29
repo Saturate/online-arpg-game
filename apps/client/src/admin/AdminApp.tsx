@@ -318,8 +318,6 @@ function Settings({ token, notify }: { token: string; notify: (t: string) => voi
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    // Dev commands run in the live world, so anything spawned is saved onto real characters.
-    if (draft.devTools && !saved.devTools && !window.confirm('Dev tools let every player spawn items and monsters, and items they make are saved to their characters. Turn them on?')) return;
     const r = await adminApi.saveSettings(token, draft);
     if (!r.ok) return notify(r.error);
     setSaved(r.data);
@@ -350,10 +348,6 @@ function Settings({ token, notify }: { token: string; notify: (t: string) => voi
       <label className="adm-check">
         <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
         Registration open <small className="muted">New accounts can be created</small>
-      </label>
-      <label className="adm-check">
-        <input type="checkbox" checked={draft.devTools} onChange={(e) => setDraft({ ...draft, devTools: e.target.checked })} />
-        Dev tools for everyone <small className="muted">The F3 encounter sandbox: spawning, god mode, items. Leave off for normal play.</small>
       </label>
       <div className="adm-actions">
         <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>

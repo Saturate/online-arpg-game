@@ -2,7 +2,7 @@ import { NET } from '@rune/shared';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { AccountStore } from './accounts.js';
-import { AccountApi } from './http.js';
+import { AccountApi, parseAdminUsers } from './http.js';
 import { RoomManager } from './manager.js';
 import { staticHandler } from './static.js';
 
@@ -10,9 +10,10 @@ const port = Number(process.env.PORT ?? NET.defaultPort);
 const seed = Number(process.env.SEED ?? 1337);
 
 const store = new AccountStore();
-const rooms = new RoomManager(seed, store);
+const adminUsers = parseAdminUsers(process.env.ADMIN_USERS);
+const rooms = new RoomManager(seed, store, adminUsers);
 rooms.start();
-const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId), rooms);
+const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId), rooms, adminUsers);
 
 // Production serves the built client from here; in dev Vite does it.
 const serveStatic = process.env.STATIC_DIR ? staticHandler(process.env.STATIC_DIR) : null;
