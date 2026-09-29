@@ -324,10 +324,39 @@ export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | 
   return null;
 }
 
+/**
+ * Bags landing on the same spot would stack into one unreadable pile of labels, so each drop takes
+ * the nearest free spot around where it fell, like D2 items scattering. Fixed ring offsets keep it
+ * deterministic.
+ */
+function freeBagSpot(sim: Simulation, x: number, y: number, radius: number): { x: number; y: number } {
+  const w = sim.world;
+  const taken = (px: number, py: number): boolean => {
+    for (const [id] of w.loot) {
+      const p = w.position.get(id);
+      if (p && (p.x - px) ** 2 + (p.y - py) ** 2 < (radius * 2.2) ** 2) return true;
+    }
+    return false;
+  };
+  if (!taken(x, y)) return { x, y };
+  for (let ring = 1; ring <= 4; ring++) {
+    const d = radius * 2.4 * ring;
+    const steps = 6 * ring;
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2 + ring * 0.5;
+      const px = x + Math.cos(a) * d;
+      const py = y + Math.sin(a) * d;
+      if (!taken(px, py) && !sim.map.pointBlocked(px, py, radius, 'move')) return { x: px, y: py };
+    }
+  }
+  return { x, y };
+}
+
 export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, ignoreFor: EntityId | null): void {
   const w = sim.world;
+  const spot = freeBagSpot(sim, x, y, radius);
   const id = w.create('loot');
-  w.position.set(id, { x, y });
+  w.position.set(id, spot);
   w.radius.set(id, radius);
   w.loot.set(id, { items, lifetime: LOOT.bagLifetimeSeconds, ignoreFor });
 }

@@ -162,6 +162,8 @@ export type GameEvent =
    */
   | { e: 'tele'; id: EntityId; shape: 'circle'; x: number; y: number; r: number; t: number; el: ElementId | null }
   | { e: 'tele'; id: EntityId; shape: 'line'; x: number; y: number; x2: number; y2: number; w: number; t: number; el: ElementId | null }
+  /** A corpse at (x, y) was raised, so clients remove the body there. */
+  | { e: 'raise'; x: number; y: number }
   /** A damaging ground puddle that lasts `t` seconds. */
   | { e: 'hazard'; x: number; y: number; r: number; t: number; kind: 'poison' | 'fire' | 'frost' };
 

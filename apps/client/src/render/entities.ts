@@ -1,5 +1,6 @@
-import { CLASSES, ENEMIES, MINION_DEFS, STATUS, type ClassId, type EntitySnap } from '@rune/shared';
+import { CLASSES, ENEMIES, familyOf, MINION_DEFS, STATUS, type ClassId, type EnemyTypeId, type EntityId, type EntitySnap } from '@rune/shared';
 import {
+  Box3,
   AdditiveBlending,
   BackSide,
   BoxGeometry,
@@ -27,6 +28,7 @@ import {
   type Scene,
 } from 'three';
 import { COLORS, ELEMENT_COLORS, fxColor, TIER_COLORS } from './config.js';
+import { assetById, instantiate } from './assets.js';
 import { characterAsset, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
 import { animate, enemyModel, minionModel, playerModel, uniqueMaterials, type Rig } from './models.js';
 
@@ -67,7 +69,22 @@ interface View {
   disposed: boolean;
   /** Dirt mound shown in place of a burrowed monster. */
   mound: Mesh | null;
+  /** Monster type, so a death can tell whether it leaves a body (ghosts and totems do not). */
+  typeId: EnemyTypeId | null;
 }
+
+interface Corpse {
+  view: View;
+  age: number;
+  x: number;
+  y: number;
+}
+
+/** Matches the server's corpse lifetime, so a shaman can only raise bodies you can still see. */
+const CORPSE_SECONDS = 20;
+const CORPSE_SINK_SECONDS = 1.5;
+const MAX_CORPSES = 60;
+const FALL_SECONDS = 0.35;
 
 // Shared geometry: every entity of a kind reuses the same buffers.
 const GEO = {
@@ -75,6 +92,8 @@ const GEO = {
   sphereLow: new SphereGeometry(1, 10, 8),
   box: new BoxGeometry(1, 1, 1),
   ring: new RingGeometry(0.86, 1, 48),
+  /** Open-ended cone, wide at the ground and thin at the top, for loot light shafts. */
+  beam: new CylinderGeometry(0.08, 0.5, 1, 20, 1, true),
   thinRing: new RingGeometry(0.95, 1, 64),
   disk: new CircleGeometry(1, 48),
   plane: new PlaneGeometry(1, 1),
@@ -168,8 +187,10 @@ function makeView(item: RenderItem): View {
         // Rares glow and wear a gold ring, so a champion is readable across the screen. Bosses get a red one.
         const ringColor = s.boss ? 0xff4030 : COLORS.rareOutline;
         const crown = flatOnGround(new Mesh(GEO.ring, basic(ringColor, 0.9)));
+        crown.name = 'rare-ring';
         crown.scale.setScalar(s.r * (s.boss ? 1.9 : 1.6));
         const glow = flatOnGround(new Mesh(GEO.disk, basic(ringColor, s.boss ? 0.2 : 0.14, true)), 0.6);
+        glow.name = 'rare-glow';
         glow.scale.setScalar(s.r * (s.boss ? 2.8 : 2.2));
         root.add(crown, glow);
         rig.root.traverse((o) => {
@@ -264,15 +285,21 @@ function makeView(item: RenderItem): View {
       body = new Group();
       body.add(bag, tie);
       root.add(body);
+      bag.name = 'placeholder';
+      tie.name = 'placeholder';
       if (s.tier !== 'common') {
-        // Loot beams make good drops visible from across the screen.
-        const beam = new Mesh(GEO.cylinder, basic(color, s.tier === 'magic' ? 0.18 : 0.35, true));
-        beam.scale.set(4, 260, 4);
-        beam.position.y = 130;
+        // A short tapered light shaft marks good drops across the screen without a pole sticking out of the ground.
+        const strong = s.tier === 'relic' ? 1 : s.tier === 'rare' ? 0.7 : 0.4;
+        const beam = new Mesh(GEO.beam, basic(color, 0.28 * strong, true));
+        beam.scale.set(s.r * (0.9 + strong * 0.6), 60 + strong * 80, s.r * (0.9 + strong * 0.6));
+        beam.position.y = beam.scale.y / 2;
+        beam.name = 'beam';
+        beam.userData.base = 0.28 * strong;
         root.add(beam);
       }
-      const glow = flatOnGround(new Mesh(GEO.disk, basic(color, 0.25, true)), 0.8);
-      glow.scale.setScalar(s.r * 1.8);
+      // Soft and small: a bright disk washed the sack out and read as a spell effect.
+      const glow = flatOnGround(new Mesh(GEO.disk, basic(color, s.tier === 'common' ? 0.06 : 0.12, true)), 0.8);
+      glow.scale.setScalar(s.r * 1.4);
       root.add(glow);
       break;
     }
@@ -309,13 +336,30 @@ function makeView(item: RenderItem): View {
     attackPending: false,
     disposed: false,
     mound: null,
+    typeId: s.k === 'enemy' ? s.et : null,
   };
+}
+
+/** Scales a model so its widest horizontal extent is `width`. */
+function fitFootprint(o: Object3D, width: number): void {
+  const size = new Box3().setFromObject(o).getSize(new Vector3());
+  const widest = Math.max(size.x, size.z);
+  if (widest > 0) o.scale.multiplyScalar(width / widest);
+}
+
+/** Same rule as the server: ghosts and totems leave nothing behind. */
+function leavesBody(typeId: EnemyTypeId | null): boolean {
+  if (typeId === null) return false;
+  const family = familyOf(typeId);
+  return family !== 'ghost' && family !== 'totem';
 }
 
 const tmpColor = new Color();
 
 export class EntityRenderer {
   private readonly views = new Map<string, View>();
+  private readonly dying = new Set<EntityId>();
+  private corpses: Corpse[] = [];
   private readonly links = new Map<string, Mesh>();
   private readonly linkMat = basic(0x7fe0c0, 0.65, true);
   private time = 0;
@@ -340,6 +384,10 @@ export class EntityRenderer {
 
   /** Loads the glTF model for a view and swaps it in for the procedural placeholder. */
   private upgrade(view: View, item: RenderItem): void {
+    if (item.snap.k === 'loot') {
+      this.upgradeLoot(view, item.snap);
+      return;
+    }
     const def = characterAsset(item.snap);
     if (!def || !view.rig) return;
     const s = item.snap;
@@ -358,6 +406,31 @@ export class EntityRenderer {
       })
       .catch(() => {
         // Keep the procedural model if the file fails to load.
+      });
+  }
+
+  /** Swaps the placeholder bag for the KayKit sack, with coins spilling out for the good stuff. */
+  private upgradeLoot(view: View, s: Extract<EntitySnap, { k: 'loot' }>): void {
+    const sack = assetById('sack');
+    const coins = s.tier === 'rare' || s.tier === 'relic' ? assetById('dungeon_coin_stack') : undefined;
+    if (!sack || !view.body) return;
+    const body = view.body;
+    Promise.all([instantiate(sack), coins ? instantiate(coins) : Promise.resolve(null)])
+      .then(([bag, pile]) => {
+        if (view.disposed) return;
+        for (const o of [...body.children]) if (o.name === 'placeholder') o.visible = false;
+        // Fit by footprint, not height: the sack is a low, wide model and scaling by height made it a rug.
+        fitFootprint(bag.root, s.r * 1.9);
+        bag.root.rotation.y = view.bob;
+        body.add(bag.root);
+        if (pile) {
+          fitFootprint(pile.root, s.r * 0.9);
+          pile.root.position.set(s.r * 0.9, 0, s.r * 0.4);
+          body.add(pile.root);
+        }
+      })
+      .catch(() => {
+        // Keep the placeholder bag if the model fails to load.
       });
   }
 
@@ -381,11 +454,83 @@ export class EntityRenderer {
       this.update(view, item, dt);
     }
 
-    for (const [key, view] of this.views) if (!seen.has(key)) this.remove(key, view);
+    for (const [key, view] of this.views) {
+      if (seen.has(key)) continue;
+      const id = Number(key.slice(1));
+      if (view.kind === 'enemy' && key.startsWith('s') && this.dying.delete(id) && leavesBody(view.typeId)) this.toCorpse(key, view);
+      else this.remove(key, view);
+    }
+    this.updateCorpses(dt);
     this.renderLinks(items, positions);
   }
 
+  /** Called on the death event, just before the entity leaves the snapshot, so it falls instead of vanishing. */
+  markDying(id: EntityId): void {
+    this.dying.add(id);
+  }
+
+  /** A shaman raised this body; the monster that stands up replaces it. */
+  removeCorpseNear(x: number, y: number): void {
+    let best = -1;
+    let bestD = 40;
+    this.corpses.forEach((c, i) => {
+      const d = Math.hypot(c.x - x, c.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    const c = this.corpses[best];
+    if (!c) return;
+    this.corpses.splice(best, 1);
+    this.disposeView(c.view);
+  }
+
+  private toCorpse(key: string, view: View): void {
+    this.views.delete(key);
+    if (view.healthBar) view.healthBar.group.visible = false;
+    if (view.shield) view.shield.visible = false;
+    for (const r of view.auraRings) r.visible = false;
+    if (view.mound) view.mound.visible = false;
+    for (const name of ['ring', 'rare-ring', 'rare-glow']) {
+      const o = view.root.getObjectByName(name);
+      if (o) o.visible = false;
+    }
+    // Bodies are darker than the living and do not glow, so a fight's aftermath does not read as more monsters.
+    view.tintable.forEach((m) => {
+      m.color.multiplyScalar(0.55);
+      m.emissiveIntensity = 0;
+    });
+    this.corpses.push({ view, age: 0, x: view.root.position.x, y: view.root.position.z });
+    while (this.corpses.length > MAX_CORPSES) {
+      const old = this.corpses.shift();
+      if (old) this.disposeView(old.view);
+    }
+  }
+
+  private updateCorpses(dt: number): void {
+    this.corpses = this.corpses.filter((c) => {
+      c.age += dt;
+      const v = c.view;
+      if (v.character) driveCharacter(v.character, { speed: 0, attack: false, dead: true, dormant: false, dt });
+      else if (v.rig) {
+        // Procedural models have no death clip, so they topple sideways and settle.
+        const k = Math.min(1, c.age / FALL_SECONDS);
+        v.rig.root.rotation.z = (Math.PI / 2) * k * k;
+      }
+      if (c.age > CORPSE_SECONDS) v.root.position.y = -((c.age - CORPSE_SECONDS) / CORPSE_SINK_SECONDS) * 30;
+      if (c.age < CORPSE_SECONDS + CORPSE_SINK_SECONDS) return true;
+      this.disposeView(v);
+      return false;
+    });
+  }
+
   private remove(key: string, view: View): void {
+    this.disposeView(view);
+    this.views.delete(key);
+  }
+
+  private disposeView(view: View): void {
     view.disposed = true;
     this.scene.remove(view.root);
     view.root.traverse((o) => {
@@ -395,7 +540,6 @@ export class EntityRenderer {
       // Shared geometries are reused; only per-view geometry is disposed.
       if (!Object.values(GEO).some((g) => g === o.geometry)) o.geometry.dispose();
     });
-    this.views.delete(key);
   }
 
   private update(view: View, item: RenderItem, dt: number): void {
@@ -447,9 +591,10 @@ export class EntityRenderer {
       if (fill instanceof Mesh && fill.material instanceof MeshBasicMaterial) fill.material.opacity = pulse * fade;
       if (edge instanceof Mesh && edge.material instanceof MeshBasicMaterial) edge.material.opacity = 0.85 * fade;
       if (edge) edge.rotation.z += dt * 0.4;
-    } else if (s.k === 'loot' && view.body) {
-      view.body.position.y = 2 + Math.sin(t * 2.5 + view.bob) * 3;
-      view.body.rotation.y += dt;
+    } else if (s.k === 'loot') {
+      // The bag sits on the ground like a dropped item; only the light shaft breathes.
+      const beam = view.root.getObjectByName('beam');
+      if (beam instanceof Mesh && beam.material instanceof MeshBasicMaterial) beam.material.opacity = beam.userData.base * (0.75 + Math.sin(t * 2.2 + view.bob) * 0.25);
     }
 
     if ('life' in s && view.healthBar) {

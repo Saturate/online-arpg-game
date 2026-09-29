@@ -746,6 +746,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
         s.corpses = s.corpses.filter((x) => x !== c);
         s.pending.push({ typeId: c.typeId, x: c.x, y: c.y, level: c.level, summonerId: null, lifeShare: 0.6, raised: true });
         sim.emit({ e: 'cast', id, x: c.x, y: c.y, el: null }, c.x, c.y);
+        sim.emit({ e: 'raise', x: c.x, y: c.y }, c.x, c.y);
       }
       break;
     }

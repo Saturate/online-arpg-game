@@ -857,11 +857,15 @@ export class Game {
           }
           break;
         }
+        case 'raise':
+          entities.removeCorpseNear(ev.x, ev.y);
+          break;
         case 'waypoint':
           if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
           break;
         case 'death':
           fx.clearTelegraphs(ev.id);
+          if (ev.k === 'enemy') entities.markDying(ev.id);
           fx.burst(ev.x, ev.y, ev.color, ev.big ? FX.deathParticles * 2 : FX.deathParticles, ev.big ? 260 : 180, { size: ev.big ? 8 : 6 });
           fx.shockwave(ev.x, ev.y, ev.big ? 140 : 70, ev.big ? COLORS.rareOutline : ev.color);
           if (ev.big) world.addShake(5);

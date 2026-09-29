@@ -82,3 +82,27 @@ describe('progression', () => {
     expect(next.world.health.get(again)?.maxLife).toBe(sim.world.health.get(pid)?.maxLife);
   });
 });
+
+describe('dropped loot', () => {
+  it('scatters bags dropped on the same spot so they never stack', () => {
+    const sim = new Simulation(9, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'warrior');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('no player');
+    for (let i = 0; i < 4; i++) {
+      const g = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1);
+      p.items.set(g.uid, g);
+      p.inventory[p.inventory.indexOf(null)] = g.uid;
+      expect(sim.discard(pid, g.uid)).toBeNull();
+    }
+    const spots = [...sim.world.loot.keys()].map((id) => sim.world.position.get(id)).filter((v) => v !== undefined);
+    expect(spots).toHaveLength(4);
+    for (let i = 0; i < spots.length; i++) {
+      for (let j = i + 1; j < spots.length; j++) {
+        const a = spots[i];
+        const b = spots[j];
+        if (a && b) expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(20);
+      }
+    }
+  });
+});

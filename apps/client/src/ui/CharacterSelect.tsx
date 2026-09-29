@@ -96,22 +96,31 @@ export function CharacterSelect() {
   useEffect(() => {
     if (!token) return;
     let live = true;
-    void api.characters(token).then((res) => {
-      if (!live) return;
-      if (!res.ok) {
-        if (res.status === 401) {
-          useUi.getState().logout();
-          useUi.setState({ connectionError: 'Your session has expired, log in again' });
-        } else setError(res.error);
-        return;
-      }
-      useUi.setState({ username: res.data.username });
-      setCharacters(res.data.characters);
-      setSelected(res.data.characters[0]?.id ?? null);
-      setCreating(res.data.characters.length === 0);
-    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = (attempt: number): void => {
+      void api.characters(token).then((res) => {
+        if (!live) return;
+        if (!res.ok) {
+          if (res.status === 401) {
+            useUi.getState().logout();
+            useUi.setState({ connectionError: 'Your session has expired, log in again' });
+          } else if ((res.status === 0 || res.status >= 502) && attempt < 8) {
+            // The server is restarting (a deploy, or a dev reload): try again shortly instead of showing a gateway error.
+            timer = setTimeout(() => load(attempt + 1), 1500);
+          } else setError(res.error);
+          return;
+        }
+        setError(null);
+        useUi.setState({ username: res.data.username });
+        setCharacters(res.data.characters);
+        setSelected(res.data.characters[0]?.id ?? null);
+        setCreating(res.data.characters.length === 0);
+      });
+    };
+    load(0);
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
     };
   }, [token]);
 
