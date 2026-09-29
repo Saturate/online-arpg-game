@@ -67,12 +67,13 @@ interface V1Tally {
   /** Rune units plus one per other item: what the conversion must keep, less gold runes and Test Sigils. */
   units: number;
   sigils: number;
-  others: Map<number, unknown>;
+  /** Gear and vessels, as stable JSON: compared as a multiset, since every shelf item carries uid 0. */
+  others: string[];
   gold: number;
 }
 
 function tallyV1(rawItems: readonly unknown[], gold: number): V1Tally {
-  const t: V1Tally = { runes: new Map(), inSkillSigils: 0, testSigils: 0, units: 0, sigils: 0, others: new Map(), gold };
+  const t: V1Tally = { runes: new Map(), inSkillSigils: 0, testSigils: 0, units: 0, sigils: 0, others: [], gold };
   for (const it of rawItems) {
     if (!isRecord(it)) continue;
     const bound = it.bound === true;
@@ -98,7 +99,7 @@ function tallyV1(rawItems: readonly unknown[], gold: number): V1Tally {
       });
     } else {
       t.units++;
-      if (typeof it.uid === 'number') t.others.set(it.uid, it);
+      t.others.push(stable(it));
     }
   }
   return t;
@@ -198,10 +199,10 @@ function report(title: string, rawItems: readonly unknown[], goldBefore: number,
   const uids = opts.shelf ? items.flatMap((i) => (i.kind === 'sigil' ? i.slots.map((s) => s.uid) : [])) : v2.uids;
   const dup = uids.filter((u, i) => uids.indexOf(u) !== i);
   check(problems, dup.length === 0, `uid in two places: ${[...new Set(dup)].join(', ')}`);
-  for (const [uid, before] of v1.others) {
-    const after = items.find((i) => i.uid === uid);
-    check(problems, stable(after) === stable(before), `item ${uid} (${after?.kind ?? 'missing'}) changed`);
-  }
+  const othersAfter = items.filter((i) => i.kind !== 'rune' && i.kind !== 'sigil').map(stable).sort();
+  const othersBefore = [...v1.others].sort();
+  const changed = othersBefore.filter((s, i) => s !== othersAfter[i]).length + Math.abs(othersBefore.length - othersAfter.length);
+  check(problems, changed === 0, `${changed} gear or vessel items changed`);
 
   const compiles: string[] = [];
   for (const it of items) {
