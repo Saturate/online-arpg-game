@@ -1,4 +1,4 @@
-# Plan: spellcraft and affinities
+# Plan: spellcraft and styles
 
 Status: proposal, nothing built. Decisions so far come from the owner; open points are marked **Open**.
 
@@ -9,7 +9,7 @@ Status: proposal, nothing built. Decisions so far come from the owner; open poin
 - Triggers and tuning live on runes as affixes, so there is no Timer rune and no hidden tuning.
 - Built-in skills and hand-built spells are the same thing: a sigil holding rolled runes.
 - The forge costs gold. Rune affixes only come from drops and the rune trader.
-- Classes become affinities: everyone can cast anything and bind minions; an affinity makes some things cheaper and unlocks its own runes and minions.
+- Three styles, melee, ranged and spell, replace classes. Each has its own sigils, weapons and minions, and all of them drop. Uniques bend the rules, for example binding minions of any style.
 
 ## Runes
 
@@ -17,10 +17,12 @@ Four kinds, read left to right.
 
 | Kind | Applies to | Runes (first set) |
 |---|---|---|
-| **Shape** | starts a spell or a payload | Orb (slow, big), Bolt (fast, thin), Nova, Zone, Dash |
+| **Shape** | starts a spell or a payload | Spell: Orb (slow, big), Bolt (fast, thin), Nova, Zone. Weapon: Arrow, Strike, Cleave, Throw, Trap. Any: Dash |
 | **Infusion** | the current shape, before it fires | Fire, Cold, Lightning |
 | **Shaper** | the current shape's count or motion | Split, Link, Orbit, Homing, Bounce, Chain |
 | **Effect** | what happens on contact | Impact, Ward, Restore |
+
+Spell shapes scale with spell damage; weapon shapes scale with the weapon you hold. That is a soft gate: anyone can fire an Arrow rune, but it is weak without a bow.
 
 Persistent shapes stay as today: Aura, and the ally tether, renamed **Bond** so **Link** can mean "join the copies". Later shapes: Beam, Wall.
 
@@ -68,17 +70,33 @@ The built-in skills become starter sigils holding pre-rolled runes. Fireball is 
 
 Both are gold sinks, which the economy needs once selling stacks is priced by count.
 
-## Affinities instead of classes
+## Styles instead of classes
 
-The five classes become affinities picked at character creation: Might (Warrior), Hunt (Ranger), Arcane (Mage), Faith (Priest), Death (Binder). An affinity gives:
+Three styles: **melee**, **ranged** and **spell**. Each has a family of sigils, weapons and minions, and every piece drops.
 
-- a starting kit (sigils, runes, one minion)
-- cheaper Force for its runes (affinity cost is visible in the editor once Force matters again)
-- affinity-only runes, such as Faith's Consecrate or Death's Corpse shapes
-- affinity minions with unique abilities. Everyone can bind minions, but only Might binds warrior mates: a Shieldbearer that taunts, a Banner-bearer with an aura. Hunt gets a hound and a hawk, Arcane gets elementals, Faith gets an acolyte that heals, Death keeps the undead.
-- Death stays the best summoner: minions reserve less spirit and the army cap is higher.
+| | Melee | Ranged | Spell |
+|---|---|---|---|
+| Sigils | Warmarks: Strike, Cleave, Throw | Quivers: Arrow, Trap | Grimoires: Orb, Bolt, Nova, Zone |
+| Weapons | swords, axes, maces | bows, crossbows | staves, wands, sceptres |
+| Minions | warrior mates: Shieldbearer (taunts), Banner-bearer (aura), Berserker | hound (pins), hawk (marks), trapper | elementals, acolyte (heals), undead |
+| Own runes | e.g. Rend, Cleave arcs | e.g. Mark, Volley | e.g. Consecrate, Corpse shapes |
+| Affixes that only drop for it | e.g. "hits twice", "shockwave on kill" | e.g. ricochet, "falls from above" | e.g. "payload inherits element", "orbits caster" |
 
-Base stats (armour type, life, spirit) stay per affinity, as class stats are today.
+- **A character picks a starting style** (**Open**: or picks one of today's five classes, each mapped to a style). That gives a starting kit, cheaper Force on the style's shapes and runes, base stats (armour, life, spirit), and **which minion family it can bind**.
+- **Sigils of every style work for everyone.** A melee character can carry a grimoire; it costs more Force and hits with spell damage, which melee gear does not raise. Hybrids are possible, just not free.
+- **Minions follow style.** Each style binds its own family through vessels, so a ranged character runs a hound and a hawk, a melee one a shield wall.
+
+### Uniques
+
+A new top item tier with fixed, hand-made affixes that bend the rules. First ideas:
+
+- **Crown of the Many:** bind minions of any style.
+- **Quiver of Embers:** spell shapes fired from it use bow damage.
+- **The Open Hand:** no weapon; every weapon shape uses your spell damage instead.
+- **Gravebound Warmark:** each kill with a melee shape raises a skeleton for 10 s.
+- **Echoing Grimoire:** multicast +1, but every cast costs life as well as Force.
+
+Uniques drop rarely, only from bosses and deep zones, and are the endgame chase alongside wand-stat sigils.
 
 ## Force has to bite again
 
@@ -98,7 +116,7 @@ Each phase ships on its own and gets the item review before deploy.
 3. **Sigils as wands:** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
 4. **New shapers:** Link, Orbit, Homing, Bounce, Chain.
 5. **Forge gold cost and the rune trader.**
-6. **Affinities:** character creation, affinity runes, affinity minions.
+6. **Styles:** character creation, weapon shapes and scaling, style runes, style minions, uniques.
 7. **Force rebalance** with numbers on the admin page, endgame affix tiers, and the combo codex.
 
 ## Open questions
@@ -106,4 +124,5 @@ Each phase ships on its own and gets the item review before deploy.
 1. Keep Swift and Large as plain runes as well as affixes?
 2. Rune trader stock: per player or shared server-wide?
 3. Existing characters: convert or wipe?
-4. Affinity names: keep Warrior, Ranger and so on, or rename (Might, Hunt, Arcane, Faith, Death)?
+4. Character creation: pick one of three styles, or keep the five classes as starting kits mapped onto the styles (Warrior melee; Ranger ranged; Mage, Priest and Binder spell)?
+5. Can a character learn a second minion family later without a unique, for example through a rare vessel affix?
