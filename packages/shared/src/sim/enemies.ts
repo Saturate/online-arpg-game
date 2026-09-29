@@ -1046,7 +1046,6 @@ export function updateWaves(sim: Simulation, dt: number): void {
   sim.waveTimer = WAVES.betweenWavesSeconds;
 }
 
-/** Near a random player, but never on top of any player or inside an obstacle. */
 /**
  * A spawn point inside a map's play area (the Arena pit). The area is small next to the usual
  * spawn distance, so points are drawn across the floor itself, the distance to players relaxes on
@@ -1079,6 +1078,7 @@ function spawnPointInArea(sim: Simulation, players: EntityId[], area: { x: numbe
   return best;
 }
 
+/** Near a random player, but never on top of any player or inside an obstacle. */
 export function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
   const area = sim.mapDef.playArea;
   if (area) return spawnPointInArea(sim, players, area);

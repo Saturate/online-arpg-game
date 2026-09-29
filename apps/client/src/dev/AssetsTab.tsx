@@ -14,8 +14,10 @@ export function AssetsTab() {
   // Opened from a deep link (#assets/<category>/<id>) when there is one.
   const [category, setCategory] = useState<Category>(() => CATEGORIES.find((c) => c === readLink()[1]) ?? 'hero');
   const [selected, setSelected] = useState<string | null>(() => {
-    const id = readLink()[2];
-    return id !== undefined && (ASSETS.some((a) => a.id === id) || BUILTIN_MODELS.some((b) => b.id === id)) ? id : null;
+    const [, cat, id] = readLink();
+    // Only an id that belongs to the linked category; anything else opens the category's gallery.
+    const known = cat === 'built-in' ? BUILTIN_MODELS.some((b) => b.id === id) : ASSETS.some((a) => a.id === id && a.category === cat);
+    return id !== undefined && known ? id : null;
   });
   useEffect(() => {
     writeLink(selected ? ['assets', category, selected] : ['assets', category]);

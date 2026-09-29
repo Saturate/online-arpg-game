@@ -90,7 +90,7 @@ function insideArea(sim: Simulation, x: number, y: number): { x: number; y: numb
   const area = sim.mapDef.playArea;
   if (!area) return { x, y };
   const d = Math.hypot(x - area.x, y - area.y);
-  if (d <= area.r || d === 0) return { x, y };
+  if (d <= area.r) return { x, y };
   const k = area.r / d;
   return { x: area.x + (x - area.x) * k, y: area.y + (y - area.y) * k };
 }
