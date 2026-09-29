@@ -43,6 +43,8 @@ export function GameView({ token, character, mode }: { token: string; character:
   return (
     <div className="game">
       <div className="canvas-host" ref={hostRef} />
+      {/* Darkened corners pull the eye to the hero, like D2's light radius. Under the damage numbers. */}
+      <div className="vignette" aria-hidden="true" />
       <div className="fx-layer" ref={fxRef} aria-hidden="true" />
       {/* Everything scalable lives in one layer; the tooltip stays outside because it is placed at mouse coordinates. */}
       <div className="ui-layer" style={{ zoom: uiScale }}>

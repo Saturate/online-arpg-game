@@ -66,7 +66,8 @@ function pine(r: () => number): BufferGeometry[] {
     const t = i / tiers;
     const w = 0.62 * (1 - t * 0.72) * (0.9 + r() * 0.2);
     const h = 0.55 * (1 - t * 0.3);
-    const green = new Color().setHSL(hue + (r() - 0.5) * 0.03, 0.45 + r() * 0.15, 0.22 + t * 0.08 + r() * 0.04);
+    // Muted, deep greens: living trees, but a grim forest rather than a toy one.
+    const green = new Color().setHSL(hue + (r() - 0.5) * 0.03, 0.26 + r() * 0.1, 0.17 + t * 0.07 + r() * 0.04);
     const geo = new ConeGeometry(1, 1, 7 + Math.floor(r() * 3), 1);
     parts.push(part(geo, green, transform(new Vector3(lean.x * (0.35 + t), 0.42 + t * 1.05, lean.z * (0.35 + t)), new Euler(0, r() * 6, 0), new Vector3(w, h, w)), r));
   }
@@ -90,7 +91,7 @@ function oak(r: () => number): BufferGeometry[] {
     const blobs = 2 + Math.floor(r() * 2);
     for (let b = 0; b < blobs; b++) {
       const s = 0.26 + r() * 0.16;
-      const color = new Color().setHSL(hue + (r() - 0.5) * 0.04, 0.45 + r() * 0.2, 0.26 + r() * 0.1);
+      const color = new Color().setHSL(hue + (r() - 0.5) * 0.04, 0.28 + r() * 0.12, 0.2 + r() * 0.08);
       parts.push(
         part(
           new IcosahedronGeometry(1, 1),

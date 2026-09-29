@@ -272,14 +272,14 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const gh = height + margin * 2;
   // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
   const groundMat = underground
-    ? new MeshStandardMaterial({ color: 0x2c2640, roughness: 1 })
+    ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 })
     : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), gw / 420, gh / 420), color: def.groundTint, roughness: 1 });
   const ground = new Mesh(new PlaneGeometry(gw, gh), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(width / 2, 0, height / 2);
   ground.receiveShadow = true;
   group.add(ground);
-  const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), new MeshBasicMaterial({ color: underground ? 0x3a3058 : 0xcfe6ff }));
+  const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), new MeshBasicMaterial({ color: COLORS.background }));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(width / 2, -3, height / 2);
   group.add(voidPlane);
@@ -437,7 +437,7 @@ function addTrees(group: Group, trees: Obstacle[], def: WorldMap): (t: number, p
     const { x, y } = o.shape;
     const h = hash(x, y);
     const isOak = def.oaks ? def.oaks.some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
-    const kind: TreeKind = !def.oaks && h % 100 < (bleak ? 12 : 4) ? 'dead' : isOak ? 'oak' : 'pine';
+    const kind: TreeKind = !def.oaks && h % 100 < (bleak ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
     const material = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, transparent: true, opacity: 1 });
     const mesh = new Mesh(treeGeometry(kind, h), material);
     const size = o.visual * (kind === 'pine' ? 1.05 : 1.25);
@@ -877,7 +877,7 @@ function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng):
       // Thins out far away, where mountains and fog take over.
       if (roll > (d < 700 ? 0.85 : 0.45)) continue;
       const k = hash(px, py);
-      const kind: TreeKind = k % 100 < (bleak ? 12 : 3) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
+      const kind: TreeKind = k % 100 < (bleak ? 35 : 6) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
       const size = rng.range(55, 90) * (kind === 'pine' ? 1.05 : 1.25);
       const geo = treeGeometry(kind, k);
       byGeometry.set(geo, [...(byGeometry.get(geo) ?? []), matrix(px, 0, py, size, size, size, k)]);
@@ -954,7 +954,7 @@ function addDecor(group: Group, def: WorldMap): void {
       pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
     }
   }
-  const grassColor = new Color(def.groundTint).offsetHSL(0.02, 0.1, 0.05).getHex();
+  const grassColor = new Color(def.groundTint).offsetHSL(0.01, -0.02, 0.02).getHex();
   const g1 = instanced(new ConeGeometry(1, 1, 3), mat(grassColor, { rough: 1 }), grass);
   const g2 = instanced(new IcosahedronGeometry(1, 0), mat(0xffffff, { emissive: 0x202020 }), flowers, flowerColors);
   const g3 = instanced(new IcosahedronGeometry(1, 0), mat(0x7a7468), pebbles);

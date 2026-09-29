@@ -120,7 +120,7 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     spawn: layout.spawn,
     waves: false,
     safe: true,
-    groundTint: 0x6fa047,
+    groundTint: 0x6a7446,
   });
   map.oaks = [];
   map.lamps = [];

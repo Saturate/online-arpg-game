@@ -1990,3 +1990,13 @@ kbd {
 .menu-actions.row {
   grid-auto-flow: column;
 }
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 48%, transparent 38%, rgba(0, 0, 0, 0.35) 70%, rgba(0, 0, 0, 0.72) 100%);
+}
+/* The KayKit models are bright toy colours; a global grade mutes them toward a D2/PoE palette. */
+.canvas-host canvas {
+  filter: saturate(0.68) contrast(1.08) sepia(0.12);
+}
