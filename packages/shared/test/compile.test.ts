@@ -134,8 +134,21 @@ describe('compiling v2 spells', () => {
     // A release affix costs what its trigger rune would.
     expect(force('bolt[after 0.5s] nova', 'warrior')).toBeCloseTo(force('bolt timer nova', 'warrior'));
     expect(force('bolt fire onhit')).toBeGreaterThan(0);
-    const free = compileRunes(tokenizeSpell('bolt fire').runes, { ...ctx, classId: 'mage', firstRuneFree: true });
-    expect(free.force).toBeCloseTo(4 * 0.8);
+    // A free first rune waives its base cost only; its affixes still cost, and no cast is free.
+    const freeForce = (text: string): number => compileRunes(tokenizeSpell(text).runes, { ...ctx, classId: 'mage', firstRuneFree: true }).force;
+    expect(freeForce('bolt fire lightning')).toBeCloseTo((4 + 5) * 0.8);
+    expect(Math.abs(freeForce('orb[+55% damage, +75% duration, pierce 3]') - (force('orb[+55% damage, +75% duration, pierce 3]') - 10 * 1.2))).toBeLessThanOrEqual(0.11);
+    expect(freeForce('bolt fire')).toBe(HEAT.minForcePerCast);
+    expect(freeForce('nova[+55% damage, +50% size]')).toBeGreaterThanOrEqual(HEAT.minForcePerCast);
+    expect(force('bolt[-90% speed, -90% damage]', 'warrior')).toBeGreaterThanOrEqual(HEAT.minForcePerCast);
+  });
+
+  it('charges a payload for its number affixes at more than its base share', () => {
+    const force = (text: string): number => compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, forceMultiplier: 1, classId: 'warrior' }).force;
+    const affixes = force('nova[+50% size, +55% damage]') - force('nova');
+    const paid = force('bolt[after 0.3s] nova[+50% size, +55% damage]') - force('bolt[after 0.3s] nova');
+    // Each Force is rounded to 0.1, so the differences carry up to 0.1 of rounding.
+    expect(Math.abs(paid - affixes * HEAT.payloadAffixShare)).toBeLessThanOrEqual(0.11);
   });
 
   it('persistent shapes reserve spirit instead of Force', () => {

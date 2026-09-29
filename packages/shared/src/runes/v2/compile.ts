@@ -10,10 +10,12 @@ import {
   DEFAULTS,
   isCastableRune,
   isPersistentShape,
+  runeKind,
   runeName,
   type ReleaseKind,
   type RuneId,
   type RuneInstance,
+  type RuneKind,
 } from './runes.js';
 
 /**
@@ -36,7 +38,7 @@ export interface SigilCompileContext {
   damageMultiplier: number;
   areaMultiplier: number;
   splitEfficiencyBonus: number;
-  /** The first rune costs no Force (a rare sigil roll). */
+  /** The first rune's base cost is waived, not its affixes (a rare sigil roll). */
   firstRuneFree: boolean;
 }
 
@@ -126,6 +128,12 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   large: 8,
 };
 
+/**
+ * Runes that only change the shape they sit on. On a payload they pay HEAT.payloadAffixShare like a
+ * number affix does, so a plain Large costs what +50% size does and an element costs what it adds.
+ */
+const RIDER_KINDS: ReadonlySet<RuneKind> = new Set<RuneKind>(['infusion', 'effect', 'modifier']);
+
 const TRIGGER_FOR_RELEASE: Partial<Record<ReleaseKind, ReleaseTrigger>> = { onhit: 'onhit', onexpire: 'onexpire', after: 'after', every: 'every', onland: 'onland' };
 
 /** Each extra copy of an infusion adds this much damage: doubled runes stack for now (owner decision). */
@@ -185,28 +193,32 @@ function nodeReleases(node: SpellNode): number {
 /**
  * What one release of a payload node can land, as a share of one plain copy of its shape: its
  * copies at their conserved damage and its damage affix. Projectile copies released on an interval
- * spray a full ring (Frozen Orb), so any one target faces about one fan gap of it
- * (splitSpreadRadians of the circle per copy) instead of every copy.
+ * spray a full ring. From a flying parent (Frozen Orb) the ring's centre sweeps past a target, so it
+ * faces about one fan gap of it (splitSpreadRadians of the circle per copy). From a parent that
+ * stays put (a Zone on the pack) the ring starts inside the target and every copy lands.
  */
 function releaseWeight(node: SpellNode, parent: SpellNode, splitEfficiencyBonus: number): number {
-  const ringed = parent.release?.kind === 'every' && node.copies > 1 && isProjectileShape(node);
+  const ringed = parent.release?.kind === 'every' && node.copies > 1 && isProjectileShape(node) && isProjectileShape(parent);
   const aimed = ringed ? (node.copies * SPELL.splitSpreadRadians) / (2 * Math.PI) : node.copies;
   return nodeScale(node, splitEfficiencyBonus) * affixMultiplier(node.stats.damage) * aimed;
 }
 
 /**
  * The share of its listed Force each rune on a shape pays. The cast pays in full. A payload pays
- * HEAT.payloadForceFactor for its first spawn, since it only goes off when the cast lands, and
- * HEAT.payloadRepeatShare of its price for every further spawn, weighted by `releaseWeight`: an
- * interval release, a piercing on-hit shape or a split parent spawns its payload many times per
- * cast, and each spawn is damage the cast did not pay for otherwise.
+ * HEAT.payloadForceFactor for its first spawn, since it only goes off when the cast lands, and for
+ * every further spawn its full price weighted by `releaseWeight`: an interval release, a piercing
+ * on-hit shape or a split parent spawns its payload many times per cast, and each spawn is damage the
+ * cast did not pay for otherwise. Spawns from a flying parent pay HEAT.payloadRepeatShare of that,
+ * since it carries them along and past the target; a parent that stays put (a Zone, a Nova) drops
+ * every one of them on the same spot.
  */
 function nodeShares(tree: SpellTree | null, ctx: SigilCompileContext): Map<SpellNode, number> {
   const shares = new Map<SpellNode, number>();
   const visit = (node: SpellNode, spawns: number): void => {
     const perRelease = spawns * node.copies * nodeReleases(node);
+    const repeatShare = isProjectileShape(node) ? HEAT.payloadRepeatShare : 1;
     for (const child of node.payload) {
-      const extra = Math.max(0, perRelease - 1) * HEAT.payloadRepeatShare * releaseWeight(child, node, ctx.splitEfficiencyBonus);
+      const extra = Math.max(0, perRelease - 1) * repeatShare * releaseWeight(child, node, ctx.splitEfficiencyBonus);
       shares.set(child, HEAT.payloadForceFactor + extra);
       visit(child, perRelease);
     }
@@ -243,13 +255,16 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
 
 /**
  * Force for one cast:
- *   (rune cost x affinity + affix cost) x the share of the shape it sits on, summed, x forceMultiplier
+ *   (rune cost x affinity x its share + affix cost x affix share), summed per rune, x forceMultiplier
  * A shape's cost includes its release affix; a Split costs 2 per copy and is never discounted;
  * affinity is HEAT.affinityMultiplier for the class's affinity runes and HEAT.offAffinityMultiplier
  * otherwise; shares are `nodeShares` (1 for the cast, less for a payload that goes off once, more for
- * one that goes off many times); affix costs are `affixForce`, and a rune never costs less than
- * nothing. The first rune is free on a sigil that rolled it. `forceMultiplier` is HEAT.costMultiplier
- * and the sigil's Force cost affix. Rounded to 0.1.
+ * one that goes off many times). Affix costs are `affixForce`. On a payload, affixes and rider runes
+ * (RIDER_KINDS) pay at least HEAT.payloadAffixShare: they make the payload as much stronger as they
+ * would the cast whenever it lands, and at the payload's base share they were near free. A rune never costs
+ * less than nothing. The first rune's base cost is waived on a sigil that rolled it, never its
+ * affixes. `forceMultiplier` is HEAT.costMultiplier and the sigil's Force cost affix. At least
+ * HEAT.minForcePerCast, rounded to 0.1.
  */
 export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null, ctx: SigilCompileContext): number {
   const affinitySet = new Set<string>(CLASSES[ctx.classId].affinityRunes);
@@ -258,14 +273,19 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
   const shares = nodeShares(tree, ctx);
   let force = 0;
   runes.forEach((rune, i) => {
-    if (i === 0 && ctx.firstRuneFree) return;
     let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
     if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
+    if (i === 0 && ctx.firstRuneFree) cost = 0;
     const node = nodes[i];
     const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
-    force += Math.max(0, cost * affinity(rune.id) + affixForce(rune, affinity)) * share;
+    const affixes = affixForce(rune, affinity);
+    const raised = Math.max(share, HEAT.payloadAffixShare);
+    const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
+    // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
+    const affixShare = affixes > 0 ? raised : share;
+    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
   });
-  return round1(force * ctx.forceMultiplier);
+  return Math.max(HEAT.minForcePerCast, round1(force * ctx.forceMultiplier));
 }
 
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {

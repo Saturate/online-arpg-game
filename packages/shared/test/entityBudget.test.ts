@@ -34,6 +34,11 @@ describe('entity budget against the engine', () => {
     'zone[every 0.25s] split(2) orb',
     'bolt[every 0.1s] split(3) bolt',
     'bolt[every 0.1s, -50% speed] bolt',
+    // A zone's age adds up to just under its duration, so it lives one more tick than it reads.
+    'zone[every 0.2s] zone',
+    'zone pulse fire zone',
+    'zone[every 0.2s, +55% damage] cold lightning zone[+55% damage] lightning',
+    'zone[every 0.2s] cold fire split(2) orb[onexpire] lightning lightning bolt',
   ])('the forge shows what %s really keeps alive', (text) => {
     const { budget, engine } = enginePeak(text);
     expect(budget).toBe(engine);

@@ -37,9 +37,10 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     description: 'Explodes on impact and leaves the ground burning.',
     classId: 'mage',
     // PLAN-runes.md's Fireball, not a copy of v1 (a bolt at 0.85 speed and 2x damage). The orb
-    // carries v1's 2x hit, since the burst and the burning ground only add to it; +75% duration is
-    // v1's Linger.
-    runes: spell('orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+75% duration]'),
+    // carries v1's 2x hit, since the burst and the burning ground only add to it. v1 had Linger
+    // (+75% duration), but one caster's zones never stack and it recasts long before the ground
+    // goes out, so the extra time added no damage while its payload price pushed Force past v1.
+    runes: spell('orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+30% duration]'),
   },
   {
     id: 'frozen_orb',

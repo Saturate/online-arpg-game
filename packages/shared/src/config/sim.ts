@@ -56,12 +56,25 @@ export const HEAT = {
    */
   payloadForceFactor: 0.15,
   /**
-   * Every spawn of a payload after its first costs this share of the payload's listed Force, times
-   * the damage one spawn can land (runes/v2/compile.ts, releaseWeight). An interval release or a
-   * piercing on-hit shape spawns its payload many times per cast; at the first-spawn share alone a
-   * Zone releasing a Nova every 0.2 s dealt about 8x a starter's damage per Force.
+   * Every spawn of a payload after its first costs its full listed Force times the damage one spawn
+   * can land (runes/v2/compile.ts, releaseWeight), or this share of it when a flying shape released
+   * it. An interval release or a piercing on-hit shape spawns its payload many times per cast; at the
+   * first-spawn share alone a Zone releasing a Nova every 0.2 s dealt about 8x a starter's damage per
+   * Force, and at this share a Zone releasing a Bolt every 0.2 s still dealt over 2x to one target.
    */
   payloadRepeatShare: 0.6,
+  /**
+   * A payload's number affixes and the runes that only change it (elements, effects, Swift, Large)
+   * cost at least this share of their listed Force, above the payload's own first-spawn share: at
+   * 0.15 a Bolt releasing a Nova[+50% size, +55% damage] dealt over twice a starter's pack damage per
+   * Force, since the rolls hit as hard as they would on the cast.
+   */
+  payloadAffixShare: 0.5,
+  /**
+   * No cast costs less than this, whatever the sigil waives: the cheapest plain cast (a Ranger's
+   * Bolt) costs 4.8, and a free first rune took single-rune spells to 0.
+   */
+  minForcePerCast: 4,
   /**
    * A number affix costs this much Force per step of the plain rune it replaces (Swift, Large, the
    * old Linger and Pierce runes each cost 3), measured on a log scale so two Swift steps cost twice

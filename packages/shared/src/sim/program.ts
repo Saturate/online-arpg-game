@@ -73,18 +73,33 @@ export function affixMultiplier(percent: number): number {
 }
 
 /**
- * Seconds a form lives, as `sim/spells.ts` runs it: whole ticks, since a form ends on the first tick
- * at or past its time and still releases on that tick. The compiler's entity budget and Force price
+ * Ticks until a timer the engine steps by SIM.dt reaches `seconds`, counted the way the engine counts
+ * it (a zone or nova adds dt to its age, a projectile takes dt off its lifetime), float error and all:
+ * a 3 s zone adds 0.05 sixty times to 2.9999999999999996 and so lives a 61st tick.
+ */
+function engineTicks(seconds: number, countsDown: boolean): number {
+  if (!Number.isFinite(seconds)) return Number.POSITIVE_INFINITY;
+  let n = 0;
+  if (countsDown) {
+    for (let left = seconds; left > 0; left -= SIM.dt) n++;
+  } else {
+    for (let age = 0; age < seconds; age += SIM.dt) n++;
+  }
+  return Math.max(1, n);
+}
+
+/**
+ * Seconds a form lives, as `sim/spells.ts` runs it: whole ticks, since a form ends on the tick its
+ * timer runs out and still releases on that tick. The compiler's entity budget and Force price
  * read this too, so the forge's numbers are the engine's numbers.
  */
 export function formLifetime(form: FormId, speed: number, range: number): number {
-  const ticks = (seconds: number): number => Math.ceil(seconds / SIM.dt - 1e-9) * SIM.dt;
   if (form === 'bolt' || form === 'orb') {
     const base = projectileBase(form);
-    return ticks((base.range * range) / (base.speed * speed));
+    return engineTicks((base.range * range) / (base.speed * speed), true) * SIM.dt;
   }
-  if (form === 'zone') return ticks(SPELL.zone.durationSeconds * range);
-  if (form === 'nova') return ticks((SPELL.nova.durationSeconds * range) / speed);
+  if (form === 'zone') return engineTicks(SPELL.zone.durationSeconds * range, false) * SIM.dt;
+  if (form === 'nova') return engineTicks((SPELL.nova.durationSeconds * range) / speed, false) * SIM.dt;
   if (form === 'dash') return SPELL.dash.ticks * SIM.dt;
   return Number.POSITIVE_INFINITY;
 }
