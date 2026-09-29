@@ -31,7 +31,8 @@ describe('skill export', () => {
     const out = formatSkill({ ...fireball(), name: "Ro'ka" });
     expect(out).toContain("name: 'Ro\\'ka',");
     expect(out).toContain("runes: ['bolt', 'fire', 'onhit', 'nova', 'timer', 'zone', 'linger'],");
-    expect(out).toContain('tuning: { speed: 0.85, damage: 1.3 },');
+    // Read from the definition, so retuning Fireball does not break the format test.
+    expect(out).toContain(`tuning: { speed: ${fireball().tuning?.speed}, damage: ${fireball().tuning?.damage} },`);
     // Read from the definition, so balance changes to the heat cost do not break the format test.
     expect(out).toContain(`heat: ${fireball().heat},`);
     expect(skillIdFromName('  Frost Wave 2! ')).toBe('frost_wave_2');
