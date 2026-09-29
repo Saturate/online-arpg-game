@@ -529,7 +529,7 @@
   }
 }
 
-/* Bag and stash grids: one 30px cell per unit, items span their footprint. */
+/* Bag and stash grids: one cell per unit (CELL in Inventory.tsx), items span their footprint. */
 .inv-grid {
   display: grid;
   gap: 1px;
@@ -592,4 +592,16 @@
 .trader-price,
 .gold {
   color: #e8c860;
+}
+/* The item windows are where most of the looking happens, so they are drawn larger than the rest of the UI. */
+.inv-window,
+.stash-window,
+.trader-window {
+  zoom: 1.12;
+}
+.inv-window.compact {
+  right: 12px;
+}
+.inv-window.compact .inv-left {
+  display: none;
 }

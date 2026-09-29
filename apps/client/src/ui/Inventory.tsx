@@ -1,5 +1,5 @@
 import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
-import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
 import { compareGear, DRAG_TYPE, dropAction, parseDrag, quickAction, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
@@ -45,6 +45,10 @@ export function requestDrop(uid: ItemUid): void {
     return;
   }
   sendCommand({ t: 'discard', uid });
+}
+
+function isTyping(t: EventTarget | null): boolean {
+  return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 }
 
 function Comparison({ item }: { item: Item }) {
@@ -208,9 +212,12 @@ export function ItemCell({
   /** A grid place refined to the exact cell under the pointer: an item spans several cells. */
   function cellUnder(e: { clientX: number; clientY: number; currentTarget: Element }): ItemPlace {
     if (!gridCell || (place.at !== 'bag' && place.at !== 'stash') || place.x === undefined || place.y === undefined) return place;
+    // Spans come from the item's footprint, not its pixel size, so window zoom and UI scale cannot
+    // throw the cell count off.
     const r = e.currentTarget.getBoundingClientRect();
-    const x = place.x + Math.floor((e.clientX - r.left) / (r.width / Math.max(1, Math.round(r.width / gridCell))));
-    const y = place.y + Math.floor((e.clientY - r.top) / (r.height / Math.max(1, Math.round(r.height / gridCell))));
+    const span = item ? itemSize(item) : { w: 1, h: 1 };
+    const x = place.x + Math.min(span.w - 1, Math.floor(((e.clientX - r.left) / Math.max(1, r.width)) * span.w));
+    const y = place.y + Math.min(span.h - 1, Math.floor(((e.clientY - r.top) / Math.max(1, r.height)) * span.h));
     return { ...place, x, y };
   }
 
@@ -353,7 +360,7 @@ function Paperdoll() {
 }
 
 /** Pixel size of one bag or stash cell. */
-const CELL = 30;
+const CELL = 44;
 
 /** A D2-style grid: items span their footprint, and every free cell is a drop target. */
 function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | 'stash'; selUid: ItemUid | null; onSelect: (uid: ItemUid) => void }) {
@@ -508,6 +515,22 @@ export function Inventory() {
   const openEditor = useUi((s) => s.openEditor);
   const editorAllowed = useUi((s) => s.editorAllowed);
   const [selUid, setSelUid] = useState<ItemUid | null>(null);
+  // Beside the stash or the trader only the bag shows, like D2, so both windows fit on screen.
+  const compact = useUi((s) => s.stashOpen || s.traderOpen);
+  // Delete drops the bag item under the mouse (rares and relics still ask first).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' || isTyping(e.target)) return;
+      const { item, place } = useHover.getState();
+      if (!item || place?.at !== 'bag') return;
+      e.preventDefault();
+      useHover.getState().set(null, 0, 0);
+      requestDrop(item.uid);
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, [open]);
   if (!open || !inv || !classId) return null;
 
   const selected = itemByUid(inv, selUid);
@@ -519,7 +542,7 @@ export function Inventory() {
   };
 
   return (
-    <section className="panel inv-window" aria-label="Inventory">
+    <section className={`panel inv-window${compact ? ' compact' : ''}`} aria-label="Inventory">
       <header className="inv-header">
         <h2>Inventory</h2>
         <button type="button" className="close" onClick={close} aria-label="Close inventory">
@@ -598,7 +621,7 @@ export function Inventory() {
           <kbd>Drag</kbd> onto a slot
         </span>
         <span>
-          <kbd>Shift</kbd>+<kbd>Right-click</kbd> drop
+          <kbd>Del</kbd> or <kbd>Shift</kbd>+<kbd>Right-click</kbd> drop
         </span>
       </footer>
     </section>

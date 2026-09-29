@@ -11,7 +11,8 @@ export interface GridSize {
   h: number;
 }
 
-export const BAG: GridSize = { w: 10, h: 6 };
+/** Changing a size is safe: saves of another size are repacked on load (see layOut). */
+export const BAG: GridSize = { w: 12, h: 8 };
 export const STASH: GridSize = { w: 12, h: 10 };
 
 const GEAR_SIZES: Record<string, GridSize> = {

@@ -81,7 +81,9 @@ export function addItem(p: PlayerComp, item: Item): boolean {
 function layOut(saved: readonly (ItemUid | null)[], size: GridSize, items: Map<ItemUid, Item>): (ItemUid | null)[] {
   const cells = emptyGrid(size);
   const isGrid = saved.length === size.w * size.h;
-  const order = isGrid ? placements(saved, size) : saved.flatMap((uid) => (uid === null ? [] : [{ uid, x: -1, y: -1 }]));
+  // A grid of another size (the bag grew) lists each item once per covered cell, so ids are
+  // deduplicated before repacking; an old slot list never repeats one.
+  const order = isGrid ? placements(saved, size) : [...new Set(saved.filter((u): u is ItemUid => u !== null))].map((uid) => ({ uid, x: -1, y: -1 }));
   for (const { uid, x, y } of order) {
     const item = items.get(uid);
     if (!item) continue;

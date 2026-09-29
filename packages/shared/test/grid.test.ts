@@ -39,9 +39,9 @@ describe('item grid', () => {
   it('fills column by column and refuses what does not fit', () => {
     const cells = emptyGrid(BAG);
     expect(findSpot(cells, BAG, { w: 2, h: 3 })).toEqual({ x: 0, y: 0 });
-    expect(canPlace(cells, BAG, { w: 2, h: 3 }, 9, 0)).toBe(false);
-    expect(canPlace(cells, BAG, { w: 2, h: 3 }, 8, 3)).toBe(true);
-    expect(canPlace(cells, BAG, { w: 2, h: 3 }, 8, 4)).toBe(false);
+    expect(canPlace(cells, BAG, { w: 2, h: 3 }, BAG.w - 1, 0)).toBe(false);
+    expect(canPlace(cells, BAG, { w: 2, h: 3 }, BAG.w - 2, BAG.h - 3)).toBe(true);
+    expect(canPlace(cells, BAG, { w: 2, h: 3 }, BAG.w - 2, BAG.h - 2)).toBe(false);
   });
 
   it('picks up what fits from a bag and leaves big items that do not, without blocking small ones', () => {
@@ -87,9 +87,10 @@ describe('item grid', () => {
       placements(cells, size).filter(({ uid }) => { const it = p2.items.get(uid); return it?.kind === 'gear' && it.category === 'body'; }).length;
     const inBag = armour(p2.inventory, BAG);
     const inStash = armour(p2.stash, STASH);
-    // Ten 2x3 armours fill a 10x6 bag; the other ten go to the stash, so none is lost.
-    expect(inBag).toBe(10);
-    expect(inStash).toBe(10);
+    // As many 2x3 armours as the bag holds stay in it; the rest go to the stash, so none is lost.
+    const bagHolds = Math.floor(BAG.w / 2) * Math.floor(BAG.h / 3);
+    expect(inBag).toBe(bagHolds);
+    expect(inStash).toBe(20 - bagHolds);
   });
 });
 
@@ -159,12 +160,33 @@ describe('stash', () => {
     const waiting = pendingItems(p).filter(isArmour).length;
     // All 32 armours are accounted for: the account's 12 keep their cells, the rest fill up, 4 wait.
     expect(inBag + inStash + waiting).toBe(32);
-    expect(waiting).toBe(4);
+    const bagHolds = Math.floor(BAG.w / 2) * Math.floor(BAG.h / 3);
+    const stashHolds = Math.floor(STASH.w / 2) * Math.floor(STASH.h / 3);
+    expect(waiting).toBe(20 - bagHolds - (stashHolds - 12));
     const save = sim2.exportPlayer(pid);
     if (!save) throw new Error('no save');
     const { character, stash } = splitStash(save);
     // Waiting items stay with the character's save, so the next login retries them.
-    expect(character.items.filter((i) => i.kind === 'gear' && i.category === 'body')).toHaveLength(10 + 4);
-    expect(stash.items.filter((i) => i.kind === 'gear' && i.category === 'body')).toHaveLength(18);
+    expect(character.items.filter((i) => i.kind === 'gear' && i.category === 'body')).toHaveLength(bagHolds + waiting);
+    expect(stash.items.filter((i) => i.kind === 'gear' && i.category === 'body')).toHaveLength(stashHolds);
+  });
+});
+
+describe('bag resize', () => {
+  it('repacks a save from a smaller grid without placing any item twice', () => {
+    const { sim, pid, p } = setup();
+    const armour = createGear(sim.newItemUid(), sim.rand.loot, 'common', 1, { category: 'body' });
+    addItem(p, armour);
+    const save = sim.exportPlayer(pid);
+    if (!save) throw new Error('no save');
+    // The same armour as a 10x6 grid would store it: six cells.
+    const old = emptyGrid({ w: 10, h: 6 });
+    for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 2; dx++) old[dy * 10 + dx] = armour.uid;
+    const sim2 = new Simulation(7, { kind: 'flat' });
+    const p2 = sim2.world.player.get(sim2.addPlayer('d', 'warrior', 'R', { ...save, inventory: old }));
+    if (!p2) throw new Error('no player');
+    const armours = placements(p2.inventory, BAG).filter(({ uid }) => { const it = p2.items.get(uid); return it?.kind === 'gear' && it.category === 'body'; });
+    expect(armours).toHaveLength(1);
+    expect(p2.inventory.filter((u) => u === armours[0]?.uid)).toHaveLength(6);
   });
 });
