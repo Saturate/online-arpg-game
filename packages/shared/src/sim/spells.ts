@@ -204,27 +204,138 @@ function carriesPayload(inst: SpellInst): boolean {
   return inst.node.payload.length > 0 && !inst.timerFired;
 }
 
+interface LiveSpell {
+  id: EntityId;
+  inst: SpellInst;
+  weight: number;
+}
+
+interface CasterLoad {
+  /** In spawn order, so the front is the oldest. May hold entries that already ended until pruned. */
+  live: LiveSpell[];
+  load: number;
+}
+
 /**
- * Keeps a player under the live spell cap by ending their oldest spell entities first, so a big
- * payload spell stays castable but can never flood the room with more than the cap allows. Spent
- * pieces (a Frozen Orb's shards) go before carriers (the orb still spraying them).
+ * Running live-cap counts per caster and per room. Spawning only adds; entries that ended are
+ * dropped the next time a count would pass its cap, so a spawn under the cap costs nothing extra.
+ */
+interface SpellLedger {
+  casters: Map<EntityId, CasterLoad>;
+  load: number;
+}
+
+const ledgers = new WeakMap<Simulation, SpellLedger>();
+
+function ledgerOf(sim: Simulation): SpellLedger {
+  let l = ledgers.get(sim);
+  if (!l) {
+    l = { casters: new Map(), load: 0 };
+    ledgers.set(sim, l);
+  }
+  return l;
+}
+
+/** The entity still exists and still runs this spell (a reflected projectile has left it). */
+function stillLive(sim: Simulation, e: LiveSpell): boolean {
+  const w = sim.world;
+  if (!w.isAlive(e.id)) return false;
+  return (w.projectile.get(e.id)?.spell ?? w.nova.get(e.id)?.spell ?? w.zone.get(e.id)?.spell) === e.inst;
+}
+
+function prune(sim: Simulation, ledger: SpellLedger, casterId: EntityId, c: CasterLoad): void {
+  const kept = c.live.filter((e) => stillLive(sim, e));
+  const load = kept.reduce((n, e) => n + e.weight, 0);
+  ledger.load += load - c.load;
+  c.live = kept;
+  c.load = load;
+  if (kept.length === 0) ledger.casters.delete(casterId);
+}
+
+/** Ends the caster's oldest spent piece, or their oldest carrier when every piece still carries a payload. */
+function evictOldest(sim: Simulation, ledger: SpellLedger, c: CasterLoad): boolean {
+  let at = c.live.findIndex((e) => !carriesPayload(e.inst));
+  if (at < 0) at = c.live.length > 0 ? 0 : -1;
+  const e = c.live[at];
+  if (!e) return false;
+  c.live.splice(at, 1);
+  c.load -= e.weight;
+  ledger.load -= e.weight;
+  sim.world.destroy(e.id);
+  return true;
+}
+
+/**
+ * Keeps a caster under their live spell cap and the room under its own, by ending the oldest spell
+ * entities first, so a big payload spell stays castable but can never flood the room. Spent pieces
+ * (a Frozen Orb's shards) go before carriers (the orb still spraying them). Over the room cap, the
+ * caster with the most alive gives way first.
  */
 function makeRoomForSpell(sim: Simulation, casterId: EntityId, weight: number): void {
-  const w = sim.world;
-  if (!w.player.has(casterId)) return;
-  const live: { id: EntityId; weight: number; carrier: boolean }[] = [];
-  for (const [id, p] of w.projectile) if (p.ownerId === casterId && p.spell && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.projectile, carrier: carriesPayload(p.spell) });
-  for (const [id, n] of w.nova) if (n.spell.casterId === casterId && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.area, carrier: carriesPayload(n.spell) });
-  for (const [id, z] of w.zone) if (z.spell.casterId === casterId && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.area, carrier: carriesPayload(z.spell) });
-  let load = live.reduce((n, e) => n + e.weight, 0);
-  if (load + weight <= SPELL.liveCap.max) return;
-  // Entity ids only grow, so the lowest ids are the oldest.
-  live.sort((a, b) => Number(a.carrier) - Number(b.carrier) || a.id - b.id);
-  for (const e of live) {
-    if (load + weight <= SPELL.liveCap.max) break;
-    w.destroy(e.id);
-    load -= e.weight;
+  const ledger = ledgerOf(sim);
+  const mine = ledger.casters.get(casterId);
+  if (mine && mine.load + weight > SPELL.liveCap.max) {
+    prune(sim, ledger, casterId, mine);
+    while (mine.load + weight > SPELL.liveCap.max && evictOldest(sim, ledger, mine));
   }
+  if (ledger.load + weight <= SPELL.liveCap.roomMax) return;
+  for (const [id, c] of ledger.casters) prune(sim, ledger, id, c);
+  while (ledger.load + weight > SPELL.liveCap.roomMax) {
+    let heaviest: CasterLoad | undefined;
+    for (const c of ledger.casters.values()) if (!heaviest || c.load > heaviest.load) heaviest = c;
+    if (!heaviest || !evictOldest(sim, ledger, heaviest)) break;
+  }
+}
+
+function recordSpell(sim: Simulation, id: EntityId, inst: SpellInst, weight: number): void {
+  const ledger = ledgerOf(sim);
+  let c = ledger.casters.get(inst.casterId);
+  if (!c) {
+    c = { live: [], load: 0 };
+    ledger.casters.set(inst.casterId, c);
+  }
+  c.live.push({ id, inst, weight });
+  c.load += weight;
+  ledger.load += weight;
+}
+
+/** Weighted live spell load of a caster and of the room, counting only entities still alive. */
+export function liveSpellLoad(sim: Simulation, casterId: EntityId): { caster: number; room: number } {
+  const ledger = ledgerOf(sim);
+  for (const [id, c] of ledger.casters) prune(sim, ledger, id, c);
+  return { caster: ledger.casters.get(casterId)?.load ?? 0, room: ledger.load };
+}
+
+/**
+ * Spells of a caster who is no longer in the room (zone change, disconnect) end with them: their
+ * entities go and their delayed payloads never fire. Checked once per tick over casters with spells
+ * alive, not over every entity.
+ */
+function endSpellsOfDeparted(sim: Simulation): void {
+  const w = sim.world;
+  const ledger = ledgers.get(sim);
+  if (ledger) {
+    for (const [id, c] of ledger.casters) {
+      if (w.player.has(id)) continue;
+      for (const e of c.live) if (stillLive(sim, e)) w.destroy(e.id);
+      ledger.load -= c.load;
+      ledger.casters.delete(id);
+    }
+  }
+  const list = delayedReleases.get(sim);
+  if (list && list.some((d) => !w.player.has(d.inst.casterId))) {
+    delayedReleases.set(
+      sim,
+      list.filter((d) => w.player.has(d.inst.casterId)),
+    );
+  }
+}
+
+function liveWeight(node: SpellNode): number {
+  if (node.form === 'bolt' || node.form === 'orb') return SPELL.liveCap.projectile;
+  if (node.form === 'nova') return SPELL.liveCap.nova;
+  if (node.form === 'zone') return SPELL.liveCap.zone;
+  return 0;
 }
 
 function spawnForm(
@@ -237,8 +348,8 @@ function spawnForm(
   inheritHits: ReadonlySet<EntityId> | null,
 ): void {
   const w = sim.world;
-  if (node.form === 'bolt' || node.form === 'orb') makeRoomForSpell(sim, casterId, SPELL.liveCap.projectile);
-  else if (node.form === 'nova' || node.form === 'zone') makeRoomForSpell(sim, casterId, SPELL.liveCap.area);
+  const weight = liveWeight(node);
+  if (weight > 0) makeRoomForSpell(sim, casterId, weight);
   const t = node.tuning;
   const every = node.release?.kind === 'every' ? node.release.seconds : 0;
   const inst: SpellInst = { node, casterId, age: 0, timerFired: false, angle, pulseTimer: every, pulseCount: 0 };
@@ -251,7 +362,7 @@ function spawnForm(
     case 'orb':
     case 'bolt': {
       const base = projectileBase(node.form);
-      spawnProjectile(sim, {
+      const id = spawnProjectile(sim, {
         ownerId: casterId,
         team,
         x,
@@ -272,6 +383,7 @@ function spawnForm(
           spell: inst,
         },
       });
+      recordSpell(sim, id, inst, weight);
       return;
     }
     case 'nova': {
@@ -285,6 +397,7 @@ function spawnForm(
         duration: (SPELL.nova.durationSeconds * t.range) / t.speed,
         hitIds: new Set(inheritHits ?? []),
       });
+      recordSpell(sim, id, inst, weight);
       return;
     }
     case 'zone': {
@@ -298,6 +411,7 @@ function spawnForm(
         tickInterval: SPELL.zone.tickSeconds / t.speed,
         tickTimer: 0,
       });
+      recordSpell(sim, id, inst, weight);
       return;
     }
     case 'dash': {
@@ -450,6 +564,7 @@ function* areaTargets(sim: Simulation): Generator<EntityId> {
 export function updateProjectiles(sim: Simulation, dt: number): void {
   const w = sim.world;
   // Projectiles run first of the spell systems, so delayed payloads join this tick's updates.
+  endSpellsOfDeparted(sim);
   updateDelayedReleases(sim, dt);
   for (const [id, proj] of w.projectile) {
     const pos = w.position.get(id);

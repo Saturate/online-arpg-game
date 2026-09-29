@@ -48,7 +48,8 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     classId: 'mage',
     // v1: speed 0.36, range 0.85, radius 2.2, damage 0.6 on a bolt that passed through everything,
     // which an orb does by itself. v1 also let it exceed the entity cap (48); the grammar's live cap
-    // is 40 and it peaks under that.
+    // is 40 and it peaks under that. Its shards go off 14 times a cast and pay for each release, but
+    // a ring of three faces any one target with little of it, so they add about 3 Force.
     runes: spell('orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage] cold split(3) bolt'),
   },
   { id: 'static_nova', name: 'Static Nova', description: 'A wide ring of lightning that shocks everything it touches.', classId: 'mage', runes: spell('nova[+50% size] lightning') },

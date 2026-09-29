@@ -70,9 +70,10 @@ describe('plan examples', () => {
 
   it('entity budget counts the peak alive, not the lifetime total', () => {
     const r = ok('Orb[every 0.2s] Cold Split(4) Bolt[small]');
-    // Orb lives 2 s, pulses 10 times; bolts live 1 s so 5 volleys overlap: 1 + 5 * 4.
-    expect(r.stats.peakEntities).toBe(21);
-    expect(r.stats.lifetimeEntities).toBe(41);
+    // As the engine runs it, the orb lives 2.55 s and pulses 12 times; bolts live 1.08 s, so 6
+    // volleys overlap: 1 + 6 * 4.
+    expect(r.stats.peakEntities).toBe(25);
+    expect(r.stats.lifetimeEntities).toBe(49);
     expect(r.stats.lifetimeEntities).toBeGreaterThan(40);
   });
 
@@ -300,7 +301,7 @@ describe('rules', () => {
   });
 
   it('entity cap names the peak', () => {
-    expect(errorAt('Orb[every 0.2s] Split(4) Orb[every 0.2s] Bolt', 'entity-cap', -1)).toContain('241');
+    expect(errorAt('Orb[every 0.2s] Split(4) Orb[every 0.2s] Bolt', 'entity-cap', -1)).toContain('337');
     expect(rules('Arrow Split(5)', { liveCap: 4 })).toEqual(['entity-cap']);
   });
 

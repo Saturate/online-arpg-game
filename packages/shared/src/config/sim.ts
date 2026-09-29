@@ -56,6 +56,13 @@ export const HEAT = {
    */
   payloadForceFactor: 0.15,
   /**
+   * Every spawn of a payload after its first costs this share of the payload's listed Force, times
+   * the damage one spawn can land (runes/v2/compile.ts, releaseWeight). An interval release or a
+   * piercing on-hit shape spawns its payload many times per cast; at the first-spawn share alone a
+   * Zone releasing a Nova every 0.2 s dealt about 8x a starter's damage per Force.
+   */
+  payloadRepeatShare: 0.6,
+  /**
    * A number affix costs this much Force per step of the plain rune it replaces (Swift, Large, the
    * old Linger and Pierce runes each cost 3), measured on a log scale so two Swift steps cost twice
    * one: `affixStepForce x ln(1 + v / 100) / ln(step)`.
@@ -85,13 +92,15 @@ export const SPELL = {
   /** Slow and big, and it rolls through enemies unless it bursts on hit. */
   orb: { damage: 16, speed: 286, range: 728, radius: 16 },
   nova: { damage: 14, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
-  // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
   /**
-   * A player's live spell entities, weighted by what they cost the server: a projectile checks every
-   * enemy each tick, a zone or nova far less. Measured with 8 players into 120 enemies: at 40 a room
-   * stays near 2 Mbit/s per client and ten busy rooms fit the tick with room to spare.
+   * Live spell entities, weighted by what they cost the server each tick: a projectile or a nova
+   * checks every enemy, player and minion each tick, a zone only on its damage tick. `max` is per
+   * caster (the oldest goes first); `roomMax` bounds a whole room, so 8 players at their cap fit and
+   * a later raise of `max` cannot let them flood it. Measured with 8 players into 120 enemies: at 40
+   * a room stays near 2 Mbit/s per client and ten busy rooms fit the tick with room to spare.
    */
-  liveCap: { max: 40, projectile: 1, area: 0.35 },
+  liveCap: { max: 40, roomMax: 320, projectile: 1, nova: 1, zone: 0.35 },
+  // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
   zone: { damage: 14, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
   dash: { damage: 12, distance: 190, ticks: 4, hitRadius: 26 },
   /**
