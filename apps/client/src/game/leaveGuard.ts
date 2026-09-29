@@ -15,7 +15,8 @@ export function guardLeaving(): () => void {
   history.pushState({ inGame: true }, '');
   const onPop = () => history.pushState({ inGame: true }, '');
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
-    if (!leaving) e.preventDefault();
+    // Dev reloads on every code change; asking each time would only get in the way.
+    if (!leaving && !import.meta.env.DEV) e.preventDefault();
   };
   // Mouse buttons 3 and 4 are Back and Forward; Chrome navigates on their mouseup.
   const onMouse = (e: MouseEvent) => {

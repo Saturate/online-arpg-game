@@ -23,12 +23,12 @@ export interface ZoneDef {
 }
 
 export const ZONES: Record<ZoneId, ZoneDef> = {
-  barrens: { id: 'barrens', name: 'Mossy Barrens', levels: [1, 3], biome: 'meadow', groundTint: 0x5c6b3e, bleak: false },
-  steppe: { id: 'steppe', name: 'Ashen Steppe', levels: [4, 6], biome: 'ruins', groundTint: 0x6b6558, bleak: true },
-  gloomvale: { id: 'gloomvale', name: 'Gloomvale', levels: [7, 10], biome: 'marsh', groundTint: 0x445244, bleak: true },
-  thornwood: { id: 'thornwood', name: 'Thornwood', levels: [11, 14], biome: 'forest', groundTint: 0x3f5a34, bleak: false },
-  dunes: { id: 'dunes', name: 'Sunscorched Dunes', levels: [15, 19], biome: 'desert', groundTint: 0x8a7448, bleak: true },
-  hollows: { id: 'hollows', name: 'The Hollows', levels: [20, 25], biome: 'cave', groundTint: 0x4a4038, bleak: true },
+  barrens: { id: 'barrens', name: 'Mossy Barrens', levels: [1, 3], biome: 'meadow', groundTint: 0x6fa047, bleak: false },
+  steppe: { id: 'steppe', name: 'Ashen Steppe', levels: [4, 6], biome: 'ruins', groundTint: 0xb8b060, bleak: true },
+  gloomvale: { id: 'gloomvale', name: 'Gloomvale', levels: [7, 10], biome: 'marsh', groundTint: 0x5fae86, bleak: true },
+  thornwood: { id: 'thornwood', name: 'Thornwood', levels: [11, 14], biome: 'forest', groundTint: 0x5a9e42, bleak: false },
+  dunes: { id: 'dunes', name: 'Sunscorched Dunes', levels: [15, 19], biome: 'desert', groundTint: 0xe6c47c, bleak: true },
+  hollows: { id: 'hollows', name: 'The Hollows', levels: [20, 25], biome: 'cave', groundTint: 0xa08cc0, bleak: true },
 };
 
 /** The zone every instance starts in; it contains the town. */

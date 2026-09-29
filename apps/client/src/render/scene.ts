@@ -33,6 +33,8 @@ export interface GroundBasis {
 }
 
 interface Lighting {
+  /** Background and fog colour. Outdoors a soft sky, so the edge of view reads as haze, not a void. */
+  backdrop: number;
   sky: number;
   groundLight: number;
   hemi: number;
@@ -47,13 +49,14 @@ interface Lighting {
 
 /** Each theme gets its own time of day. */
 const LIGHTING: Record<MapTheme, Lighting> = {
-  town: { sky: 0xffd8b0, groundLight: 0x4a3a2c, hemi: 1.4, ambient: 0.6, sun: 2.0, sunColor: 0xffc890, exposure: 1.35, playerLight: 1.6 },
-  wilds: { sky: 0xc8dcff, groundLight: 0x4a3a28, hemi: 1.2, ambient: 0.5, sun: 2.2, sunColor: 0xfff0d8, exposure: 1.15, playerLight: 0.8 },
-  arena: { sky: 0x9aa8d0, groundLight: 0x3a2a1c, hemi: 1.0, ambient: 0.6, sun: 1.6, sunColor: 0xffe2c0, exposure: 1.3, playerLight: 2.2 },
-  // Underground: almost no sky, torches and the hero's own light do the work.
-  dungeon: { sky: 0x6a7aa0, groundLight: 0x2a2018, hemi: 0.7, ambient: 0.45, sun: 0.5, sunColor: 0x8090c0, exposure: 1.3, playerLight: 1.8, playerDecay: 0 },
-  staging: { sky: 0x7a80a0, groundLight: 0x2a2018, hemi: 0.85, ambient: 0.5, sun: 0.6, sunColor: 0x9098c0, exposure: 1.3, playerLight: 1.6, playerDecay: 0 },
-  flat: { sky: 0xffffff, groundLight: 0x444444, hemi: 1, ambient: 0.6, sun: 1.5, sunColor: 0xffffff, exposure: 1.1, playerLight: 1 },
+// Bright and friendly on purpose: the art is cute low-poly, so the lighting should be a sunny day, not grim.
+  town: { backdrop: 0xcfe6ff, sky: 0xfff0d8, groundLight: 0x6a5a40, hemi: 1.6, ambient: 0.8, sun: 2.2, sunColor: 0xffe4b8, exposure: 1.28, playerLight: 1.2 },
+  wilds: { backdrop: 0xcfe6ff, sky: 0xdcecff, groundLight: 0x6a5a40, hemi: 1.5, ambient: 0.75, sun: 2.3, sunColor: 0xfff4e0, exposure: 1.22, playerLight: 0.6 },
+  arena: { backdrop: 0xe0dcff, sky: 0xd8dcff, groundLight: 0x5a4a38, hemi: 1.3, ambient: 0.8, sun: 1.9, sunColor: 0xffecd0, exposure: 1.35, playerLight: 1.6 },
+  // Underground stays cosy rather than pitch black: torches do the mood, the ambient keeps it readable.
+  dungeon: { backdrop: 0x3a3058, sky: 0xb0a8e8, groundLight: 0x4a3a50, hemi: 1.1, ambient: 0.8, sun: 0.8, sunColor: 0xc0b8f0, exposure: 1.35, playerLight: 1.8, playerDecay: 0 },
+  staging: { backdrop: 0x3a3058, sky: 0xb8b0e8, groundLight: 0x4a3a50, hemi: 1.2, ambient: 0.8, sun: 0.9, sunColor: 0xc8c0f0, exposure: 1.35, playerLight: 1.6, playerDecay: 0 },
+  flat: { backdrop: 0xe8eef4, sky: 0xffffff, groundLight: 0x444444, hemi: 1, ambient: 0.6, sun: 1.5, sunColor: 0xffffff, exposure: 1.1, playerLight: 1 },
 };
 
 export class WorldScene {
@@ -88,8 +91,8 @@ export class WorldScene {
     this.renderer.shadowMap.type = PCFShadowMap;
     host.appendChild(this.renderer.domElement);
 
-    this.scene.background = new Color(COLORS.background);
-    this.scene.fog = new Fog(COLORS.background, VIEW.cameraDistance * 0.9, VIEW.cameraDistance * 1.6);
+    this.scene.background = new Color(light.backdrop);
+    this.scene.fog = new Fog(light.backdrop, VIEW.cameraDistance * 0.9, VIEW.cameraDistance * 1.6);
     this.camera = new OrthographicCamera(-1, 1, 1, -1, 1, VIEW.cameraDistance * 3);
 
     const yaw = VIEW.yawDegrees * DEG;
@@ -101,7 +104,7 @@ export class WorldScene {
     this.basis = { up, right: { x: -up.y, y: up.x } };
 
     this.scene.add(new HemisphereLight(light.sky, light.groundLight, light.hemi));
-    this.scene.add(new AmbientLight(0x505060, light.ambient));
+    this.scene.add(new AmbientLight(0x9098b0, light.ambient));
     this.sun = new DirectionalLight(light.sunColor, light.sun);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
