@@ -241,7 +241,7 @@ export const DEFAULT_TOWN_LAYOUT: TownLayout = defaultLayout();
 // ---------------------------------------------------------------------------------------------
 // Validation: layouts come from a client editor, so the server checks every field.
 
-const LIMITS = { props: 600, paths: 80, pathPoints: 200, plazas: 20, decor: 800, minSize: 800, maxSize: 6000 } as const;
+const LIMITS = { props: 600, paths: 80, pathPoints: 200, plazas: 20, portals: 20, decor: 800, minSize: 800, maxSize: 6000 } as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -274,7 +274,7 @@ export function validateLayout(v: unknown): TownLayout | null {
   if (width === null || height === null) return null;
   const spawn = point(v.spawn, width, height);
   if (!spawn || !Array.isArray(v.props) || !Array.isArray(v.paths) || !Array.isArray(v.plazas) || !Array.isArray(v.portals)) return null;
-  if (v.props.length > LIMITS.props || v.paths.length > LIMITS.paths || v.plazas.length > LIMITS.plazas) return null;
+  if (v.props.length > LIMITS.props || v.paths.length > LIMITS.paths || v.plazas.length > LIMITS.plazas || v.portals.length > LIMITS.portals) return null;
 
   const props: TownProp[] = [];
   for (const p of v.props) {

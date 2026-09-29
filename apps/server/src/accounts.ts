@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type ServerSettings, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
+import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -12,6 +12,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export interface Account {
   id: number;
   username: string;
+  /** As stored; owners come from ADMIN_USERS on top of this (see roleOf in http.ts). */
+  role: AssignableRole;
+}
+
+function storedRole(v: unknown): AssignableRole {
+  return isAssignableRole(v) ? v : 'player';
 }
 
 export interface StoredCharacter extends CharacterSummary {
@@ -124,6 +130,7 @@ export class AccountStore {
     // Columns added after launch, migrated in place so existing databases keep their data.
     const accountCols = this.db.prepare('PRAGMA table_info(accounts)').all().map((c) => str(row(c)?.name));
     if (!accountCols.includes('banned')) this.db.exec('ALTER TABLE accounts ADD COLUMN banned INTEGER NOT NULL DEFAULT 0');
+    if (!accountCols.includes('role')) this.db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   }
 
@@ -138,7 +145,7 @@ export class AccountStore {
     // Re-checked after the await: two registrations for the same name can race through the hash.
     try {
       const res = this.db.prepare('INSERT INTO accounts (username, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?)').run(username, salt, hash, Date.now());
-      return { id: num(res.lastInsertRowid), username };
+      return { id: num(res.lastInsertRowid), username, role: 'player' };
     } catch {
       return 'taken';
     }
@@ -146,7 +153,7 @@ export class AccountStore {
 
   /** 'banned' only once the password checked out, so a ban never reveals that an account exists. */
   async verify(username: string, password: string): Promise<Account | 'banned' | null> {
-    const r = row(this.db.prepare('SELECT id, username, password_salt, password_hash, banned FROM accounts WHERE username = ?').get(username));
+    const r = row(this.db.prepare('SELECT id, username, password_salt, password_hash, banned, role FROM accounts WHERE username = ?').get(username));
     const salt = r?.password_salt;
     const stored = r?.password_hash;
     if (!r || !(salt instanceof Uint8Array) || !(stored instanceof Uint8Array)) {
@@ -156,7 +163,7 @@ export class AccountStore {
     }
     const hash = await hashPassword(password, Buffer.from(salt));
     if (hash.length !== stored.length || !timingSafeEqual(hash, stored)) return null;
-    return num(r.banned) === 1 ? 'banned' : { id: num(r.id), username: str(r.username) };
+    return num(r.banned) === 1 ? 'banned' : { id: num(r.id), username: str(r.username), role: storedRole(r.role) };
   }
 
   createSession(accountId: number): string {
@@ -169,10 +176,14 @@ export class AccountStore {
     const r = row(
       this.db
         // A ban takes effect on the next request, since every API call and world join goes through here.
-        .prepare('SELECT a.id, a.username FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ? AND a.banned = 0')
+        .prepare('SELECT a.id, a.username, a.role FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ? AND a.banned = 0')
         .get(tokenHash(token), Date.now()),
     );
-    return r ? { id: num(r.id), username: str(r.username) } : null;
+    return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
+  }
+
+  setRole(accountId: number, role: AssignableRole): boolean {
+    return num(this.db.prepare('UPDATE accounts SET role = ? WHERE id = ?').run(role, accountId).changes) > 0;
   }
 
   setBanned(accountId: number, banned: boolean): boolean {
@@ -182,9 +193,14 @@ export class AccountStore {
     return found;
   }
 
-  usernameFor(accountId: number): string | null {
-    const r = row(this.db.prepare('SELECT username FROM accounts WHERE id = ?').get(accountId));
-    return r ? str(r.username) : null;
+  accountById(accountId: number): Account | null {
+    const r = row(this.db.prepare('SELECT id, username, role FROM accounts WHERE id = ?').get(accountId));
+    return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
+  }
+
+  accountForCharacter(characterId: number): Account | null {
+    const r = row(this.db.prepare('SELECT a.id, a.username, a.role FROM characters c JOIN accounts a ON a.id = c.account_id WHERE c.id = ?').get(characterId));
+    return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
   }
 
   usernameExists(username: string): boolean {
@@ -192,7 +208,7 @@ export class AccountStore {
   }
 
   /** Every account with its characters, for the admin page. Level comes from the save, 1 if never played. */
-  listAccounts(): { id: number; username: string; createdAt: number; banned: boolean; characters: AdminCharacter[] }[] {
+  listAccounts(): { id: number; username: string; createdAt: number; banned: boolean; role: AssignableRole; characters: AdminCharacter[] }[] {
     const chars = new Map<number, AdminCharacter[]>();
     // Level is read in SQL so the page does not parse every full save (inventories and all) per request.
     const query = "SELECT id, account_id, name, class_id, created_at, played_at, CASE WHEN json_valid(save_json) THEN json_extract(save_json, '$.level') END AS level FROM characters ORDER BY played_at DESC";
@@ -206,11 +222,11 @@ export class AccountStore {
       chars.set(num(r.account_id), list);
     }
     return this.db
-      .prepare('SELECT id, username, created_at, banned FROM accounts ORDER BY id')
+      .prepare('SELECT id, username, created_at, banned, role FROM accounts ORDER BY id')
       .all()
       .flatMap((raw) => {
         const r = row(raw);
-        return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, characters: chars.get(num(r.id)) ?? [] }] : [];
+        return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, role: storedRole(r.role), characters: chars.get(num(r.id)) ?? [] }] : [];
       });
   }
 

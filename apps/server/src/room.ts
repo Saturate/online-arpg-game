@@ -1,5 +1,6 @@
 import {
   applyDev,
+  can,
   inventoryMessage,
   mapKey,
   NET,
@@ -33,8 +34,8 @@ export class Room {
   readonly sim: Simulation;
   readonly members = new Map<string, Member>();
   paused = false;
-  /** Set by the manager on the town room when the town editor is enabled on this server. */
-  townEditor = false;
+  /** The home zone room, where builders get the town editor. */
+  hostsTown = false;
   /** Encounter sandbox time scale: simulation steps per server tick, accumulated so fractions work. */
   timeScale = 1;
   private timeAccumulator = 0;
@@ -87,6 +88,18 @@ export class Room {
     return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
+  /** After a role change: the welcome carries the dev and editor flags, so it is resent. */
+  refreshMember(client: Client): void {
+    const m = this.members.get(client.id);
+    if (m) this.welcome(m);
+    this.resetTimeUnlessStaff();
+  }
+
+  /** Time scale is room-wide, so it must not outlast the last member who could set it back. */
+  private resetTimeUnlessStaff(): void {
+    if (![...this.members.values()].some((o) => can(o.client.role, 'devTools'))) this.timeScale = 1;
+  }
+
   /** Removes the client's player and returns their character for the next room. */
   remove(client: Client): PlayerSave | null {
     const m = this.members.get(client.id);
@@ -95,8 +108,7 @@ export class Room {
     this.sim.removePlayer(m.playerId);
     this.members.delete(client.id);
     if (client.room === this) client.room = null;
-    // Time scale is room-wide, so it must not outlast the last admin who could set it back.
-    if (![...this.members.values()].some((o) => o.client.admin)) this.timeScale = 1;
+    this.resetTimeUnlessStaff();
     for (const other of this.members.values()) this.welcome(other);
     return save;
   }
@@ -146,8 +158,8 @@ export class Room {
         error = this.sim.unequipGear(pid, msg.slot);
         break;
       case 'dev': {
-        if (!client.admin) {
-          client.send({ t: 'notice', text: 'Dev tools are for admins only' });
+        if (!can(client.role, 'devTools')) {
+          client.send({ t: 'notice', text: 'Dev tools need the builder role' });
           return;
         }
         if (msg.cmd.c === 'timeScale') {
@@ -205,8 +217,8 @@ export class Room {
       map: this.desc,
       canPause: this.canPause,
       editor: this.sim.editorAllowed,
-      townEditor: this.townEditor,
-      devTools: m.client.admin,
+      townEditor: this.hostsTown && can(m.client.role, 'townEdit'),
+      devTools: can(m.client.role, 'devTools'),
       build: SERVER_BUILD,
     });
     m.sentInventoryVersion = -1;

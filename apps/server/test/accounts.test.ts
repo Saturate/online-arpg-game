@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DEFAULT_SERVER_SETTINGS, isSessionToken, Simulation, type ServerSettings } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, isSessionToken, Simulation, type Role, type ServerSettings } from '@rune/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -73,19 +73,19 @@ describe('server settings', () => {
     reopened.close();
   });
 
-  it('gives dev tools to admins only, and resets time scale when the last admin leaves', () => {
+  it('gives dev tools to builders and up only, and resets time scale when the last one leaves', () => {
     const sent = new Map<string, string[]>();
-    const client = (id: string, admin: boolean): Client => {
+    const client = (id: string, role: Role): Client => {
       const out: string[] = [];
       sent.set(id, out);
       const socket: ClientSocket = { readyState: 1, OPEN: 1, send: (data) => out.push(String(data)), close: () => undefined };
       const c = new Client(id, socket);
-      c.admin = admin;
+      c.role = role;
       return c;
     };
     const room = new Room('t', { kind: 'flat' }, 1);
-    const admin = client('a', true);
-    const player = client('p', false);
+    const admin = client('a', 'builder');
+    const player = client('p', 'moderator');
     room.add(admin, 'mage', 'Boss');
     room.add(player, 'warrior', 'Pleb');
     const welcomes = (id: string) => (sent.get(id) ?? []).filter((m) => m.includes('"t":"welcome"'));
@@ -94,11 +94,25 @@ describe('server settings', () => {
 
     room.handle(player, { t: 'dev', cmd: { c: 'timeScale', scale: 4 } });
     expect(room.timeScale).toBe(1);
-    expect(sent.get('p')?.some((m) => m.includes('admins only'))).toBe(true);
+    expect(sent.get('p')?.some((m) => m.includes('builder role'))).toBe(true);
 
     room.handle(admin, { t: 'dev', cmd: { c: 'timeScale', scale: 4 } });
     expect(room.timeScale).toBe(4);
     room.remove(admin);
+    expect(room.timeScale).toBe(1);
+  });
+
+  it('applies a role change to a member live, and drops the time scale with it', () => {
+    const out: string[] = [];
+    const socket: ClientSocket = { readyState: 1, OPEN: 1, send: (data) => out.push(String(data)), close: () => undefined };
+    const c = new Client('b', socket);
+    c.role = 'builder';
+    const room = new Room('t', { kind: 'flat' }, 1);
+    room.add(c, 'mage', 'Bob');
+    room.handle(c, { t: 'dev', cmd: { c: 'timeScale', scale: 2 } });
+    c.role = 'player';
+    room.refreshMember(c);
+    expect(out.filter((m) => m.includes('"t":"welcome"')).at(-1)).toContain('"devTools":false');
     expect(room.timeScale).toBe(1);
   });
 });
@@ -114,18 +128,21 @@ describe('RateLimiter', () => {
   });
 });
 
-function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings } {
+function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; roles: [number, Role][] } {
   const state: ServerSettings = { ...DEFAULT_SERVER_SETTINGS };
   const kicked: number[] = [];
+  const roles: [number, Role][] = [];
   return {
     kicked,
     state,
+    roles,
     overview: () => ({ build: 'test', uptimeSeconds: 1, memoryMb: 1, online: [], games: [], rooms: [] }),
     settings: () => ({ ...state }),
     updateSettings: (patch) => Object.assign(state, patch),
     announce: () => 0,
     kickCharacter: () => false,
     kickAccount: (id) => kicked.push(id),
+    roleChanged: (id, role) => roles.push([id, role]),
   };
 }
 
@@ -187,10 +204,16 @@ describe('admin API', () => {
   let server: Server;
   let base = '';
   const hooks = fakeHooks();
+  const store = new AccountStore(':memory:');
+  /** Straight in the store, so tests that need many accounts stay under the login rate limit. */
+  const session = async (username: string): Promise<string> => {
+    const acc = await store.register(username, 'password123');
+    if (acc === 'taken') throw new Error(`${username} taken`);
+    return store.createSession(acc.id);
+  };
 
   beforeAll(async () => {
     // Listed admin names cannot be registered through the API, so their accounts exist up front.
-    const store = new AccountStore(':memory:');
     await store.register('Boss', 'password123');
     await store.register('mod', 'password123');
     const api = new AccountApi(store, () => undefined, hooks, new Set(['boss', 'mod', 'ghost']));
@@ -231,15 +254,15 @@ describe('admin API', () => {
     return id;
   };
 
-  it('hides the admin API from everyone but admins', async () => {
+  it('hides the admin API from everyone but staff', async () => {
     const player = await register('player1');
     expect((await call('GET', '/api/admin/accounts', player)).status).toBe(404);
     const boss = await login('Boss');
     const res = await call('GET', '/api/admin/accounts', boss);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(expect.arrayContaining([expect.objectContaining({ username: 'Boss', admin: true }), expect.objectContaining({ username: 'player1', admin: false })]));
+    expect(await res.json()).toEqual(expect.arrayContaining([expect.objectContaining({ username: 'Boss', role: 'owner' }), expect.objectContaining({ username: 'player1', role: 'player' })]));
     const chars: unknown = await (await call('GET', '/api/characters', boss)).json();
-    expect(chars).toMatchObject({ admin: true });
+    expect(chars).toMatchObject({ role: 'owner' });
   });
 
   it('bans end the session, block login, and can be undone', async () => {
@@ -255,9 +278,61 @@ describe('admin API', () => {
     expect((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'griefer', password: 'password123' }) })).status).toBe(200);
     // The ban deleted the old session, so unbanning does not revive it.
     expect((await call('GET', '/api/characters', victim)).status).toBe(401);
-    // Admins cannot lock themselves or each other out.
+    // Owners cannot lock themselves or each other out.
     expect((await call('POST', `/api/admin/accounts/${await accountId(adminToken, 'Boss')}/ban`, adminToken, { banned: true })).status).toBe(400);
-    expect((await call('POST', `/api/admin/accounts/${await accountId(adminToken, 'mod')}/ban`, adminToken, { banned: true })).status).toBe(400);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(adminToken, 'mod')}/ban`, adminToken, { banned: true })).status).toBe(403);
+  });
+
+  it('lets owners hand out roles, and each role do only its own part', async () => {
+    const owner = await login('Boss');
+    const moderator = await session('modguy');
+    const builder = await session('buildguy');
+    const admin = await session('adminguy');
+    const setRole = async (username: string, role: string, as = owner) => (await call('POST', `/api/admin/accounts/${await accountId(owner, username)}/role`, as, { role })).status;
+    expect(await setRole('modguy', 'moderator')).toBe(200);
+    expect(await setRole('buildguy', 'builder')).toBe(200);
+    expect(await setRole('adminguy', 'admin')).toBe(200);
+    expect(hooks.roles).toContainEqual([await accountId(owner, 'modguy'), 'moderator']);
+    // Owner comes only from ADMIN_USERS: it cannot be granted, and an owner's role cannot be changed.
+    expect(await setRole('modguy', 'owner')).toBe(400);
+    expect(await setRole('mod', 'player')).toBe(400);
+    // Only owners hand out roles, admins included.
+    expect(await setRole('buildguy', 'admin', admin)).toBe(403);
+    const chars: unknown = await (await call('GET', '/api/characters', builder)).json();
+    expect(chars).toMatchObject({ role: 'builder' });
+
+    // Builders can look but not act.
+    expect((await call('GET', '/api/admin/overview', builder)).status).toBe(200);
+    expect((await call('POST', '/api/admin/announce', builder, { text: 'hi' })).status).toBe(403);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(owner, 'player1')}/ban`, builder, { banned: true })).status).toBe(403);
+
+    // Moderators announce, kick and ban, but only below their rank, and cannot touch settings.
+    expect((await call('POST', '/api/admin/announce', moderator, { text: 'hi' })).status).toBe(200);
+    expect((await call('PUT', '/api/admin/settings', moderator, { xpRate: 2 })).status).toBe(403);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(owner, 'buildguy')}/ban`, moderator, { banned: true })).status).toBe(200);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(owner, 'buildguy')}/ban`, moderator, { banned: false })).status).toBe(200);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(owner, 'adminguy')}/ban`, moderator, { banned: true })).status).toBe(403);
+    const made: unknown = await (await call('POST', '/api/characters', owner, { name: 'Ownerchar', classId: 'mage' })).json();
+    const ownerChar: unknown = typeof made === 'object' && made !== null ? Reflect.get(made, 'id') : undefined;
+    expect((await call('POST', '/api/admin/kick', moderator, { characterId: ownerChar })).status).toBe(403);
+
+    // Same rank is not below you.
+    await session('modtwo');
+    expect(await setRole('modtwo', 'moderator')).toBe(200);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(owner, 'modtwo')}/ban`, moderator, { banned: true })).status).toBe(403);
+    // A moderator can kick a player's character.
+    const pleb = await session('pleb');
+    const plebMade: unknown = await (await call('POST', '/api/characters', pleb, { name: 'Plebchar', classId: 'warrior' })).json();
+    const plebChar: unknown = typeof plebMade === 'object' && plebMade !== null ? Reflect.get(plebMade, 'id') : undefined;
+    expect((await call('POST', '/api/admin/kick', moderator, { characterId: plebChar })).status).toBe(200);
+
+    // Admins change settings.
+    expect((await call('PUT', '/api/admin/settings', admin, { motd: 'hello' })).status).toBe(200);
+
+    // An owner banned before being listed can be let back in by another owner, but not banned by one.
+    const otherOwner = await accountId(owner, 'mod');
+    store.setBanned(otherOwner, true);
+    expect((await call('POST', `/api/admin/accounts/${otherOwner}/ban`, owner, { banned: false })).status).toBe(200);
   });
 
   it('will not let anyone register a name listed as admin', async () => {

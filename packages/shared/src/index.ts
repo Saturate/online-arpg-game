@@ -8,6 +8,7 @@ export * from './data/runes.js';
 export * from './items/drops.js';
 export * from './items/items.js';
 export * from './protocol/accounts.js';
+export * from './protocol/roles.js';
 export * from './protocol/codec.js';
 export * from './protocol/messages.js';
 export * from './protocol/validate.js';

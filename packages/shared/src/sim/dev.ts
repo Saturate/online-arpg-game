@@ -6,7 +6,7 @@ import { spawnEnemy } from './enemies.js';
 import { addItem } from './inventory.js';
 import type { Simulation } from './simulation.js';
 
-/** Encounter sandbox commands. Only honoured for accounts listed in ADMIN_USERS. */
+/** Encounter sandbox commands. Only honoured for roles with the devTools permission (builder and up). */
 export type DevCommand =
   | { c: 'spawn'; enemy: EnemyTypeId; count: number; rare: boolean; level: number; x: number; y: number }
   | { c: 'god'; on: boolean }

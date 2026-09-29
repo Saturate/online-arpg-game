@@ -1,12 +1,17 @@
 import {
+  can,
   cleanChat,
+  isAssignableRole,
   isSessionToken,
   parseCredentials,
   parseNewCharacter,
   parseSettingsPatch,
+  rank,
   type AdminAccount,
   type AdminOverview,
   type CharactersResponse,
+  type Permission,
+  type Role,
   type ServerSettings,
 } from '@rune/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -67,10 +72,17 @@ export interface AdminHooks {
   announce(text: string): number;
   kickCharacter(characterId: number): boolean;
   kickAccount(accountId: number): void;
+  /** Applies a new role to the account's live session, if it has one. */
+  roleChanged(accountId: number, role: Role): void;
 }
 
 export function parseAdminUsers(raw: string | undefined): ReadonlySet<string> {
   return new Set((raw ?? '').split(',').map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0));
+}
+
+/** ADMIN_USERS are owners whatever the database says, so the top role can only be granted on the server. */
+export function roleOf(account: Pick<Account, 'username' | 'role'>, owners: ReadonlySet<string>): Role {
+  return owners.has(account.username.toLowerCase()) ? 'owner' : account.role;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -135,17 +147,17 @@ export class AccountApi {
     /** Called when a character is deleted, so a live session on it is ended first. */
     private readonly onCharacterDeleted: (characterId: number) => void,
     private readonly admin: AdminHooks,
-    /** Lower-cased usernames allowed on the admin API, from ADMIN_USERS. Empty means nobody. */
-    private readonly adminUsers: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
+    /** Lower-cased owner usernames, from ADMIN_USERS. Empty means nobody. */
+    private readonly owners: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
   ) {
     this.sweepTimer.unref();
-    for (const name of adminUsers) {
+    for (const name of owners) {
       if (!store.usernameExists(name)) console.warn(`[admin] ADMIN_USERS lists "${name}" but no such account exists; it cannot be registered while listed`);
     }
   }
 
-  private isAdmin(account: Account): boolean {
-    return this.adminUsers.has(account.username.toLowerCase());
+  private roleOf(account: Account): Role {
+    return roleOf(account, this.owners);
   }
 
   /** Returns false for paths outside /api so the caller can 404 them. */
@@ -175,8 +187,8 @@ export class AccountApi {
       if (typeof creds === 'string') throw new HttpError(400, creds);
       if (path === '/api/register') {
         if (!this.admin.settings().registrationOpen) throw new HttpError(403, 'Registration is closed on this server');
-        // Admin rights follow the username, so a listed name must not be claimable by a stranger.
-        if (this.adminUsers.has(creds.username.toLowerCase())) throw new HttpError(409, 'That username is taken');
+        // Owner rights follow the username, so a listed name must not be claimable by a stranger.
+        if (this.owners.has(creds.username.toLowerCase())) throw new HttpError(409, 'That username is taken');
         const account = await this.store.register(creds.username, creds.password);
         if (account === 'taken') throw new HttpError(409, 'That username is taken');
         return [201, { token: this.store.createSession(account.id), username: account.username }];
@@ -220,22 +232,29 @@ export class AccountApi {
   }
 
   private characters(account: Account): CharactersResponse {
-    return { username: account.username, characters: this.store.listCharacters(account.id), admin: this.isAdmin(account) };
+    return { username: account.username, characters: this.store.listCharacters(account.id), role: this.roleOf(account) };
   }
 
   /** Admin actions are logged with who did them, since they change other players' accounts and the live server. */
   private async adminRoute(req: IncomingMessage, method: string, path: string, account: Account): Promise<[number, unknown]> {
-    // 404 rather than 403, so the admin API is not advertised to everyone else.
-    if (!this.isAdmin(account)) throw new HttpError(404, 'Not found');
-    const log = (what: string) => console.log(`[admin] ${account.username}: ${what}`);
+    const role = this.roleOf(account);
+    // 404 rather than 403 for non-staff, so the admin API is not advertised to everyone else.
+    if (!can(role, 'viewAdmin')) throw new HttpError(404, 'Not found');
+    const need = (permission: Permission) => {
+      if (!can(role, permission)) throw new HttpError(403, 'Your role cannot do that');
+    };
+    /** Staff act only on accounts ranked below them, so a moderator cannot ban or kick an admin. */
+    const outranks = (target: Account) => rank(role) > rank(this.roleOf(target));
+    const log = (what: string) => console.log(`[admin] ${account.username} (${role}): ${what}`);
     if (method === 'GET' && path === '/api/admin/overview') return [200, this.admin.overview()];
     if (method === 'GET' && path === '/api/admin/accounts') {
-      const list: AdminAccount[] = this.store.listAccounts().map((a) => ({ ...a, admin: this.adminUsers.has(a.username.toLowerCase()) }));
+      const list: AdminAccount[] = this.store.listAccounts().map((a) => ({ ...a, role: roleOf(a, this.owners) }));
       return [200, list];
     }
     if (path === '/api/admin/settings') {
       if (method === 'GET') return [200, this.admin.settings()];
       if (method === 'PUT') {
+        need('settings');
         const patch = parseSettingsPatch(await readJson(req));
         if (typeof patch === 'string') throw new HttpError(400, patch);
         log(`settings ${JSON.stringify(patch)}`);
@@ -243,6 +262,7 @@ export class AccountApi {
       }
     }
     if (method === 'POST' && path === '/api/admin/announce') {
+      need('announce');
       const body = await readJson(req);
       const text = cleanChat(isRecord(body) ? body.text : undefined);
       if (!text) throw new HttpError(400, 'Announcement text is required');
@@ -250,24 +270,46 @@ export class AccountApi {
       return [200, { reached: this.admin.announce(text) }];
     }
     if (method === 'POST' && path === '/api/admin/kick') {
+      need('kick');
       const body = await readJson(req);
       const id = isRecord(body) ? body.characterId : undefined;
       if (typeof id !== 'number' || !Number.isSafeInteger(id)) throw new HttpError(400, 'characterId is required');
+      const target = this.store.accountForCharacter(id);
+      if (!target) throw new HttpError(404, 'No such character');
+      if (!outranks(target)) throw new HttpError(403, 'You can only kick players ranked below you');
       log(`kick character ${id}`);
       return [200, { kicked: this.admin.kickCharacter(id) }];
     }
     const ban = /^\/api\/admin\/accounts\/(\d{1,9})\/ban$/.exec(path);
     if (ban && method === 'POST') {
+      need('ban');
       const id = Number(ban[1]);
       const body = await readJson(req);
       const banned = isRecord(body) ? body.banned : undefined;
       if (typeof banned !== 'boolean') throw new HttpError(400, 'banned must be true or false');
       if (id === account.id) throw new HttpError(400, 'You cannot ban yourself');
-      const target = this.store.usernameFor(id);
-      if (banned && target !== null && this.adminUsers.has(target.toLowerCase())) throw new HttpError(400, 'Admins cannot be banned; remove them from ADMIN_USERS first');
-      if (!this.store.setBanned(id, banned)) throw new HttpError(404, 'No such account');
+      const target = this.store.accountById(id);
+      if (!target) throw new HttpError(404, 'No such account');
+      // Owners may unban each other, so an owner banned before being listed can still be let back in.
+      if (!outranks(target) && !(role === 'owner' && !banned)) throw new HttpError(403, 'You can only ban players ranked below you');
+      this.store.setBanned(id, banned);
       if (banned) this.admin.kickAccount(id);
-      log(`${banned ? 'ban' : 'unban'} account ${id}`);
+      log(`${banned ? 'ban' : 'unban'} ${target.username}`);
+      return [200, { ok: true }];
+    }
+    const roleRoute = /^\/api\/admin\/accounts\/(\d{1,9})\/role$/.exec(path);
+    if (roleRoute && method === 'POST') {
+      need('manageRoles');
+      const id = Number(roleRoute[1]);
+      const body = await readJson(req);
+      const next = isRecord(body) ? body.role : undefined;
+      if (!isAssignableRole(next)) throw new HttpError(400, 'role must be player, builder, moderator or admin');
+      const target = this.store.accountById(id);
+      if (!target) throw new HttpError(404, 'No such account');
+      if (this.roleOf(target) === 'owner') throw new HttpError(400, 'Owners are set with ADMIN_USERS on the server');
+      this.store.setRole(id, next);
+      this.admin.roleChanged(id, next);
+      log(`role ${target.username}: ${target.role} -> ${next}`);
       return [200, { ok: true }];
     }
     throw new HttpError(404, 'Not found');

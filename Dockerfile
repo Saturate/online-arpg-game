@@ -37,7 +37,8 @@ ENV BUILD_ID=$BUILD_ID \
     NODE_ENV=production \
     PORT=8080 \
     STATIC_DIR=/app/client \
-    DB_PATH=/data/rune.db
+    DB_PATH=/data/rune.db \
+    TOWN_LAYOUT=/data/town-layout.json
 USER node
 EXPOSE 8080
 CMD ["node", "server.mjs"]

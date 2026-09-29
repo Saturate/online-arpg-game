@@ -48,7 +48,7 @@ export function DevPanel() {
         <header>
           <h2>Encounter sandbox</h2>
         </header>
-        <p className="muted">Dev tools are for admins. Add your username to ADMIN_USERS on the server.</p>
+        <p className="muted">Dev tools need the builder role. The server owner hands out roles on the admin page.</p>
       </section>
     );
   }

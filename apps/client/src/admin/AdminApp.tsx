@@ -1,11 +1,11 @@
-import { CLASSES, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, CLASSES, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { adminApi } from '../net/api.js';
+import { adminApi, api } from '../net/api.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
- * announcements. The server decides who is an admin (ADMIN_USERS); this page only shows what the
- * API allows, reusing the game's login from this browser.
+ * announcements. The server decides what each role may do; this page hides what the viewer's role
+ * cannot use, reusing the game's login from this browser.
  */
 
 type Tab = 'overview' | 'players' | 'settings';
@@ -33,7 +33,13 @@ function uptime(s: number): string {
   return h > 0 ? `${h} h ${m} min` : `${m} min`;
 }
 
-function Overview({ token, notify }: { token: string; notify: (t: string) => void }) {
+interface TabProps {
+  token: string;
+  role: Role;
+  notify: (t: string) => void;
+}
+
+function Overview({ token, role, notify }: TabProps) {
   const [data, setData] = useState<AdminOverview | null>(null);
   const [text, setText] = useState('');
 
@@ -92,12 +98,14 @@ function Overview({ token, notify }: { token: string; notify: (t: string) => voi
         </div>
       </div>
 
-      <form className="adm-announce" onSubmit={(e) => void announce(e)}>
-        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Announce to everyone online" aria-label="Announcement" />
-        <button type="submit" className="primary" disabled={!text.trim()}>
-          Announce
-        </button>
-      </form>
+      {can(role, 'announce') && (
+        <form className="adm-announce" onSubmit={(e) => void announce(e)}>
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Announce to everyone online" aria-label="Announcement" />
+          <button type="submit" className="primary" disabled={!text.trim()}>
+            Announce
+          </button>
+        </form>
+      )}
 
       <h2>Online</h2>
       {data.online.length === 0 ? (
@@ -126,19 +134,21 @@ function Overview({ token, notify }: { token: string; notify: (t: string) => voi
                   {p.game ? <span className="muted"> ({p.game})</span> : null}
                 </td>
                 <td>
-                  <button
-                    type="button"
-                    className="danger small"
-                    onClick={() => {
-                      if (!confirm(`Kick ${p.name}?`)) return;
-                      void adminApi.kick(token, p.characterId).then((r) => {
-                        notify(r.ok ? (r.data.kicked ? `Kicked ${p.name}` : `${p.name} had already left`) : r.error);
-                        load();
-                      });
-                    }}
-                  >
-                    Kick
-                  </button>
+                  {can(role, 'kick') && (
+                    <button
+                      type="button"
+                      className="danger small"
+                      onClick={() => {
+                        if (!confirm(`Kick ${p.name}?`)) return;
+                        void adminApi.kick(token, p.characterId).then((r) => {
+                          notify(r.ok ? (r.data.kicked ? `Kicked ${p.name}` : `${p.name} had already left`) : r.error);
+                          load();
+                        });
+                      }}
+                    >
+                      Kick
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -198,7 +208,7 @@ function Overview({ token, notify }: { token: string; notify: (t: string) => voi
   );
 }
 
-function Players({ token, notify }: { token: string; notify: (t: string) => void }) {
+function Players({ token, role, notify }: TabProps) {
   const [accounts, setAccounts] = useState<AdminAccount[] | null>(null);
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState<number | null>(null);
@@ -238,13 +248,35 @@ function Players({ token, notify }: { token: string; notify: (t: string) => void
             return [
               <tr key={a.id} className={open === a.id ? 'open' : ''} onClick={() => setOpen(open === a.id ? null : a.id)}>
                 <td>
-                  {a.username} {a.admin && <span className="badge gold">admin</span>} {a.banned && <span className="badge red">banned</span>}
+                  {a.username} {a.role !== 'player' && <span className="badge gold">{ROLE_INFO[a.role].name}</span>} {a.banned && <span className="badge red">banned</span>}
                 </td>
                 <td>{new Date(a.createdAt).toLocaleDateString()}</td>
                 <td>{a.characters.length}</td>
                 <td>{ago(last)}</td>
-                <td>
-                  {(!a.admin || a.banned) && (
+                <td className="adm-row-actions">
+                  {can(role, 'manageRoles') && a.role !== 'owner' && (
+                    <select
+                      value={a.role}
+                      aria-label={`Role for ${a.username}`}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (!isAssignableRole(next)) return;
+                        void adminApi.setRole(token, a.id, next).then((r) => {
+                          notify(r.ok ? `${a.username} is now ${ROLE_INFO[next].name.toLowerCase()}` : r.error);
+                          load();
+                        });
+                      }}
+                    >
+                      {ASSIGNABLE_ROLES.map((r) => (
+                        <option key={r} value={r} title={ROLE_INFO[r].blurb}>
+                          {ROLE_INFO[r].name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {/* Mirrors the server: only accounts ranked below you, though owners may unban each other. */}
+                  {can(role, 'ban') && (rank(a.role) < rank(role) || (role === 'owner' && a.banned)) && (
                     <button
                       type="button"
                       className={a.banned ? 'small' : 'danger small'}
@@ -302,7 +334,7 @@ function Players({ token, notify }: { token: string; notify: (t: string) => void
   );
 }
 
-function Settings({ token, notify }: { token: string; notify: (t: string) => void }) {
+function Settings({ token, role, notify }: TabProps) {
   const [saved, setSaved] = useState<ServerSettings | null>(null);
   const [draft, setDraft] = useState<ServerSettings | null>(null);
 
@@ -337,26 +369,32 @@ function Settings({ token, notify }: { token: string; notify: (t: string) => voi
       <small className="muted">{hint}</small>
     </label>
   );
+  const editable = can(role, 'settings');
   return (
     <form className="adm-settings" onSubmit={(e) => void save(e)}>
-      {rate('xpRate', 'XP rate', 'Multiplies XP from every kill.')}
-      {rate('lootRate', 'Loot rate', 'Multiplies how often monsters drop, and how many items rares and bosses drop.')}
-      <label className="adm-field wide">
-        <span>Message of the day</span>
-        <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />
-      </label>
-      <label className="adm-check">
-        <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
-        Registration open <small className="muted">New accounts can be created</small>
-      </label>
-      <div className="adm-actions">
-        <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>
-          Revert
-        </button>
-        <button type="submit" className="primary" disabled={!dirty}>
-          Save
-        </button>
-      </div>
+      {!editable && <p className="muted">Your role can see the settings but not change them.</p>}
+      <fieldset disabled={!editable}>
+        {rate('xpRate', 'XP rate', 'Multiplies XP from every kill.')}
+        {rate('lootRate', 'Loot rate', 'Multiplies how often monsters drop, and how many items rares and bosses drop.')}
+        <label className="adm-field wide">
+          <span>Message of the day</span>
+          <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />
+        </label>
+        <label className="adm-check">
+          <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
+          Registration open <small className="muted">New accounts can be created</small>
+        </label>
+      </fieldset>
+      {editable && (
+        <div className="adm-actions">
+          <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>
+            Revert
+          </button>
+          <button type="submit" className="primary" disabled={!dirty}>
+            Save
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -364,8 +402,8 @@ function Settings({ token, notify }: { token: string; notify: (t: string) => voi
 export function AdminApp() {
   const token = readToken();
   const [tab, setTab] = useState<Tab>('overview');
-  /** null while checking, true when admin, otherwise the reason to show. */
-  const [allowed, setAllowed] = useState<true | string | null>(null);
+  /** null while checking, the viewer's role when staff, otherwise the reason to show. */
+  const [access, setAccess] = useState<{ role: Role; username: string } | string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const notify = useCallback((t: string) => {
     setToast(t);
@@ -374,23 +412,23 @@ export function AdminApp() {
 
   useEffect(() => {
     if (!token) return;
-    void adminApi.settings(token).then((r) => {
-      if (r.ok) return setAllowed(true);
-      // The admin API answers 404 to non-admins; anything else is a login or server problem.
-      setAllowed(r.status === 404 ? 'This account is not an admin.' : r.status === 401 ? 'Your session expired. Log in to the game again.' : `Could not reach the server (${r.error}). Reload to retry.`);
+    void api.characters(token).then((r) => {
+      if (r.ok) return setAccess(can(r.data.role, 'viewAdmin') ? { role: r.data.role, username: r.data.username } : 'This account has no staff role.');
+      setAccess(r.status === 401 ? 'Your session expired. Log in to the game again.' : `Could not reach the server (${r.error}). Reload to retry.`);
     });
   }, [token]);
 
-  if (!token || typeof allowed === 'string') {
+  if (!token || typeof access === 'string') {
     return (
       <main className="adm-gate">
         <h1>Allan's ARPG admin</h1>
-        <p className="muted">{token && typeof allowed === 'string' ? allowed : 'Log in to the game first; this page uses the same login.'}</p>
+        <p className="muted">{token && typeof access === 'string' ? access : 'Log in to the game first; this page uses the same login.'}</p>
         <a href="/">Go to the game</a>
       </main>
     );
   }
-  if (allowed === null) return <main className="adm-gate muted">Checking access</main>;
+  if (access === null) return <main className="adm-gate muted">Checking access</main>;
+  const { role } = access;
   return (
     <div className="adm">
       <header className="adm-header">
@@ -402,12 +440,15 @@ export function AdminApp() {
             </button>
           ))}
         </nav>
+        <span className="muted adm-who">
+          {access.username} <span className="badge gold">{ROLE_INFO[role].name}</span>
+        </span>
         <a href="/">Back to game</a>
       </header>
       <main className="adm-main">
-        {tab === 'overview' && <Overview token={token} notify={notify} />}
-        {tab === 'players' && <Players token={token} notify={notify} />}
-        {tab === 'settings' && <Settings token={token} notify={notify} />}
+        {tab === 'overview' && <Overview token={token} role={role} notify={notify} />}
+        {tab === 'players' && <Players token={token} role={role} notify={notify} />}
+        {tab === 'settings' && <Settings token={token} role={role} notify={notify} />}
       </main>
       {toast && (
         <div className="adm-toast" role="status">

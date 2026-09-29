@@ -1,4 +1,5 @@
 import {
+  can,
   HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
@@ -15,19 +16,21 @@ import {
   type MapDescriptor,
   type PlayerSave,
   type PortalRequest,
+  type Role,
   type TownLayout,
   type Vec2,
   type ZoneId,
 } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { AccountStore } from './accounts.js';
-import type { AdminHooks } from './http.js';
+import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND } from './client.js';
 import { Room } from './room.js';
 import { Staging } from './staging.js';
-import { loadTownLayout, saveTownLayout, townEditorEnabled } from './townStore.js';
+import { loadTownLayout, saveTownLayout } from './townStore.js';
 
 const startedAt = Date.now();
+const TOWN_SAVE_COOLDOWN_MS = 3000;
 const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
 
 /** Bounds what a crash can lose; room changes and disconnects save straight away. */
@@ -74,8 +77,8 @@ export class RoomManager implements AdminHooks {
   constructor(
     seed: number,
     private readonly store: AccountStore,
-    /** Lower-cased usernames from ADMIN_USERS; they get dev tools in the world. */
-    private readonly adminUsers: ReadonlySet<string> = new Set(),
+    /** Lower-cased owner usernames from ADMIN_USERS. */
+    private readonly owners: ReadonlySet<string> = new Set(),
   ) {
     this.seedCounter = seed;
     this.current = store.loadSettings();
@@ -87,7 +90,7 @@ export class RoomManager implements AdminHooks {
     const room = new Room(id, desc, this.seedCounter++);
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
-    if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.townEditor = townEditorEnabled;
+    if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.hostsTown = true;
     this.rooms.set(room.id, room);
     instance?.rooms.add(room.id);
     return room;
@@ -130,6 +133,15 @@ export class RoomManager implements AdminHooks {
 
   kickAccount(accountId: number): void {
     for (const c of [...this.clients.values()]) if (c.accountId === accountId) this.endSession(c, 'This account has been banned');
+  }
+
+  roleChanged(accountId: number, role: Role): void {
+    for (const c of this.clients.values()) {
+      if (c.accountId !== accountId) continue;
+      // Owners stay owners whatever the stored role says.
+      c.role = this.owners.has(c.accountName.toLowerCase()) ? 'owner' : role;
+      c.room?.refreshMember(c);
+    }
   }
 
   overview(): AdminOverview {
@@ -335,11 +347,25 @@ export class RoomManager implements AdminHooks {
         return;
       }
       case 'saveTown': {
-        if (!townEditorEnabled) {
-          client.send({ t: 'notice', text: 'The town editor is disabled on this server' });
+        if (!can(client.role, 'townEdit')) {
+          client.send({ t: 'notice', text: 'The town editor needs the builder role' });
           return;
         }
-        saveTownLayout(msg.layout);
+        // A save rebuilds the town room in every game, so it is rate limited per client.
+        const now = Date.now();
+        if (now - client.lastTownSave < TOWN_SAVE_COOLDOWN_MS) {
+          client.send({ t: 'notice', text: 'Wait a few seconds between town saves' });
+          return;
+        }
+        client.lastTownSave = now;
+        try {
+          saveTownLayout(msg.layout);
+        } catch (err) {
+          console.error('saving the town layout failed', err);
+          client.send({ t: 'notice', text: 'Could not save the town on the server' });
+          return;
+        }
+        console.log(`[town] saved by ${client.accountName}`);
         this.replaceTown(msg.layout);
         client.send({ t: 'notice', text: 'Town saved' });
         return;
@@ -530,7 +556,7 @@ export class RoomManager implements AdminHooks {
     }
     client.accountId = account.id;
     client.accountName = account.username;
-    client.admin = this.adminUsers.has(account.username.toLowerCase());
+    client.role = roleOf(account, this.owners);
     client.characterId = character.id;
     // Everyone starts in a game of their own, like D2; friends join it from the menu.
     const inst = this.newInstance(character.name);

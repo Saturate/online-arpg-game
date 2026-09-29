@@ -1,11 +1,9 @@
 import { DEFAULT_TOWN_LAYOUT, validateLayout, type TownLayout } from '@rune/shared';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 /** Where the town editor saves. Kept in the repo by default so a designed town can be committed. */
 const LAYOUT_PATH = resolve(process.env.TOWN_LAYOUT ?? 'data/town-layout.json');
-
-export const townEditorEnabled = process.env.TOWN_EDITOR === '1';
 
 export function loadTownLayout(): TownLayout {
   try {
@@ -20,5 +18,8 @@ export function loadTownLayout(): TownLayout {
 
 export function saveTownLayout(layout: TownLayout): void {
   mkdirSync(dirname(LAYOUT_PATH), { recursive: true });
-  writeFileSync(LAYOUT_PATH, `${JSON.stringify(layout, null, 2)}\n`);
+  // Written aside and renamed, so a crash mid-write cannot leave a half file that loads as the default town.
+  const tmp = `${LAYOUT_PATH}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(layout, null, 2)}\n`);
+  renameSync(tmp, LAYOUT_PATH);
 }

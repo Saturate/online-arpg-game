@@ -1,4 +1,5 @@
 import { isClassId, type ClassId } from '../data/classes.js';
+import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
 
 /** Account and character management runs over plain HTTP (see apps/server/src/http.ts); only play uses the socket. */
@@ -42,8 +43,8 @@ export interface SessionResponse {
 export interface CharactersResponse {
   username: string;
   characters: CharacterSummary[];
-  /** The account may open the admin page. */
-  admin: boolean;
+  /** Decides whether the admin page link, town editor and dev tools show up. */
+  role: Role;
 }
 
 export interface ApiError {
@@ -148,6 +149,6 @@ export interface AdminAccount {
   username: string;
   createdAt: number;
   banned: boolean;
-  admin: boolean;
+  role: Role;
   characters: AdminCharacter[];
 }

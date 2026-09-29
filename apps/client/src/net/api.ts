@@ -1,4 +1,4 @@
-import { isClassId, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isRole, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -43,7 +43,7 @@ function isCharacter(v: unknown): v is CharacterSummary {
 }
 
 function isCharacters(v: unknown): v is CharactersResponse {
-  return isRecord(v) && typeof v.username === 'string' && typeof v.admin === 'boolean' && Array.isArray(v.characters) && v.characters.every(isCharacter);
+  return isRecord(v) && typeof v.username === 'string' && isRole(v.role) && Array.isArray(v.characters) && v.characters.every(isCharacter);
 }
 
 function isOnlinePlayer(v: unknown): v is AdminOnlinePlayer {
@@ -87,7 +87,7 @@ function isAdminCharacter(v: unknown): v is AdminCharacter {
 }
 
 function isAccounts(v: unknown): v is AdminAccount[] {
-  return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && typeof a.admin === 'boolean' && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
+  return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && isRole(a.role) && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
 }
 
 function isSettings(v: unknown): v is ServerSettings {
@@ -125,6 +125,7 @@ export const adminApi = {
   accounts: async (token: string) => narrow(await call('GET', '/api/admin/accounts', token), isAccounts),
   settings: async (token: string) => narrow(await call('GET', '/api/admin/settings', token), isSettings),
   saveSettings: async (token: string, patch: Partial<ServerSettings>) => narrow(await call('PUT', '/api/admin/settings', token, patch), isSettings),
+  setRole: async (token: string, accountId: number, role: AssignableRole) => narrow(await call('POST', `/api/admin/accounts/${accountId}/role`, token, { role }), isOk),
   ban: async (token: string, accountId: number, banned: boolean) => narrow(await call('POST', `/api/admin/accounts/${accountId}/ban`, token, { banned }), isOk),
   kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
   announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),

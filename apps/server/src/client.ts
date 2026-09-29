@@ -1,4 +1,4 @@
-import { jsonCodec, type ServerMessage } from '@rune/shared';
+import { jsonCodec, type Role, type ServerMessage } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { Room } from './room.js';
 
@@ -19,9 +19,10 @@ export class Client {
   accountId: number | null = null;
   /** For the admin overview. */
   accountName = '';
-  /** Listed in ADMIN_USERS; gets the encounter sandbox and dev commands. */
-  admin = false;
+  /** Staff role, set on join and updated live when an owner changes it. */
+  role: Role = 'player';
   characterId: number | null = null;
+  lastTownSave = 0;
   messageCount = 0;
   /** Recent chat send times, for the chat rate limit (separate from the general message limit). */
   chatTimes: number[] = [];

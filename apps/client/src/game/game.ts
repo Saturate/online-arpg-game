@@ -334,7 +334,7 @@ export class Game {
       return;
     }
     if (!this.townEditorAllowed) {
-      useUi.getState().notify('The town editor is disabled on this server (set TOWN_EDITOR=1)');
+      useUi.getState().notify('The town editor needs the builder role');
       return;
     }
     // After a save the room is rebuilt before the first snapshot arrives, so keep the editor's own camera.
@@ -412,6 +412,8 @@ export class Game {
         useUi.getState().connected();
         this.playerId = msg.playerId;
         this.townEditorAllowed = msg.townEditor;
+        // A role change resends the welcome; an open editor would otherwise linger with saves refused.
+        if (!msg.townEditor && this.editor) this.toggleTownEditor();
         if (this.room?.id !== msg.roomId) {
           this.enterRoom(msg.roomId, msg.map);
           if (this.reopenEditor) {
