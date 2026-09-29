@@ -368,7 +368,7 @@ export const AFFIXES: Record<AffixId, AffixDef> = {
   },
   first_rune_free: {
     id: 'first_rune_free',
-    text: 'The first rune costs no Force',
+    text: 'The first rune costs no base Force',
     slot: 'prefix',
     targets: ['sigil'],
     group: 'first_rune_free',

@@ -73,8 +73,6 @@ export const FX = {
   deathParticles: 22,
   /** Projectile trail emissions per second, independent of frame rate. */
   trailHz: 30,
-  /** How long an unconfirmed cosmetic bolt survives past the expected server echo. */
-  cosmeticGraceMs: 250,
   /** Render smoothing snaps instead of blending when a reconcile moves the player further than this. */
   maxSmoothedCorrection: 100,
   torchCount: 10,

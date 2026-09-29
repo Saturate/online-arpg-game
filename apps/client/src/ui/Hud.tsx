@@ -1,4 +1,4 @@
-import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, matchingStarter, MINION_DEFS, sigilCastDelay, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, matchingStarter, MINION_DEFS, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
 import { useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -48,7 +48,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const castCooldown = useUi((s) => s.castCooldown);
-  const castSpeed = useUi((s) => s.stats?.castSpeedMult ?? 1);
+  const castCooldownFull = useUi((s) => s.castCooldownFull);
   const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const openEditor = useUi((s) => s.openEditor);
   const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
@@ -64,9 +64,8 @@ function SkillSlot({ slot }: { slot: number }) {
   const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
   const [hovered, setHovered] = useState(false);
   const cost = !result ? '' : !result.ok ? 'fizzles' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
-  // The server sets the cooldown to the cast sigil's own delay over cast speed, so the sweep is measured against that.
-  const delay = sigil ? sigilCastDelay(sigil) / Math.max(0.01, castSpeed) : HEAT.castCooldownSeconds;
-  const cd = persistent || delay <= 0 ? 0 : Math.min(1, castCooldown / delay);
+  // The cooldown is shared by every slot, so each sweeps against what the last cast set.
+  const cd = persistent || castCooldownFull <= 0 ? 0 : Math.min(1, castCooldown / castCooldownFull);
   const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
 
   return (

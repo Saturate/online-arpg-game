@@ -116,6 +116,8 @@ interface UiState {
   spiritMax: number;
   spiritReserved: number;
   castCooldown: number;
+  /** Full length of the cooldown the last cast set, so the skill bar sweep has a denominator. */
+  castCooldownFull: number;
   stance: Stance;
   minionRespawn: number[];
   wave: number;
@@ -243,6 +245,7 @@ export const useUi = create<UiState>((set, get) => ({
   spiritMax: 0,
   spiritReserved: 0,
   castCooldown: 0,
+  castCooldownFull: 0,
   stance: 'aggressive',
   minionRespawn: [],
   wave: 0,
@@ -347,7 +350,11 @@ export const useUi = create<UiState>((set, get) => ({
     const s = get();
     // Only the latest attempt counts: a late answer to one that timed out must not free the button
     // for the retry still in flight, nor show a refusal that no longer applies.
-    if (s.inscribing?.attempt !== reply.attempt) return;
+    if (s.inscribing?.attempt !== reply.attempt) {
+      // A refusal that outlived its timeout still tells the player why nothing changed.
+      if (!reply.ok && s.inscribing === null) s.notify(reply.error);
+      return;
+    }
     set({ inscribing: null });
     if (reply.ok) {
       if (s.editorUid === reply.uid) set({ forgeError: null });

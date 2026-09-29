@@ -1022,6 +1022,7 @@ export class Game {
       if (JSON.stringify(ui.stats) !== JSON.stringify(s.stats)) patch.stats = s.stats;
       const cd = Math.round(s.castCooldown * 10) / 10;
       if (ui.castCooldown !== cd) patch.castCooldown = cd;
+      if (ui.castCooldownFull !== s.castCooldownFull) patch.castCooldownFull = s.castCooldownFull;
       const respawns = s.minionRespawn.map((t) => Math.ceil(t));
       if (respawns.join() !== ui.minionRespawn.join()) patch.minionRespawn = respawns;
     }
