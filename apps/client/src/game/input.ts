@@ -92,7 +92,7 @@ export class InputState {
         // next key releases go there instead of the page. Blocking the default keeps focus here.
         if (actionFor(e.code) !== null && !isTypingTarget(e.target)) e.preventDefault();
         // macOS sends no keyup for keys released while Cmd is held, so a held W would stay "down"
-        // forever after any Cmd shortcut. Releasing Cmd forgets everything instead.
+        // forever after any Cmd shortcut. Releasing Cmd forgets every key; mouse buttons are unaffected.
         if (e.key === 'Meta') this.keys.clear();
       },
       opts,
@@ -106,16 +106,20 @@ export class InputState {
       opts,
     );
     // Native menus and dialogs take key releases without always firing blur: the context menu over
-    // a UI panel, and the "leave this page?" prompt after Ctrl+W or Ctrl+R. Coming back to the
-    // window is a clean slate too.
+    // a UI panel, and the "leave this page?" prompt after Ctrl+W or Ctrl+R. Focus coming back also
+    // forgets keys (a held key re-adds itself through auto-repeat), but not the mouse, whose
+    // button may be the very click that brought the window back.
     window.addEventListener('blur', () => this.releaseAll(), opts);
-    window.addEventListener('focus', () => this.releaseAll(), opts);
+    window.addEventListener('focus', () => this.keys.clear(), opts);
     window.addEventListener('beforeunload', () => this.releaseAll(), opts);
     window.addEventListener(
       'contextmenu',
       (e) => {
         // Text fields keep their menu (paste into chat); everywhere else the game has no use for it.
-        if (isTypingTarget(e.target)) return this.releaseAll();
+        if (isTypingTarget(e.target)) {
+          this.releaseAll();
+          return;
+        }
         e.preventDefault();
       },
       opts,
