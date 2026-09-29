@@ -24,7 +24,9 @@ Choices made where the spec was ambiguous or silent. Each can be revisited; the 
 
 **Death** keeps the player entity, drawn faded, for 3 s. Enemies ignore it and inputs are acknowledged but not applied. The player then respawns with full life.
 
-**Snapshots are full, not delta-compressed.** Positions are rounded to 0.1 px and angles to 0.01 rad on the wire.
+**Snapshots are full, except for spells.** Positions are rounded to 0.1 px and angles to 0.01 rad on the wire, and the socket uses permessage-deflate. Projectiles, novas and zones are sent once per client (with velocity, or age and duration), again only if their motion changes, then listed as gone; the client's `SpellTable` carries them forward and expands each snapshot back to full state before anything else reads it. Measured with 4 mages against 30 enemies: 3.1 KB to 1.5 KB per tick deflated.
+
+**Live spell cap:** each player may have spell entities worth 40 alive, a projectile counting 1 and a zone or nova 0.35. Past that their oldest spent pieces end first, and pieces still carrying a payload last. Frozen Orb lost about 3% of its damage.
 
 **The codec is generic over its wire type** (`Codec<string>` for JSON). `packages/shared` has no DOM or Node libs, so `TextDecoder` is unavailable there. A msgpack codec would be `Codec<Uint8Array>`.
 
@@ -153,9 +155,11 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 ## Replays, loot simulator, dungeon clears
 
-- **Replays:** a replay is every server message the client received, timestamped. Snapshots carry full state, so feeding them back through the normal `Game` reproduces the session from the recorder's point of view with no simulation on the client. `Game` takes a session that is either live (WebSocket) or replay (a virtual clock that sends nothing). Interpolation runs on that clock, so slow motion and fast forward work.
+- **Replays:** a replay is every server message the client received, timestamped. Snapshots carry full state apart from spells (which the client rebuilds from the records in earlier snapshots), so feeding them back through the normal `Game` reproduces the session from the recorder's point of view with no simulation on the client. `Game` takes a session that is either live (WebSocket) or replay (a virtual clock that sends nothing). Interpolation runs on that clock, so slow motion and fast forward work.
 - **Recording:** F8 or the Esc menu. Files are gzipped JSON and capped at 10 minutes; a 5.7 s town clip was 5.9 KB. A recording started mid-room is seeded with the last welcome, inventory and staging state.
 - **Seeking:** builds a fresh client at the target time from the last room entry before it. Combat events older than 0.5 s are stripped, so a seek doesn't burst every past hit.
+- **Replays started mid-room** miss spells already alive when recording began; spells cast after that show normally.
+- **Spell Lab** (`/admin/dev/`): reads rune lists with the v2 grammar (PLAN-runes.md, Decisions) and hands castable spells to Spell Studio to cast at dummies; parts the engine cannot run yet are named, not dropped.
 - **Loot simulator:** `/admin/dev/` Loot tab. `rollDrops` in `items/drops.ts` is the only drop roll, and both `dropLoot` and the simulator call it.
 - **Dungeon clear:** killing the boss marks the room cleared once. It opens a cache of 3 rare-or-better items, 70% gear, one level up. Everyone inside gets a banner, and the antechamber shows "Last run cleared".
 
