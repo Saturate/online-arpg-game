@@ -196,6 +196,34 @@ function placeCopies(
   }
 }
 
+/** Whether a spell entity still has something to release: ending it early would cut its payload. */
+function carriesPayload(inst: SpellInst): boolean {
+  return inst.node.branch !== null && !inst.timerFired;
+}
+
+/**
+ * Keeps a player under the live spell cap by ending their oldest spell entities first, so a big
+ * payload spell stays castable but can never flood the room with more than the cap allows. Spent
+ * pieces (a Frozen Orb's shards) go before carriers (the orb still spraying them).
+ */
+function makeRoomForSpell(sim: Simulation, casterId: EntityId, weight: number): void {
+  const w = sim.world;
+  if (!w.player.has(casterId)) return;
+  const live: { id: EntityId; weight: number; carrier: boolean }[] = [];
+  for (const [id, p] of w.projectile) if (p.ownerId === casterId && p.spell && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.projectile, carrier: carriesPayload(p.spell) });
+  for (const [id, n] of w.nova) if (n.spell.casterId === casterId && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.area, carrier: carriesPayload(n.spell) });
+  for (const [id, z] of w.zone) if (z.spell.casterId === casterId && w.isAlive(id)) live.push({ id, weight: SPELL.liveCap.area, carrier: carriesPayload(z.spell) });
+  let load = live.reduce((n, e) => n + e.weight, 0);
+  if (load + weight <= SPELL.liveCap.max) return;
+  // Entity ids only grow, so the lowest ids are the oldest.
+  live.sort((a, b) => Number(a.carrier) - Number(b.carrier) || a.id - b.id);
+  for (const e of live) {
+    if (load + weight <= SPELL.liveCap.max) break;
+    w.destroy(e.id);
+    load -= e.weight;
+  }
+}
+
 function spawnForm(
   sim: Simulation,
   node: SpellNode,
@@ -206,6 +234,8 @@ function spawnForm(
   inheritHits: ReadonlySet<EntityId> | null,
 ): void {
   const w = sim.world;
+  if (node.form === 'bolt') makeRoomForSpell(sim, casterId, SPELL.liveCap.projectile);
+  else if (node.form === 'nova' || node.form === 'zone') makeRoomForSpell(sim, casterId, SPELL.liveCap.area);
   const m = node.modifiers;
   const inst: SpellInst = { node, casterId, age: 0, timerFired: false, angle, pulseTimer: SPELL.pulseSeconds, pulseCount: 0 };
   const team = w.team.get(casterId) ?? 'players';

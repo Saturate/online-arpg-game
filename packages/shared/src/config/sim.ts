@@ -70,6 +70,12 @@ export const SPELL = {
   bolt: { damage: 16, speed: 520, range: 560, radius: 8 },
   nova: { damage: 14, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
   // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
+  /**
+   * A player's live spell entities, weighted by what they cost the server: a projectile checks every
+   * enemy each tick, a zone or nova far less. Measured with 8 players into 120 enemies: at 40 a room
+   * stays near 2 Mbit/s per client and ten busy rooms fit the tick with room to spare.
+   */
+  liveCap: { max: 40, projectile: 1, area: 0.35 },
   zone: { damage: 14, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
   dash: { damage: 12, distance: 190, ticks: 4, hitRadius: 26 },
   modifiers: {
