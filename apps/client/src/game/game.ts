@@ -292,7 +292,14 @@ export class Game {
     const world = new WorldScene(this.mounts.host, def);
     const entities = new EntityRenderer(world.scene, world.camera);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
-    const input = new InputState(world.canvas, (code) => this.onKey(code));
+    const input = new InputState(
+      world.canvas,
+      (code) => this.onKey(code),
+      (step) => {
+        const s = useSettings.getState();
+        if (s.options.wheelCyclesSkill) s.setOption('activeSkill', (s.options.activeSkill + step + SKILL_BUTTONS.length) % SKILL_BUTTONS.length);
+      },
+    );
     this.room = {
       id,
       def,
@@ -536,6 +543,9 @@ export class Game {
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
+    // Right mouse casts the active skill in every scheme, D2 style; the wheel or a slot click picks it.
+    const active = SKILL_BUTTONS[useSettings.getState().options.activeSkill];
+    if (room.input.rightDown && room.input.overCanvas && active !== undefined) sampled.buttons |= active;
     const now = performance.now();
     if (useSettings.getState().options.controls === 'click') this.applyClickScheme(room, sampled, origin, aimPoint, now);
     const pad = this.pad.poll(now);
@@ -564,8 +574,7 @@ export class Game {
     const input = room.input;
     const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
     sampled.buttons &= ~BUTTON.primary;
-    const skill1 = SKILL_BUTTONS[0];
-    if (input.rightDown && input.overCanvas && skill1 !== undefined) sampled.buttons |= skill1;
+
     const pressed = input.leftPresses !== this.lastLeftPresses;
     this.lastLeftPresses = input.leftPresses;
     if (!input.leftDown) this.attackLock = null;

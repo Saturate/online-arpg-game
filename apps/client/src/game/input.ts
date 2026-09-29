@@ -46,8 +46,21 @@ export class InputState {
   overCanvas = false;
   private readonly abort = new AbortController();
 
-  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void) {
+  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void, onWheel: (step: 1 | -1) => void = () => undefined) {
     const opts = { signal: this.abort.signal };
+    // One step per notch; trackpads fire a stream of small deltas, so steps are spaced out.
+    let lastWheel = 0;
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const now = performance.now();
+        if (e.deltaY === 0 || now - lastWheel < 120) return;
+        lastWheel = now;
+        onWheel(e.deltaY > 0 ? 1 : -1);
+      },
+      { signal: this.abort.signal, passive: false },
+    );
     window.addEventListener(
       'keydown',
       (e) => {

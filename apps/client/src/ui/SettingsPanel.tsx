@@ -4,10 +4,11 @@ import { useUi } from './store.js';
 
 const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
   { id: 'keyboard', label: 'WASD + mouse', hint: 'Move with the keys, aim and attack with the mouse.' },
-  { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place, right-click casts skill 1.' },
+  { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place.' },
 ];
 
-const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls'>; label: string }[] = [
+const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls' | 'activeSkill'>; label: string }[] = [
+  { key: 'wheelCyclesSkill', label: 'Scroll wheel picks the right-click skill' },
   { key: 'damageNumbers', label: 'Damage numbers' },
   { key: 'screenShake', label: 'Screen shake' },
   { key: 'alwaysShowLoot', label: 'Always show loot labels' },

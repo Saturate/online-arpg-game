@@ -2000,3 +2000,18 @@ kbd {
 .canvas-host canvas {
   filter: saturate(0.68) contrast(1.08) sepia(0.12);
 }
+.skill.active .skill-icon,
+.skill.active .skill-blank {
+  box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(214, 170, 90, 0.6);
+}
+.skill-rmb {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--gold);
+  color: #1a1208;
+}

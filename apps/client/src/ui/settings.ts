@@ -78,9 +78,13 @@ export interface Options {
   /** Labels on every drop without holding the show-loot key. */
   alwaysShowLoot: boolean;
   uiScale: number;
+  /** Skill slot (0 to 3) the right mouse button casts, D2 style. */
+  activeSkill: number;
+  /** The scroll wheel cycles the active skill. */
+  wheelCyclesSkill: boolean;
 }
 
-export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1 };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, activeSkill: 0, wheelCyclesSkill: true };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -119,6 +123,8 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
       if (typeof o.alwaysShowLoot === 'boolean') options.alwaysShowLoot = o.alwaysShowLoot;
       const scale = UI_SCALES.find((s) => s === o.uiScale);
       if (scale !== undefined) options.uiScale = scale;
+      if (typeof o.activeSkill === 'number' && Number.isInteger(o.activeSkill) && o.activeSkill >= 0 && o.activeSkill <= 3) options.activeSkill = o.activeSkill;
+      if (typeof o.wheelCyclesSkill === 'boolean') options.wheelCyclesSkill = o.wheelCyclesSkill;
     }
   } catch {
     // Corrupt storage: defaults.
