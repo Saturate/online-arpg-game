@@ -3,7 +3,7 @@ import { CLASSES, loadMap, SIM, stepPlayer, type MoveState } from '@rune/shared'
 import { ClickMover, findPath } from '../src/game/clickMove.js';
 
 describe('click to move', () => {
-  const { def, game } = loadMap({ kind: 'arena' });
+  const { def, game } = loadMap({ kind: 'testground' });
   const rock = def.obstacles.find((o) => o.kind === 'rock' && o.shape.type === 'circle' && o.shape.r > 30);
 
   it('paths around an obstacle without stepping through anything solid', () => {

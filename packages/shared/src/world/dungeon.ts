@@ -355,3 +355,58 @@ export function arenaGateMap(): WorldMap {
   }
   return map;
 }
+
+/**
+ * The Arena pit: a round, torch-lit fighting floor carved out of rock like the dungeons, a small
+ * underground colosseum. Pillars give some cover; there is no water and nothing to hide far behind.
+ */
+export function colosseumMap(): WorldMap {
+  const rng = new Rng(0xc0105e);
+  const cells = 44;
+  const size = cells * CELL;
+  const centreCell = cells / 2;
+  const radiusCells = 17;
+  const map = emptyMap({ name: 'The Pit', theme: 'arena', width: size, height: size, spawn: { x: size / 2, y: size / 2 }, waves: true, safe: false, groundTint: 0x2a2622 });
+  const floor = new Uint8Array(cells * cells);
+  for (let y = 0; y < cells; y++) {
+    for (let x = 0; x < cells; x++) {
+      if (Math.hypot(x + 0.5 - centreCell, y + 0.5 - centreCell) <= radiusCells) floor[y * cells + x] = 1;
+    }
+  }
+  // Eight square pillars in a ring: cover to break line of sight, never a maze.
+  const pillarRing = 9;
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI * 2 * i) / 8 + Math.PI / 8;
+    const px = Math.round(centreCell + Math.cos(a) * pillarRing) - 1;
+    const py = Math.round(centreCell + Math.sin(a) * pillarRing) - 1;
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) floor[(py + dy) * cells + px + dx] = 0;
+  }
+  for (let y = 0; y < cells; y++) {
+    for (let x = 0; x < cells; ) {
+      if (floor[y * cells + x] !== 1) {
+        x++;
+        continue;
+      }
+      const x0 = x;
+      while (x < cells && floor[y * cells + x] === 1) x++;
+      map.ground.push({ kind: 'floor', shape: { type: 'box', x: ((x0 + x) * CELL) / 2, y: y * CELL + CELL / 2, hw: ((x - x0) * CELL) / 2, hh: CELL / 2, angle: 0 } });
+    }
+  }
+  map.obstacles.push(...wallsFromGrid(floor, cells, cells));
+  map.playArea = { x: size / 2, y: size / 2, r: (radiusCells - 1) * CELL };
+  // Torches around the wall light the fight; between them it stays dark, and the hero's light matters.
+  const torchRing = (radiusCells - 1.2) * CELL;
+  map.lamps = Array.from({ length: 14 }, (_, i) => {
+    const a = (Math.PI * 2 * i) / 14;
+    return { x: size / 2 + Math.cos(a) * torchRing, y: size / 2 + Math.sin(a) * torchRing };
+  });
+  const decor = ['grave_skull', 'grave_bone_A', 'grave_ribcage', 'dungeon_rubble_half', 'dungeon_banner_red'] as const;
+  for (let i = 0; i < 18; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = rng.range(0.55, 0.92) * (radiusCells - 1) * CELL;
+    const asset = decor[i % decor.length] ?? 'grave_skull';
+    map.decor.push({ asset, x: size / 2 + Math.cos(a) * d, y: size / 2 + Math.sin(a) * d, angle: rng.range(0, Math.PI * 2), scale: rng.range(0.9, 1.3) });
+  }
+  map.portals.push({ x: size / 2, y: size / 2 + (radiusCells - 2.5) * CELL, r: 40, target: 'town', label: 'Leave the pit' });
+  return map;
+}

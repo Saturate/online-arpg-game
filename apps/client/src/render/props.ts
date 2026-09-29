@@ -266,7 +266,8 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const disposers: (() => void)[] = [];
   const { width, height } = def;
 
-  const underground = def.theme === 'dungeon' || def.theme === 'staging';
+  // The Arena pit is an underground colosseum carved like a dungeon, lit the same way by torches.
+  const underground = def.theme === 'dungeon' || def.theme === 'staging' || def.theme === 'arena';
   // Outdoors the grass runs on under the border forest, so the camera never looks past it into the void.
   const margin = underground || def.theme === 'arena' ? 0 : BORDER_DEPTH;
   const gw = width + margin * 2;
@@ -363,8 +364,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') batch.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
   for (const d of def.decor) batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
   for (const l of def.lamps ?? []) batch.add(underground ? 'dungeon_torch_lit' : 'grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
-  if (def.theme === 'arena') addArenaWalls(group, width, height);
-  else if (!underground) addBorder(group, batch, def);
+  if (!underground) addBorder(group, batch, def);
   let cancelled = false;
   void batch.build(group, () => cancelled);
   disposers.push(() => {
@@ -375,7 +375,9 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const p of def.portals) {
     // Zone exits are walk-through gates (an arch and lanterns from the map's decor), not portals.
     if (p.target === 'zone') continue;
-    const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
+    // In town the way to the Arena is a building, walked into; elsewhere 'arena' is still a portal.
+    const arenaEntrance = p.target === 'arena' && (def.theme === 'town' || !!def.safeZones?.length);
+    const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : arenaEntrance ? arenaBuilding(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
     group.add(built.group);
     animated.push(built.update);
   }
@@ -836,6 +838,79 @@ function waypoint(x: number, y: number, r: number): { group: Group; update: (t: 
   };
 }
 
+/**
+ * The way down to the Arena from town: a squat round stone drum, like the top of a sunken
+ * colosseum, with an archway and steps leading into the dark, and a torch either side. Walking
+ * into the archway takes you down.
+ */
+function arenaBuilding(x: number, y: number, r: number): { group: Group; update: (t: number) => void } {
+  const g = new Group();
+  const stone = mat(0x5a544e, { rough: 0.95 });
+  const dark = mat(0x3c3833, { rough: 1 });
+  const radius = r * 1.55;
+  const segments = 12;
+  // The archway faces down the screen (the camera looks from +x+z), so the way in is visible.
+  const facing = Math.PI / 4;
+  for (let i = 0; i < segments; i++) {
+    const a = facing + (Math.PI * 2 * i) / segments;
+    if (i === 0) continue;
+    const seg = new Mesh(new BoxGeometry(radius * 0.55, 34 + (i % 3) * 5, 14), i % 2 ? stone : dark);
+    seg.position.set(Math.cos(a) * radius, 17, Math.sin(a) * radius);
+    seg.rotation.y = -a + Math.PI / 2;
+    seg.castShadow = true;
+    seg.receiveShadow = true;
+    g.add(seg);
+  }
+  // The pit inside: a sand ring around a well of shadow, so it reads as a drop, not a hole in the map.
+  const sand = new Mesh(new RingGeometry(radius * 0.55, radius * 0.95, 28), mat(0x5a4a36, { rough: 1 }));
+  sand.rotation.x = -Math.PI / 2;
+  sand.position.y = 0.9;
+  sand.receiveShadow = true;
+  const well = new Mesh(new CircleGeometry(radius * 0.56, 28), new MeshBasicMaterial({ color: 0x17120d }));
+  well.rotation.x = -Math.PI / 2;
+  well.position.y = 0.8;
+  g.add(sand, well);
+  for (let k = 0; k < 4; k++) {
+    const step = new Mesh(new BoxGeometry(r * 1.1, 4, 12), k % 2 ? stone : dark);
+    const d = radius * (0.95 - k * 0.12);
+    step.position.set(Math.cos(facing) * d, 2 - k * 0.2, Math.sin(facing) * d);
+    step.rotation.y = -facing + Math.PI / 2;
+    step.receiveShadow = true;
+    g.add(step);
+  }
+  const lintel = new Mesh(new BoxGeometry(r * 1.3, 10, 18), stone);
+  lintel.position.set(Math.cos(facing) * radius, 44, Math.sin(facing) * radius);
+  lintel.rotation.y = -facing + Math.PI / 2;
+  lintel.castShadow = true;
+  g.add(lintel);
+  const flames: Mesh[] = [];
+  // Across the archway: perpendicular to the direction it faces.
+  const sideX = -Math.sin(facing);
+  const sideZ = Math.cos(facing);
+  for (const s of [-1, 1]) {
+    const bx = Math.cos(facing) * (radius + 14) + sideX * s * r * 0.95;
+    const bz = Math.sin(facing) * (radius + 14) + sideZ * s * r * 0.95;
+    const post = new Mesh(new CylinderGeometry(2.5, 3, 40, 6), dark);
+    post.position.set(bx, 20, bz);
+    const flame = new Mesh(new ConeGeometry(5, 14, 6), mat(0xffa040, { emissive: 0xff7020, intensity: 2.5 }));
+    flame.position.set(bx, 46, bz);
+    g.add(post, flame);
+    flames.push(flame);
+  }
+  const light = new PointLight(0xff9a40, 3, 320, 1.4);
+  light.position.set(Math.cos(facing) * (radius + 20), 50, Math.sin(facing) * (radius + 20));
+  g.add(light);
+  g.position.set(x, 0, y);
+  return {
+    group: g,
+    update: (t) => {
+      const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
+      for (const fl of flames) fl.scale.set(1, f, 1);
+      light.intensity = 2.6 + f * 0.6;
+    },
+  };
+}
+
 function campfire(x: number, y: number): { group: Group; update: (t: number) => void } {
   const g = new Group();
   const stones: Matrix4[] = [];
@@ -873,22 +948,6 @@ function lamp(x: number, y: number): { group: Group; update: (t: number) => void
   g.add(light);
   g.position.set(x, 0, y);
   return { group: g, update: (t) => (light.intensity = (3 + Math.sin(t * 7 + x) * 0.2) * lampLevel.value) };
-}
-
-function addArenaWalls(group: Group, width: number, height: number): void {
-  const wallMat = mat(COLORS.wall, { rough: 0.9 });
-  const t = 48;
-  for (const [x, z, w, d] of [
-    [width / 2, -t / 2, width + t * 2, t],
-    [width / 2, height + t / 2, width + t * 2, t],
-    [-t / 2, height / 2, t, height],
-    [width + t / 2, height / 2, t, height],
-  ] as const) {
-    const wall = new Mesh(new BoxGeometry(w, 80, d), wallMat);
-    wall.position.set(x, 40, z);
-    wall.castShadow = true;
-    group.add(wall);
-  }
 }
 
 /** True where the scenery outside the map should open up for a zone gate's road. */

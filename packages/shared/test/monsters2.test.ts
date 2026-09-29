@@ -115,7 +115,7 @@ describe('new monster behaviours', () => {
   });
 
   it('flyers hover over water that pushes walkers back out', () => {
-    const { sim } = setup(8, { kind: 'arena' });
+    const { sim } = setup(8, { kind: 'testground' });
     // A segment well inside the map, away from the edge clamp.
     const water = sim.mapDef.obstacles.find((o) => o.kind === 'water' && o.shape.type === 'capsule' && o.shape.ay > 400 && o.shape.ay < sim.map.height - 400);
     if (!water || water.shape.type !== 'capsule') throw new Error('arena has no river');

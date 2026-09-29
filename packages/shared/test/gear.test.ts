@@ -84,7 +84,7 @@ describe('gear', () => {
     const a = new Simulation(6, { kind: 'town' });
     const id = a.addPlayer('c', 'priest', 'P');
     const save = a.exportPlayer(id)!;
-    const b = new Simulation(7, { kind: 'arena' });
+    const b = new Simulation(7, { kind: 'testground' });
     const id2 = b.addPlayer('c', save.classId, save.name, save);
     const p = b.world.player.get(id2)!;
     expect(p.items.get(p.gear.weapon ?? -1)?.kind).toBe('gear');

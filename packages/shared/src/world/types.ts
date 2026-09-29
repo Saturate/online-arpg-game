@@ -115,6 +115,11 @@ export interface WorldMap {
   forge?: Vec2;
   /** The Arena leaderboard stone; only the Arena gate has one. */
   board?: Vec2;
+  /**
+   * The ground players can actually reach, when the map is carved out of rock that has no colliders
+   * of its own (the Arena pit). Waves only spawn inside it.
+   */
+  playArea?: { x: number; y: number; r: number };
 }
 
 export interface Decor {
@@ -129,6 +134,8 @@ export interface Decor {
 /** `flat` is an empty open field, used by tests and the builders' sandbox. `arena` is the pit an Arena run is fought in. */
 export type MapDescriptor =
   | { kind: 'arena' }
+  /** A fixed open field with a river and walls, for tests only. */
+  | { kind: 'testground' }
   /** The antechamber in front of the Arena: ready check and leaderboard. */
   | { kind: 'arenaGate' }
   | { kind: 'town'; layout?: TownLayout }

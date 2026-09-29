@@ -1062,6 +1062,8 @@ export function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
       y: clamp((anchor?.y ?? sim.map.height / 2) + Math.sin(a) * d, m, sim.map.height - m),
     };
     if (sim.map.pointBlocked(candidate.x, candidate.y, 24, 'move')) continue;
+    const area = sim.mapDef.playArea;
+    if (area && distSq(candidate.x, candidate.y, area.x, area.y) > area.r * area.r) continue;
     let ok = true;
     for (const pid of players) {
       const pos = w.position.get(pid);

@@ -4,7 +4,7 @@ import { BUTTON, CLASSES, loadMap, SIM, Simulation, SPELL, STARTER_VESSELS, step
 const frame = (seq: number, over: Partial<InputFrame> = {}): InputFrame => ({ seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0, ...over });
 
 describe('map collision', () => {
-  const { game, def } = loadMap({ kind: 'arena' });
+  const { game, def } = loadMap({ kind: 'testground' });
   const rock = def.obstacles.find((o) => o.kind === 'rock' && o.shape.type === 'circle' && o.shape.r > 30);
 
   it('never lets a walking player end up inside a rock', () => {

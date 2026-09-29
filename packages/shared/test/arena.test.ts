@@ -95,3 +95,26 @@ describe('Arena wave time limit', () => {
     expect(sim.arena?.score).toBe(0);
   });
 });
+
+describe('the Arena pit', () => {
+  it('is a small round underground floor: no water, torch-lit, waves spawn inside it', () => {
+    const sim = new Simulation(8, { kind: 'arena' });
+    const def = sim.mapDef;
+    expect(def.rivers).toHaveLength(0);
+    expect(def.width).toBeLessThanOrEqual(2000);
+    expect((def.lamps ?? []).length).toBeGreaterThan(8);
+    const area = def.playArea;
+    if (!area) throw new Error('no play area');
+    sim.addPlayer('p', 'warrior');
+    startArena(sim, 3);
+    const p = [...sim.world.player.values()][0];
+    if (p) p.god = true;
+    for (let i = 0; i < 12 * SIM.tickRate; i++) sim.step();
+    expect(sim.world.enemy.size).toBeGreaterThan(0);
+    for (const id of sim.world.enemy.keys()) {
+      const pos = sim.world.position.get(id);
+      if (!pos) continue;
+      expect(Math.hypot(pos.x - area.x, pos.y - area.y)).toBeLessThanOrEqual(area.r + 60);
+    }
+  });
+});

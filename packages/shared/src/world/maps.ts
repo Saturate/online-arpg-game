@@ -3,19 +3,23 @@ import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, inRect, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
-import { arenaGateMap, dungeonMap, dungeonName, stagingMap } from './dungeon.js';
+import { arenaGateMap, colosseumMap, dungeonMap, dungeonName, stagingMap } from './dungeon.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
 import type { MapDescriptor, MonsterPack, SafeZone, WorldMap } from './types.js';
 import type { Vec2 } from '../sim/math.js';
 import { HOME_ZONE, nextZone, previousZone, ZONES, type ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
-/** The Arena pit: one river, rocks, a forest and ruins. Arena runs are fought here. */
-function arenaMap(): WorldMap {
+/**
+ * The old open Arena field, kept as a fixture for tests: one river with bridges, walls, rocks, a
+ * forest and ruins give movement, pathing and line-of-sight tests something to work against. No
+ * room in the game uses it.
+ */
+function testgroundMap(): WorldMap {
   const rng = new Rng(7);
   const width = 2800;
   const height = 2000;
-  const map = emptyMap({ name: 'Arena', theme: 'arena', width, height, spawn: { x: width / 2, y: height / 2 }, waves: true, safe: false, groundTint: 0x6a6048 });
+  const map = emptyMap({ name: 'Testground', theme: 'arena', width, height, spawn: { x: width / 2, y: height / 2 }, waves: true, safe: false, groundTint: 0x6a6048 });
   const plaza = { x: width / 2, y: height / 2, r: 300 };
   map.ground.push({ kind: 'plaza', shape: { type: 'circle', x: plaza.x, y: plaza.y, r: plaza.r } });
   addRiver(map, { xAt: (y) => 1980 + Math.sin(y / 330) * 170 + Math.sin(y / 120) * 38, width: 78, bridgeYs: [520, 1470], bridgeWidth: 110 });
@@ -365,7 +369,9 @@ function flatMap(): WorldMap {
 function buildMap(desc: MapDescriptor): WorldMap {
   switch (desc.kind) {
     case 'arena':
-      return arenaMap();
+      return colosseumMap();
+    case 'testground':
+      return testgroundMap();
     case 'arenaGate':
       return arenaGateMap();
     case 'town':

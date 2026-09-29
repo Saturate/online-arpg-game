@@ -26,7 +26,7 @@ describe('minion AI', () => {
   });
 
   it('follows the breadcrumb trail around a wall instead of sticking to it', () => {
-    const sim = new Simulation(3, { kind: 'arena' });
+    const sim = new Simulation(3, { kind: 'testground' });
     const id = sim.addPlayer('c', 'binder');
     sim.step();
     const p = sim.world.player.get(id)!;
@@ -51,7 +51,7 @@ describe('minion AI', () => {
   });
 
   it('archers do not fire without line of sight', () => {
-    const sim = new Simulation(5, { kind: 'arena' });
+    const sim = new Simulation(5, { kind: 'testground' });
     const id = sim.addPlayer('c', 'binder');
     sim.step();
     const p = sim.world.player.get(id)!;
