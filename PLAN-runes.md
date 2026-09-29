@@ -17,14 +17,16 @@ Four kinds, read left to right.
 
 | Kind | Applies to | Runes (first set) |
 |---|---|---|
-| **Shape** | starts a spell or a payload | Spell: Orb (slow, big), Bolt (fast, thin), Nova, Zone. Weapon: Arrow, Strike, Cleave, Throw, Trap. Any: Dash |
+| **Shape** | starts a spell or a payload | Spell: Orb (slow, big), Bolt (fast, thin), Beam, Nova, Zone. Weapon: Arrow, Strike, Cleave, Throw, Trap. Any: Dash |
 | **Infusion** | the current shape, before it fires | Fire, Cold, Lightning |
 | **Shaper** | the current shape's count or motion | Split, Link, Orbit, Homing, Bounce, Chain, Stack |
 | **Effect** | what happens on contact | Impact, Ward, Restore |
 
 Spell shapes scale with spell damage; weapon shapes scale with the weapon you hold. That is a soft gate: anyone can fire an Arrow rune, but it is weak without a bow.
 
-Persistent shapes stay as today: Aura, and the ally tether, renamed **Bond** so **Link** can mean "join the copies". Later shapes: Beam, Wall.
+Persistent shapes stay as today: Aura, and the ally tether, renamed **Bond** so **Link** can mean "join the copies". Later shape: Wall.
+
+**Beam** is a channelled line from the caster toward the cursor: it costs Force every tick while held, hits what it touches on a tick interval, and turns with the aim. Runes work on it like on any shape: `Beam`, `Fire` burns; `Beam`, `Split 3` fans three beams; `Beam [every 0.5 s]`, `Nova` pulses explosions where it ends; `Beam`, `Chain 3` arcs off the first target. It needs two engine pieces the other shapes do not: a held-cast state (the skill keeps firing while the button is down, like Frozen Orb's pulse but tied to the caster), and a line hit test against enemies each tick. The client draws it from the caster's predicted position to the aim, so it never trails behind the hero.
 
 The modifier runes (Swift, Large, Linger, Pierce) and the trigger runes (Timer, On Hit, On Expire, On Land, Pulse) go away and become affixes. **Open:** keep Swift and Large as runes too, for players who have no rolled runes yet.
 
@@ -99,6 +101,15 @@ Three styles: **melee**, **ranged** and **spell**. Each has a family of sigils, 
 - **Minions follow style.** Each style binds its own family through vessels, so a ranged character runs a hound and a hawk, a melee one a shield wall.
 - **Rare affixes may break a rule once, never freely.** A rare vessel affix, *Kindred*, lets one minion of another style join your warband; only one such minion at a time. The same principle holds for every rule-breaking affix: it permits one of a kind (one extra multicast, one foreign minion, one free rune), and the unique version is the only way to lift the limit fully.
 
+### Minion abilities
+
+Minions today only have a basic attack. They get abilities with cooldowns, built on the same ability data monsters already use (`data/enemies.ts`: slam, shoot, ring, blast, leap, each with a cooldown and a telegraph), so a minion ability is data, not new code, wherever a monster already does the same thing.
+
+- **Every minion type has one or two base abilities.** A Shieldbearer taunts every 10 s, a Banner-bearer plants a banner (an aura) every 20 s, a hound leaps to pin, an elemental casts a nova, a skeleton archer fires a volley.
+- **Vessels can roll ability affixes.** A magic or better vessel can roll an extra ability ("casts Frost Nova every 8 s", "leaps to the master's target", "explodes on death") or a modifier to one it has ("taunt cooldown 30% shorter", "volley fires 2 more arrows"). Rarer tiers roll stronger ones. The rule-break principle holds: one extra ability per vessel, never a list.
+- **Minion abilities cost no Force** and are paced only by cooldowns, so a summoner's power comes from spirit and vessel rolls, not from spamming.
+- **The minion AI decides when:** cooldown ready, a target in range, and for support abilities (heal, banner) an ally that needs it. Stance still applies: Follow never uses offensive abilities.
+
 ### Uniques
 
 A new top item tier with fixed, hand-made affixes that bend the rules. First ideas:
@@ -127,9 +138,10 @@ Each phase ships on its own and gets the item review before deploy.
 1. **Prototype in Spell Studio** (dev tools only): the new rules and affixes in the shared compiler behind a flag, so spells can be felt before saves change.
 2. **Rolled runes:** rune affixes on items, drops, and the forge editor rebuilt around left to right with a live sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts.") and a preview on training dummies.
 3. **Sigils as wands:** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
-4. **New shapers:** Link, Orbit, Homing, Bounce, Chain.
+4. **New shapers and Beam:** Link, Orbit, Homing, Bounce, Chain, and the channelled Beam shape.
 5. **Forge gold cost and the rune trader.**
 6. **Styles:** character creation, weapon shapes and scaling, style runes, style minions, uniques.
+   **Minion abilities** can come earlier, on their own: base abilities for today's three minion types plus vessel ability affixes need no other phase.
 7. **Force rebalance** with numbers on the admin page, endgame affix tiers, and the combo codex.
 
 ## Open questions
