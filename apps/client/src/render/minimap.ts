@@ -2,20 +2,36 @@ import type { EntitySnap, WorldMap } from '@rune/shared';
 import { cssColor, TIER_COLORS } from './config.js';
 
 const SIZE = 200;
+/** Fog cell size in minimap pixels. */
+const CELL = 2;
+/** How far around the hero the map uncovers, in world units: roughly what the camera shows. */
+const REVEAL_RADIUS = 650;
+/**
+ * Explored cells per map, kept for the session so walking back into a room keeps what you found.
+ * Maps are generated per game, so a new game starts dark again, like D2.
+ */
+const explored = new Map<string, Uint8Array>();
 
 /**
  * Corner map. The static layout is drawn once per room into an offscreen canvas; each update only
- * blits it and draws dots, so it costs almost nothing per frame.
+ * blits it and draws dots, so it costs almost nothing per frame. Unexplored ground is covered by
+ * fog that lifts as the hero walks, and nothing under the fog is shown.
  */
 export class Minimap {
   private readonly base: HTMLCanvasElement;
   private readonly scale: number;
   private readonly w: number;
   private readonly h: number;
+  private readonly fog: HTMLCanvasElement;
+  private readonly cols: number;
+  private readonly seen: Uint8Array;
+  private lastReveal: { x: number; y: number } | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly def: WorldMap,
+    /** Identifies this map across room changes, so its explored area is remembered. */
+    memoryKey: string,
   ) {
     this.scale = SIZE / Math.max(def.width, def.height);
     this.w = Math.round(def.width * this.scale);
@@ -26,6 +42,63 @@ export class Minimap {
     this.base.width = this.w;
     this.base.height = this.h;
     this.drawBase();
+
+    this.cols = Math.ceil(this.w / CELL);
+    const rows = Math.ceil(this.h / CELL);
+    const known = explored.get(memoryKey);
+    this.seen = known?.length === this.cols * rows ? known : new Uint8Array(this.cols * rows);
+    explored.set(memoryKey, this.seen);
+    this.fog = document.createElement('canvas');
+    this.fog.width = this.w;
+    this.fog.height = this.h;
+    const g = this.fog.getContext('2d');
+    if (g) {
+      g.fillStyle = '#0b0a09';
+      g.fillRect(0, 0, this.w, this.h);
+    }
+    // Small or safe maps have nothing to discover.
+    if (def.theme === 'arena' || def.theme === 'flat' || def.theme === 'town') this.seen.fill(1);
+    for (const z of def.safeZones ?? []) this.revealRect(z.x, z.y, z.w, z.h);
+    for (let i = 0; i < this.seen.length; i++) if (this.seen[i]) this.clearCell(i);
+  }
+
+  private clearCell(i: number): void {
+    const g = this.fog.getContext('2d');
+    g?.clearRect((i % this.cols) * CELL, Math.floor(i / this.cols) * CELL, CELL, CELL);
+  }
+
+  private cellAt(x: number, y: number): number {
+    const cx = Math.floor((x * this.scale) / CELL);
+    const cy = Math.floor((y * this.scale) / CELL);
+    return cx < 0 || cy < 0 || cx >= this.cols ? -1 : cy * this.cols + cx;
+  }
+
+  private isSeen(x: number, y: number): boolean {
+    const i = this.cellAt(x, y);
+    return i >= 0 && this.seen[i] === 1;
+  }
+
+  private revealRect(x: number, y: number, w: number, h: number): void {
+    const step = CELL / this.scale;
+    for (let yy = y; yy <= y + h; yy += step) for (let xx = x; xx <= x + w; xx += step) this.mark(this.cellAt(xx, yy));
+  }
+
+  private mark(i: number): void {
+    if (i < 0 || i >= this.seen.length || this.seen[i]) return;
+    this.seen[i] = 1;
+    this.clearCell(i);
+  }
+
+  private reveal(x: number, y: number): void {
+    // Only after moving a little; the circle is the same otherwise.
+    if (this.lastReveal && Math.hypot(this.lastReveal.x - x, this.lastReveal.y - y) < 40) return;
+    this.lastReveal = { x, y };
+    const step = CELL / this.scale;
+    for (let dy = -REVEAL_RADIUS; dy <= REVEAL_RADIUS; dy += step) {
+      for (let dx = -REVEAL_RADIUS; dx <= REVEAL_RADIUS; dx += step) {
+        if (dx * dx + dy * dy <= REVEAL_RADIUS * REVEAL_RADIUS) this.mark(this.cellAt(x + dx, y + dy));
+      }
+    }
   }
 
   private drawBase(): void {
@@ -99,16 +172,19 @@ export class Minimap {
     const g = this.canvas.getContext('2d');
     if (!g) return;
     const s = this.scale;
+    this.reveal(selfX, selfY);
     g.clearRect(0, 0, this.w, this.h);
     g.drawImage(this.base, 0, 0);
+    g.drawImage(this.fog, 0, 0);
     for (const p of this.def.portals) {
+      if (!this.isSeen(p.x, p.y)) continue;
       g.fillStyle = '#b49cff';
       g.beginPath();
       g.arc(p.x * s, p.y * s, 4, 0, Math.PI * 2);
       g.fill();
     }
     for (const e of entities) {
-      if (e.id === selfId) continue;
+      if (e.id === selfId || !this.isSeen(e.x, e.y)) continue;
       if (e.k === 'enemy') g.fillStyle = e.rare ? '#ffc640' : '#e04040';
       else if (e.k === 'player') g.fillStyle = '#6bb6ff';
       else if (e.k === 'minion') g.fillStyle = '#b49cff';

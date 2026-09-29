@@ -304,7 +304,7 @@ export class Game {
       predictor: new Predictor(CLASSES[this.classId].moveSpeed, game),
       interp: new InterpolationBuffer(SIM.tickMs, NET.interpolationDelayMs),
       mover: new ClickMover(game),
-      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def) : null,
+      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`) : null,
     };
     this.latest = null;
     this.bolts = [];

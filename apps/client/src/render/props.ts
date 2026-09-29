@@ -266,16 +266,20 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const { width, height } = def;
 
   const underground = def.theme === 'dungeon' || def.theme === 'staging';
+  // Outdoors the grass runs on under the border forest, so the camera never looks past it into the void.
+  const margin = underground || def.theme === 'arena' ? 0 : BORDER_DEPTH;
+  const gw = width + margin * 2;
+  const gh = height + margin * 2;
   // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
   const groundMat = underground
     ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 })
-    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), width / 420, height / 420), color: def.groundTint, roughness: 1 });
-  const ground = new Mesh(new PlaneGeometry(width, height), groundMat);
+    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), gw / 420, gh / 420), color: def.groundTint, roughness: 1 });
+  const ground = new Mesh(new PlaneGeometry(gw, gh), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(width / 2, 0, height / 2);
   ground.receiveShadow = true;
   group.add(ground);
-  const voidPlane = new Mesh(new PlaneGeometry(width * 5, height * 5), new MeshBasicMaterial({ color: COLORS.background }));
+  const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), new MeshBasicMaterial({ color: COLORS.background }));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(width / 2, -3, height / 2);
   group.add(voidPlane);
@@ -838,6 +842,82 @@ function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
   }
   addRocks(batch, rocks);
   addTrees(group, trees, def);
+  addWildBorder(group, batch, def, rng);
+}
+
+/** How far the scenery runs past the map edge; the camera sees about this far from the edge. */
+const BORDER_DEPTH = 1500;
+const BORDER_PEAKS = ['mountain_A_grass_trees', 'mountain_B_grass', 'mountain_C', 'hills_A_trees', 'hills_B'];
+
+/**
+ * Forest, rocks and mountains filling the band outside the playable area, so the edge of the world
+ * reads as wilderness you cannot cross rather than black. Out of reach, so the trees never need the
+ * see-through fade and are instanced per variant: a few draw calls for thousands of trees.
+ */
+function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng): void {
+  const { width: w, height: h } = def;
+  const bleak = /Ashen|Gloom/.test(def.name);
+  /** Distance outside the map, 0 inside it. */
+  const outside = (x: number, y: number): number => Math.max(-x, x - w, -y, y - h, 0);
+  const byGeometry = new Map<BufferGeometry, Matrix4[]>();
+  const rocks: Obstacle[] = [];
+  const STEP = 85;
+  for (let y = -BORDER_DEPTH; y < h + BORDER_DEPTH; y += STEP) {
+    for (let x = -BORDER_DEPTH; x < w + BORDER_DEPTH; x += STEP) {
+      const px = x + rng.range(-STEP * 0.45, STEP * 0.45);
+      const py = y + rng.range(-STEP * 0.45, STEP * 0.45);
+      const d = outside(px, py);
+      // The edge row itself is drawn by addBorder with fading trees the player can walk behind.
+      if (d < 80) continue;
+      const roll = rng.next();
+      if (roll < 0.05 && def.theme !== 'town') {
+        rocks.push({ kind: 'rock', shape: { type: 'circle', x: px, y: py, r: rng.range(35, 75) }, blocksMove: false, blocksShots: false, visual: 60 });
+        continue;
+      }
+      // Thins out far away, where mountains and fog take over.
+      if (roll > (d < 700 ? 0.85 : 0.45)) continue;
+      const k = hash(px, py);
+      const kind: TreeKind = k % 100 < (bleak ? 35 : 6) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
+      const size = rng.range(55, 90) * (kind === 'pine' ? 1.05 : 1.25);
+      const geo = treeGeometry(kind, k);
+      byGeometry.set(geo, [...(byGeometry.get(geo) ?? []), matrix(px, 0, py, size, size, size, k)]);
+    }
+  }
+  const treeMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+  for (const [geo, transforms] of byGeometry) {
+    const m = instanced(geo, treeMat, transforms);
+    if (!m) continue;
+    // Shadows this far out are off-screen or under fog, and thousands of casters are not free.
+    m.castShadow = false;
+    group.add(m);
+  }
+  addRocks(batch, rocks);
+
+  // Two staggered rings of peaks behind the forest.
+  const perimeter = 2 * (w + h);
+  for (const [depth, spacing] of [
+    [650, 380],
+    [1150, 460],
+  ] as const) {
+    for (let t = rng.range(0, spacing); t < perimeter + depth * 8; t += spacing * rng.range(0.8, 1.2)) {
+      const at = pointAround(w, h, depth, t);
+      if (!at) continue;
+      const asset = BORDER_PEAKS[rng.int(0, BORDER_PEAKS.length - 1)] ?? 'mountain_C';
+      batch.add(asset, { x: at.x + rng.range(-60, 60), y: at.y + rng.range(-60, 60), angle: rng.range(0, 6), fit: { radius: rng.range(depth < 1000 ? 200 : 280, depth < 1000 ? 300 : 420) } });
+    }
+  }
+}
+
+/** A point `depth` outside the map rectangle, `t` along its enlarged perimeter (corners included). */
+function pointAround(w: number, h: number, depth: number, t: number): { x: number; y: number } | null {
+  const W = w + depth * 2;
+  const H = h + depth * 2;
+  const total = 2 * (W + H);
+  if (t >= total) return null;
+  if (t < W) return { x: t - depth, y: -depth };
+  if (t < W + H) return { x: w + depth, y: t - W - depth };
+  if (t < 2 * W + H) return { x: w + depth - (t - W - H), y: h + depth };
+  return { x: -depth, y: h + depth - (t - 2 * W - H) };
 }
 
 /** Grass tufts, flowers and pebbles: thousands of instances, no collision, placed away from obstacles. */

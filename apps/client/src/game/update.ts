@@ -1,4 +1,5 @@
 import type { GameMode } from '@rune/shared';
+import { allowLeave } from './leaveGuard.js';
 
 /**
  * Stale tabs after a deploy: the server restarts, the tab reconnects, sees a different build in the
@@ -42,6 +43,7 @@ export function reloadForUpdate(serverBuild: string, resume: Resume): boolean {
   if (read(ATTEMPT_KEY) === serverBuild) return false;
   write(ATTEMPT_KEY, serverBuild);
   write(RESUME_KEY, JSON.stringify(resume));
+  allowLeave();
   location.reload();
   return true;
 }
