@@ -72,7 +72,28 @@ export class InputState {
       },
       opts,
     );
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code), opts);
+    window.addEventListener(
+      'keyup',
+      (e) => {
+        this.keys.delete(e.code);
+        // macOS sends no keyup for keys released while Cmd is held, so a held W would stay "down"
+        // forever after any Cmd shortcut. Releasing Cmd forgets everything instead.
+        if (e.key === 'Meta') this.keys.clear();
+      },
+      opts,
+    );
+    // A hidden tab never hears its keyups either.
+    document.addEventListener(
+      'visibilitychange',
+      () => {
+        if (document.hidden) {
+          this.keys.clear();
+          this.mouseDown = false;
+          this.rightDown = false;
+        }
+      },
+      opts,
+    );
     window.addEventListener(
       'blur',
       () => {
