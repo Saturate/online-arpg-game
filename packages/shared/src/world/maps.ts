@@ -19,7 +19,7 @@ function testgroundMap(): WorldMap {
   const rng = new Rng(7);
   const width = 2800;
   const height = 2000;
-  const map = emptyMap({ name: 'Testground', theme: 'arena', width, height, spawn: { x: width / 2, y: height / 2 }, waves: true, safe: false, groundTint: 0x6a6048 });
+  const map = emptyMap({ name: 'Testground', theme: 'flat', width, height, spawn: { x: width / 2, y: height / 2 }, waves: true, safe: false, groundTint: 0x6a6048 });
   const plaza = { x: width / 2, y: height / 2, r: 300 };
   map.ground.push({ kind: 'plaza', shape: { type: 'circle', x: plaza.x, y: plaza.y, r: plaza.r } });
   addRiver(map, { xAt: (y) => 1980 + Math.sin(y / 330) * 170 + Math.sin(y / 120) * 38, width: 78, bridgeYs: [520, 1470], bridgeWidth: 110 });

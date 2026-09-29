@@ -1047,7 +1047,41 @@ export function updateWaves(sim: Simulation, dt: number): void {
 }
 
 /** Near a random player, but never on top of any player or inside an obstacle. */
+/**
+ * A spawn point inside a map's play area (the Arena pit). The area is small next to the usual
+ * spawn distance, so points are drawn across the floor itself, the distance to players relaxes on
+ * later attempts, and if nothing qualifies the clear floor point farthest from any player is used:
+ * never a spot in the rock outside the walls, where a monster could not be reached.
+ */
+function spawnPointInArea(sim: Simulation, players: EntityId[], area: { x: number; y: number; r: number }): Vec2 {
+  const w = sim.world;
+  const want = Math.min(WAVES.minSpawnDistance, area.r * 0.5);
+  let best: Vec2 = { x: area.x, y: area.y };
+  let bestD = -1;
+  for (let attempt = 0; attempt < WAVES.spawnAttempts; attempt++) {
+    const a = sim.rand.world.range(0, Math.PI * 2);
+    // sqrt keeps the draw uniform over the disc instead of bunching at the centre.
+    const d = Math.sqrt(sim.rand.world.next()) * area.r;
+    const p = { x: area.x + Math.cos(a) * d, y: area.y + Math.sin(a) * d };
+    if (sim.map.pointBlocked(p.x, p.y, 24, 'move')) continue;
+    let nearest = Infinity;
+    for (const pid of players) {
+      const pos = w.position.get(pid);
+      if (pos) nearest = Math.min(nearest, Math.hypot(p.x - pos.x, p.y - pos.y));
+    }
+    const needed = want * (1 - (0.6 * attempt) / WAVES.spawnAttempts);
+    if (nearest >= needed) return p;
+    if (nearest > bestD) {
+      best = p;
+      bestD = nearest;
+    }
+  }
+  return best;
+}
+
 export function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
+  const area = sim.mapDef.playArea;
+  if (area) return spawnPointInArea(sim, players, area);
   const w = sim.world;
   const m = WAVES.spawnMargin;
   const minD = WAVES.minSpawnDistance * WAVES.minSpawnDistance;
@@ -1062,8 +1096,6 @@ export function enemySpawnPoint(sim: Simulation, players: EntityId[]): Vec2 {
       y: clamp((anchor?.y ?? sim.map.height / 2) + Math.sin(a) * d, m, sim.map.height - m),
     };
     if (sim.map.pointBlocked(candidate.x, candidate.y, 24, 'move')) continue;
-    const area = sim.mapDef.playArea;
-    if (area && distSq(candidate.x, candidate.y, area.x, area.y) > area.r * area.r) continue;
     let ok = true;
     for (const pid of players) {
       const pos = w.position.get(pid);

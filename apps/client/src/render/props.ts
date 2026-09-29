@@ -269,7 +269,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   // The Arena pit is an underground colosseum carved like a dungeon, lit the same way by torches.
   const underground = def.theme === 'dungeon' || def.theme === 'staging' || def.theme === 'arena';
   // Outdoors the grass runs on under the border forest, so the camera never looks past it into the void.
-  const margin = underground || def.theme === 'arena' ? 0 : BORDER_DEPTH;
+  const margin = underground ? 0 : BORDER_DEPTH;
   const gw = width + margin * 2;
   const gh = height + margin * 2;
   // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
@@ -906,7 +906,8 @@ function arenaBuilding(x: number, y: number, r: number): { group: Group; update:
     update: (t) => {
       const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
       for (const fl of flames) fl.scale.set(1, f, 1);
-      light.intensity = 2.6 + f * 0.6;
+      // Rises at night with every other lamp in town.
+      light.intensity = (2.6 + f * 0.6) * lampLevel.value;
     },
   };
 }

@@ -210,7 +210,8 @@ export class WorldScene {
     this.lastLight = { night, cloud, brightness: lighting.nightBrightness };
     const b = this.base;
     const mix = (day: number, dark: number) => day + (dark - day) * night;
-    // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 is daylight.
+    // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 is the most
+    // it gets, still somewhat dimmer than day after the night exposure and dim below.
     const keep = 0.3 + 0.7 * lighting.nightBrightness;
     // Cloud mostly takes the sun away and flattens the light; the sky light dims less, so an
     // overcast day is grey and soft-shadowed rather than dark.

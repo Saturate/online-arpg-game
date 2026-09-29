@@ -7,7 +7,14 @@ export function readLink(): string[] {
     .replace(/^#/, '')
     .split('/')
     .filter((p) => p !== '')
-    .map((p) => decodeURIComponent(p));
+    .map((p) => {
+      // A hand-typed link with a stray % must not take the whole dev app down.
+      try {
+        return decodeURIComponent(p);
+      } catch {
+        return p;
+      }
+    });
 }
 
 /** Replaces the hash without adding a history entry for every click. */

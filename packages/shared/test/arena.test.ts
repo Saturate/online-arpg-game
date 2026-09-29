@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ARENA, arenaOver, arenaWave, killScore, monsterXp, partyLevel, seasonOf, Simulation, startArena, waveClearBonus, SIM } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
-import { spawnEnemy } from '../src/sim/enemies.js';
+import { enemySpawnPoint, spawnEnemy } from '../src/sim/enemies.js';
 
 describe('Arena wave scaling', () => {
   it('grows every wave: more monsters, more rares and packs, higher level, never easier', () => {
@@ -115,6 +115,29 @@ describe('the Arena pit', () => {
       const pos = sim.world.position.get(id);
       if (!pos) continue;
       expect(Math.hypot(pos.x - area.x, pos.y - area.y)).toBeLessThanOrEqual(area.r + 60);
+    }
+  });
+});
+
+describe('Arena spawn points', () => {
+  it('stay on the pit floor even with four players spread around the pillar ring', () => {
+    const sim = new Simulation(8, { kind: 'arena' });
+    const area = sim.mapDef.playArea;
+    if (!area) throw new Error('no play area');
+    const ids = [0, 1, 2, 3].map((i) => {
+      const id = sim.addPlayer(`p${i}`, 'warrior');
+      const pos = sim.world.position.get(id);
+      const a = (Math.PI / 2) * i;
+      if (pos) {
+        pos.x = area.x + Math.cos(a) * 400;
+        pos.y = area.y + Math.sin(a) * 400;
+      }
+      return id;
+    });
+    for (let i = 0; i < 300; i++) {
+      const p = enemySpawnPoint(sim, ids);
+      expect(Math.hypot(p.x - area.x, p.y - area.y)).toBeLessThanOrEqual(area.r);
+      expect(sim.map.pointBlocked(p.x, p.y, 24, 'move')).toBe(false);
     }
   });
 });

@@ -400,10 +400,13 @@ export function colosseumMap(): WorldMap {
     const a = (Math.PI * 2 * i) / 14;
     return { x: size / 2 + Math.cos(a) * torchRing, y: size / 2 + Math.sin(a) * torchRing };
   });
-  const decor = ['grave_skull', 'grave_bone_A', 'grave_ribcage', 'dungeon_rubble_half', 'dungeon_banner_red'] as const;
+  const decor = ['grave_skull', 'grave_bone_A', 'grave_ribcage', 'dungeon_rubble_half'] as const;
+  // Between the pillar ring and the wall, and off the exit (on the +y axis), so decor never sits
+  // inside a pillar or on the portal.
   for (let i = 0; i < 18; i++) {
     const a = rng.range(0, Math.PI * 2);
-    const d = rng.range(0.55, 0.92) * (radiusCells - 1) * CELL;
+    if (Math.abs(a - Math.PI / 2) < 0.35) continue;
+    const d = rng.range(0.72, 0.88) * (radiusCells - 1) * CELL;
     const asset = decor[i % decor.length] ?? 'grave_skull';
     map.decor.push({ asset, x: size / 2 + Math.cos(a) * d, y: size / 2 + Math.sin(a) * d, angle: rng.range(0, Math.PI * 2), scale: rng.range(0.9, 1.3) });
   }

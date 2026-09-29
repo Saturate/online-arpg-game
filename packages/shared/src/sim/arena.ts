@@ -85,6 +85,16 @@ function livingPlayers(sim: Simulation): number[] {
   return out;
 }
 
+/** A point moved onto the map's play area if it lies outside it, keeping its direction from the centre. */
+function insideArea(sim: Simulation, x: number, y: number): { x: number; y: number } {
+  const area = sim.mapDef.playArea;
+  if (!area) return { x, y };
+  const d = Math.hypot(x - area.x, y - area.y);
+  if (d <= area.r || d === 0) return { x, y };
+  const k = area.r / d;
+  return { x: area.x + (x - area.x) * k, y: area.y + (y - area.y) * k };
+}
+
 /** Arena waves: a wave spawns when the last one is dead and the breather has run out. */
 export function updateArenaWaves(sim: Simulation, dt: number): void {
   const arena = sim.arena;
@@ -132,7 +142,10 @@ export function updateArenaWaves(sim: Simulation, dt: number): void {
       for (let i = 0; i < size; i++) {
         const a = (Math.PI * 2 * i) / size;
         // The first of a pack leads it as a rare, like a champion pack in the Wilds.
-        spawnEnemy(sim, kind, at.x + Math.cos(a) * 40, at.y + Math.sin(a) * 40, { rare: i === 0, level: spec.level, aggro: true });
+        // Members stand around the checked point: pulled back inside the floor if they would land in
+        // the rock beyond it, and spawnEnemy finds open ground if one lands in a pillar.
+        const spot = insideArea(sim, at.x + Math.cos(a) * 40, at.y + Math.sin(a) * 40);
+        spawnEnemy(sim, kind, spot.x, spot.y, { rare: i === 0, level: spec.level, aggro: true });
       }
       spawned += size;
     } else {

@@ -13,7 +13,10 @@ export function AssetsTab() {
   const viewer = useRef<AssetViewer | null>(null);
   // Opened from a deep link (#assets/<category>/<id>) when there is one.
   const [category, setCategory] = useState<Category>(() => CATEGORIES.find((c) => c === readLink()[1]) ?? 'hero');
-  const [selected, setSelected] = useState<string | null>(() => readLink()[2] ?? null);
+  const [selected, setSelected] = useState<string | null>(() => {
+    const id = readLink()[2];
+    return id !== undefined && (ASSETS.some((a) => a.id === id) || BUILTIN_MODELS.some((b) => b.id === id)) ? id : null;
+  });
   useEffect(() => {
     writeLink(selected ? ['assets', category, selected] : ['assets', category]);
   }, [category, selected]);

@@ -222,12 +222,12 @@ export interface DriveState {
 }
 
 /**
- * Speeds where locomotion switches to running, and back to walking, in world units per second.
- * Both sit clear of common move speeds (a Zombie Brute walks at 150, 165 on a road), since a
+ * Speeds where locomotion switches to running, and back to walking, in world units per second. A
+ * narrow band clear of common move speeds (minions at 150 to 180, players from 190), since a
  * smoothed speed hovering on a single line flips the clip and restarts the crossfade every frame.
  */
-const RUN_UP = 185;
-const RUN_DOWN = 170;
+const RUN_UP = 188;
+const RUN_DOWN = 184;
 
 /**
  * Picks the clip from what the entity is doing. One-shots (attack, death, awaken) play through;

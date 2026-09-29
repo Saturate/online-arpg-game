@@ -131,7 +131,10 @@ export interface Decor {
   scale: number;
 }
 
-/** `flat` is an empty open field, used by tests and the builders' sandbox. `arena` is the pit an Arena run is fought in. */
+/**
+ * `flat` is an empty open field, used by tests and the builders' sandbox. `arena` is the pit an
+ * Arena run is fought in. `testground` is a fixed field with a river and walls, for tests.
+ */
 export type MapDescriptor =
   | { kind: 'arena' }
   /** A fixed open field with a river and walls, for tests only. */
