@@ -78,7 +78,10 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
       for (let i = 0; i < cmd.count; i++) {
         const a = (Math.PI * 2 * i) / cmd.count;
         const r = cmd.count > 1 ? 40 + cmd.count * 4 : 0;
-        spawnEnemy(sim, cmd.enemy, cmd.x + Math.cos(a) * r, cmd.y + Math.sin(a) * r, { rare: cmd.rare, level: cmd.level, aggro: true });
+        const id = spawnEnemy(sim, cmd.enemy, cmd.x + Math.cos(a) * r, cmd.y + Math.sin(a) * r, { rare: cmd.rare, level: cmd.level, aggro: true });
+        // Dev monsters are for testing fights, not a loot or XP farm for builders.
+        const e = w.enemy.get(id);
+        if (e) e.rewards = false;
       }
       return `Spawned ${cmd.count} ${cmd.rare ? 'rare ' : ''}${cmd.enemy}`;
     case 'god':
@@ -105,6 +108,8 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
           : cmd.item === 'vessel'
             ? createVessel(sim.newItemUid(), rng, cmd.tier, undefined, cmd.level)
             : createSigil(sim.newItemUid(), rng, cmd.tier, { ilvl: cmd.level, skill: 'random' });
+      // Bound, so dev items can be tried but never sold, stashed or handed on.
+      item.bound = true;
       return addItem(p, item) ? `Gave ${item.name}` : 'Inventory is full';
     }
     case 'teleport': {

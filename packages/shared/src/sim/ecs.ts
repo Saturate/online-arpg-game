@@ -142,6 +142,11 @@ export interface EnemyComp {
   enraged: boolean;
   /** Already raised once by a shaman; raised monsters stay dead the second time. */
   raised: boolean;
+  /**
+   * Whether killing it drops loot and gives XP. False for monsters a shaman raised (they already
+   * paid out once) and for ones spawned with dev tools.
+   */
+  rewards: boolean;
   /** Killed by its own suicide blast, so the death burst does not fire on top. */
   detonated: boolean;
 }

@@ -35,6 +35,11 @@ interface Member {
   sentInventoryVersion: number;
 }
 
+/** Rooms opened since start; each takes its own block of item ids (see Simulation.startItemUidsAt). */
+let roomSerial = 0;
+/** Far more items than one room ever makes, and 2^21 rooms before ids pass the safe integer range. */
+const ITEM_UIDS_PER_ROOM = 2 ** 32;
+
 /** One simulation plus the clients in it. The room manager moves clients between rooms. */
 export class Room {
   readonly sim: Simulation;
@@ -57,6 +62,7 @@ export class Room {
     seed: number,
   ) {
     this.sim = new Simulation(seed, desc);
+    this.sim.startItemUidsAt(++roomSerial * ITEM_UIDS_PER_ROOM);
   }
 
   get name(): string {

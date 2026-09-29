@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buyItem, buyPrice, createGear, sellItem, sellPrice, Simulation } from '../src/index.js';
-import { addItem } from '../src/sim/inventory.js';
+import { addItem, unequipGear } from '../src/sim/inventory.js';
 
 function atTrader() {
   const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
@@ -28,9 +28,11 @@ describe('trader', () => {
 
   it('refuses to sell starter items, so new characters cannot mint gold', () => {
     const { sim, pid, p } = atTrader();
-    const starter = [...p.items.values()].find((i) => i.kind === 'sigil' && p.inventory.includes(i.uid));
-    if (!starter) throw new Error('no starter sigil in the bag');
-    expect(sellItem(sim, pid, starter.uid)).toBe('Starter items cannot be sold');
+    const weapon = p.gear.weapon;
+    if (weapon === null || unequipGear(sim, pid, 'weapon') !== null) throw new Error('no starter weapon to take off');
+    const starter = p.items.get(weapon);
+    if (!starter) throw new Error('starter weapon missing');
+    expect(sellItem(sim, pid, starter.uid)).toBe('Bound items cannot be sold');
     expect(sellPrice(starter)).toBe(0);
     expect(p.gold).toBe(0);
   });

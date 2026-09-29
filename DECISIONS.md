@@ -61,7 +61,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Support vs offensive.** A node is offensive if it has an element or Force, or has neither Restore nor Ward. So `Nova Restore` only heals, and `Nova Ward Fire` damages enemies and shields allies. Heals and shields hit allies, including the caster for areas.
 - **Frostfire** gets +25% damage on top of carrying both elements. **Burning Ward** shields deal 8 fire damage to enemies that make contact.
 - **Dash prediction.** Dash is not predicted at cast time. The server starts it and sends the dash state with the snapshot, and the client replays unacknowledged inputs through the same `stepPlayer`, so the rest of the dash is exact. The cost is that the dash visibly starts one RTT late. Corrections are blended out over a few frames instead of popping.
-- **Debug fixtures.** Every class starts with a corrupted Relic "Test Sigil" (7 slots), so the 7-rune fixture can be tried in play. With F1 on, the sigil editor has a fixture loader.
+- **Debug fixtures.** With F1 on, the sigil editor has a fixture loader. The old "Test Sigil" every character started with is gone; saves that still hold one lose it on load and get its runes back, bound.
 
 ## M3: Items
 
@@ -207,7 +207,12 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Loot pace:** normal monsters drop 8% of the time; tier weights lean common and magic (relic about 1 in 300 normal drops). Starter items are bound and can't be sold.
 - **Stations open on a click:** the stash, trader, forge and waypoints open when clicked, after the hero walks into reach, and close when you walk away, as in D2. Touching a waypoint still activates it; its menu waits for the click. The forge opens straight into the sigil editor.
 - **Trader:** the stall nearest the town spawn. Only relics ask before selling (an in-game prompt, not a browser dialog); everything else sells on the right-click. Sell for gold (tier and item level), buy at 3x from one shelf shared by the whole server; 50 items, the oldest destroyed when a 51st is sold. The shelf, the character and the stash are saved in one transaction per trade.
-- **Runes and the forge:** runes drop (a quarter of drops, forms and elements common, triggers rare) and stack 20 to a cell. The forge is the weapon rack nearest the spawn; there the sigil editor spends runes from the bag and returns ones taken out. Builders keep a free test bench on the Arena and flat maps. Runes from starter sigils come back bound.
+- **Runes and the forge:** runes drop (a quarter of drops, forms and elements common, triggers rare) and stack 20 to a cell, and a stack sells for its count. The forge is the weapon rack nearest the spawn; there the sigil editor spends runes from the bag and returns ones taken out. Each sigil slot remembers whether its rune was bound, so a rune comes back out exactly as it went in. Builders keep a free test bench on the Arena and flat maps; runes put in there are bound. A rune that does not fit back in the bag goes to pending, never lost.
+- **Bound items** (starter kit, dev items, and sigils holding bound runes) cannot be sold, dropped or put in the account stash, so a new character cannot farm them for another.
+- **Dev tools:** items given with them are bound, and monsters spawned with them drop nothing and give no XP. Monsters a shaman raised pay out nothing the second time.
+- **Adding to the bag is all or nothing:** a purchase that does not fit tops up no stacks. Ground pickups still take part of a rune stack, since they shrink the real ground item.
+- **Item ids** are unique across the server (each room takes its own range), so a command carrying an id from the room a player just left cannot touch a different item.
+- **Pickup** needs a clear line (walls and rocks block, water does not) and allows two input frames of extra reach for a request that overtakes its inputs.
 - **Warband:** 24 slots, a ceiling no build reaches; spirit is the real limit. Binders start with one minion (Zombie Brute).
 
 ## Look and world

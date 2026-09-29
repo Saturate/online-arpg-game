@@ -54,7 +54,7 @@ describe('forge', () => {
     const { sim, pid, pos, forge, blank } = atForge();
     expect(sim.inscribe(pid, blank.uid, ['bolt'])).toBe('You need a Bolt Rune');
     pos.x = forge.x + 2000;
-    expect(sim.inscribe(pid, blank.uid, [])).toBe('Sigils are inscribed at the forge in town');
+    expect(sim.inscribe(pid, blank.uid, ['bolt'])).toBe('Sigils are inscribed at the forge in town');
   });
 
   it('lets builders use the free bench only on test maps', () => {

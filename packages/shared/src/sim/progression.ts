@@ -32,6 +32,7 @@ function grayFactor(playerLevel: number, monsterLevel: number): number {
  * and the pool grows per member, so a party levels faster than the same players alone.
  */
 export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number): void {
+  if (!e.rewards) return;
   const w = sim.world;
   const r2 = PROGRESSION.partyRange ** 2;
   const near: EntityId[] = [];

@@ -9,16 +9,19 @@ import {
   createSigil,
   createGear,
   createVessel,
+  holdsBoundRunes,
   isBound,
+  isLegacyTestSigil,
   ITEM_TIERS,
   rollTier,
   RUNE_STACK,
   sigilCapacity,
   sigilMods,
+  slotBound,
   STARTER_VESSELS,
-  TEST_SIGIL,
   type Item,
   type ItemUid,
+  type RuneItem,
   type SigilItem,
 } from '../items/items.js';
 import { rollDrops } from '../items/drops.js';
@@ -68,27 +71,68 @@ export function fitsInBag(p: PlayerComp, item: Item): boolean {
   return findSpot(p.inventory, BAG, itemSize(item)) !== null;
 }
 
+/** Bag stacks a rune can top up. Bound runes keep their own stacks, so they never make sellable ones. */
+function matchingStacks(p: PlayerComp, rune: RuneId, bound: boolean): RuneItem[] {
+  const out: RuneItem[] = [];
+  for (const uid of new Set(p.inventory)) {
+    const stack = uid === null ? undefined : p.items.get(uid);
+    if (stack?.kind === 'rune' && stack.rune === rune && (stack.bound === true) === bound && stack.count < RUNE_STACK) out.push(stack);
+  }
+  return out;
+}
+
+function stackSpace(p: PlayerComp, rune: RuneId, bound: boolean): number {
+  return matchingStacks(p, rune, bound).reduce((n, s) => n + RUNE_STACK - s.count, 0);
+}
+
+/** Moves as much of a rune item as fits into existing stacks. `item` shrinks by what moved. */
+function topUpStacks(p: PlayerComp, item: RuneItem): void {
+  for (const stack of matchingStacks(p, item.rune, item.bound === true)) {
+    const moved = Math.min(item.count, RUNE_STACK - stack.count);
+    stack.count += moved;
+    item.count -= moved;
+    if (item.count === 0) break;
+  }
+  changed(p);
+}
+
+/**
+ * Puts an item into the bag, all or nothing: false leaves both the bag and the item untouched. A
+ * copy that fails (a trader purchase) must not have topped up any stacks on the way.
+ */
 export function addItem(p: PlayerComp, item: Item): boolean {
-  // Runes top up stacks of the same rune first, and only need a cell for what is left over.
   if (item.kind === 'rune') {
-    for (const uid of new Set(p.inventory)) {
-      const stack = uid === null ? undefined : p.items.get(uid);
-      // Bound runes (from starter sigils) keep their own stacks, so they never make sellable ones.
-      if (stack?.kind !== 'rune' || stack.rune !== item.rune || stack.count >= RUNE_STACK || (stack.bound === true) !== (item.bound === true)) continue;
-      const moved = Math.min(item.count, RUNE_STACK - stack.count);
-      stack.count += moved;
-      item.count -= moved;
-      if (item.count === 0) {
-        changed(p);
-        return true;
-      }
-    }
+    if (item.count > stackSpace(p, item.rune, item.bound === true) && !fitsInBag(p, item)) return false;
+    topUpStacks(p, item);
+    if (item.count === 0) return true;
   }
   if (!fitsInBag(p, item)) return false;
   p.items.set(item.uid, item);
   stow(p, item.uid);
   changed(p);
   return true;
+}
+
+/**
+ * For a ground stack: takes whatever part of it fits. Only safe on the real ground item, whose count
+ * shrinks by exactly what the bag gained. Returns true once it is all taken.
+ */
+function takeFromGround(p: PlayerComp, item: Item): boolean {
+  if (item.kind === 'rune') {
+    topUpStacks(p, item);
+    if (item.count === 0) return true;
+  }
+  return addItem(p, item);
+}
+
+/**
+ * Keeps an item with the character when the bag has no room: outside every grid it is pending, and
+ * placePending retries it on every load. Used where losing the item is the only other outcome.
+ */
+function addOrPend(p: PlayerComp, item: Item): void {
+  if (addItem(p, item)) return;
+  p.items.set(item.uid, item);
+  changed(p);
 }
 
 /**
@@ -112,7 +156,6 @@ function layOut(saved: readonly (ItemUid | null)[], size: GridSize, items: Map<I
   return cells;
 }
 
-/** A new character gets their class's four skills equipped, plus a blank test sigil. */
 /** Class starting weapons, so gear exists from the first minute. */
 const STARTER_WEAPONS = { warrior: 'rusty_axe', ranger: 'short_bow', mage: 'gnarled_staff', priest: 'gnarled_staff', binder: 'bone_wand' } as const;
 
@@ -137,11 +180,6 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
         addItem(p, item);
       }
     });
-  const test = createSigil(sim.newItemUid(), sim.rand.loot, TEST_SIGIL.tier);
-  test.corrupted = TEST_SIGIL.corrupted;
-  test.name = TEST_SIGIL.name;
-  test.bound = true;
-  addItem(p, test);
   if (p.classId === 'binder') {
     STARTER_VESSELS.forEach((type, slot) => {
       const v = createVessel(sim.newItemUid(), sim.rand.loot, 'common', type);
@@ -159,6 +197,15 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   if (!p) return;
   const remap = new Map<ItemUid, ItemUid>();
   for (const item of save.items) {
+    if (isLegacyTestSigil(item)) {
+      // Anything inscribed into it comes back, bound like the sigil was; it lands as pending below.
+      for (const [rune, n] of countRunes(item.runes)) {
+        const back = createRune(sim.newItemUid(), rune, n);
+        back.bound = true;
+        p.items.set(back.uid, back);
+      }
+      continue;
+    }
     const uid = sim.newItemUid();
     remap.set(item.uid, uid);
     p.items.set(uid, { ...item, uid });
@@ -201,34 +248,36 @@ function countRunes(list: readonly RuneId[]): Map<RuneId, number> {
   return m;
 }
 
-/** Spends one rune, bound ones first, so the sellable ones are what stays. */
-function takeRune(p: PlayerComp, rune: RuneId): void {
+/**
+ * Spends one rune from the bag, bound ones first so the sellable ones are what stays. Returns
+ * whether the spent rune was bound, which the sigil slot then remembers.
+ */
+function takeRune(p: PlayerComp, rune: RuneId): boolean {
   const stacks = [...new Set(p.inventory)].flatMap((uid) => {
     const it = uid === null ? undefined : p.items.get(uid);
     return it?.kind === 'rune' && it.rune === rune ? [it] : [];
   });
   stacks.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
-  for (const it of stacks) {
-    it.count--;
-    if (it.count <= 0) {
-      removeFrom(p.inventory, it.uid);
-      p.items.delete(it.uid);
-    }
-    return;
+  const it = stacks[0];
+  if (!it) return false;
+  it.count--;
+  if (it.count <= 0) {
+    removeFrom(p.inventory, it.uid);
+    p.items.delete(it.uid);
   }
+  return it.bound === true;
 }
 
-/** Whether `runes` (one each) could all go back into the bag, stacking where they can. */
-function roomForRunes(p: PlayerComp, runes: ReadonlyMap<RuneId, number>): boolean {
+interface RuneReturn {
+  rune: RuneId;
+  bound: boolean;
+  count: number;
+}
+
+/** Whether these runes could all go back into the bag, using the same stacking rule as addItem. */
+function roomForRunes(p: PlayerComp, runes: readonly RuneReturn[]): boolean {
   let cellsNeeded = 0;
-  for (const [rune, n] of runes) {
-    let space = 0;
-    for (const uid of new Set(p.inventory)) {
-      const it = uid === null ? undefined : p.items.get(uid);
-      if (it?.kind === 'rune' && it.rune === rune) space += RUNE_STACK - it.count;
-    }
-    cellsNeeded += Math.ceil(Math.max(0, n - space) / RUNE_STACK);
-  }
+  for (const r of runes) cellsNeeded += Math.ceil(Math.max(0, r.count - stackSpace(p, r.rune, r.bound)) / RUNE_STACK);
   return p.inventory.filter((c) => c === null).length >= cellsNeeded;
 }
 
@@ -240,32 +289,43 @@ export function nearForge(sim: Simulation, pid: EntityId): boolean {
 
 /**
  * Sets a sigil's runes. At the forge this costs runes: new ones come out of the bag and runes taken
- * out go back into it. `free` is the builders' test bench (the Arena with dev tools), where any rune
- * goes and nothing is spent.
+ * out go back into it, each exactly as bound as it went in. `free` is the builders' test bench,
+ * where nothing is spent and every rune put in is bound, so the bench can never mint runes that
+ * can be sold, stashed or handed to someone else.
  */
 export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: RuneId[], free = false): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   const item = p.items.get(uid);
   if (!item || item.kind !== 'sigil') return 'Not a sigil you own';
+  // Saving an unchanged sigil must not turn a prebaked skill into a hand-inscribed copy of it. Checked
+  // before capacity, because prebaked skills hold more runes than their sigil's slots.
+  if (runes.length === item.runes.length && runes.every((r, i) => r === item.runes[i])) return null;
   if (runes.length > sigilCapacity(item)) return 'Too many runes for this sigil';
   if (!free && !nearForge(sim, pid)) return 'Sigils are inscribed at the forge in town';
-  // What changes: runes to spend and runes to hand back, compared as counts so order does not matter.
-  const before = countRunes(item.runes);
-  const after = countRunes(runes);
-  const spend = new Map<RuneId, number>();
-  const refund = new Map<RuneId, number>();
-  for (const [r, n] of after) if (n > (before.get(r) ?? 0)) spend.set(r, n - (before.get(r) ?? 0));
-  for (const [r, n] of before) if (n > (after.get(r) ?? 0)) refund.set(r, n - (after.get(r) ?? 0));
+
+  // Runes already in the sigil stay where the new list still wants them, bound ones first; the rest
+  // of the new list comes from the bag, and whatever is left over goes back.
+  const kept = new Map<RuneId, boolean[]>();
+  item.runes.forEach((r, i) => kept.set(r, [...(kept.get(r) ?? []), slotBound(item, i)]));
+  for (const flags of kept.values()) flags.sort((a, b) => Number(b) - Number(a));
+  const slots: (boolean | null)[] = runes.map((r) => kept.get(r)?.shift() ?? null);
+  const spend = countRunes(runes.filter((_, i) => slots[i] === null));
+  const refunds: RuneReturn[] = [];
+  for (const [rune, flags] of kept) {
+    for (const bound of [true, false]) {
+      const count = flags.filter((f) => f === bound).length;
+      if (count > 0) refunds.push({ rune, bound, count });
+    }
+  }
   if (!free) {
     const owned = ownedRunes(p);
     for (const [r, n] of spend) if ((owned.get(r) ?? 0) < n) return `You need a ${RUNES[r].name} Rune`;
-    if (!roomForRunes(p, refund)) return 'No room in your bag for the runes you take out';
   }
+  if (!roomForRunes(p, refunds)) return 'No room in your bag for the runes you take out';
 
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
-  const previous = item.runes;
-  const previousSkill = item.skill;
+  const previous = { runes: item.runes, boundSlots: item.boundSlots, skill: item.skill };
   item.runes = [...runes];
   // Hand-inscribing replaces the prebaked skill; the sigil is now a custom one.
   item.skill = null;
@@ -273,21 +333,18 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
     const previousCompiled = p.sigils[slot] ?? null;
     p.sigils[slot] = compileSigil(p, item);
     if (spiritReservedFor(p) > spiritMax(p)) {
-      item.runes = previous;
-      item.skill = previousSkill;
+      Object.assign(item, previous);
       p.sigils[slot] = previousCompiled;
       return 'Not enough spirit for that persistent skill';
     }
     p.links[slot] = null;
   }
-  if (!free) {
-    for (const [r, n] of spend) for (let i = 0; i < n; i++) takeRune(p, r);
-    for (const [r, n] of refund) {
-      const back = createRune(sim.newItemUid(), r, n);
-      // A starter sigil's runes stay bound: usable, but not a free source of sellable runes.
-      if (isBound(item)) back.bound = true;
-      addItem(p, back);
-    }
+  item.boundSlots = runes.map((r, i) => slots[i] ?? (free ? true : takeRune(p, r)));
+  for (const r of refunds) {
+    const back = createRune(sim.newItemUid(), r.rune, r.count);
+    if (r.bound) back.bound = true;
+    // The room check above makes this fit; pending is the backstop so a rune is never lost.
+    addOrPend(p, back);
   }
   changed(p);
   return null;
@@ -480,6 +537,8 @@ export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | 
   const item = p.items.get(uid);
   const pos = sim.world.position.get(pid);
   if (!inBag(p, uid) || !item || !pos) return 'Only unequipped items can be dropped';
+  if (isBound(item)) return 'Bound items stay with this character';
+  if (holdsBoundRunes(item)) return 'Take the bound runes out first';
   removeFrom(p.inventory, uid);
   p.items.delete(uid);
   spawnBag(sim, pos.x, pos.y, [item], LOOT.bagRadius, pid);
@@ -542,10 +601,13 @@ export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): st
   const pos = w.position.get(pid);
   const at = w.position.get(lootId);
   if (!p || !bag || !pos || !at || p.respawnIn !== null) return null;
-  const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach;
+  // The request can arrive before the input frames that walked the hero there, so the server allows
+  // a couple of frames of movement more than the client aims for.
+  const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach + LOOT.pickupLagSlack;
   if (distSq(pos.x, pos.y, at.x, at.y) > reach * reach) return 'Too far away';
+  if (!sim.map.lineClear(pos.x, pos.y, at.x, at.y, 0, 'shots')) return 'Out of reach';
   const before = bag.items.length;
-  bag.items = bag.items.filter((item) => !addItem(p, item));
+  bag.items = bag.items.filter((item) => !takeFromGround(p, item));
   const taken = before - bag.items.length;
   if (taken > 0) sim.emit({ e: 'pickup', id: pid, x: at.x, y: at.y, count: taken }, at.x, at.y);
   if (bag.items.length === 0 && bag.gold === 0) w.destroy(lootId);
@@ -557,7 +619,7 @@ export function dropLoot(sim: Simulation, enemyId: EntityId): void {
   const e = w.enemy.get(enemyId);
   const pos = w.position.get(enemyId);
   // Summoned adds drop nothing, or a necromancer would be an endless loot fountain.
-  if (!e || !pos || e.summonerId !== null) return;
+  if (!e || !pos || e.summonerId !== null || !e.rewards) return;
   const items = rollDrops(sim.rand.loot, () => sim.newItemUid(), { level: e.level, rare: e.rare, boss: e.boss }, undefined, sim.rates.loot);
   if (items.length > 0) spawnBag(sim, pos.x, pos.y, items, LOOT.bagRadius * (e.rare ? WAVES.rareScale : 1), null);
   if (e.rare || e.boss || sim.rand.loot.next() < LOOT.goldChance * sim.rates.loot) {
@@ -624,6 +686,9 @@ export function moveItem(sim: Simulation, pid: EntityId, uid: ItemUid, to: 'bag'
   const from = p.inventory.includes(uid) ? 'bag' : p.stash.includes(uid) ? 'stash' : null;
   if (!from) return 'Take it off first';
   if ((from === 'stash' || to === 'stash') && !nearStash(sim, pid)) return 'Stand at the stash to use it';
+  // The stash is shared by the account; a bound item put there would reach every other character.
+  if (to === 'stash' && from === 'bag' && isBound(item)) return 'Bound items stay with this character';
+  if (to === 'stash' && from === 'bag' && holdsBoundRunes(item)) return 'Take the bound runes out first';
   const size = itemSize(item);
   const target = to === 'bag' ? p.inventory : p.stash;
   const dims = to === 'bag' ? BAG : STASH;
@@ -709,7 +774,8 @@ export function sellItem(sim: Simulation, pid: EntityId, uid: ItemUid): Item | s
   const p = sim.world.player.get(pid);
   const item = p?.items.get(uid);
   if (!p || !item || !p.inventory.includes(uid)) return 'Only bag items can be sold';
-  if (isBound(item)) return 'Starter items cannot be sold';
+  if (isBound(item)) return 'Bound items cannot be sold';
+  if (holdsBoundRunes(item)) return 'Take the bound runes out first';
   if (!nearTrader(sim, pid)) return 'Stand at the trader to sell';
   removeFrom(p.inventory, uid);
   p.items.delete(uid);

@@ -45,6 +45,11 @@ export interface SigilItem {
   skill: string | null;
   /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
   bound?: boolean;
+  /**
+   * Per rune slot: whether the rune in it was bound when it went in, so it comes back out exactly
+   * as it went in. Sigils from before this existed follow the sigil's own binding.
+   */
+  boundSlots?: boolean[];
 }
 
 export interface VesselItem {
@@ -342,12 +347,27 @@ export function gearStats(items: readonly GearItem[]): StatBlock {
   return out;
 }
 
-/** A blank corrupted relic so rune combinations can be tried in the test arena. */
-export const TEST_SIGIL = { tier: 'relic', corrupted: true, name: 'Test Sigil' } as const;
+/**
+ * The old blank corrupted relic every character started with. It is gone from starter kits and is
+ * taken out of saves on load (its runes come back, bound).
+ */
+export function isLegacyTestSigil(item: Item): item is SigilItem {
+  return item.kind === 'sigil' && item.name === 'Test Sigil' && item.tier === 'relic' && item.corrupted;
+}
 
-/** Starter items cannot be sold. Test Sigils from before the flag existed count too. */
+/** Starter items cannot be sold, dropped or stashed. */
 export function isBound(item: Item): boolean {
-  return item.bound === true || (item.kind === 'sigil' && item.name === TEST_SIGIL.name && item.tier === TEST_SIGIL.tier && item.corrupted);
+  return item.bound === true;
+}
+
+/** Whether rune slot `i` of a sigil holds a bound rune. */
+export function slotBound(item: SigilItem, i: number): boolean {
+  return item.boundSlots?.[i] ?? isBound(item);
+}
+
+/** A sigil holding bound runes would carry them to another player or the stash, so it stays too. */
+export function holdsBoundRunes(item: Item): boolean {
+  return item.kind === 'sigil' && item.runes.some((_, i) => slotBound(item, i));
 }
 
 /**

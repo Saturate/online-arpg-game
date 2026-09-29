@@ -139,6 +139,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     summonerId: null,
     enraged: false,
     raised: false,
+    rewards: true,
     detonated: false,
   });
   return id;
@@ -439,6 +440,7 @@ function flushPendingSpawns(sim: Simulation): void {
     if (e) {
       e.summonerId = p.summonerId;
       e.raised = p.raised;
+      e.rewards = !p.raised;
     }
     if (h) h.life = Math.max(1, Math.round(h.maxLife * p.lifeShare));
   }

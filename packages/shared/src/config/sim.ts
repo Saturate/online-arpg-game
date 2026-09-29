@@ -149,6 +149,8 @@ export const LOOT = {
   goldPerLevel: { min: 2, max: 6 },
   /** Slack on top of the bag and player radii for a click pickup, so it is not pixel-precise. */
   pickupReach: 50,
+  /** Extra server-side reach: two input frames of walking, for a request that overtakes its inputs. */
+  pickupLagSlack: 20,
   corruptChance: 0.08,
   corruptMisfireMultiplier: 1.5,
   inventorySize: 20,
@@ -225,12 +227,6 @@ export const NAV = {
 } as const;
 
 /** Skills are prebaked per class for now; free rune editing is a testing tool. */
-export const SANDBOX = {
-  /** The sigil editor only works in the test arena until skills open up for players. */
-  editorMaps: ['arena'],
-  testSigilTier: 'relic',
-} as const;
-
 export const WILDS = {
   width: 5600,
   height: 4200,

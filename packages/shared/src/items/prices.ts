@@ -17,7 +17,9 @@ export const TRADER = {
 
 export function sellPrice(item: Item): number {
   if (isBound(item)) return 0;
-  return Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
+  const each = Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
+  // A rune stack is worth its count; priced as one, a stack of 20 sold for 5% of its value.
+  return item.kind === 'rune' ? each * item.count : each;
 }
 
 export function buyPrice(item: Item): number {

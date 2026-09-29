@@ -90,6 +90,14 @@ export class Simulation {
     spawnPacks(this);
   }
 
+  /**
+   * Starts this room's item ids at `base`. The server gives every room its own range, so an item id
+   * a client still holds from the room it just left can never name a different item here.
+   */
+  startItemUidsAt(base: number): void {
+    this.nextItemUid = Math.max(this.nextItemUid, base);
+  }
+
   newItemUid(): ItemUid {
     return this.nextItemUid++;
   }
