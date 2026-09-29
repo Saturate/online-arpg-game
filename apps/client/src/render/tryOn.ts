@@ -1,6 +1,6 @@
 import { isEnemyTypeId, isMinionTypeId, type EnemyTypeId, type MinionTypeId } from '@rune/shared';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { registerFile, type AnimRole, type AssetDef } from './assets.js';
+import { registerFile, unregisterFile, type AnimRole, type AssetDef } from './assets.js';
 import { clearTryOns, setTryOn } from './characters.js';
 
 /**
@@ -106,9 +106,14 @@ export function tryOnAsset(entry: TryOnEntry): AssetDef {
 }
 
 /** Loads every stored try-on into the game's model lookup. Returns what is being tried on, for a notice. */
+/** Files registered by the last apply; each apply drops them, so a re-saved try-on does not keep the old scene. */
+let registered: string[] = [];
+
 export async function applyTryOns(): Promise<string[]> {
   const entries = await listTryOns();
   clearTryOns();
+  for (const url of registered) unregisterFile(url);
+  registered = [];
   const loader = new GLTFLoader();
   const applied: string[] = [];
   for (const entry of entries) {
@@ -116,6 +121,7 @@ export async function applyTryOns(): Promise<string[]> {
       const gltf = await loader.parseAsync(entry.bytes.slice(0), '');
       const def = tryOnAsset(entry);
       registerFile(def.url, gltf.scene, gltf.animations);
+      registered.push(def.url);
       setTryOn(entry.key, def);
       applied.push(`${entry.fileName} on ${entry.key.split(':')[1] ?? ''}`);
     } catch {

@@ -118,13 +118,17 @@ function draftOf(o: EnemyOverride | MinionOverride | undefined): Draft {
   return { values, model: o.model ?? null, height: o.height ?? null };
 }
 
-function enemyOverrideOf(d: Draft): EnemyOverride {
+function enemyOverrideOf(id: EnemyTypeId, d: Draft): EnemyOverride {
   const out: EnemyOverride = {};
+  const def = ENEMIES[id];
+  const list = def.behaviour === 'monster' ? def.abilities : [];
   const abilities: Partial<Record<string, AbilityPatch>> = {};
   for (const [path, v] of Object.entries(d.values)) {
     const [head, index, key] = path.split('.');
-    if (head === 'abilities' && index !== undefined && key !== undefined && isOneOf(ABILITY_NUMBER_KEYS, key)) {
-      const patch = abilities[index] ?? {};
+    const ability = index === undefined ? undefined : list[Number(index)];
+    if (head === 'abilities' && index !== undefined && ability && key !== undefined && isOneOf(ABILITY_NUMBER_KEYS, key)) {
+      // The kind travels with the numbers so the server can tell if the ability list changed.
+      const patch = abilities[index] ?? { kind: ability.kind };
       patch[key] = v;
       abilities[index] = patch;
     } else if (head !== undefined && isOneOf(ENEMY_STAT_KEYS, head)) out[head] = v;
@@ -303,7 +307,7 @@ export function TuningTab({ kind, token, role, notify }: { kind: Kind; token: st
     const id = info.id;
     let next: TuningOverrides | string | null = null;
     if (kind === 'monsters' && isEnemyTypeId(id)) {
-      const r = resetType ? await tuningApi.resetMonster(token, id) : await tuningApi.saveMonster(token, id, enemyOverrideOf(draft));
+      const r = resetType ? await tuningApi.resetMonster(token, id) : await tuningApi.saveMonster(token, id, enemyOverrideOf(id, draft));
       next = r.ok ? { ...saved, monsters: r.data } : r.error;
     } else if (kind === 'minions' && isMinionTypeId(id)) {
       const r = resetType ? await tuningApi.resetMinion(token, id) : await tuningApi.saveMinion(token, id, minionOverrideOf(draft));

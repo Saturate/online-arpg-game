@@ -227,6 +227,12 @@ export function registerFile(url: string, scene: Group, clips: AnimationClip[]):
   files.set(url, Promise.resolve(file));
 }
 
+/** Forgets a registered file, so a replaced local model does not stay in memory. */
+export function unregisterFile(url: string): void {
+  ready.delete(url);
+  files.delete(url);
+}
+
 export interface AssetInstance {
   root: Group;
   clips: AnimationClip[];

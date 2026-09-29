@@ -93,8 +93,8 @@ export function exportOverrides(saved: TuningOverrides, date = new Date()): stri
   const models = [...enemyModels, ...minionModels];
   if (models.length > 0) {
     out.push('', '// apps/client/src/render/assets.ts: add these to ASSETS, replacing an entry with the same id.', ...models.map((m) => m.asset));
-    if (enemyModels.some((m) => m.mapLine)) out.push('', '// apps/client/src/render/characters.ts: set these in ENEMY_ASSETS.', ...enemyModels.flatMap((m) => (m.mapLine ? [m.mapLine] : [])));
-    if (minionModels.some((m) => m.mapLine)) out.push('', '// apps/client/src/render/characters.ts: set these in MINION_ASSETS.', ...minionModels.flatMap((m) => (m.mapLine ? [m.mapLine] : [])));
+    if (enemyModels.some((m) => m.mapLine)) out.push('', '// packages/shared/src/data/tuning.ts: set these in ENEMY_MODELS.', ...enemyModels.flatMap((m) => (m.mapLine ? [m.mapLine] : [])));
+    if (minionModels.some((m) => m.mapLine)) out.push('', '// packages/shared/src/data/tuning.ts: set these in MINION_MODELS.', ...minionModels.flatMap((m) => (m.mapLine ? [m.mapLine] : [])));
     const newIds = models.flatMap((m) => (m.newId ? [m.newId] : []));
     if (newIds.length > 0) out.push('', '// packages/shared/src/data/tuning.ts: add the new ids to MONSTER_MODEL_IDS.', ...newIds.map((id) => `  ${quote(id)},`));
   }
@@ -113,7 +113,7 @@ export function newAssetEntry(fileName: string, height: number, clips: Partial<R
   const id = `mon_${slug}`;
   const def: AssetDef = { id, label: fileName.replace(/\.glb$/i, ''), category: 'monster', url: `/assets/monsters/${slug}.glb`, height, clips };
   const lines = [`// Save the file as apps/client/public/assets/monsters/${slug}.glb`, '', '// apps/client/src/render/assets.ts, in ASSETS:', assetSource(def)];
-  if (typeId) lines.push('', `// apps/client/src/render/characters.ts, in ${kind === 'monsters' ? 'ENEMY_ASSETS' : 'MINION_ASSETS'}:`, `  ${typeId}: ${quote(id)},`);
+  if (typeId) lines.push('', `// packages/shared/src/data/tuning.ts, in ${kind === 'monsters' ? 'ENEMY_MODELS' : 'MINION_MODELS'}:`, `  ${typeId}: ${quote(id)},`);
   lines.push('', '// packages/shared/src/data/tuning.ts, in MONSTER_MODEL_IDS:', `  ${quote(id)},`);
   return `${lines.join('\n')}\n`;
 }

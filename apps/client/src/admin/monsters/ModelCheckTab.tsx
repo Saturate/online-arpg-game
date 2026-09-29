@@ -2,7 +2,7 @@ import { ENEMIES, ENEMY_TYPE_IDS, isEnemyTypeId, isMinionTypeId, MINION_DEFS, MI
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { AnimationClip, Group } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { instantiate, registerFile, type AnimRole, type AssetDef } from '../../render/assets.js';
+import { instantiate, registerFile, unregisterFile, type AnimRole, type AssetDef } from '../../render/assets.js';
 import { isTryOnKey, listTryOns, removeTryOn, saveTryOn, type TryOnEntry, type TryOnKey } from '../../render/tryOn.js';
 import { newAssetEntry } from './exportText.js';
 import { checkModel, guessRoles } from './modelChecks.js';
@@ -56,6 +56,8 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
       const bytes = await f.arrayBuffer();
       const gltf = await new GLTFLoader().parseAsync(bytes.slice(0), '');
       const json: unknown = gltf.parser.json;
+      // Only the newest file stays registered; the page never shows two at once.
+      unregisterFile(`check:${fileSeq}`);
       const seq = ++fileSeq;
       // Registered under a local name so the viewer builds it exactly as the game would.
       registerFile(`check:${seq}`, gltf.scene, gltf.animations);
