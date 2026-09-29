@@ -124,6 +124,15 @@ A new top item tier with fixed, hand-made affixes that bend the rules. First ide
 
 Uniques drop rarely, only from bosses and deep zones, and are the endgame chase alongside wand-stat sigils.
 
+## Spell budgets (measured)
+
+Benchmarked with 8 players casting endgame-sized spells into 60 and 120 enemies (Frozen Orb, and a synthetic spell bursting into 6 homing sub-bolts that each leave a zone):
+
+- **Bandwidth is the limit, not server CPU.** Each visible spell entity costs about 14 B per client per tick after compression; the enemies alone take about 1.4 Mbit/s per client in a 120-enemy fight.
+- **Cap: 40 live spell entities per player** (projectiles, zones, novas; the oldest goes first), plus about 320 per room so a later raise cannot let 8 players max out at once. At 40, a 120-enemy fight averages 2.1 Mbit/s per client, and 10 busy rooms on one thread peak at 22.7 ms of the 50 ms tick.
+- **Weight the count:** a projectile costs the server about 6 µs per tick (it checks every enemy), a zone about 0.8 µs, so projectiles should count about 3x a zone.
+- **Send spells once, not every tick.** Spawn events (position, velocity, lifetime, then only removals) cut snapshot bytes 30 to 76%, after which the cap stops mattering for bandwidth and can rise to 60 to 80 once projectile hits use a spatial grid. This belongs in phase 1, before payload spells multiply entity counts.
+
 ## Force has to bite again
 
 The cap is 1000 today, so nothing limits a big spell. It comes back down to roughly 100 to 150, with overheat and misfire as the spec intended. Every skill needs a tuning pass after that, which is the strongest reason to put balance numbers on the admin page first.
