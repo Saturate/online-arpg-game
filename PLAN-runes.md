@@ -19,7 +19,7 @@ Four kinds, read left to right.
 |---|---|---|
 | **Shape** | starts a spell or a payload | Spell: Orb (slow, big), Bolt (fast, thin), Nova, Zone. Weapon: Arrow, Strike, Cleave, Throw, Trap. Any: Dash |
 | **Infusion** | the current shape, before it fires | Fire, Cold, Lightning |
-| **Shaper** | the current shape's count or motion | Split, Link, Orbit, Homing, Bounce, Chain |
+| **Shaper** | the current shape's count or motion | Split, Link, Orbit, Homing, Bounce, Chain, Stack |
 | **Effect** | what happens on contact | Impact, Ward, Restore |
 
 Spell shapes scale with spell damage; weapon shapes scale with the weapon you hold. That is a soft gate: anyone can fire an Arrow rune, but it is weak without a bow.
@@ -57,6 +57,7 @@ Today every zone ticks on its own (`sim/spells.ts` `updateZones`), so overlappin
 
 - **Same caster, same kind (fire, cold, lightning, heal, ward): merge.** A new zone overlapping one of yours grows the existing one toward the new area and refreshes its duration, capped at **Open** twice its original area. Fewer entities, a spreading pool on screen, never more than one zone's damage.
 - **Safety rule:** a target takes at most one tick per kind, per caster, per tick interval, however many of that caster's zones it stands in.
+- **Stack rune:** a shaper rune that lets the current spell's zones stack up to a limit before they merge. Its number affix sets the limit (2 to 4, higher from deep zones). It takes a slot, so stacking is a build choice with a cost. Only a unique lifts the cap. Example: `Orb [on expire]`, `Fire`, `Split 4`, `Zone`, `Stack [up to 3]`.
 - **Different casters still stack**, so party play pays off. Heal and ward zones follow the same rules.
 - **Later, with the combo codex:** different kinds combine, such as fire on cold ground making steam.
 
