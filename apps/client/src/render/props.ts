@@ -891,7 +891,6 @@ function addArenaWalls(group: Group, width: number, height: number): void {
   }
 }
 
-/** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
 /** True where the scenery outside the map should open up for a zone gate's road. */
 function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean {
   return def.portals.some((p) => {
@@ -902,6 +901,7 @@ function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean 
   });
 }
 
+/** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
 function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
   const rng = new Rng(def.width * 31 + def.height);
   const rocks: Obstacle[] = [];

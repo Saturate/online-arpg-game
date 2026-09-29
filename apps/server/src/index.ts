@@ -70,9 +70,9 @@ function shutdown(): void {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-// A crash used to skip the save that SIGTERM gets, so up to 30 s of play (including items handed
-// over on the ground) could be lost or duplicated. Save what can be saved, then let Kubernetes
-// restart the process rather than run on in an unknown state.
+// A crash gets the same save as SIGTERM, or up to 30 s of play (including items handed over on the
+// ground) could be lost or duplicated. Then Kubernetes restarts the process rather than it running
+// on in an unknown state.
 process.on('uncaughtException', (err) => {
   console.error('uncaught exception, saving and exiting', err);
   try {

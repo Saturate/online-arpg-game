@@ -21,8 +21,7 @@ export interface PlayerStats {
   minionLifeMult: number;
 }
 
-/** Class base plus automatic growth per character level. */
-/** `forceMax` is the level-1 Force bar, which the admin can tune; levels add to it. */
+/** Class base plus automatic growth per character level. `forceMax` is the admin-tunable level-1 Force bar. */
 export function baseStats(p: Pick<PlayerComp, 'classId' | 'level'>, forceMax: number = HEAT.max): PlayerStats {
   const def = CLASSES[p.classId];
   const gained = p.level - 1;

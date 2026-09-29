@@ -480,7 +480,6 @@ function hitAllies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numbe
   }
 }
 
-/** Enemy bullets. Bodyguard minions are checked first with a bigger hitbox so they intercept shots aimed at their master. */
 /** The player side's targets for enemy bullets, bodyguards first. Built once per tick, not per bullet. */
 const bulletTargets = new WeakMap<Simulation, { tick: number; list: { tid: EntityId; bonus: number }[] }>();
 
@@ -496,6 +495,7 @@ function playerSideTargets(sim: Simulation): { tid: EntityId; bonus: number }[] 
   return list;
 }
 
+/** Enemy bullets. Bodyguard minions are checked first with a bigger hitbox so they intercept shots aimed at their master. */
 function hitPlayersSide(sim: Simulation, id: EntityId, proj: ProjectileComp, x: number, y: number, r: number): void {
   const w = sim.world;
   for (const { tid, bonus } of playerSideTargets(sim)) {
@@ -561,10 +561,9 @@ export function updateNovas(sim: Simulation, dt: number): void {
 }
 
 /**
- * When each target may next be hit by each caster's zones of one kind. Overlapping zones used to all
- * tick on the same target, so splitting into zones multiplied damage; now a target takes one tick
- * per caster, per kind, per tick interval, however many of those zones it stands in. Different
- * casters still stack, so parties are rewarded for layering ground effects.
+ * When each target may next be hit by each caster's zones of one kind. A target takes one tick per
+ * caster, per kind, per tick interval, however many of those zones it stands in, or splitting into
+ * zones would multiply damage. Different casters still stack, so parties gain from layering them.
  */
 const zoneLockouts = new WeakMap<Simulation, Map<EntityId, Map<string, number>>>();
 
@@ -608,12 +607,13 @@ export function updateZones(sim: Simulation, dt: number): void {
     zone.tickTimer -= dt;
     if (zone.tickTimer <= 0) {
       zone.tickTimer += zone.tickInterval;
+      const kind = zoneKind(inst);
       for (const tid of areaTargets(sim)) {
         const tpos = w.position.get(tid);
         if (!tpos) continue;
         const reach = radius + (w.radius.get(tid) ?? 0);
         if (distSq(pos.x, pos.y, tpos.x, tpos.y) > reach * reach) continue;
-        if (!takeZoneTick(sim, tid, zoneKind(inst), zone.tickInterval)) continue;
+        if (!takeZoneTick(sim, tid, kind, zone.tickInterval)) continue;
         applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
     }

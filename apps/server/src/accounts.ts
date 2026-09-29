@@ -126,8 +126,8 @@ export class AccountStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
-      -- In WAL mode NORMAL still survives a process crash; only a power cut can lose the last
-      -- commits. FULL made every save wait on a disk flush.
+      -- NORMAL survives a process crash in WAL mode; only a power cut can lose the last commits,
+      -- and it spares every save a disk flush.
       PRAGMA synchronous = NORMAL;
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS accounts (
@@ -418,8 +418,8 @@ export class AccountStore {
   }
 
   /**
-   * Many saves in one transaction. Each commit waits for the disk, so the autosave used to stall
-   * every room for about 250 ms on the Linux host saving players one by one; batched it is under 1 ms.
+   * Many saves in one transaction. Each commit waits for the disk: one by one, 64 saves stall every
+   * room for about 250 ms on the Linux host, batched they take under 1 ms.
    */
   saveMany(saves: readonly CharacterSaveRow[]): void {
     if (saves.length === 0) return;

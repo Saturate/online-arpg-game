@@ -46,7 +46,9 @@ export function staticHandler(root: string): (req: IncomingMessage, res: ServerR
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     let path: string;
     try {
-      path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+      // Leading slashes collapse to one: a decoded "//admin" would otherwise turn the folder redirect
+      // below into a protocol-relative link to another host.
+      path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname).replace(/^\/+/, '/');
     } catch {
       return false;
     }

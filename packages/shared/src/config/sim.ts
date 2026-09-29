@@ -69,7 +69,7 @@ export const SPELL = {
   pulseRotation: 0.7,
   bolt: { damage: 16, speed: 520, range: 560, radius: 8 },
   nova: { damage: 14, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
-  // 14 since zones stopped stacking per caster (one zone now does about what two overlapping did).
+  // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
   zone: { damage: 14, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
   dash: { damage: 12, distance: 190, ticks: 4, hitRadius: 26 },
   modifiers: {

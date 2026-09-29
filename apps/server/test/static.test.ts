@@ -51,4 +51,9 @@ describe('static pages', () => {
     expect((await get('/assets/')).status).toBe(404);
     expect((await get('/admin.html')).status).toBe(404);
   });
+
+  it('never redirects to another host', async () => {
+    const res = await get('/%2Fadmin');
+    expect(res.headers.get('location')).toBe('/admin/');
+  });
 });

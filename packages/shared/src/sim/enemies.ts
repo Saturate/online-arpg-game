@@ -947,10 +947,9 @@ function applyCurse(sim: Simulation, pos: Vec2, radius: number): void {
   }
 }
 
-/** Pushes overlapping enemies apart so groups stay readable. */
 /**
- * Pushes overlapping enemies apart. A zone holds a few hundred enemies, and checking every pair was a
- * third of an idle zone's tick, so pairs only come from neighbouring grid cells. A cell is as wide
+ * Pushes overlapping enemies apart so groups stay readable. A zone holds a few hundred enemies, and
+ * checking every pair costs a third of an idle zone's tick, so pairs only come from neighbouring cells. A cell is as wide
  * as the biggest pair of radii, so any two enemies that touch sit in the same or adjacent cells.
  */
 function separateEnemies(sim: Simulation): void {
@@ -980,7 +979,7 @@ function separateEnemies(sim: Simulation): void {
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         for (const b of cells.get(key(a.cx + dx, a.cy + dy)) ?? []) {
-          // Each pair once, in the same order as before, so results stay deterministic.
+          // Each pair once, in a fixed order, so results stay deterministic.
           if (b.order <= a.order) continue;
           const ox = b.pos.x - a.pos.x;
           const oy = b.pos.y - a.pos.y;

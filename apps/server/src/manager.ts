@@ -411,7 +411,13 @@ export class RoomManager implements AdminHooks {
       return;
     }
     const msg = parseClientMessage(decoded);
-    if (msg) this.handle(client, msg);
+    if (!msg) return;
+    // A bug one client can trigger must not restart the server for everyone.
+    try {
+      this.handle(client, msg);
+    } catch (err) {
+      console.error(`[client ${client.id}] ${msg.t} failed`, err);
+    }
   }
 
   private handle(client: Client, msg: ClientMessage): void {
