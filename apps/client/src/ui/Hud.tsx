@@ -5,7 +5,7 @@ import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
-import { compileFor, itemByUid, useUi } from './store.js';
+import { compileFor, itemByUid, pickSkill, useUi } from './store.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
 function Orb({ label, value, max, kind, danger }: { label: string; value: number; max: number; kind: 'life' | 'force'; danger?: boolean }) {
@@ -31,8 +31,8 @@ function SkillSlot({ slot }: { slot: number }) {
   const editorAllowed = useUi((s) => s.editorAllowed);
   const openEditor = useUi((s) => s.openEditor);
   const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
-  const active = useSettings((s) => s.options.activeSkill === slot);
-  const setOption = useSettings((s) => s.setOption);
+  const onLeft = useUi((s) => s.leftSkill === slot);
+  const onRight = useUi((s) => s.rightSkill === slot);
   const uid = inv?.sigils[slot] ?? null;
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
@@ -47,18 +47,23 @@ function SkillSlot({ slot }: { slot: number }) {
   return (
     <button
       type="button"
-      className={`skill${persistent ? ' persistent' : ''}${result && !result.ok ? ' unstable' : ''}${sigil ? '' : ' empty'}${active ? ' active' : ''}`}
-      // Click picks the right-click skill; in the Arena a second click on it opens the sigil editor.
+      className={`skill${persistent ? ' persistent' : ''}${result && !result.ok ? ' unstable' : ''}${sigil ? '' : ' empty'}${onLeft || onRight ? ' active' : ''}`}
+      // Left-click puts the skill on the left mouse button, right-click on the right one. In the
+      // Arena a second left-click on the left skill opens the sigil editor.
       onClick={() => {
-        if (active && uid !== null && editorAllowed) openEditor(uid);
-        else setOption('activeSkill', slot);
+        if (onLeft && uid !== null && editorAllowed) openEditor(uid);
+        else pickSkill('left', slot);
       }}
-      title={`${skill ? `${skill.name}: ${skill.description}` : name}${active ? ' (right click)' : '. Click to cast it with right click.'}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        pickSkill('right', slot);
+      }}
+      title={`${skill ? `${skill.name}: ${skill.description}` : name}. Left-click or right-click to put it on that mouse button.`}
     >
       {sigil && sigil.runes.length > 0 ? <SkillIcon runes={skill?.runes ?? sigil.runes} size={56} /> : <div className="skill-blank" />}
       {cd > 0 && <div className="skill-cd" style={sweep} />}
       <kbd className="skill-key">{keyLabel(binding)}</kbd>
-      {active && <span className="skill-rmb">RMB</span>}
+      {(onLeft || onRight) && <span className="skill-rmb">{onLeft && onRight ? 'L+R' : onLeft ? 'LMB' : 'RMB'}</span>}
       {cost && <span className={`skill-cost${result && !result.ok ? ' bad' : ''}`}>{cost}</span>}
       <span className="skill-name">{name}</span>
     </button>

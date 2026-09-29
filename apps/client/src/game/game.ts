@@ -1,5 +1,4 @@
 import {
-  BUTTON,
   SKILL_BUTTONS,
   STASH_REACH,
   CLASSES,
@@ -36,7 +35,7 @@ import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { Effects } from '../render/fx.js';
 import { Minimap } from '../render/minimap.js';
 import { WorldScene } from '../render/scene.js';
-import { useUi } from '../ui/store.js';
+import { initSkillPicks, pickSkill, useUi } from '../ui/store.js';
 import { ClickMover } from './clickMove.js';
 import { GamepadInput, type PadState } from './gamepad.js';
 import { InputState, screenToWorld, type SampledInput } from './input.js';
@@ -127,7 +126,6 @@ export class Game {
   private paused = false;
   private seq = 0;
   private accumulator = 0;
-  private localPrimaryCooldown = 0;
   private localAim = 0;
   private visualOffset = { x: 0, y: 0 };
   private cosmeticId = 0;
@@ -298,9 +296,12 @@ export class Game {
     const input = new InputState(
       world.canvas,
       (code) => this.onKey(code),
-      (step) => {
-        const s = useSettings.getState();
-        if (s.options.wheelCyclesSkill) s.setOption('activeSkill', (s.options.activeSkill + step + SKILL_BUTTONS.length) % SKILL_BUTTONS.length);
+      (step, shift) => {
+        if (!useSettings.getState().options.wheelCyclesSkill) return;
+        const ui = useUi.getState();
+        const side = shift ? 'left' : 'right';
+        const from = shift ? ui.leftSkill : ui.rightSkill;
+        pickSkill(side, (from + step + SKILL_BUTTONS.length) % SKILL_BUTTONS.length);
       },
     );
     this.room = {
@@ -441,6 +442,7 @@ export class Game {
         this.rttMs = performance.now() - msg.clientTime;
         return;
       case 'inventory':
+        if (!useUi.getState().inventory) initSkillPicks(msg);
         useUi.setState({ inventory: msg });
         return;
       case 'notice':
@@ -550,9 +552,12 @@ export class Game {
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
-    // Right mouse casts the active skill in every scheme, D2 style; the wheel or a slot click picks it.
-    const active = SKILL_BUTTONS[useSettings.getState().options.activeSkill];
-    if (room.input.rightDown && room.input.overCanvas && active !== undefined) sampled.buttons |= active;
+    // No basic attack: each mouse button casts its picked skill, D2 style; the wheel or a slot click picks them.
+    const { leftSkill, rightSkill } = useUi.getState();
+    const leftBit = SKILL_BUTTONS[leftSkill] ?? 0;
+    const rightBit = SKILL_BUTTONS[rightSkill] ?? 0;
+    if (room.input.rightDown && room.input.overCanvas) sampled.buttons |= rightBit;
+    if (useSettings.getState().options.controls === 'keyboard' && room.input.leftDown && room.input.overCanvas) sampled.buttons |= leftBit;
     const now = performance.now();
     if (useSettings.getState().options.controls === 'click') this.applyClickScheme(room, sampled, origin, aimPoint, now);
     const pad = this.pad.poll(now);
@@ -564,23 +569,17 @@ export class Game {
     room.predictor.apply(frame);
     this.localAim = frame.aimAngle;
 
-    if (this.localPrimaryCooldown > 0) this.localPrimaryCooldown = Math.max(0, this.localPrimaryCooldown - SIM.dt);
-    if ((frame.buttons & BUTTON.primary) !== 0 && this.localPrimaryCooldown <= 0 && !room.predictor.frozen && !room.def.safe) {
-      this.spawnCosmeticPrimary(frame.aimAngle);
-      this.localPrimaryCooldown = CLASSES[this.classId].primary.cooldown;
-      room.entities.attack(`s${this.playerId}`);
-    }
   }
 
   /**
    * D2-style mouse control. Left button walks toward the cursor along a path; pressing it on a
-   * monster locks onto it and attacks while held, walking into range first for melee. Shift holds
-   * position and attacks toward the cursor. Right button casts skill 1.
+   * monster locks onto it and casts the left skill at it while held, walking into range first.
+   * Shift holds position and casts toward the cursor. The right button's skill is added elsewhere.
    */
   private applyClickScheme(room: RoomView, sampled: SampledInput, origin: Vec2, aimPoint: Vec2 | null, now: number): void {
     const input = room.input;
     const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
-    sampled.buttons &= ~BUTTON.primary;
+    const leftBit = SKILL_BUTTONS[useUi.getState().leftSkill] ?? 0;
 
     const pressed = input.leftPresses !== this.lastLeftPresses;
     this.lastLeftPresses = input.leftPresses;
@@ -592,7 +591,7 @@ export class Game {
     }
     if (input.leftDown && input.overCanvas && input.shiftDown) {
       room.mover.stop();
-      sampled.buttons |= BUTTON.primary;
+      sampled.buttons |= leftBit;
       sampled.moveDir = { x: 0, y: 0 };
       return;
     }
@@ -600,12 +599,13 @@ export class Game {
     if (this.attackLock !== null && !target) this.attackLock = null;
     if (input.leftDown && target) {
       sampled.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
-      const attack = CLASSES[this.classId].primary;
-      const reach = attack.kind === 'melee' ? attack.range + target.r : attack.range * 0.85;
+      // The class's old attack range still says how close it likes to fight: melee walks up, casters hold off.
+      const style = CLASSES[this.classId].primary;
+      const reach = style.kind === 'melee' ? style.range + target.r : style.range * 0.85;
       if (Math.hypot(target.x - origin.x, target.y - origin.y) > reach) room.mover.moveTo(origin, target, now);
       else {
         room.mover.stop();
-        sampled.buttons |= BUTTON.primary;
+        sampled.buttons |= leftBit;
       }
     } else if (input.leftDown && input.overCanvas && aimPoint) {
       room.mover.moveTo(origin, aimPoint, now);
@@ -630,31 +630,6 @@ export class Game {
       else if (action === 'stance') this.send({ t: 'cycleStance' });
       else useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     }
-  }
-
-  /** Visual only. The server spawns the real attack; these hide the round trip on the player's own shots. */
-  private spawnCosmeticPrimary(angle: number): void {
-    const room = this.room;
-    if (!room) return;
-    const attack = CLASSES[this.classId].primary;
-    const { x, y } = room.predictor.position;
-    if (attack.kind === 'melee') {
-      this.swings.push({ key: `l${this.cosmeticId++}`, angle, arc: attack.arc, range: attack.range, lifetime: SIM.swingVisualSeconds });
-      return;
-    }
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    this.bolts.push({
-      key: `l${this.cosmeticId++}`,
-      x: x + dx * SIM.playerRadius,
-      y: y + dy * SIM.playerRadius,
-      vx: dx * attack.speed,
-      vy: dy * attack.speed,
-      r: attack.radius,
-      lifetime: attack.range / attack.speed,
-      spawnedAt: performance.now(),
-      serverId: null,
-    });
   }
 
   /**

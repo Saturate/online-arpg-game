@@ -188,3 +188,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Control schemes:** WASD plus mouse, or click-to-move (D2 style), set under Esc → Settings. Click-to-move plans A* over the nav grid, string-pulled along clear lines, and sends ordinary movement frames, so the server and prediction didn't change. Pressing on a monster locks onto it and attacks while held, walking into range first for melee. Shift attacks in place, and right-click casts skill 1.
 - **Gamepad:** a standard-mapping pad works under either scheme and only takes over while in use, so a pad left plugged in doesn't fight the mouse.
 - **Chat:** Enter chats to everyone in your game, `/w name` whispers anyone online, and `/who` lists your game. The server strips control and zero-width characters, caps messages at 200 characters and allows 6 per 5 s. Text is only ever set through React or `textContent`, never as HTML. A speaker's line also shows as a speech bubble over their head for 6 s.
+
+## Parked ideas
+
+- **Weapon-gated skills (not decided):** sigils could need a weapon family (arrows a bow, strikes an axe, spells a staff or wand) and minions a wand or sceptre, so the Binder trades weapon power for its army. Parked because it may make classes redundant: if weapons and sigils decide what you can do, classes could shrink to starting kits and stat leanings, all in config. Revisit alongside class balance.

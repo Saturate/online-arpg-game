@@ -46,7 +46,7 @@ export class InputState {
   overCanvas = false;
   private readonly abort = new AbortController();
 
-  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void, onWheel: (step: 1 | -1) => void = () => undefined) {
+  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void, onWheel: (step: 1 | -1, shift: boolean) => void = () => undefined) {
     const opts = { signal: this.abort.signal };
     // One step per notch; trackpads fire a stream of small deltas, so steps are spaced out.
     let lastWheel = 0;
@@ -57,7 +57,7 @@ export class InputState {
         const now = performance.now();
         if (e.deltaY === 0 || now - lastWheel < 120) return;
         lastWheel = now;
-        onWheel(e.deltaY > 0 ? 1 : -1);
+        onWheel(e.deltaY > 0 ? 1 : -1, e.shiftKey);
       },
       { signal: this.abort.signal, passive: false },
     );
@@ -144,7 +144,8 @@ export class InputState {
   sample(basis: GroundBasis, origin: Vec2, aimPoint: Vec2 | null, lastAim: number): SampledInput {
     const bindings = useSettings.getState().bindings;
     const moveDir = this.keyboardMove(basis);
-    let buttons = this.mouseDown ? BUTTON.primary : 0;
+    // No basic attack: the mouse buttons cast the picked skills, added by the game loop.
+    let buttons = 0;
     SKILLS.forEach((action, i) => {
       const bit = SKILL_BUTTONS[i];
       if (bit !== undefined && this.keys.has(bindings[action])) buttons |= bit;

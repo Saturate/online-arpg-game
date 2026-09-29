@@ -115,6 +115,9 @@ interface UiState {
 
   inventory: InventoryMessage | null;
   inventoryOpen: boolean;
+  /** Skill slots the left and right mouse buttons cast, D2 style; saved per character. */
+  leftSkill: number;
+  rightSkill: number;
   /** Standing at the stash chest: the stash panel shows and right-click moves items across. */
   stashOpen: boolean;
   characterOpen: boolean;
@@ -220,6 +223,8 @@ export const useUi = create<UiState>((set, get) => ({
   party: [],
   inventory: null,
   inventoryOpen: false,
+  leftSkill: 0,
+  rightSkill: 1,
   stashOpen: false,
   characterOpen: false,
   devOpen: false,
@@ -313,6 +318,63 @@ export function itemByUid(inv: InventoryMessage | null, uid: ItemUid | null): It
 }
 
 /** The client runs the same compiler as the server, so the editor can preview cost and stability instantly. */
+const PICKS_KEY = 'rune.skillPicks';
+
+/** Mouse skill picks per character id, in localStorage like other per-browser preferences. */
+function readPicks(): Record<string, { left: number; right: number }> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(PICKS_KEY) ?? '{}');
+    if (typeof v !== 'object' || v === null) return {};
+    const out: Record<string, { left: number; right: number }> = {};
+    for (const [k, pick] of Object.entries(v)) {
+      if (typeof pick !== 'object' || pick === null) continue;
+      const left: unknown = Reflect.get(pick, 'left');
+      const right: unknown = Reflect.get(pick, 'right');
+      if (isSlot(left) && isSlot(right)) out[k] = { left, right };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function isSlot(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
+}
+
+/** Sets which slot a mouse button casts, and remembers it for this character. */
+export function pickSkill(side: 'left' | 'right', slot: number): void {
+  useUi.setState(side === 'left' ? { leftSkill: slot } : { rightSkill: slot });
+  const { character, leftSkill, rightSkill } = useUi.getState();
+  if (!character) return;
+  try {
+    localStorage.setItem(PICKS_KEY, JSON.stringify({ ...readPicks(), [character.id]: { left: leftSkill, right: rightSkill } }));
+  } catch {
+    // Blocked storage: the picks last for this session only.
+  }
+}
+
+/**
+ * On the first inventory of a session: the saved picks, or else the first two skills that are cast
+ * rather than kept up (an aura on the left mouse button would do nothing useful when clicked).
+ */
+export function initSkillPicks(inv: InventoryMessage): void {
+  const { character, classId } = useUi.getState();
+  if (!character || !classId) return;
+  const saved = readPicks()[character.id];
+  if (saved) {
+    useUi.setState({ leftSkill: saved.left, rightSkill: saved.right });
+    return;
+  }
+  const castable = inv.sigils.flatMap((uid, slot) => {
+    const item = inv.items.find((i) => i.uid === uid);
+    if (item?.kind !== 'sigil') return [];
+    const r = compileFor(item, classId);
+    return r.ok && !r.persistent ? [slot] : [];
+  });
+  useUi.setState({ leftSkill: castable[0] ?? 0, rightSkill: castable[1] ?? castable[0] ?? 1 });
+}
+
 export function compileFor(item: SigilItem, classId: ClassId, draft?: readonly RuneId[]): CompileResult {
   return compileSigilItem(item, classId, draft);
 }

@@ -19,7 +19,7 @@ import { distSq, type Vec2 } from './math.js';
 import { despawnMinion } from './minions.js';
 import { stepPlayer } from './movement.js';
 import { Rng } from './rng.js';
-import { castSkill, firePrimary, updateDashSpell } from './spells.js';
+import { castSkill, updateDashSpell } from './spells.js';
 import { computeStats, baseStats } from './stats.js';
 import { SYSTEMS } from './systems.js';
 
@@ -227,11 +227,7 @@ export class Simulation {
     if (p.dashSpell) updateDashSpell(this, id, SIM.dt, wasDashing && p.dash === null);
     p.aimAngle = input.aimAngle;
 
-    if ((input.buttons & BUTTON.primary) !== 0 && p.primaryCooldown <= 0) {
-      firePrimary(this, id, def.primary, pos.x, pos.y, input.aimAngle);
-      p.primaryCooldown = def.primary.cooldown / p.stats.attackSpeedMult;
-    }
-
+    // There is no basic attack: every hit comes from a sigil, so the primary button bit is ignored.
     const pressed = input.buttons & ~p.prevButtons;
     SKILL_BUTTONS.forEach((bit, slot) => {
       if ((input.buttons & bit) !== 0) castSkill(this, id, slot, (pressed & bit) !== 0);

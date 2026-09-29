@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUTTON, Simulation, SIM, type EntityId } from '../src/index.js';
+import { Simulation, SIM, SKILL_BUTTONS, type EntityId } from '../src/index.js';
 
 function binder(seed = 1) {
   const sim = new Simulation(seed);
@@ -17,8 +17,8 @@ describe('minion AI', () => {
     const far = sim.spawnEnemy('chaser', pos.x - 250, pos.y);
     sim.world.health.get(near)!.life = 10_000;
     sim.world.health.get(far)!.life = 10_000;
-    // The binder's bolt hits the far one.
-    sim.applyInput(id, { seq: 0, moveDir: { x: 0, y: 0 }, aimAngle: Math.PI, buttons: BUTTON.primary });
+    // The binder's Bone Spear (slot 2) hits the far one.
+    sim.applyInput(id, { seq: 0, moveDir: { x: 0, y: 0 }, aimAngle: Math.PI, buttons: SKILL_BUTTONS[1] });
     for (let i = 0; i < 20; i++) sim.step();
     expect(p.focusTarget).toBe(far);
     const targets = p.minions.filter((m): m is EntityId => m !== null).map((m) => sim.world.minion.get(m)?.targetId);

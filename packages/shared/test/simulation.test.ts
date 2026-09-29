@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUTTON, CLASSES, ENEMIES, serializeEntities, SIM, Simulation, type InputFrame } from '../src/index.js';
+import { BUTTON, CLASSES, ENEMIES, serializeEntities, SIM, Simulation, SKILL_BUTTONS, type InputFrame } from '../src/index.js';
 
 function input(seq: number, over: Partial<InputFrame> = {}): InputFrame {
   return { seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0, ...over };
@@ -26,35 +26,24 @@ describe('Simulation', () => {
     expect(sim.world.position.get(id)!.x).toBe(x);
   });
 
-  it('kills a chaser with server-spawned bolts', () => {
+  it('kills a chaser with a skill (fireball, slot 1)', () => {
     const sim = new Simulation(1);
     const id = sim.addPlayer('c1', 'mage');
     const p = sim.world.position.get(id)!;
     const enemy = sim.spawnEnemy('chaser', p.x + 120, p.y);
     let seq = 0;
     for (let t = 0; t < 200 && sim.world.isAlive(enemy); t++) {
-      sim.applyInput(id, input(seq++, { buttons: BUTTON.primary, aimAngle: 0 }));
+      sim.applyInput(id, input(seq++, { buttons: SKILL_BUTTONS[0], aimAngle: 0 }));
       sim.step();
     }
     expect(sim.world.isAlive(enemy)).toBe(false);
   });
 
-  it('respects the primary attack cooldown', () => {
+  it('has no basic attack: the primary button does nothing', () => {
     const sim = new Simulation(1);
     const id = sim.addPlayer('c1', 'mage');
     for (let seq = 0; seq < 4; seq++) sim.applyInput(id, input(seq, { buttons: BUTTON.primary }));
-    expect(sim.world.projectile.size).toBe(1);
-  });
-
-  it('melee arc hits enemies in front and misses enemies behind', () => {
-    const sim = new Simulation(1);
-    const id = sim.addPlayer('c1', 'warrior');
-    const p = sim.world.position.get(id)!;
-    const front = sim.spawnEnemy('chaser', p.x + 40, p.y);
-    const behind = sim.spawnEnemy('chaser', p.x - 40, p.y);
-    sim.applyInput(id, input(0, { buttons: BUTTON.primary, aimAngle: 0 }));
-    expect(sim.world.health.get(front)!.life).toBeLessThan(ENEMIES.chaser.life);
-    expect(sim.world.health.get(behind)!.life).toBe(ENEMIES.chaser.life);
+    expect(sim.world.projectile.size).toBe(0);
   });
 
   it('chasers damage players, players die and respawn with full life', () => {
@@ -92,7 +81,7 @@ describe('Simulation', () => {
       const sim = new Simulation(42);
       const id = sim.addPlayer('c1', 'ranger');
       for (let t = 0; t < 300; t++) {
-        sim.applyInput(id, input(t, { moveDir: { x: Math.sin(t / 10), y: 1 }, aimAngle: t / 7, buttons: BUTTON.primary }));
+        sim.applyInput(id, input(t, { moveDir: { x: Math.sin(t / 10), y: 1 }, aimAngle: t / 7, buttons: SKILL_BUTTONS[0] }));
         sim.step();
       }
       return JSON.stringify(serializeEntities(sim));

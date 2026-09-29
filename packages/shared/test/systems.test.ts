@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SKILL_BUTTONS,
   AURA,
   BUTTON,
   createSigil,
@@ -207,7 +208,8 @@ describe('items and loot', () => {
     const pos = sim.world.position.get(id)!;
     const rare = sim.spawnEnemy('chaser', pos.x + 60, pos.y, true);
     sim.world.health.get(rare)!.life = 1;
-    sim.applyInput(id, frame(0, { buttons: BUTTON.primary }));
+    // Flame Cleave, the warrior's third starter skill, swings in front.
+    sim.applyInput(id, frame(0, { buttons: SKILL_BUTTONS[2] }));
     sim.step();
     expect(sim.world.loot.size).toBe(1);
     const before = sim.world.player.get(id)!.inventory.filter((x) => x !== null).length;

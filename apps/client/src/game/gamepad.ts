@@ -1,4 +1,5 @@
-import { BUTTON, SKILL_BUTTONS } from '@rune/shared';
+import { SKILL_BUTTONS } from '@rune/shared';
+import { useUi } from '../ui/store.js';
 
 /**
  * Standard-mapping gamepad (Xbox layout): left stick moves, right stick aims, right trigger is the
@@ -46,7 +47,9 @@ export class GamepadInput {
     const pressedNow = (i: number): boolean => pad.buttons[i]?.pressed === true;
     const move = stick(pad.axes[0] ?? 0, pad.axes[1] ?? 0);
     const aim = stick(pad.axes[2] ?? 0, pad.axes[3] ?? 0);
-    let buttons = pressedNow(RT) || pressedNow(LT) ? BUTTON.primary : 0;
+    // Triggers are the two mouse buttons: the face buttons still cast slots directly.
+    const picks = useUi.getState();
+    let buttons = (pressedNow(RT) ? (SKILL_BUTTONS[picks.leftSkill] ?? 0) : 0) | (pressedNow(LT) ? (SKILL_BUTTONS[picks.rightSkill] ?? 0) : 0);
     SKILL_PADS.forEach((b, i) => {
       const bit = SKILL_BUTTONS[i];
       if (bit !== undefined && pressedNow(b)) buttons |= bit;
