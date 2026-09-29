@@ -19,7 +19,7 @@ Four kinds, read left to right.
 |---|---|---|
 | **Shape** | starts a spell or a payload | Spell: Orb (slow, big), Bolt (fast, thin), Beam, Nova, Zone. Weapon: Arrow, Strike, Cleave, Throw, Trap. Any: Dash |
 | **Infusion** | the current shape, before it fires | Fire, Cold, Lightning |
-| **Shaper** | the current shape's count or motion | Split, Link, Orbit, Homing, Bounce, Chain, Stack |
+| **Shaper** | the current shape's count, motion or casting | Split, Link, Orbit, Homing, Bounce, Chain, Stack, Charge |
 | **Effect** | what happens on contact | Impact, Ward, Restore |
 
 Spell shapes scale with spell damage; weapon shapes scale with the weapon you hold. That is a soft gate: anyone can fire an Arrow rune, but it is weak without a bow.
@@ -27,6 +27,8 @@ Spell shapes scale with spell damage; weapon shapes scale with the weapon you ho
 Persistent shapes stay as today: Aura, and the ally tether, renamed **Bond** so **Link** can mean "join the copies". Later shape: Wall.
 
 **Beam** is a channelled line from the caster toward the cursor: it costs Force every tick while held, hits what it touches on a tick interval, and turns with the aim. Runes work on it like on any shape: `Beam`, `Fire` burns; `Beam`, `Split 3` fans three beams; `Beam [every 0.5 s]`, `Nova` pulses explosions where it ends; `Beam`, `Chain 3` arcs off the first target. It needs two engine pieces the other shapes do not: a held-cast state (the skill keeps firing while the button is down, like Frozen Orb's pulse but tied to the caster), and a line hit test against enemies each tick. The client draws it from the caster's predicted position to the aim, so it never trails behind the hero.
+
+**Charge** is a shaper that turns any shape from cast-on-press into hold-to-power-up, release-to-fire. On a Beam it replaces the sustained burn with one piercing lance; on an Orb the ball grows, on an Arrow the shot pierces further, on a Nova the ring widens. Damage and size scale with the time held, in stages up to a cap (for example three stages over 1.5 s), and the shape narrows and brightens while charging so others can read it. Release affixes still apply: `Beam [on release]`, `Charge`, `Split 3`, `Bolt` fires the lance, then sprays bolts where it ends. Charge-rune affixes tune it ("charges 40% faster", "+1 stage", "moving does not reset the charge"). Charging and channelling share the held-cast state Beam needs, so one engine piece serves both.
 
 The modifier runes (Swift, Large, Linger, Pierce) and the trigger runes (Timer, On Hit, On Expire, On Land, Pulse) go away and become affixes. **Open:** keep Swift and Large as runes too, for players who have no rolled runes yet.
 
@@ -138,7 +140,7 @@ Each phase ships on its own and gets the item review before deploy.
 1. **Prototype in Spell Studio** (dev tools only): the new rules and affixes in the shared compiler behind a flag, so spells can be felt before saves change.
 2. **Rolled runes:** rune affixes on items, drops, and the forge editor rebuilt around left to right with a live sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts.") and a preview on training dummies.
 3. **Sigils as wands:** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
-4. **New shapers and Beam:** Link, Orbit, Homing, Bounce, Chain, and the channelled Beam shape.
+4. **New shapers and Beam:** Link, Orbit, Homing, Bounce, Chain, Charge, and the channelled Beam shape.
 5. **Forge gold cost and the rune trader.**
 6. **Styles:** character creation, weapon shapes and scaling, style runes, style minions, uniques.
    **Minion abilities** can come earlier, on their own: base abilities for today's three minion types plus vessel ability affixes need no other phase.
