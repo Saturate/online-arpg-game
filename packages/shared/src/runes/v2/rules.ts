@@ -39,11 +39,11 @@ export const RULES = {
   MULTICAST_PER_GROUP: { id: 'multicast-per-group', text: 'Multicast applies to every group, payloads included.' },
   SHAPER_NOT_FOR_SHAPE: { id: 'shaper-not-for-shape', text: 'Each shape only accepts some shapers (SHAPERS_FOR_SHAPE).' },
   LINK_NEEDS_SPLIT: { id: 'link-needs-split', text: 'Link joins copies, so it needs a Split earlier on the same shape.' },
-  /** ASSUMED. A second Split on one shape would copy copies; the plan says Split N replaces the shape with N copies. */
-  SPLIT_ONCE: { id: 'split-once', text: 'A shape takes one Split.' },
+  /** Owner decision: doubled runes stack for now, so a second Split multiplies the copies. Kept as a named rule for the total cap. */
+  SPLIT_ONCE: { id: 'split-once', text: 'Splits multiply, up to 12 copies of one shape.' },
   SPLIT_COUNT: { id: 'split-count', text: 'Split makes 2 to 6 copies (the plan\'s roll range).' },
-  /** ASSUMED. Only Split has a reason to repeat, and it may not either; two Homing runes are an error, not a stronger pull. */
-  DUPLICATE_SHAPER: { id: 'duplicate-shaper', text: 'A shape takes each shaper once.' },
+  /** Owner decision: doubled runes stack for now (two Homing pull harder). Link and Orbit have nothing to stack, so they stay once. */
+  DUPLICATE_SHAPER: { id: 'duplicate-shaper', text: 'Link and Orbit go on a shape once; other shapers stack.' },
   PERSISTENT_ALONE: { id: 'persistent-alone', text: 'Aura and Bond must be the only shape in the spell.' },
   PERSISTENT_NO_RELEASE: { id: 'persistent-no-release', text: 'Aura and Bond cannot have a trigger or release affix.' },
   PERSISTENT_NO_SPLIT: { id: 'persistent-no-split', text: 'Aura and Bond cannot be split.' },
@@ -82,7 +82,7 @@ export interface GrammarContext {
   maxDepth: number;
   /** Most entities one cast may have alive at once. */
   liveCap: number;
-  /** Open question 1: accept Swift and Large as plain runes. */
+  /** Accept Swift and Large as plain runes (owner decision: yes, they teach the system early). */
   plainModifierRunes: boolean;
 }
 
@@ -90,8 +90,11 @@ export const DEFAULT_CONTEXT: GrammarContext = {
   multicast: 1,
   maxDepth: 3,
   liveCap: 40,
-  plainModifierRunes: false,
+  plainModifierRunes: true,
 };
+
+/** Most copies one shape may have after its Splits multiply. */
+export const MAX_COPIES = 12;
 
 export const SPLIT_COUNT_RANGE = { min: 2, max: 6 } as const;
 export const MIN_RELEASE_SECONDS = 0.1;

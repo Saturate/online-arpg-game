@@ -142,8 +142,9 @@ describe('plan examples', () => {
 });
 
 describe('open question 1: Swift and Large as plain runes', () => {
-  it('are rejected by default and point at the affix', () => {
-    expect(errorAt('Bolt Swift', 'plain-modifier-off', 1)).toContain('[fast]');
+  it('are allowed by default (owner decision), and can be switched off', () => {
+    expect(root('Bolt Swift').stats.speed).toBe(30);
+    expect(errorAt('Bolt Swift', 'plain-modifier-off', 1, { plainModifierRunes: false })).toContain('[fast]');
   });
 
   it('work like the affix when turned on', () => {
@@ -269,10 +270,14 @@ describe('rules', () => {
     errorAt('Orb[every 0.05s] Bolt', 'release-interval', 0);
   });
 
-  it('split once, 2 to 6 copies, each shaper once', () => {
-    errorAt('Orb Split(3) Split(2)', 'split-once', 2);
+  it('doubled runes stack for now: splits multiply up to 12, shapers add up, Link and Orbit stay once', () => {
+    expect(root('Orb Split(3) Split(2)').copies).toBe(6);
+    errorAt('Orb Split(4) Split(4)', 'split-once', 2);
     errorAt('Orb Split(7)', 'split-count', 1);
-    errorAt('Orb Homing Homing', 'duplicate-shaper', 2);
+    expect(root('Orb Homing Homing').shapers.filter((s) => s.id === 'homing')).toHaveLength(2);
+    errorAt('Orb Split(3) Link Link', 'duplicate-shaper', 3);
+    expect(root('Orb Fire Fire').infusions).toEqual(['fire', 'fire']);
+    expect(root('Nova Split(3)').copies).toBe(3);
   });
 
   it('shaper and affix compatibility', () => {

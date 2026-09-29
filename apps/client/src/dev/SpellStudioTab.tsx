@@ -121,7 +121,14 @@ function Timeline({ samples }: { samples: readonly TickSample[] }) {
   return <canvas ref={ref} className="studio-timeline" width={560} height={120} aria-label="Trigger timeline for the last 15 seconds" />;
 }
 
-export function SpellStudioTab() {
+/** A spell handed over from the Spell Lab, cast instead of the draft skill until cleared. */
+export interface InjectedSpell {
+  label: string;
+  compiled: CompileResult;
+  notes: string[];
+}
+
+export function SpellStudioTab({ injected = null, onClearInjected }: { injected?: InjectedSpell | null; onClearInjected?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const fxLayer = useRef<HTMLDivElement>(null);
   const view = useRef<StudioView | null>(null);
@@ -139,7 +146,7 @@ export function SpellStudioTab() {
   const [force, setForce] = useState({ now: 0, max: 0 });
   const [exported, setExported] = useState('');
 
-  const compiled = useMemo(() => compileSkill(draft), [draft]);
+  const compiled = useMemo(() => injected?.compiled ?? compileSkill(draft), [draft, injected]);
   // The view reads the latest draft on reset without re-running the setup effect.
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -161,8 +168,9 @@ export function SpellStudioTab() {
   );
 
   useEffect(() => {
-    studio.current?.setSkill(draft);
-  }, [draft]);
+    if (injected) studio.current?.setCompiled(injected.compiled);
+    else studio.current?.setSkill(draft);
+  }, [draft, injected, setup]);
 
   useEffect(() => {
     const s = studio.current;
@@ -328,6 +336,21 @@ export function SpellStudioTab() {
             />
           </label>
         </div>
+        {injected && (
+          <div className="studio-injected">
+            <p>
+              Casting the Spell Lab spell <code>{injected.label}</code> instead of the draft above.
+            </p>
+            {injected.notes.map((n) => (
+              <p key={n} className="muted small">
+                {n}
+              </p>
+            ))}
+            <button type="button" onClick={onClearInjected}>
+              Back to the draft skill
+            </button>
+          </div>
+        )}
         <CompileBox result={compiled} />
       </aside>
 

@@ -635,3 +635,18 @@
 .lab-stats dd.over {
   color: var(--bad);
 }
+
+/* Spell Lab to Spell Studio hand-over */
+.lab-cast {
+  margin: 8px 0;
+}
+.studio-injected {
+  border: 1px solid #4a3a22;
+  background: #16120d;
+  padding: 8px 10px;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+.studio-injected code {
+  color: var(--gold);
+}

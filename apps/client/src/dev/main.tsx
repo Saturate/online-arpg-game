@@ -5,7 +5,7 @@ import { AssetsTab } from './AssetsTab.js';
 import { LootTab } from './LootTab.js';
 import { ReplayTab } from './ReplayTab.js';
 import { SpellLabTab } from './SpellLabTab.js';
-import { SpellStudioTab } from './SpellStudioTab.js';
+import { SpellStudioTab, type InjectedSpell } from './SpellStudioTab.js';
 
 type Tab = 'assets' | 'studio' | 'lab' | 'loot' | 'replay';
 
@@ -19,6 +19,7 @@ function DevApp() {
 
 function DevTools() {
   const [tab, setTab] = useState<Tab>('assets');
+  const [injected, setInjected] = useState<InjectedSpell | null>(null);
   return (
     <div className="dev-app">
       <header className="dev-header">
@@ -44,8 +45,15 @@ function DevTools() {
         <a href="/">Back to game</a>
       </header>
       <main className="dev-main">{tab === 'assets' && <AssetsTab />}
-        {tab === 'studio' && <SpellStudioTab />}
-        {tab === 'lab' && <SpellLabTab />}
+        {tab === 'studio' && <SpellStudioTab injected={injected} onClearInjected={() => setInjected(null)} />}
+        {tab === 'lab' && (
+          <SpellLabTab
+            onCast={(spell) => {
+              setInjected(spell);
+              setTab('studio');
+            }}
+          />
+        )}
         {tab === 'loot' && <LootTab />}
         {tab === 'replay' && <ReplayTab />}</main>
     </div>

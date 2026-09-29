@@ -190,7 +190,8 @@ export const SHAPERS_FOR_SHAPE: Record<ShapeId, readonly ShaperId[]> = {
   beam: ['split', 'link', 'chain', 'stack', 'charge'],
   zone: ['split', 'link', 'orbit', 'stack', 'charge'],
   trap: ['split', 'link', 'stack', 'charge'],
-  nova: ['stack', 'charge'],
+  // A split nova makes several rings (owner decision: allowed for now, limit later if too strong).
+  nova: ['split', 'stack', 'charge'],
   strike: ['split', 'chain', 'charge'],
   cleave: ['split', 'charge'],
   dash: ['charge'],

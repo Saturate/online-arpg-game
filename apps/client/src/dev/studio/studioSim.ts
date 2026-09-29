@@ -121,7 +121,12 @@ export class StudioSim {
 
   /** Swaps the skill under test without resetting the world. Metrics restart so numbers stay honest. */
   setSkill(skill: SkillDef): void {
-    this.compiled = compileSkill(skill);
+    this.setCompiled(compileSkill(skill));
+  }
+
+  /** Tests an already compiled spell, such as one from the Spell Lab. */
+  setCompiled(compiled: CompileResult): void {
+    this.compiled = compiled;
     this.equip();
     this.metrics.reset();
   }

@@ -27,6 +27,7 @@ import {
   DEFAULT_CONTEXT,
   MIN_RELEASE_SECONDS,
   RULES,
+  MAX_COPIES,
   SPLIT_COUNT_RANGE,
   type GrammarContext,
   type GrammarError,
@@ -243,12 +244,12 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       return;
     }
     const existing = node.shapers.find((s) => s.id === use.id);
-    if (existing && use.id === 'split') {
-      fail('SPLIT_ONCE', i, `${shape} is already split by rune ${existing.runeIndex + 1}; ${label(i)} would split it again.`);
+    if (existing && use.id === 'split' && node.copies * use.value > MAX_COPIES) {
+      fail('SPLIT_ONCE', i, `${label(i)} would make ${node.copies * use.value} copies of ${shape}; splits stop at ${MAX_COPIES}.`);
       return;
     }
-    if (existing) {
-      fail('DUPLICATE_SHAPER', i, `${shape} already has ${name} (rune ${existing.runeIndex + 1}); ${label(i)} repeats it.`);
+    if (existing && (use.id === 'link' || use.id === 'orbit')) {
+      fail('DUPLICATE_SHAPER', i, `${shape} already has ${name} (rune ${existing.runeIndex + 1}); ${label(i)} has nothing to add.`);
       return;
     }
     if (use.id === 'split' && (use.value < SPLIT_COUNT_RANGE.min || use.value > SPLIT_COUNT_RANGE.max)) {
@@ -264,7 +265,7 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       return;
     }
     node.shapers.push(use);
-    if (use.id === 'split') node.copies = use.value;
+    if (use.id === 'split') node.copies *= use.value;
     if (use.id === 'link') node.linked = true;
   };
 
@@ -347,7 +348,8 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       case 'fire':
       case 'cold':
       case 'lightning':
-        if (!target.infusions.includes(rune.id)) target.infusions.push(rune.id);
+        // Doubled infusions stack for now (owner decision); each extra copy strengthens the element.
+        target.infusions.push(rune.id);
         break;
       case 'impact':
       case 'ward':

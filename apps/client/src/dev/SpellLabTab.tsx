@@ -1,3 +1,4 @@
+import type { InjectedSpell } from './SpellStudioTab.js';
 import { grammarV2 } from '@rune/shared';
 import { useMemo, useState } from 'react';
 
@@ -13,7 +14,7 @@ const PALETTE: readonly { label: string; runes: readonly RuneId[] }[] = [
   { label: 'Shapers', runes: grammarV2.SHAPER_IDS },
   { label: 'Effects', runes: grammarV2.EFFECT_IDS },
   { label: 'Triggers', runes: grammarV2.TRIGGER_IDS },
-  { label: 'Plain modifiers (open question 1)', runes: grammarV2.PLAIN_MODIFIER_IDS },
+  { label: 'Plain modifiers', runes: grammarV2.PLAIN_MODIFIER_IDS },
 ];
 
 const AFFIX_SNIPPETS: readonly string[] = ['[onhit]', '[onexpire]', '[every 0.2s]', '[after 0.5s]', '[onrelease]', '[onland]', '[slow]', '[small]', '[large]', '[long]', '[homing]', '[pierce 2]', '[+30% damage]', '(4)'];
@@ -67,7 +68,7 @@ function clampInt(v: string, min: number, max: number, fallback: number): number
   return Math.min(max, Math.max(min, n));
 }
 
-export function SpellLabTab() {
+export function SpellLabTab({ onCast }: { onCast?: (spell: InjectedSpell) => void }) {
   const first = EXAMPLE_SPELLS[0];
   const [text, setText] = useState(first?.text ?? 'orb');
   const [ctx, setCtx] = useState<GrammarContext>({ ...DEFAULT_CONTEXT, ...first?.context });
@@ -77,6 +78,7 @@ export function SpellLabTab() {
   const result = useMemo(() => parseSpellText(text, ctx), [text, ctx]);
   const badIndices = useMemo(() => new Set(result.errors.map((e) => e.runeIndex)), [result.errors]);
   const example = EXAMPLE_SPELLS.find((e) => e.id === exampleId);
+  const runtime = useMemo(() => (result.ok && result.tree ? grammarV2.toRuntime(result.tree) : null), [result]);
 
   const append = (snippet: string, glue: boolean): void => {
     setText((t) => (glue || t.trim() === '' ? `${t.trimEnd()}${snippet}` : `${t.trimEnd()} ${snippet}`));
@@ -186,6 +188,14 @@ export function SpellLabTab() {
         </div>
 
         <div className={`lab-verdict ${result.ok ? 'good' : 'bad'}`}>{result.ok ? 'Valid spell' : `${result.errors.length} rule${result.errors.length === 1 ? '' : 's'} broken`}</div>
+        {runtime?.ok && onCast && (
+          <button type="button" className="lab-cast" onClick={() => onCast({ label: text.trim(), compiled: runtime.compiled, notes: runtime.notes })}>
+            Cast at dummies in Spell Studio
+          </button>
+        )}
+        {runtime && !runtime.ok && (
+          <p className="muted small">Not castable yet; the engine does not have: {runtime.unsupported.join(', ')}.</p>
+        )}
 
         {result.errors.length > 0 && (
           <ul className="lab-errors">
