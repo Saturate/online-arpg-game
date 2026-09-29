@@ -20,6 +20,11 @@ import {
   type AdminOverview,
   type ArenaResult,
   type ClientMessage,
+  type EnemyOverride,
+  type EnemyTypeId,
+  type MinionOverride,
+  type MinionTypeId,
+  type TuningOverrides,
   type ServerSettings,
   type ServerMessage,
   type DungeonRef,
@@ -37,6 +42,7 @@ import {
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
 import { ArenaRun } from './arena.js';
+import { LiveTuning } from './liveTuning.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { Room } from './room.js';
@@ -109,6 +115,7 @@ export class RoomManager implements AdminHooks {
   private ticksSinceSave = 0;
   private current: ServerSettings;
   private market: Market;
+  private readonly tuning: LiveTuning;
 
   constructor(
     seed: number,
@@ -120,11 +127,12 @@ export class RoomManager implements AdminHooks {
     this.current = store.loadSettings();
     this.market = store.loadMarket();
     this.townLayout = loadTownLayout();
+    this.tuning = new LiveTuning(store.tuning);
   }
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */
   private createRoom(id: string, desc: MapDescriptor, instance: Instance | null, rules: Partial<RoomRules> = {}): Room {
-    const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules });
+    const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules }, this.tuning.current);
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
     if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.hostsTown = true;
@@ -151,6 +159,28 @@ export class RoomManager implements AdminHooks {
     const lighting = this.lighting();
     for (const c of this.clients.values()) if (c.characterId !== null) c.send({ t: 'lighting', lighting });
     return this.settings();
+  }
+
+  tuningOverrides(): TuningOverrides {
+    return this.tuning.overrides;
+  }
+
+  setMonsterOverride(typeId: EnemyTypeId, override: EnemyOverride | null): TuningOverrides {
+    return this.retune(this.tuning.setMonster(typeId, override));
+  }
+
+  setMinionOverride(typeId: MinionTypeId, override: MinionOverride | null): TuningOverrides {
+    return this.retune(this.tuning.setMinion(typeId, override));
+  }
+
+  /** Every room spawns from the new numbers at once; players only hear about model changes. */
+  private retune(modelsChanged: boolean): TuningOverrides {
+    for (const room of this.rooms.values()) room.sim.setTuning(this.tuning.current);
+    if (modelsChanged) {
+      const msg = this.tuning.modelsMessage();
+      for (const c of this.clients.values()) if (c.characterId !== null) c.send(msg);
+    }
+    return this.tuning.overrides;
   }
 
   private lighting(): Lighting {
@@ -990,6 +1020,8 @@ export class RoomManager implements AdminHooks {
       this.endSession(client, 'Your stash could not be loaded. Nothing was lost; ask the server owner to look at it.');
       return;
     }
+    // Before the welcome, so the first snapshot already draws overridden monsters with their models.
+    client.send(this.tuning.modelsMessage());
     room.add(client, character.classId, character.name, character.save ?? undefined);
     if (stash) room.loadStash(client, stash);
     const waiting = room.pendingCount(client);
