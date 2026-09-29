@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ASSETS, type AssetCategory } from '../render/assets.js';
 import { AssetViewer } from './assetViewer.js';
+import { readLink, writeLink } from './deepLink.js';
 import { BUILTIN_MODELS, bakeClips, buildBuiltin, exportBuiltin } from './builtinModels.js';
 
 /** `built-in` is the monsters models.ts builds in code; the rest are model files in the registry. */
@@ -10,8 +11,12 @@ const CATEGORIES: Category[] = ['hero', 'monster', 'built-in', 'building', 'natu
 export function AssetsTab() {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<AssetViewer | null>(null);
-  const [category, setCategory] = useState<Category>('hero');
-  const [selected, setSelected] = useState<string | null>(null);
+  // Opened from a deep link (#assets/<category>/<id>) when there is one.
+  const [category, setCategory] = useState<Category>(() => CATEGORIES.find((c) => c === readLink()[1]) ?? 'hero');
+  const [selected, setSelected] = useState<string | null>(() => readLink()[2] ?? null);
+  useEffect(() => {
+    writeLink(selected ? ['assets', category, selected] : ['assets', category]);
+  }, [category, selected]);
   const [clips, setClips] = useState<string[]>([]);
   const [status, setStatus] = useState('');
 

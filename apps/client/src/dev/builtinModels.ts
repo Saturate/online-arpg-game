@@ -1,5 +1,5 @@
 import { ENEMIES, ENEMY_TYPE_IDS, MINION_DEFS, MINION_TYPE_IDS } from '@rune/shared';
-import { AnimationClip, Group, QuaternionKeyframeTrack, VectorKeyframeTrack, type KeyframeTrack, type Object3D } from 'three';
+import { AnimationClip, Group, Mesh, QuaternionKeyframeTrack, VectorKeyframeTrack, type KeyframeTrack, type Object3D } from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { ENEMY_ASSETS, MINION_ASSETS } from '../render/characters.js';
 import { animate, enemyModel, minionModel, uniqueMaterials, type Rig } from '../render/models.js';
@@ -133,10 +133,25 @@ export function bakeClips(rig: Rig, m: BuiltinModel): AnimationClip[] {
   ];
 }
 
+/**
+ * The game draws these models flat-shaded (a material setting glTF cannot carry), so Blender would
+ * smooth them. Splitting the shared vertices and computing per-face normals bakes the faceted look
+ * into the geometry. Works on copies: the rig's geometries are shared with every monster in game.
+ */
+function bakeFlatShading(root: Object3D): void {
+  root.traverse((o) => {
+    if (!(o instanceof Mesh)) return;
+    const flat = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    flat.computeVertexNormals();
+    o.geometry = flat;
+  });
+}
+
 /** Downloads the model as a binary glTF in metres, facing +x with its feet at the origin, with Idle, Walk and Attack clips. */
 export async function exportBuiltin(m: BuiltinModel): Promise<void> {
   const rig = buildBuiltin(m);
   const animations = bakeClips(rig, m);
+  bakeFlatShading(rig.root);
   const wrap = new Group();
   wrap.name = m.id;
   wrap.scale.setScalar(1 / UNITS_PER_METRE);

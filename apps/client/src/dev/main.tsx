@@ -1,13 +1,15 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StaffGate } from '../admin/access.js';
+import { readLink, writeLink } from './deepLink.js';
 import { AssetsTab } from './AssetsTab.js';
 import { LootTab } from './LootTab.js';
 import { ReplayTab } from './ReplayTab.js';
 import { SpellLabTab } from './SpellLabTab.js';
 import { SpellStudioTab, type InjectedSpell } from './SpellStudioTab.js';
 
-type Tab = 'assets' | 'studio' | 'lab' | 'loot' | 'replay';
+const TABS = ['assets', 'studio', 'lab', 'loot', 'replay'] as const;
+type Tab = (typeof TABS)[number];
 
 function DevApp() {
   return (
@@ -18,7 +20,15 @@ function DevApp() {
 }
 
 function DevTools() {
-  const [tab, setTab] = useState<Tab>('assets');
+  const [tab, setTabState] = useState<Tab>(() => {
+    const first = readLink()[0];
+    return TABS.find((t) => t === first) ?? 'assets';
+  });
+  const setTab = (next: Tab) => {
+    setTabState(next);
+    // A tab's own panel writes the rest of the link; switching tabs starts from the bare tab.
+    writeLink([next]);
+  };
   const [injected, setInjected] = useState<InjectedSpell | null>(null);
   return (
     <div className="dev-app">
