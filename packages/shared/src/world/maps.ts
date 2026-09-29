@@ -237,13 +237,38 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): 
   const wp = gm.findOpen(spawn.x + (town ? 170 : 150), spawn.y - 90, 60);
   map.portals.push({ x: wp.x, y: wp.y, r: 46, target: 'waypoint', label: `Waypoint: ${zone.name}`, zone: zoneId });
   const prev = previousZone(zoneId);
-  if (prev) map.portals.push({ x: 110, y: spawn.y, r: 50, target: 'zone', label: ZONES[prev].name, zone: prev });
+  if (prev) addGate(map, 'west', spawn.y, prev);
   const next = nextZone(zoneId);
-  if (next) {
-    const exit = gm.findOpen(width - 130, height / 2, 60);
-    map.portals.push({ x: exit.x, y: exit.y, r: 50, target: 'zone', label: ZONES[next].name, zone: next });
-  }
+  if (next) addGate(map, 'east', gm.findOpen(width - 130, height / 2, 60).y, next);
   return map;
+}
+
+/** How far inside the map edge a gate's trigger sits, and how deep the cleared road into it runs. */
+const GATE = { inset: 40, triggerRadius: 60, road: 280, halfWidth: 75 } as const;
+
+/**
+ * A zone exit, D2 style: a stone arch on the map edge with lanterns and a dirt road leading out.
+ * Walking through the arch changes zone. The road is cleared of obstacles so the gate can always be
+ * walked into from the zone side.
+ */
+function addGate(map: WorldMap, side: 'west' | 'east', y: number, zone: ZoneId): void {
+  const dir = side === 'west' ? 1 : -1;
+  const edge = side === 'west' ? 0 : map.width;
+  const x = edge + dir * GATE.inset;
+  const inner = edge + dir * GATE.road;
+  const [minX, maxX] = [Math.min(edge, inner), Math.max(edge, inner)];
+  const inCorridor = (px: number, py: number): boolean => px >= minX - 40 && px <= maxX + 40 && Math.abs(py - y) <= GATE.halfWidth + 40;
+  map.obstacles = map.obstacles.filter((o) => {
+    const c = o.shape.type === 'capsule' ? { x: (o.shape.ax + o.shape.bx) / 2, y: (o.shape.ay + o.shape.by) / 2 } : o.shape;
+    return !inCorridor(c.x, c.y);
+  });
+  map.decor = map.decor.filter((d) => !inCorridor(d.x, d.y));
+  // The road runs on past the edge into the gap in the border forest, so the gate leads somewhere.
+  map.ground.push({ kind: 'dirt', shape: { type: 'capsule', ax: edge - dir * 360, ay: y, bx: inner, by: y, r: GATE.halfWidth * 0.7 } });
+  // The arch spans the road, so it faces along it.
+  map.decor.push({ asset: 'grave_arch', x: x + dir * 12, y, angle: Math.PI / 2, scale: 1.6 });
+  map.lamps = [...(map.lamps ?? []), { x: x + dir * 40, y: y - GATE.halfWidth }, { x: x + dir * 40, y: y + GATE.halfWidth }];
+  map.portals.push({ x, y, r: GATE.triggerRadius, target: 'zone', label: ZONES[zone].name, zone });
 }
 
 /** Where a player lands when entering a zone by waypoint or from a neighbouring zone. */

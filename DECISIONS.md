@@ -165,7 +165,8 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Seamless town:** the town layout sits at the origin of the home zone's map and is marked as a safe zone. Its fenced gates open straight onto the wilderness, so leaving town is a walk with no load. The layout stays at the origin so the town editor keeps working in town coordinates.
 - **Safe zone rule:** it lives in `isTargetable`, the one check both monster aggro and damage go through. Monsters lose their target at the gate and leash home. Packs and dungeon entrances keep outside aggro range of the town.
 - **Waypoints:** touching one activates it for that character (`PlayerSave.waypoints`), and everyone starts with the town's. The menu opens when the waypoint is clicked and closes when you walk off. The server re-checks that you're standing on a waypoint and that the destination is unlocked. Saves from before waypoints existed are given the town's on load.
-- **Zone transitions:** portals at the west and east edges land you just off the matching portal in the neighbouring zone, so arriving never triggers the way back.
+- **Zone transitions:** gates, not portals. Each exit is a stone arch on the map edge with lanterns and a dirt road that runs on into a gap in the border forest; walking through it changes zone, and you arrive just inside the matching gate of the neighbouring zone, so arriving never triggers the way back. The road into a gate is cleared of obstacles.
+- **Waypoints** are drawn as a raised stone slab with four rune stones and a dim rune circle, not as a portal.
 
 ## Character progression
 

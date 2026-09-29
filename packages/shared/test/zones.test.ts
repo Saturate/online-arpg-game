@@ -85,6 +85,25 @@ describe('overworld zones', () => {
     expect(sim.portalRequests.some((r) => r.target === 'waypoint')).toBe(true);
   });
 
+  it('zone exits are gates on the map edge that trigger when walked into', () => {
+    for (const id of ZONE_IDS) {
+      const sim = new Simulation(5, zone(id, 5));
+      const pid = sim.addPlayer('g', 'mage');
+      for (let i = 0; i < 40; i++) sim.step();
+      for (const gate of sim.mapDef.portals.filter((p) => p.target === 'zone')) {
+        const edge = Math.min(gate.x, sim.mapDef.width - gate.x);
+        expect(edge, `${id} gate to ${gate.label} sits on the edge`).toBeLessThan(60);
+        expect(sim.mapDef.decor.some((d) => d.asset === 'grave_arch' && Math.hypot(d.x - gate.x, d.y - gate.y) < 40), `${id} gate has an arch`).toBe(true);
+        sim.portalRequests = [];
+        const p = sim.world.player.get(pid);
+        if (p) p.portalCooldown = 0;
+        sim.world.position.set(pid, sim.map.findOpen(gate.x, gate.y, 16));
+        sim.step();
+        expect(sim.portalRequests.some((r) => r.target === 'zone' && r.portal.zone === gate.zone), `${id} gate to ${gate.label} triggers`).toBe(true);
+      }
+    }
+  });
+
   it('arrivals land on open ground just off the portal you came through', () => {
     for (const id of ZONE_IDS) {
       const desc = zone(id, 11);

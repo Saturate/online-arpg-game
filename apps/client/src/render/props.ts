@@ -373,7 +373,9 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
   const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, zone: 0x8fe07a, waypoint: 0x5ff0e0 } as const;
   for (const p of def.portals) {
-    const built = portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
+    // Zone exits are walk-through gates (an arch and lanterns from the map's decor), not portals.
+    if (p.target === 'zone') continue;
+    const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
     group.add(built.group);
     animated.push(built.update);
   }
@@ -774,6 +776,66 @@ function portal(x: number, y: number, r: number, color: number): { group: Group;
   };
 }
 
+/**
+ * A D2-style waypoint: a raised, weathered slab with four rune stones at its corners and a dim
+ * rune circle set into the top. Cold light, kept low so it marks the spot without lighting the night.
+ */
+function waypoint(x: number, y: number, r: number): { group: Group; update: (t: number) => void } {
+  const g = new Group();
+  const stone = mat(0x57524c, { rough: 0.95 });
+  const dark = mat(0x3a3632, { rough: 1 });
+  const side = r * 1.9;
+  const base = new Mesh(new BoxGeometry(side + 14, 6, side + 14), dark);
+  base.position.y = 3;
+  const slab = new Mesh(new BoxGeometry(side, 6, side), stone);
+  slab.position.y = 9;
+  base.receiveShadow = true;
+  slab.receiveShadow = true;
+  g.add(base, slab);
+  const glow = 0x5fd8d0;
+  const runeMat = new MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false });
+  const circle = new Mesh(new RingGeometry(r * 0.55, r * 0.68, 6), runeMat);
+  circle.rotation.x = -Math.PI / 2;
+  circle.position.y = 12.2;
+  const inner = new Mesh(new RingGeometry(r * 0.2, r * 0.26, 3), runeMat);
+  inner.rotation.x = -Math.PI / 2;
+  inner.position.y = 12.2;
+  g.add(circle, inner);
+  const stones: Mesh[] = [];
+  for (const [sx, sz] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ] as const) {
+    const pillar = new Mesh(new CylinderGeometry(5, 7, 34, 4), stone);
+    pillar.position.set((sx * side) / 2 - sx * 6, 12 + 17, (sz * side) / 2 - sz * 6);
+    pillar.rotation.y = Math.PI / 4;
+    pillar.castShadow = true;
+    const mark = new Mesh(new PlaneGeometry(4, 9), runeMat);
+    mark.position.set(pillar.position.x, 34, pillar.position.z);
+    mark.lookAt(0, 34, 0);
+    mark.position.x -= sx * 4.2;
+    mark.position.z -= sz * 4.2;
+    g.add(pillar, mark);
+    stones.push(mark);
+  }
+  const light = new PointLight(glow, 1.4, 220, 1.6);
+  light.position.y = 30;
+  g.add(light);
+  g.position.set(x, 0, y);
+  return {
+    group: g,
+    update: (t) => {
+      const pulse = 0.45 + Math.sin(t * 1.3) * 0.12;
+      runeMat.opacity = pulse;
+      circle.rotation.z = t * 0.15;
+      inner.rotation.z = -t * 0.3;
+      light.intensity = 1.2 + Math.sin(t * 1.3) * 0.25;
+    },
+  };
+}
+
 function campfire(x: number, y: number): { group: Group; update: (t: number) => void } {
   const g = new Group();
   const stones: Matrix4[] = [];
@@ -830,6 +892,16 @@ function addArenaWalls(group: Group, width: number, height: number): void {
 }
 
 /** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
+/** True where the scenery outside the map should open up for a zone gate's road. */
+function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean {
+  return def.portals.some((p) => {
+    if (p.target !== 'zone') return false;
+    const west = p.x < def.width / 2;
+    const out = west ? -x : x - def.width;
+    return out > -60 && out < depth && Math.abs(y - p.y) < 110 + out * 0.15;
+  });
+}
+
 function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
   const rng = new Rng(def.width * 31 + def.height);
   const rocks: Obstacle[] = [];
@@ -844,6 +916,7 @@ function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
     else [x, y] = [-30, perimeter - d];
     x += rng.range(-20, 20);
     y += rng.range(-20, 20);
+    if (inGateGap(def, x, y, 200)) continue;
     if (rng.next() < 0.5 && def.theme !== 'town') rocks.push({ kind: 'rock', shape: { type: 'circle', x, y, r: rng.range(40, 70) }, blocksMove: true, blocksShots: true, visual: rng.range(40, 90) });
     else trees.push({ kind: 'tree', shape: { type: 'circle', x, y, r: 16 }, blocksMove: true, blocksShots: true, visual: rng.range(55, 80) });
   }
@@ -877,6 +950,8 @@ function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng):
       // The edge row itself is drawn by addBorder with fading trees the player can walk behind.
       if (d < 80) continue;
       const roll = rng.next();
+      // The road out of a gate runs a little way into the forest before the trees close over it.
+      if (inGateGap(def, px, py, 520)) continue;
       if (roll < 0.05 && def.theme !== 'town') {
         rocks.push({ kind: 'rock', shape: { type: 'circle', x: px, y: py, r: rng.range(35, 75) }, blocksMove: false, blocksShots: false, visual: 60 });
         continue;
