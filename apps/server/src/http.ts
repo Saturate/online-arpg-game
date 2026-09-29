@@ -184,9 +184,14 @@ export class AccountApi {
   private async route(req: IncomingMessage, path: string): Promise<[number, unknown]> {
     const ip = clientIp(req);
     const method = req.method ?? 'GET';
-    const isAuth = path === '/api/register' || path === '/api/login';
+    const isAuth = path === '/api/register' || path === '/api/login' || path === '/api/guest';
     if (!(isAuth ? this.authLimit : this.otherLimit).allow(ip)) throw new HttpError(429, 'Too many requests, wait a minute');
 
+    if (method === 'POST' && path === '/api/guest') {
+      if (!this.admin.settings().registrationOpen) throw new HttpError(403, 'Registration is closed on this server');
+      const account = await this.store.registerGuest();
+      return [201, { token: this.store.createSession(account.id), username: account.username }];
+    }
     if (method === 'POST' && isAuth) {
       const creds = parseCredentials(await readJson(req));
       if (typeof creds === 'string') throw new HttpError(400, creds);
@@ -226,6 +231,16 @@ export class AccountApi {
         return [201, made];
       }
     }
+    if (method === 'POST' && path === '/api/claim') {
+      const creds = parseCredentials(await readJson(req));
+      if (typeof creds === 'string') throw new HttpError(400, creds);
+      // Owner names are reserved at registration; claiming is another way to pick a name.
+      if (this.owners.has(creds.username.toLowerCase())) throw new HttpError(409, 'That username is taken');
+      const result = await this.store.claimGuest(account.id, creds.username, creds.password);
+      if (result === 'taken') throw new HttpError(409, 'That username is taken');
+      if (result === 'not_guest') throw new HttpError(400, 'This account already has a name and password');
+      return [200, { username: creds.username }];
+    }
     if (path.startsWith('/api/admin/')) return this.adminRoute(req, method, path, account);
     const match = /^\/api\/characters\/(\d{1,9})$/.exec(path);
     if (match && method === 'DELETE') {
@@ -239,7 +254,7 @@ export class AccountApi {
   }
 
   private characters(account: Account): CharactersResponse {
-    return { username: account.username, characters: this.store.listCharacters(account.id), role: this.roleOf(account) };
+    return { username: account.username, characters: this.store.listCharacters(account.id), role: this.roleOf(account), guest: this.store.isGuest(account.id) };
   }
 
   /** Admin actions are logged with who did them, since they change other players' accounts and the live server. */

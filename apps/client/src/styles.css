@@ -2073,3 +2073,18 @@ kbd {
   background: var(--gold);
   color: #1a1208;
 }
+.guest-play {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+}
+.guest-banner {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #6b5634;
+  border-radius: 6px;
+  background: rgba(40, 30, 16, 0.6);
+}
+.guest-banner p {
+  margin: 0 0 8px;
+}

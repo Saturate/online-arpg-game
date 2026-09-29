@@ -43,7 +43,7 @@ function isCharacter(v: unknown): v is CharacterSummary {
 }
 
 function isCharacters(v: unknown): v is CharactersResponse {
-  return isRecord(v) && typeof v.username === 'string' && isRole(v.role) && Array.isArray(v.characters) && v.characters.every(isCharacter);
+  return isRecord(v) && typeof v.username === 'string' && isRole(v.role) && typeof v.guest === 'boolean' && Array.isArray(v.characters) && v.characters.every(isCharacter);
 }
 
 function isOnlinePlayer(v: unknown): v is AdminOnlinePlayer {
@@ -87,11 +87,15 @@ function isAdminCharacter(v: unknown): v is AdminCharacter {
 }
 
 function isAccounts(v: unknown): v is AdminAccount[] {
-  return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && isRole(a.role) && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
+  return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && typeof a.guest === 'boolean' && isRole(a.role) && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
 }
 
 function isSettings(v: unknown): v is ServerSettings {
   return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number';
+}
+
+function isClaimed(v: unknown): v is { username: string } {
+  return isRecord(v) && typeof v.username === 'string';
 }
 
 function isOk(v: unknown): v is { ok: true } {
@@ -114,6 +118,8 @@ function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiRes
 export const api = {
   register: async (username: string, password: string) => narrow(await call('POST', '/api/register', null, { username, password }), isSession),
   login: async (username: string, password: string) => narrow(await call('POST', '/api/login', null, { username, password }), isSession),
+  guest: async () => narrow(await call('POST', '/api/guest', null, {}), isSession),
+  claim: async (token: string, username: string, password: string) => narrow(await call('POST', '/api/claim', token, { username, password }), isClaimed),
   logout: (token: string) => call('POST', '/api/logout', token, {}),
   characters: async (token: string) => narrow(await call('GET', '/api/characters', token), isCharacters),
   createCharacter: async (token: string, name: string, classId: ClassId) => narrow(await call('POST', '/api/characters', token, { name, classId }), isCharacter),

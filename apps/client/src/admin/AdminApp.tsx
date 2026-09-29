@@ -259,7 +259,7 @@ function Players({ token, role, notify }: TabProps) {
             return [
               <tr key={a.id} className={open === a.id ? 'open' : ''} onClick={() => setOpen(open === a.id ? null : a.id)}>
                 <td>
-                  {a.username} {a.role !== 'player' && <span className="badge gold">{ROLE_INFO[a.role].name}</span>} {a.banned && <span className="badge red">banned</span>}
+                  {a.username} {a.role !== 'player' && <span className="badge gold">{ROLE_INFO[a.role].name}</span>} {a.guest && <span className="badge">guest</span>} {a.banned && <span className="badge red">banned</span>}
                 </td>
                 <td>{new Date(a.createdAt).toLocaleDateString()}</td>
                 <td>{a.characters.length}</td>

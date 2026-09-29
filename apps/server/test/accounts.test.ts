@@ -192,6 +192,24 @@ describe('AccountApi', () => {
     expect((await fetch(`${base}/api/characters`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
   });
 
+  it('plays as a guest, then keeps the account under a chosen name', async () => {
+    const guest = await post('/api/guest', {});
+    expect(guest.status).toBe(201);
+    const body: unknown = await guest.json();
+    const token = typeof body === 'object' && body !== null ? Reflect.get(body, 'token') : undefined;
+    if (typeof token !== 'string') throw new Error('no token');
+    const auth = { headers: { authorization: `Bearer ${token}` } };
+    expect(await (await fetch(`${base}/api/characters`, auth)).json()).toMatchObject({ guest: true });
+    expect((await post('/api/characters', { name: 'Wanderer', classId: 'ranger' }, token)).status).toBe(201);
+
+    expect((await post('/api/claim', { username: 'keeper', password: 'password123' }, token)).status).toBe(200);
+    const after: unknown = await (await fetch(`${base}/api/characters`, auth)).json();
+    // Same session, now a normal account with its character intact.
+    expect(after).toMatchObject({ guest: false, username: 'keeper', characters: [expect.objectContaining({ name: 'Wanderer' })] });
+    expect((await post('/api/claim', { username: 'keeper2', password: 'password123' }, token)).status).toBe(400);
+    expect((await post('/api/login', { username: 'keeper', password: 'password123' })).status).toBe(200);
+  });
+
   it('rejects bad logins with one message, non-JSON bodies, and oversized bodies', async () => {
     const bad = await post('/api/login', { username: 'nobody', password: 'whatever1' });
     expect(bad.status).toBe(401);

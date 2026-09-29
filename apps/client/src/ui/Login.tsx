@@ -60,6 +60,22 @@ export function Login() {
           {busy ? 'Please wait' : mode === 'login' ? 'Log in' : 'Create account'}
         </button>
       </form>
+      <button
+        type="button"
+        className="guest-play"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setError(null);
+          void api.guest().then((res) => {
+            setBusy(false);
+            if (res.ok) setSession(res.data.token, res.data.username);
+            else setError(res.error);
+          });
+        }}
+      >
+        Play as guest
+      </button>
       <p className="hint">
         {mode === 'login' ? 'No account yet? ' : 'Already have an account? '}
         <button

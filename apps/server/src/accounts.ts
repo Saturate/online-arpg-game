@@ -7,6 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
 const SESSION_DAYS = 30;
+/** A guest's session is their only key, so it lasts much longer. */
+const GUEST_SESSION_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The trader's shelf, shared by every player on the server. */
@@ -150,6 +152,7 @@ export class AccountStore {
     if (!accountCols.includes('banned')) this.db.exec('ALTER TABLE accounts ADD COLUMN banned INTEGER NOT NULL DEFAULT 0');
     if (!accountCols.includes('role')) this.db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
     if (!accountCols.includes('stash_json')) this.db.exec('ALTER TABLE accounts ADD COLUMN stash_json TEXT');
+    if (!accountCols.includes('is_guest')) this.db.exec('ALTER TABLE accounts ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0');
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   }
 
@@ -165,6 +168,44 @@ export class AccountStore {
     try {
       const res = this.db.prepare('INSERT INTO accounts (username, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?)').run(username, salt, hash, Date.now());
       return { id: num(res.lastInsertRowid), username, role: 'player' };
+    } catch {
+      return 'taken';
+    }
+  }
+
+  /**
+   * A guest account: a generated name and a random password nobody knows, so the session token is
+   * the only way in. It can be claimed later with a real username and password.
+   */
+  async registerGuest(): Promise<Account> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const name = `Guest${randomBytes(4).toString('hex').slice(0, 6)}`;
+      if (this.db.prepare('SELECT 1 FROM accounts WHERE username = ?').get(name)) continue;
+      const salt = randomBytes(16);
+      const hash = await hashPassword(randomBytes(24).toString('base64url'), salt);
+      try {
+        const res = this.db.prepare('INSERT INTO accounts (username, password_salt, password_hash, created_at, is_guest) VALUES (?, ?, ?, ?, 1)').run(name, salt, hash, Date.now());
+        return { id: num(res.lastInsertRowid), username: name, role: 'player' };
+      } catch {
+        // Lost a race for the name; roll another.
+      }
+    }
+    throw new Error('Could not pick a free guest name');
+  }
+
+  isGuest(accountId: number): boolean {
+    return num(row(this.db.prepare('SELECT is_guest FROM accounts WHERE id = ?').get(accountId))?.is_guest) === 1;
+  }
+
+  /** Turns a guest into a normal account under a chosen name and password; characters stay. */
+  async claimGuest(accountId: number, username: string, password: string): Promise<'taken' | 'not_guest' | null> {
+    if (!this.isGuest(accountId)) return 'not_guest';
+    if (this.db.prepare('SELECT 1 FROM accounts WHERE username = ? AND id != ?').get(username, accountId)) return 'taken';
+    const salt = randomBytes(16);
+    const hash = await hashPassword(password, salt);
+    try {
+      this.db.prepare('UPDATE accounts SET username = ?, password_salt = ?, password_hash = ?, is_guest = 0 WHERE id = ? AND is_guest = 1').run(username, salt, hash, accountId);
+      return null;
     } catch {
       return 'taken';
     }
@@ -187,7 +228,8 @@ export class AccountStore {
 
   createSession(accountId: number): string {
     const token = randomBytes(32).toString('base64url');
-    this.db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)').run(tokenHash(token), accountId, Date.now() + SESSION_DAYS * DAY_MS);
+    const days = this.isGuest(accountId) ? GUEST_SESSION_DAYS : SESSION_DAYS;
+    this.db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)').run(tokenHash(token), accountId, Date.now() + days * DAY_MS);
     return token;
   }
 
@@ -227,7 +269,7 @@ export class AccountStore {
   }
 
   /** Every account with its characters, for the admin page. Level comes from the save, 1 if never played. */
-  listAccounts(): { id: number; username: string; createdAt: number; banned: boolean; role: AssignableRole; characters: AdminCharacter[] }[] {
+  listAccounts(): { id: number; username: string; createdAt: number; banned: boolean; guest: boolean; role: AssignableRole; characters: AdminCharacter[] }[] {
     const chars = new Map<number, AdminCharacter[]>();
     // Level is read in SQL so the page does not parse every full save (inventories and all) per request.
     const query = "SELECT id, account_id, name, class_id, created_at, played_at, CASE WHEN json_valid(save_json) THEN json_extract(save_json, '$.level') END AS level FROM characters ORDER BY played_at DESC";
@@ -241,11 +283,11 @@ export class AccountStore {
       chars.set(num(r.account_id), list);
     }
     return this.db
-      .prepare('SELECT id, username, created_at, banned, role FROM accounts ORDER BY id')
+      .prepare('SELECT id, username, created_at, banned, role, is_guest FROM accounts ORDER BY id')
       .all()
       .flatMap((raw) => {
         const r = row(raw);
-        return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, role: storedRole(r.role), characters: chars.get(num(r.id)) ?? [] }] : [];
+        return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, guest: num(r.is_guest) === 1, role: storedRole(r.role), characters: chars.get(num(r.id)) ?? [] }] : [];
       });
   }
 

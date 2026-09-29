@@ -45,6 +45,8 @@ export interface CharactersResponse {
   characters: CharacterSummary[];
   /** Decides whether the admin page link, town editor and dev tools show up. */
   role: Role;
+  /** A guest account, kept only by this browser's session until it is claimed. */
+  guest: boolean;
 }
 
 export interface ApiError {
@@ -155,6 +157,7 @@ export interface AdminAccount {
   username: string;
   createdAt: number;
   banned: boolean;
+  guest: boolean;
   role: Role;
   characters: AdminCharacter[];
 }

@@ -82,6 +82,56 @@ function CreateCharacter({ token, onCreated, onCancel }: { token: string; onCrea
   );
 }
 
+/**
+ * A guest account lives only in this browser's session. Picking a name and password keeps it,
+ * characters and all, and lets you log in anywhere.
+ */
+function ClaimGuest({ token, onClaimed }: { token: string; onClaimed: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const res = await api.claim(token, username, password);
+    setBusy(false);
+    if (!res.ok) return setError(res.error);
+    useUi.setState({ username: res.data.username });
+    onClaimed();
+  };
+  return (
+    <section className="guest-banner">
+      <p>
+        You are playing as a guest. This browser is the only way back in, so <b>save your account</b> to keep your characters.
+      </p>
+      {!open ? (
+        <button type="button" className="primary" onClick={() => setOpen(true)}>
+          Save account
+        </button>
+      ) : (
+        <form className="account-form" onSubmit={(e) => void submit(e)}>
+          {error && <p className="error">{error}</p>}
+          <label>
+            Username
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" maxLength={16} pattern={ACCOUNT_RULES.usernamePattern.source} title="3 to 16 letters, digits or underscores" required autoFocus />
+          </label>
+          <label>
+            Password
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={ACCOUNT_RULES.passwordMin} maxLength={ACCOUNT_RULES.passwordMax} required />
+          </label>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Please wait' : 'Keep this account'}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
 export function CharacterSelect() {
   const token = useUi((s) => s.token);
   const username = useUi((s) => s.username);
@@ -89,6 +139,7 @@ export function CharacterSelect() {
   const play = useUi((s) => s.play);
   const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
   const [isStaff, setIsStaff] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -122,6 +173,7 @@ export function CharacterSelect() {
         }
         useUi.setState({ username: res.data.username });
         setIsStaff(can(res.data.role, 'viewAdmin'));
+        setIsGuest(res.data.guest);
         setCharacters(res.data.characters);
         setSelected(res.data.characters[0]?.id ?? null);
         setCreating(res.data.characters.length === 0);
@@ -174,6 +226,7 @@ export function CharacterSelect() {
         </span>
       </header>
       {(error ?? notice) && <p className="error">{error ?? notice}</p>}
+      {isGuest && token && <ClaimGuest token={token} onClaimed={() => setIsGuest(false)} />}
       {characters === null ? (
         <p className="tagline">Loading characters</p>
       ) : creating ? (
