@@ -1,5 +1,5 @@
 import { AILMENTS, CURSE, ENEMY_LEVEL, SIM, SPELL, WAVES, WILDS } from '../config/sim.js';
-import { ENEMIES, type Ability, type EnemyDef, type EnemyTypeId, type HazardKind, type MonsterDef } from '../data/enemies.js';
+import type { Ability, EnemyDef, EnemyTypeId, HazardKind, MonsterDef } from '../data/enemies.js';
 import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
 import type { ElementId } from './program.js';
 import { affixValue, rollAffixes } from '../items/items.js';
@@ -86,7 +86,7 @@ export function activeHazards(sim: Simulation): readonly { x: number; y: number;
 }
 
 export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: number, opts: SpawnOptions): EntityId {
-  const def = ENEMIES[typeId];
+  const def = sim.tuning.enemy(typeId);
   const w = sim.world;
   const boss = opts.boss ?? false;
   const affixCount = boss ? 3 : sim.rand.world.int(1, 3);
@@ -110,6 +110,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   w.status.set(id, emptyStatus());
   w.enemy.set(id, {
     typeId,
+    def,
     rare: opts.rare || boss,
     boss,
     level: opts.level,
@@ -227,7 +228,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
   updateHazards(sim, dt);
   steerHomingShots(sim, dt);
   for (const [id, e, pos] of w.query(w.enemy, w.position)) {
-    const def = ENEMIES[e.typeId];
+    const def = e.def;
     const st = w.status.get(id);
     if (e.contactCooldown > 0) e.contactCooldown -= dt;
     if (e.fireCooldown > 0) e.fireCooldown -= dt;
@@ -336,7 +337,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
   // Separation can shove enemies into rocks; settle everyone against the map last. Ghosts and
   // burrowers are the exception: passing through the terrain is their whole point.
   for (const [id, e, pos] of w.query(w.enemy, w.position)) {
-    const def = ENEMIES[e.typeId];
+    const def = e.def;
     if (e.burrowed || (def.behaviour === 'monster' && def.movement === 'ghost')) continue;
     // Flyers are stopped by rocks and walls but not by water, which only blocks walking.
     const flying = def.behaviour === 'monster' && def.movement === 'fly';
@@ -899,20 +900,20 @@ export function blocksProjectile(sim: Simulation, enemyId: EntityId, fromX: numb
   const e = sim.world.enemy.get(enemyId);
   const pos = sim.world.position.get(enemyId);
   if (!e || !pos) return false;
-  const def = ENEMIES[e.typeId];
+  const def = e.def;
   const arc = def.behaviour === 'monster' ? def.traits.frontalBlock : undefined;
   if (arc === undefined || e.cast || e.dash) return false;
   return Math.abs(angleDiff(Math.atan2(fromY - pos.y, fromX - pos.x), e.facing)) < arc / 2;
 }
 
-export function knockbackImmune(typeId: EnemyTypeId): boolean {
-  const def = ENEMIES[typeId];
+export function knockbackImmune(e: EnemyComp): boolean {
+  const def = e.def;
   return def.behaviour === 'monster' && def.traits.knockbackImmune === true;
 }
 
 /** Death effects: bursts, splitting, and leaving a corpse for shamans to raise. */
 export function onEnemyDeath(sim: Simulation, id: EntityId, e: EnemyComp, pos: Vec2): void {
-  const def = ENEMIES[e.typeId];
+  const def = e.def;
   const s = state(sim);
   // Totems and ghosts leave nothing to raise; bosses and the already-raised stay down.
   const leavesCorpse = !e.raised && !e.boss && (def.behaviour !== 'monster' || (def.family !== 'totem' && def.family !== 'ghost'));

@@ -3,6 +3,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { TuningStore } from './tuningStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
@@ -598,5 +599,12 @@ export class AccountStore {
 
   saveCharacter(characterId: number, save: PlayerSave): void {
     this.db.prepare('UPDATE characters SET save_json = ?, played_at = ? WHERE id = ?').run(JSON.stringify(save), Date.now(), characterId);
+  }
+
+  private tuningStore: TuningStore | null = null;
+  /** Monster and minion overrides, kept in their own table by tuningStore.ts. */
+  get tuning(): TuningStore {
+    this.tuningStore ??= new TuningStore(this.db);
+    return this.tuningStore;
   }
 }

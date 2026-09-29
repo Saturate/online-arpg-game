@@ -40,7 +40,8 @@ export function arenaWave(wave: number, livingPlayers: number, partyLevel: numbe
 }
 
 /**
- * Points for a kill: the monster's XP value before the level-gap penalty, so outlevelling the
+ * Points for a kill: the monster's base XP value, without the type's admin XP multiplier so scores
+ * stay comparable across a season, and before the level-gap penalty, so outlevelling the
  * waves does not cut the score. Monsters that pay no rewards (raised corpses) score nothing, or a
  * necromancer's adds would be an endless source of points.
  */

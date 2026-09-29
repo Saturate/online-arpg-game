@@ -16,6 +16,7 @@ import type { GearSlot } from '../data/gear.js';
 import type { DevCommand } from '../sim/dev.js';
 import type { TownLayout } from '../world/town.js';
 import type { MapDescriptor } from '../world/types.js';
+import type { ModelOverrides } from '../data/tuning.js';
 
 /**
  * One slot of a sigil in an inscribe request, left to right.
@@ -318,6 +319,8 @@ export type ServerMessage =
   | { t: 'party'; party: PartyInfo | null }
   | { t: 'partyInvite'; from: string }
   | { t: 'lighting'; lighting: Lighting }
+  /** Admin model and height overrides; sent on entering the game and again whenever they change. */
+  | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */
   | { t: 'trader'; stock: TraderEntry[] }
   /** `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system` is the server. */

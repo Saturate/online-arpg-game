@@ -2,6 +2,7 @@ import { HEAT, MINIONS, SIM, WAVES } from '../config/sim.js';
 import { CLASSES, type ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { STANCES, type Stance } from '../data/minions.js';
+import { BASE_TUNING, type MonsterTuning } from '../data/tuning.js';
 import type { GearSlot } from '../data/gear.js';
 import type { Item, ItemUid } from '../items/items.js';
 import type { RuneRef } from '../protocol/messages.js';
@@ -101,6 +102,12 @@ export class Simulation {
   waveTimer: number = WAVES.firstWaveDelaySeconds;
   /** Server-wide rates from the admin settings; the room manager keeps them current through setRates. */
   rates: SimRates = { ...DEFAULT_RATES };
+  /** Monster and minion definitions with the admin's overrides; spawns read it, the living keep theirs. */
+  tuning: MonsterTuning;
+
+  setTuning(tuning: MonsterTuning): void {
+    this.tuning = tuning;
+  }
 
   /** Applies new admin rates. The Force bar is part of every player's stats, so those are rebuilt. */
   setRates(rates: SimRates): void {
@@ -123,8 +130,10 @@ export class Simulation {
   private nextItemUid = 1;
 
   /** Without explicit rules the flat test map keeps the bench, so tests and the spell studio can inscribe freely. */
-  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }, rules: Partial<RoomRules> = {}) {
+  /** `tuning` comes in here rather than later because the map's packs spawn in the constructor. */
+  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }, rules: Partial<RoomRules> = {}, tuning: MonsterTuning = BASE_TUNING) {
     this.seed = seed;
+    this.tuning = tuning;
     this.rules = { bench: mapDesc.kind === 'flat', waves: true, ...rules };
     this.rng = new Rng(seed);
     this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world') };

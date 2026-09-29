@@ -113,6 +113,8 @@ interface EnemyBase {
   contactDamage: number;
   contactCooldown: number;
   color: number;
+  /** Multiplier on the level-based kill XP; 1 when absent. */
+  xp?: number;
 }
 
 export type EnemyDef =
@@ -258,7 +260,7 @@ function monster(
   name: string,
   family: MonsterFamily,
   movement: Movement,
-  base: { life: number; speed: number; radius: number; contact: number; contactCooldown?: number; color: number; range?: number },
+  base: { life: number; speed: number; radius: number; contact: number; contactCooldown?: number; color: number; range?: number; xp?: number },
   abilities: readonly Ability[] = [],
   traits: MonsterTraits = {},
 ): MonsterDef {
@@ -274,6 +276,7 @@ function monster(
     contactDamage: base.contact,
     contactCooldown: base.contactCooldown ?? 1,
     color: base.color,
+    ...(base.xp !== undefined ? { xp: base.xp } : {}),
     preferredRange: base.range ?? 0,
     abilities,
     traits,

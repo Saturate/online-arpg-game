@@ -18,6 +18,7 @@ import {
   type ClientMessage,
   type EntityId,
   type MapDescriptor,
+  type MonsterTuning,
   type PlayerSave,
   type PortalRequest,
   type RoomRules,
@@ -64,8 +65,9 @@ export class Room {
     readonly desc: MapDescriptor,
     seed: number,
     rules: Partial<RoomRules> = {},
+    tuning?: MonsterTuning,
   ) {
-    this.sim = new Simulation(seed, desc, rules);
+    this.sim = new Simulation(seed, desc, rules, tuning);
     this.sim.startItemUidsAt(++roomSerial * ITEM_UIDS_PER_ROOM);
   }
 

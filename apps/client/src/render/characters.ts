@@ -1,4 +1,4 @@
-import type { ClassId, EnemyTypeId, EntitySnap, MinionTypeId } from '@rune/shared';
+import { ENEMY_MODELS, MINION_MODELS, type ClassId, type EnemyTypeId, type EntitySnap, type MinionTypeId, type ModelOverride, type ModelOverrides } from '@rune/shared';
 import {
   AnimationMixer,
   Color,
@@ -23,37 +23,63 @@ const PLAYER_ASSETS: Record<ClassId, string> = {
   priest: 'hero_knight',
   binder: 'hero_rogue',
 };
-/** Beasts, slimes, totems and spirits have no KayKit model and stay procedural (see models.ts). */
-export const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = {
-  chaser: 'skel_minion',
-  shooter: 'skel_rogue',
-  spinner: 'skel_mage',
-  grave_brute: 'mon_grave_brute',
-  ogre: 'mon_ogre',
-  bandit_archer: 'mon_bandit_archer',
-  bone_archer: 'mon_bone_archer',
-  frost_adept: 'mon_frost_adept',
-  pyromancer: 'mon_pyromancer',
-  storm_caller: 'mon_storm_caller',
-  necromancer: 'mon_necromancer',
-  tomb_guard: 'mon_tomb_guard',
-  grave_priest: 'mon_grave_priest',
-  ghoul: 'mon_ghoul',
-  butcher: 'mon_butcher',
-  lich: 'mon_lich',
-};
-export const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = {
-  zombie_brute: 'minion_brute',
-  skeleton_archer: 'minion_archer',
-};
+/**
+ * Beasts, slimes, totems and spirits have no KayKit model and stay procedural (see models.ts). The
+ * maps live in shared (data/tuning.ts) so the server knows which types have a model to resize.
+ */
+export const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = ENEMY_MODELS;
+export const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = MINION_MODELS;
 
 /** Rare enemies swap to a heavier model so a champion reads differently from its pack. */
 const RARE_ASSETS: Partial<Record<EnemyTypeId, string>> = { chaser: 'skel_warrior' };
 
+/** Admin model overrides from the server's 'models' message. */
+let serverModels: ModelOverrides = { monsters: {}, minions: {} };
+/** Local .glb files the Model check is trying on, for this browser only. Beat the server's overrides. */
+const tryOns = new Map<string, AssetDef>();
+
+export function setModelOverrides(models: ModelOverrides): void {
+  serverModels = models;
+}
+
+export function setTryOn(key: `monsters:${EnemyTypeId}` | `minions:${MinionTypeId}`, def: AssetDef | null): void {
+  if (def) tryOns.set(key, def);
+  else tryOns.delete(key);
+}
+
+export function clearTryOns(): void {
+  tryOns.clear();
+}
+
+/** Registry copies at another height, keyed so their fit and materials are cached apart from the original. */
+const resized = new Map<string, AssetDef>();
+
+/** The asset at `height` world units tall; the same object for the same pair, since caches key on the id. */
+export function sizedAsset(def: AssetDef, height: number | undefined): AssetDef {
+  if (height === undefined || height === def.height) return def;
+  const id = `${def.id}@${height}`;
+  let out = resized.get(id);
+  if (!out) {
+    out = { ...def, id, height };
+    resized.set(id, out);
+  }
+  return out;
+}
+
+/** A type's model with an admin override applied; undefined keeps the procedural model. */
+export function overriddenAsset(defaultId: string | undefined, o: ModelOverride | undefined): AssetDef | undefined {
+  const base = assetById(o?.model ?? defaultId ?? '');
+  return base ? sizedAsset(base, o?.height) : undefined;
+}
+
 export function characterAsset(s: EntitySnap): AssetDef | undefined {
   if (s.k === 'player') return assetById(PLAYER_ASSETS[s.cls]);
-  if (s.k === 'enemy') return assetById((s.rare ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et] ?? '');
-  if (s.k === 'minion') return assetById(MINION_ASSETS[s.mt] ?? '');
+  if (s.k === 'enemy') {
+    const o = serverModels.monsters[s.et];
+    // A chosen model is used for champions too; a height-only override keeps the rare swap.
+    return tryOns.get(`monsters:${s.et}`) ?? overriddenAsset((s.rare && o?.model === undefined ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et], o);
+  }
+  if (s.k === 'minion') return tryOns.get(`minions:${s.mt}`) ?? overriddenAsset(MINION_ASSETS[s.mt], serverModels.minions[s.mt]);
   return undefined;
 }
 

@@ -34,14 +34,16 @@ const PLAYER_HEIGHT = 54;
  * grid, or one asset with orbit controls and animation playback.
  */
 export class AssetViewer {
-  private readonly renderer: WebGLRenderer;
-  private readonly scene = new Scene();
-  private readonly camera: PerspectiveCamera;
-  private readonly controls: OrbitControls;
+  protected readonly renderer: WebGLRenderer;
+  protected readonly scene = new Scene();
+  protected readonly camera: PerspectiveCamera;
+  protected readonly controls: OrbitControls;
   private readonly timer = new Timer();
-  private readonly mixers: AnimationMixer[] = [];
-  private placed: Object3D[] = [];
-  private current: { clips: AnimationClip[]; mixer: AnimationMixer; action: AnimationAction | null } | null = null;
+  protected readonly mixers: AnimationMixer[] = [];
+  protected placed: Object3D[] = [];
+  protected current: { clips: AnimationClip[]; mixer: AnimationMixer; action: AnimationAction | null } | null = null;
+  /** The bright studio rig and green ground; a subclass with its own look removes them. */
+  protected readonly studio: Object3D[] = [];
   private raf = 0;
   private disposed = false;
 
@@ -59,7 +61,9 @@ export class AssetViewer {
     this.controls.target.set(0, 20, 0);
     this.controls.enableDamping = true;
 
-    this.scene.add(new HemisphereLight(0xdde6ff, 0x3a3020, 1.3), new AmbientLight(0xffffff, 0.3));
+    const hemi = new HemisphereLight(0xdde6ff, 0x3a3020, 1.3);
+    const ambient = new AmbientLight(0xffffff, 0.3);
+    this.scene.add(hemi, ambient);
     const sun = new DirectionalLight(0xfff0d8, 2.2);
     sun.position.set(300, 500, 200);
     sun.castShadow = true;
@@ -69,7 +73,9 @@ export class AssetViewer {
     const ground = new Mesh(new PlaneGeometry(6000, 6000), new MeshStandardMaterial({ color: 0x4a5a3a, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    this.scene.add(ground, new GridHelper(6000, 150, 0x3a4a2a, 0x3a4a2a));
+    const grid = new GridHelper(6000, 150, 0x3a4a2a, 0x3a4a2a);
+    this.scene.add(ground, grid);
+    this.studio.push(hemi, ambient, sun, ground, grid);
 
     this.resize();
     const loop = (): void => {
@@ -95,14 +101,14 @@ export class AssetViewer {
     this.camera.updateProjectionMatrix();
   }
 
-  private clear(): void {
+  protected clear(): void {
     for (const p of this.placed) this.scene.remove(p);
     this.placed = [];
     this.mixers.length = 0;
     this.current = null;
   }
 
-  private scaleRef(x: number, z: number): void {
+  protected scaleRef(x: number, z: number): void {
     const ref = new Mesh(new CapsuleGeometry(8, PLAYER_HEIGHT - 16, 4, 12), new MeshStandardMaterial({ color: 0xffd36b, transparent: true, opacity: 0.5 }));
     ref.position.set(x, PLAYER_HEIGHT / 2, z);
     this.scene.add(ref);

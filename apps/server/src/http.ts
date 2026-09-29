@@ -19,6 +19,7 @@ import {
 } from '@rune/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
+import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
 const MAX_BODY_BYTES = 4096;
@@ -68,7 +69,7 @@ function clientIp(req: IncomingMessage): string {
 }
 
 /** What the admin API needs from the running game; the room manager provides it. */
-export interface AdminHooks {
+export interface AdminHooks extends TuningHooks {
   overview(): AdminOverview;
   settings(): ServerSettings;
   updateSettings(patch: Partial<ServerSettings>): ServerSettings;
@@ -291,6 +292,8 @@ export class AccountApi {
         return [200, this.admin.updateSettings(patch)];
       }
     }
+    const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: can(role, 'settings'), log }, this.admin);
+    if (tuning) return tuning;
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');
       const body = await readJson(req);

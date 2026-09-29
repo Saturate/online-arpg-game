@@ -11,7 +11,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-async function call(method: string, path: string, token: string | null, body?: unknown): Promise<ApiResult<unknown>> {
+export async function call(method: string, path: string, token: string | null, body?: unknown): Promise<ApiResult<unknown>> {
   let res: Response;
   try {
     const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
@@ -110,7 +110,7 @@ function isReached(v: unknown): v is { reached: number } {
   return isRecord(v) && typeof v.reached === 'number';
 }
 
-function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiResult<T> {
+export function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiResult<T> {
   if (!r.ok) return r;
   return guard(r.data) ? { ok: true, data: r.data } : { ok: false, status: 502, error: 'Unexpected server response' };
 }

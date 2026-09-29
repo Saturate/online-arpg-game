@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DEFAULT_SERVER_SETTINGS, DEFAULT_TOWN_LAYOUT, isSessionToken, Simulation, type Role, type ServerSettings } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, DEFAULT_TOWN_LAYOUT, emptyTuning, isSessionToken, Simulation, type Role, type ServerSettings } from '@rune/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -145,6 +145,9 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     roleChanged: (id, role) => roles.push([id, role]),
     currentTown: () => DEFAULT_TOWN_LAYOUT,
     gotoCharacter: () => null,
+    tuningOverrides: () => emptyTuning(),
+    setMonsterOverride: () => emptyTuning(),
+    setMinionOverride: () => emptyTuning(),
   };
 }
 

@@ -22,6 +22,11 @@ export function monsterXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss'> & { summ
   return base * summoned * (e.boss ? PROGRESSION.bossXpMultiplier : e.rare ? PROGRESSION.rareXpMultiplier : 1);
 }
 
+/** What a kill pays out: the base value times the type's XP multiplier (an admin override, usually 1). */
+export function killXp(e: Pick<EnemyComp, 'level' | 'rare' | 'boss' | 'summonerId' | 'def'>): number {
+  return monsterXp(e) * (e.def.xp ?? 1);
+}
+
 function grayFactor(playerLevel: number, monsterLevel: number): number {
   const gap = playerLevel - monsterLevel - PROGRESSION.grayGap;
   return gap <= 0 ? 1 : Math.max(PROGRESSION.grayFloor, 1 - gap * PROGRESSION.grayPenaltyPerLevel);
@@ -42,7 +47,7 @@ export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number)
   }
   if (near.length === 0) return;
   const arena = sim.arena ? ARENA.xpMultiplier : 1;
-  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;
+  const pool = killXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;
   for (const id of near) {
     const p = w.player.get(id);
     if (p) addXp(sim, id, (pool / near.length) * grayFactor(p.level, e.level));
