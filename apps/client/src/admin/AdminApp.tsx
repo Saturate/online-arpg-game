@@ -412,6 +412,35 @@ function Settings({ token, role, notify }: TabProps) {
           </button>
           <small className="muted">The layout of the public world. Copies already running keep theirs until everyone leaves; new ones use this.</small>
         </label>
+        <label className="adm-field">
+          <span>
+            Day length <b>{draft.dayMinutes} min</b>
+          </span>
+          <input type="range" min={SETTINGS_LIMITS.dayMinutesMin} max={120} step={1} value={Math.min(120, draft.dayMinutes)} onChange={(e) => setDraft({ ...draft, dayMinutes: Number(e.target.value) })} />
+          <small className="muted">One full day and night.</small>
+        </label>
+        <label className="adm-field">
+          <span>
+            Night brightness <b>{Math.round(draft.nightBrightness * 100)}%</b>
+          </span>
+          <input type="range" min={0} max={1} step={0.05} value={draft.nightBrightness} onChange={(e) => setDraft({ ...draft, nightBrightness: Number(e.target.value) })} />
+          <small className="muted">How much light is left at the darkest point of night.</small>
+        </label>
+        <label className="adm-field">
+          <span>Time of day</span>
+          <select
+            value={draft.timeOfDay}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'cycle' || v === 'day' || v === 'night') setDraft({ ...draft, timeOfDay: v });
+            }}
+          >
+            <option value="cycle">Day and night cycle</option>
+            <option value="day">Always day</option>
+            <option value="night">Always night</option>
+          </select>
+          <small className="muted">Applies to everyone online right away.</small>
+        </label>
         <label className="adm-check">
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
           Registration open <small className="muted">New accounts can be created</small>

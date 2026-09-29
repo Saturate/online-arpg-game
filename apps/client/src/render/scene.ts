@@ -21,7 +21,7 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
-import { lampLevel, nightFactor } from './daylight.js';
+import { lampLevel, lighting, nightFactor } from './daylight.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
@@ -184,14 +184,16 @@ export class WorldScene {
     const night = this.outdoors ? nightFactor() : 0;
     lampLevel.value = 1 + night * 1.4;
     // The light only changes over minutes; skipping unchanged frames saves the uniform churn.
-    if (Math.abs(night - this.lastNight) < 0.002) return;
-    this.lastNight = night;
+    const key = night + lighting.nightBrightness * 10;
+    if (Math.abs(key - this.lastNight) < 0.002) return;
+    this.lastNight = key;
     const b = this.base;
     const mix = (day: number, dark: number) => day + (dark - day) * night;
-    // Dark enough to feel like night, never so dark the ground stops reading.
-    this.hemi.intensity = mix(b.hemi, b.hemi * 0.55);
-    this.ambient.intensity = mix(b.ambient, b.ambient * 0.8);
-    this.sun.intensity = mix(b.sun, b.sun * 0.45);
+    // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 is daylight.
+    const keep = 0.3 + 0.7 * lighting.nightBrightness;
+    this.hemi.intensity = mix(b.hemi, b.hemi * keep);
+    this.ambient.intensity = mix(b.ambient, b.ambient * Math.min(1, keep + 0.2));
+    this.sun.intensity = mix(b.sun, b.sun * keep * 0.8);
     this.sun.color.copy(this.sunDay).lerp(MOONLIGHT, night);
     // The hero's light becomes the D2 light radius: brighter and slower to fall off.
     this.playerLight.intensity = mix(b.playerLight, b.playerLight * 3);

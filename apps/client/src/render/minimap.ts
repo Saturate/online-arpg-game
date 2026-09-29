@@ -25,7 +25,7 @@ export class Minimap {
   private readonly fog: HTMLCanvasElement;
   private readonly cols: number;
   private readonly seen: Uint8Array;
-  private lastReveal: { x: number; y: number } | null = null;
+  private lastReveal = new Map<string, { x: number; y: number }>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -89,10 +89,12 @@ export class Minimap {
     this.clearCell(i);
   }
 
-  private reveal(x: number, y: number): void {
+  /** `who` keys the last reveal per viewer, since party members uncover the map too. */
+  private reveal(who: string, x: number, y: number): void {
     // Only after moving a little; the circle is the same otherwise.
-    if (this.lastReveal && Math.hypot(this.lastReveal.x - x, this.lastReveal.y - y) < 40) return;
-    this.lastReveal = { x, y };
+    const last = this.lastReveal.get(who);
+    if (last && Math.hypot(last.x - x, last.y - y) < 40) return;
+    this.lastReveal.set(who, { x, y });
     const step = CELL / this.scale;
     for (let dy = -REVEAL_RADIUS; dy <= REVEAL_RADIUS; dy += step) {
       for (let dx = -REVEAL_RADIUS; dx <= REVEAL_RADIUS; dx += step) {
@@ -168,11 +170,14 @@ export class Minimap {
     }
   }
 
-  update(selfX: number, selfY: number, entities: Iterable<EntitySnap>, selfId: number): void {
+  /** `party` names the player's party members; in the same map they share their vision, D2 style. */
+  update(selfX: number, selfY: number, entities: Iterable<EntitySnap>, selfId: number, party: ReadonlySet<string> = new Set()): void {
     const g = this.canvas.getContext('2d');
     if (!g) return;
     const s = this.scale;
-    this.reveal(selfX, selfY);
+    this.reveal('self', selfX, selfY);
+    const list = [...entities];
+    for (const e of list) if (e.k === 'player' && e.id !== selfId && party.has(e.name)) this.reveal(`p${e.id}`, e.x, e.y);
     g.clearRect(0, 0, this.w, this.h);
     g.drawImage(this.base, 0, 0);
     g.drawImage(this.fog, 0, 0);
@@ -183,10 +188,12 @@ export class Minimap {
       g.arc(p.x * s, p.y * s, 4, 0, Math.PI * 2);
       g.fill();
     }
-    for (const e of entities) {
-      if (e.id === selfId || !this.isSeen(e.x, e.y)) continue;
+    for (const e of list) {
+      const ally = e.k === 'player' && party.has(e.name);
+      // Party members always show, even under fog; everything else only once explored.
+      if (e.id === selfId || (!ally && !this.isSeen(e.x, e.y))) continue;
       if (e.k === 'enemy') g.fillStyle = e.rare ? '#ffc640' : '#e04040';
-      else if (e.k === 'player') g.fillStyle = '#6bb6ff';
+      else if (e.k === 'player') g.fillStyle = ally ? '#7ad69a' : '#6bb6ff';
       else if (e.k === 'minion') g.fillStyle = '#b49cff';
       else if (e.k === 'loot') g.fillStyle = cssColor(TIER_COLORS[e.tier]);
       else continue;

@@ -45,6 +45,7 @@ import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions } from '../ui/Inventory.js';
+import { lighting } from '../render/daylight.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
@@ -479,6 +480,9 @@ export class Game {
       case 'trader':
         useUi.setState({ traderStock: msg.stock });
         return;
+      case 'lighting':
+        Object.assign(lighting, msg.lighting);
+        return;
       case 'partyInvite':
         useUi.setState({ partyInvite: msg.from });
         useUi.getState().notify(`${msg.from} invited you to a party`);
@@ -836,7 +840,7 @@ export class Game {
 
     if (room.minimap && now - this.lastMinimap > MINIMAP_MS) {
       this.lastMinimap = now;
-      room.minimap.update(px, py, this.latest.entities, playerId);
+      room.minimap.update(px, py, this.latest.entities, playerId, new Set(useUi.getState().partyInfo?.members.map((m) => m.name) ?? []));
     }
   }
 

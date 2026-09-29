@@ -1,3 +1,4 @@
+import type { Lighting } from './accounts.js';
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { ZoneId } from '../data/zones.js';
@@ -279,6 +280,7 @@ export type ServerMessage =
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
   | { t: 'partyInvite'; from: string }
+  | { t: 'lighting'; lighting: Lighting }
   /** The trader's shared stock, oldest first. */
   | { t: 'trader'; stock: TraderEntry[] }
   /** `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system` is the server. */

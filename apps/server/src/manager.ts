@@ -20,6 +20,7 @@ import {
   type DungeonRef,
   type MapDescriptor,
   type PlayerSave,
+  type Lighting,
   type PartyInfo,
   type PortalRequest,
   type Role,
@@ -135,7 +136,14 @@ export class RoomManager implements AdminHooks {
     this.current = { ...this.current, ...patch };
     this.store.saveSettings(this.current);
     for (const room of this.rooms.values()) this.applySettings(room);
+    const lighting = this.lighting();
+    for (const c of this.clients.values()) if (c.characterId !== null) c.send({ t: 'lighting', lighting });
     return this.settings();
+  }
+
+  private lighting(): Lighting {
+    const { dayMinutes, nightBrightness, timeOfDay } = this.current;
+    return { dayMinutes, nightBrightness, timeOfDay };
   }
 
   announce(text: string): number {
@@ -852,6 +860,7 @@ export class RoomManager implements AdminHooks {
     if (this.current.motd) this.system(client, this.current.motd);
     this.sendWorldToAll(inst);
     if (party) this.sendParty(party);
+    client.send({ t: 'lighting', lighting: this.lighting() });
   }
 
 

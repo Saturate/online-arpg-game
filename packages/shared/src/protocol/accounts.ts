@@ -94,12 +94,21 @@ export interface ServerSettings {
   registrationOpen: boolean;
   /** Seed of the public world. Only new copies use a changed seed; running ones keep theirs. */
   worldSeed: number;
+  /** Length of one day and night, in minutes. */
+  dayMinutes: number;
+  /** How much light is left at the darkest point of night, 0 (pitch) to 1 (as bright as day). */
+  nightBrightness: number;
+  /** 'cycle' follows the clock; 'day' or 'night' holds it there. */
+  timeOfDay: 'cycle' | 'day' | 'night';
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1 };
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1, dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle' };
+
+/** What clients need to light the world; sent on join and whenever an admin changes it. */
+export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay'>;
 
 /** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
-export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200, seedMax: 999_999 } as const;
+export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200, seedMax: 999_999, dayMinutesMin: 2, dayMinutesMax: 240 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
 export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | string {
@@ -119,6 +128,19 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
   if (value.worldSeed !== undefined) {
     if (typeof value.worldSeed !== 'number' || !Number.isInteger(value.worldSeed) || value.worldSeed < 0 || value.worldSeed > SETTINGS_LIMITS.seedMax) return `worldSeed must be a whole number from 0 to ${SETTINGS_LIMITS.seedMax}`;
     out.worldSeed = value.worldSeed;
+  }
+  if (value.dayMinutes !== undefined) {
+    if (typeof value.dayMinutes !== 'number' || !Number.isFinite(value.dayMinutes) || value.dayMinutes < SETTINGS_LIMITS.dayMinutesMin || value.dayMinutes > SETTINGS_LIMITS.dayMinutesMax)
+      return `dayMinutes must be between ${SETTINGS_LIMITS.dayMinutesMin} and ${SETTINGS_LIMITS.dayMinutesMax}`;
+    out.dayMinutes = value.dayMinutes;
+  }
+  if (value.nightBrightness !== undefined) {
+    if (typeof value.nightBrightness !== 'number' || !Number.isFinite(value.nightBrightness) || value.nightBrightness < 0 || value.nightBrightness > 1) return 'nightBrightness must be between 0 and 1';
+    out.nightBrightness = value.nightBrightness;
+  }
+  if (value.timeOfDay !== undefined) {
+    if (value.timeOfDay !== 'cycle' && value.timeOfDay !== 'day' && value.timeOfDay !== 'night') return 'timeOfDay must be cycle, day or night';
+    out.timeOfDay = value.timeOfDay;
   }
   for (const key of ['registrationOpen'] as const) {
     const v = value[key];
