@@ -364,13 +364,6 @@ function makeView(item: RenderItem): View {
       }
       break;
     }
-    case 'swing': {
-      const half = s.arc / 2;
-      const m = new Mesh(own(new RingGeometry(s.r * 0.35, s.r, 24, 1, -s.a - half, s.arc)), sharedBasic(0xffffff, 0.35, true));
-      flatOnGround(m, 2);
-      root.add(m);
-      break;
-    }
     case 'nova': {
       const color = fxColor(s.fx, s.el);
       const m = flatOnGround(new Mesh(GEO.ring, own(basic(color, 0.8, true))), 3);

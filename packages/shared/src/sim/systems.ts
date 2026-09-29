@@ -6,7 +6,7 @@ import { updateStatuses } from './combat.js';
 import { updateEnemies, updateWaves } from './enemies.js';
 import { updateLoot } from './inventory.js';
 import { updateMinionRespawns, updateMinions } from './minions.js';
-import { updatePlayers, updateSwings } from './players.js';
+import { updatePlayers } from './players.js';
 import type { Simulation } from './simulation.js';
 import { updateNovas, updateProjectiles, updateZones } from './spells.js';
 
@@ -46,7 +46,6 @@ export const SYSTEMS: readonly System[] = [
   { name: 'projectiles', run: updateProjectiles },
   { name: 'novas', run: updateNovas },
   { name: 'zones', run: updateZones },
-  { name: 'swings', run: updateSwings },
   { name: 'loot', run: updateLoot },
   { name: 'waves', run: (sim, dt) => (sim.arena ? updateArenaWaves(sim, dt) : updateWaves(sim, dt)) },
 ];

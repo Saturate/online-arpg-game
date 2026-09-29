@@ -26,7 +26,6 @@ export function updatePlayers(sim: Simulation, dt: number): void {
         break;
       }
     }
-    if (p.primaryCooldown > 0) p.primaryCooldown = Math.max(0, p.primaryCooldown - dt);
     // Snapped to zero within a float's slack: 0.35 minus seven 0.05 s ticks leaves about 1e-17, which
     // used to cost a whole extra tick before the next cast.
     if (p.castCooldown > 0) p.castCooldown = p.castCooldown - dt > COOLDOWN_EPS ? p.castCooldown - dt : 0;
@@ -51,19 +50,5 @@ export function updatePlayers(sim: Simulation, dt: number): void {
     h.life = h.maxLife;
     w.status.set(id, emptyStatus());
     w.position.set(id, sim.playerSpawnPoint());
-  }
-}
-
-/** Swings follow their owner and expire; the hit already resolved when the swing was created. */
-export function updateSwings(sim: Simulation, dt: number): void {
-  const w = sim.world;
-  for (const [id, s, pos] of w.query(w.swing, w.position)) {
-    s.lifetime -= dt;
-    const owner = w.position.get(s.ownerId);
-    if (owner) {
-      pos.x = owner.x;
-      pos.y = owner.y;
-    }
-    if (s.lifetime <= 0) w.destroy(id);
   }
 }

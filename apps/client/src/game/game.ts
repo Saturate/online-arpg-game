@@ -978,8 +978,7 @@ export class Game {
           if (ev.id === this.playerId) useUi.getState().notify(`Picked up ${ev.count} item${ev.count > 1 ? 's' : ''}`);
           break;
         case 'attack':
-          // The own player's swing already played on input; others play it when the server says so.
-          if (ev.id !== this.playerId) entities.attack(`s${ev.id}`);
+          entities.attack(`s${ev.id}`);
           break;
         case 'tele':
           fx.telegraph(ev);

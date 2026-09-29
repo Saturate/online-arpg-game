@@ -13,7 +13,7 @@ import type { PlayerStats } from './stats.js';
 
 export type EntityId = number;
 export type Team = 'players' | 'enemies';
-export type EntityKind = 'player' | 'enemy' | 'minion' | 'projectile' | 'swing' | 'nova' | 'zone' | 'loot';
+export type EntityKind = 'player' | 'enemy' | 'minion' | 'projectile' | 'nova' | 'zone' | 'loot';
 
 export interface Position {
   x: number;
@@ -59,7 +59,6 @@ export interface PlayerComp {
   name: string;
   classId: ClassId;
   aimAngle: number;
-  primaryCooldown: number;
   castCooldown: number;
   respawnIn: number | null;
   lastProcessedInputSeq: number;
@@ -201,15 +200,6 @@ export interface ProjectileComp {
   spell: SpellInst | null;
 }
 
-/** Short-lived visual marker for a melee swing; the hit itself resolves on the tick it is created. */
-export interface SwingComp {
-  ownerId: EntityId;
-  angle: number;
-  arc: number;
-  range: number;
-  lifetime: number;
-}
-
 export interface NovaComp {
   spell: SpellInst;
   maxRadius: number;
@@ -277,7 +267,6 @@ export class World {
   readonly enemy = this.define<EnemyComp>('enemy');
   readonly minion = this.define<MinionComp>('minion');
   readonly projectile = this.define<ProjectileComp>('projectile');
-  readonly swing = this.define<SwingComp>('swing');
   readonly nova = this.define<NovaComp>('nova');
   readonly zone = this.define<ZoneComp>('zone');
   readonly loot = this.define<LootComp>('loot');

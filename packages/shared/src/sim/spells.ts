@@ -1,5 +1,4 @@
 import { HEAT, MINIONS, SIM, SPELL } from '../config/sim.js';
-import type { PrimaryAttackDef } from '../data/classes.js';
 import { misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
 import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
@@ -7,7 +6,7 @@ import { acquireLink } from './auras.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
 import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
-import { angleDiff, distSq } from './math.js';
+import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
 
 /** Reflected projectiles hit players for at most this much, so a big spell bounced back is not a one-shot. */
@@ -101,39 +100,6 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
   }
   sim.emit({ e: 'cast', id: pid, x: pos.x, y: pos.y, el: res.program.roots[0]?.elements[0] ?? null }, pos.x, pos.y);
   spawnProgram(sim, res.program, pid, pos.x, pos.y, p.aimAngle);
-}
-
-export function firePrimary(sim: Simulation, ownerId: EntityId, attack: PrimaryAttackDef, x: number, y: number, angle: number): void {
-  const w = sim.world;
-  sim.emit({ e: 'attack', id: ownerId }, x, y);
-  if (attack.kind === 'bolt') {
-    spawnProjectile(sim, {
-      ownerId,
-      team: 'players',
-      x: x + Math.cos(angle) * SIM.playerRadius,
-      y: y + Math.sin(angle) * SIM.playerRadius,
-      angle,
-      speed: attack.speed,
-      radius: attack.radius,
-      range: attack.range,
-      damage: attack.damage * (w.player.get(ownerId)?.stats.damageMult ?? 1),
-    });
-    return;
-  }
-
-  const half = attack.arc / 2;
-  for (const [eid] of w.enemy) {
-    const epos = w.position.get(eid);
-    if (!epos || !w.isAlive(eid)) continue;
-    const reach = attack.range + (w.radius.get(eid) ?? 0) + SIM.enemyHitLeniency;
-    if (distSq(x, y, epos.x, epos.y) > reach * reach) continue;
-    if (Math.abs(angleDiff(Math.atan2(epos.y - y, epos.x - x), angle)) > half) continue;
-    dealDamage(sim, eid, attack.damage * (w.player.get(ownerId)?.stats.damageMult ?? 1), ownerId, []);
-  }
-  const sid = w.create('swing');
-  w.position.set(sid, { x, y });
-  w.radius.set(sid, attack.range);
-  w.swing.set(sid, { ownerId, angle, arc: attack.arc, range: attack.range, lifetime: SIM.swingVisualSeconds });
 }
 
 export interface ProjectileSpec {

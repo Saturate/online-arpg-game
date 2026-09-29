@@ -303,7 +303,7 @@ export function ForgeEditor() {
 
   const save = () => {
     if (!sigil || saveReason) return;
-    const attempt = useUi.getState().startInscribe(sigil.uid);
+    const attempt = useUi.getState().startInscribe();
     sendCommand({ t: 'inscribe', uid: sigil.uid, base: sigil.slots.map((r) => r.uid), slots: draft, attempt });
   };
 

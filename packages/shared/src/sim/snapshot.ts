@@ -101,12 +101,6 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
         });
         break;
       }
-      case 'swing': {
-        const s = w.swing.get(id);
-        if (!s) break;
-        out.push({ ...base, k: 'swing', a: round2(s.angle), arc: s.arc, owner: s.ownerId });
-        break;
-      }
       case 'nova': {
         const n = w.nova.get(id);
         if (!n) break;
@@ -141,7 +135,6 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
   if (!p) return null;
   return {
     respawnIn: p.respawnIn,
-    primaryCooldown: round2(p.primaryCooldown),
     castCooldown: round2(p.castCooldown),
     castCooldownFull: round2(castCooldownLength(sim, pid)),
     heat: round1(p.heat),

@@ -175,7 +175,6 @@ export type EntitySnap =
       /** An Orb rune's projectile, drawn as a slow rolling orb rather than a bolt. Absent otherwise. */
       orb?: true;
     })
-  | (EntitySnapBase & { k: 'swing'; a: number; arc: number; owner: EntityId })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
   | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier }[]; gold: number });
@@ -197,7 +196,7 @@ export type GameEvent =
   | { e: 'explode'; x: number; y: number; r: number }
   | { e: 'pickup'; id: EntityId; x: number; y: number; count: number }
   | { e: 'cast'; id: EntityId; x: number; y: number; el: ElementId | null }
-  /** Any melee swing or shot, so clients can play the attack animation. */
+  /** A monster or minion attacking, so clients can play the attack animation. */
   | { e: 'attack'; id: EntityId }
   /** A character touched a waypoint for the first time. */
   | { e: 'waypoint'; id: EntityId; zone: ZoneId }
@@ -215,7 +214,6 @@ export type GameEvent =
 
 export interface SelfState {
   respawnIn: number | null;
-  primaryCooldown: number;
   castCooldown: number;
   /** Full length of the cooldown the last cast set, for sweeping every skill slot against it. */
   castCooldownFull: number;

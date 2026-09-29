@@ -149,7 +149,7 @@ interface UiState {
    * The inscribe in flight, until the server's reply to this attempt comes back. The server sends
    * the new inventory before an accepted reply, so by then the forge already shows the new slots.
    */
-  inscribing: { uid: ItemUid; attempt: number } | null;
+  inscribing: { attempt: number } | null;
   /** The server's reason for refusing the last inscribe, shown in the forge until the next try. */
   forgeError: string | null;
 
@@ -179,7 +179,7 @@ interface UiState {
   notify: (text: string) => void;
   inscribed: (reply: InscribeReply) => void;
   /** Marks a new inscribe attempt in flight and returns its id for the message. */
-  startInscribe: (uid: ItemUid) => number;
+  startInscribe: () => number;
 }
 
 let noticeId = 1;
@@ -341,9 +341,9 @@ export const useUi = create<UiState>((set, get) => ({
     set((s) => ({ notices: [...s.notices, { id, text }].slice(-4) }));
     setTimeout(() => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })), 3500);
   },
-  startInscribe: (uid) => {
+  startInscribe: () => {
     const attempt = inscribeAttempt++;
-    set({ inscribing: { uid, attempt }, forgeError: null });
+    set({ inscribing: { attempt }, forgeError: null });
     return attempt;
   },
   inscribed: (reply) => {

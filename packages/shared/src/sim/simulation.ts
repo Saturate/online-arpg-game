@@ -184,7 +184,6 @@ export class Simulation {
       name,
       classId,
       aimAngle: 0,
-      primaryCooldown: 0,
       castCooldown: 0,
       respawnIn: null,
       lastProcessedInputSeq: -1,
