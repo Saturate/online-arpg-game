@@ -64,7 +64,7 @@ export const RULES = {
   RUNE_NOT_CASTABLE: { id: 'rune-not-castable', text: 'This rune is not in the game yet (phase 4); the grammar reads it but nothing can cast it.' },
   ENGINE_NOT_READY: {
     id: 'engine-not-ready',
-    text: 'The engine cannot run this part yet: shapes cast together, homing, bounce, or a payload of several shapes.',
+    text: 'The engine cannot run this part yet (phase 4): homing, bounce, or releasing on a held button.',
   },
   PLAIN_MODIFIER_OFF: {
     id: 'plain-modifier-off',

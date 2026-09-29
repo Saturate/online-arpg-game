@@ -12,6 +12,7 @@ import {
   Rng,
   rollDrops,
   runeItemFromInstance,
+  runeMayCarry,
   sigilCapacity,
   SIGIL_MAX_SLOTS,
   SKILL_BUTTONS,
@@ -70,9 +71,36 @@ describe('compiling v2 spells', () => {
     expect(rulesOf('orb lightning split(3) link')).toContain('rune-not-castable');
     expect(rulesOf('beam fire')).toContain('rune-not-castable');
     expect(rulesOf('bolt[homing]')).toContain('engine-not-ready');
+    expect(rulesOf('orb[bounce 2]')).toContain('engine-not-ready');
+    const homing = compileText('bolt fire orb[homing]');
+    expect(homing.ok ? [] : homing.errors).toContainEqual(expect.objectContaining({ rule: 'multicast', runeIndex: 2 }));
+  });
+
+  it('runs shapes cast together and payloads of several shapes', () => {
     const multi = compileRunes(tokenizeSpell('bolt nova').runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage', multicast: 2 });
-    expect(multi.ok).toBe(false);
-    if (!multi.ok) expect(multi.errors.map((e) => e.rule)).toEqual(['engine-not-ready']);
+    expect(multi.ok).toBe(true);
+    if (multi.ok) expect(multi.program.roots.map((r) => r.form)).toEqual(['bolt', 'nova']);
+    const payload = compileRunes(tokenizeSpell('bolt[onhit] fire nova zone').runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage', multicast: 2 });
+    expect(payload.ok).toBe(true);
+    if (payload.ok) expect(payload.program.roots[0]?.payload.map((n) => n.form)).toEqual(['nova', 'zone']);
+    // Without the multicast, the same payload names the rule and the rune that broke it.
+    const single = compileText('bolt[onhit] fire nova zone');
+    expect(single.ok ? [] : single.errors).toContainEqual(expect.objectContaining({ rule: 'multicast', runeIndex: 3 }));
+  });
+
+  it('carries each rune\'s own numbers into the program', () => {
+    const c = compileText('orb[every 0.3s, -20% speed, +40% size, pierce 2] cold split(3) bolt[after 0.7s, +50% duration, -10% damage] nova');
+    if (!c.ok) throw new Error(c.errors.map((e) => e.message).join('; '));
+    const orb = c.program.roots[0];
+    expect(orb).toMatchObject({ form: 'orb', release: { kind: 'every', seconds: 0.3 }, pierce: 2 });
+    expect(orb?.tuning).toMatchObject({ speed: 0.8, radius: 1.4, phase: 1 });
+    const bolt = orb?.payload[0];
+    expect(bolt).toMatchObject({ form: 'bolt', copies: 3, release: { kind: 'after', seconds: 0.7 } });
+    expect(bolt?.tuning).toMatchObject({ range: 1.5, damage: 0.9, phase: 0 });
+    expect(c.notes.some((n) => n.includes('rolls through every enemy'))).toBe(true);
+    // An orb that bursts on hit does not roll through.
+    const burst = compileText('orb[onhit, pierce 1] fire nova');
+    if (burst.ok) expect(burst.program.roots[0]?.tuning.phase).toBe(0);
   });
 
   it('doubled infusions hit harder', () => {
@@ -86,14 +114,23 @@ describe('compiling v2 spells', () => {
     if (!r.ok) expect(r.errors[0]?.rule).toBe('over-capacity');
   });
 
-  it('prices Force per rune by depth and affinity, and a dud still has a price', () => {
+  it('prices Force per rune by depth, affinity and affixes, and a dud still has a price', () => {
     const ctx = { ...DEFAULT_SIGIL_CONTEXT, forceMultiplier: 1 };
     const force = (text: string, classId: 'mage' | 'warrior' = 'mage'): number => compileRunes(tokenizeSpell(text).runes, { ...ctx, classId }).force;
     // Bolt 8 off affinity (1.2), Fire 4 on the mage's affinity (0.8).
     expect(force('bolt fire')).toBeCloseTo(8 * 1.2 + 4 * 0.8);
     expect(force('bolt fire', 'warrior')).toBeCloseTo(12 * 1.2);
-    // The trigger at the bolt's depth, the nova one payload level down.
-    expect(force('bolt timer nova', 'warrior')).toBeCloseTo((8 + 4) * 1.2 + 14 * (1 + HEAT.depthHeatFactor) * 1.2);
+    // The trigger at the bolt's depth, the nova one payload level down at the payload share.
+    expect(force('bolt timer nova', 'warrior')).toBeCloseTo((8 + 2) * 1.2 + 14 * HEAT.payloadForceFactor * 1.2, 1);
+    // A Split is never discounted, even on a payload.
+    expect(force('bolt timer split(3) bolt', 'warrior') - force('bolt timer bolt', 'warrior')).toBeCloseTo(6 * 1.2, 1);
+    // A number affix costs what the plain rune it replaces does; a drawback gives half back.
+    expect(force('nova[+50% size]', 'warrior')).toBeCloseTo(force('nova large', 'warrior'), 1);
+    expect(force('bolt[pierce 2]', 'warrior') - force('bolt', 'warrior')).toBeCloseTo(3 * 1.2, 1);
+    const faster = force('bolt[+50% speed]', 'warrior') - force('bolt', 'warrior');
+    expect(faster).toBeCloseTo(3 * 1.2, 1);
+    expect(force('bolt[-50% speed]', 'warrior') - force('bolt', 'warrior')).toBeCloseTo(-HEAT.affixRefundShare * faster, 1);
+    expect(force('bolt[-90% speed, -90% damage]', 'warrior')).toBeGreaterThan(0);
     // A release affix costs what its trigger rune would.
     expect(force('bolt[after 0.5s] nova', 'warrior')).toBeCloseTo(force('bolt timer nova', 'warrior'));
     expect(force('bolt fire onhit')).toBeGreaterThan(0);
@@ -133,7 +170,7 @@ describe('rune items', () => {
     }
   });
 
-  it('drop only as plain runes the engine can run', () => {
+  it('drop only as runes the engine can run, and every rolled one reads as a castable rune', () => {
     let uid = 1;
     const rng = new Rng(7);
     const castable: readonly string[] = CASTABLE_RUNES;
@@ -141,7 +178,7 @@ describe('rune items', () => {
       for (const item of rollDrops(rng, () => uid++, { level: 10, rare: true, boss: false })) {
         if (item.kind !== 'rune') continue;
         expect(castable).toContain(item.rune);
-        expect(item.affixes).toEqual([]);
+        for (const a of item.affixes) expect(runeMayCarry(item.rune, a.id), `${item.rune} ${a.id}`).toBe(true);
       }
     }
   });

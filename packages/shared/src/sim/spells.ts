@@ -2,7 +2,7 @@ import { HEAT, MINIONS, SIM, SPELL } from '../config/sim.js';
 import type { PrimaryAttackDef } from '../data/classes.js';
 import { misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
-import type { SpellNode, TriggerId } from './program.js';
+import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
 import { acquireLink } from './auras.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
@@ -28,9 +28,8 @@ export function spellFx(node: SpellNode): SpellFx {
   return 'damage';
 }
 
-function modPow(base: number, n: number): number {
-  return n === 0 ? 1 : base ** n;
-}
+/** Float slack for timers counted down in 0.05 s ticks, so 0.5 s is ten ticks and not eleven. */
+const TIME_EPS = 1e-6;
 
 function spellDamage(sim: Simulation, node: SpellNode, casterId: EntityId, base: number): number {
   const combo = node.combos.includes('frostfire') ? 1 + SPELL.comboDamageBonus : 1;
@@ -82,8 +81,8 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
     selfDamage(sim, pid, h.maxLife * HEAT.misfireLifeFraction);
     return;
   }
-  sim.emit({ e: 'cast', id: pid, x: pos.x, y: pos.y, el: res.program.elements[0] ?? null }, pos.x, pos.y);
-  spawnSpell(sim, res.program, pid, pos.x, pos.y, p.aimAngle, null);
+  sim.emit({ e: 'cast', id: pid, x: pos.x, y: pos.y, el: res.program.roots[0]?.elements[0] ?? null }, pos.x, pos.y);
+  spawnProgram(sim, res.program, pid, pos.x, pos.y, p.aimAngle);
 }
 
 export function firePrimary(sim: Simulation, ownerId: EntityId, attack: PrimaryAttackDef, x: number, y: number, angle: number): void {
@@ -159,7 +158,12 @@ export function spawnProjectile(sim: Simulation, spec: ProjectileSpec): EntityId
 // ---------------------------------------------------------------------------------------------
 // Spawning spell forms
 
-/** Spawns a node including its untriggered Split copies. */
+/** Spawns a whole cast: shapes cast together (multicast) all leave from one point on one aim. */
+export function spawnProgram(sim: Simulation, program: SpellProgram, casterId: EntityId, x: number, y: number, angle: number): void {
+  for (const root of program.roots) spawnSpell(sim, root, casterId, x, y, angle, null);
+}
+
+/** Spawns a node including its Split copies. */
 export function spawnSpell(
   sim: Simulation,
   node: SpellNode,
@@ -169,7 +173,7 @@ export function spawnSpell(
   angle: number,
   inheritHits: ReadonlySet<EntityId> | null,
 ): void {
-  placeCopies(node, node.castSplit, x, y, angle, (cx, cy, ca) => spawnForm(sim, node, casterId, cx, cy, ca, inheritHits));
+  placeCopies(node, node.copies, x, y, angle, (cx, cy, ca) => spawnForm(sim, node, casterId, cx, cy, ca, inheritHits));
 }
 
 /** Directional forms fan out; others are placed in a ring so copies do not overlap exactly. */
@@ -186,7 +190,7 @@ function placeCopies(
     return;
   }
   for (let k = 0; k < count; k++) {
-    if (node.form === 'bolt') {
+    if (node.form === 'bolt' || node.form === 'orb') {
       place(x, y, angle + (k - (count - 1) / 2) * SPELL.splitSpreadRadians);
     } else {
       const a = angle + (Math.PI * 2 * k) / count;
@@ -197,7 +201,7 @@ function placeCopies(
 
 /** Whether a spell entity still has something to release: ending it early would cut its payload. */
 function carriesPayload(inst: SpellInst): boolean {
-  return inst.node.branch !== null && !inst.timerFired;
+  return inst.node.payload.length > 0 && !inst.timerFired;
 }
 
 /**
@@ -233,33 +237,33 @@ function spawnForm(
   inheritHits: ReadonlySet<EntityId> | null,
 ): void {
   const w = sim.world;
-  if (node.form === 'bolt') makeRoomForSpell(sim, casterId, SPELL.liveCap.projectile);
+  if (node.form === 'bolt' || node.form === 'orb') makeRoomForSpell(sim, casterId, SPELL.liveCap.projectile);
   else if (node.form === 'nova' || node.form === 'zone') makeRoomForSpell(sim, casterId, SPELL.liveCap.area);
-  const m = node.modifiers;
-  const inst: SpellInst = { node, casterId, age: 0, timerFired: false, angle, pulseTimer: SPELL.pulseSeconds, pulseCount: 0 };
+  const t = node.tuning;
+  const every = node.release?.kind === 'every' ? node.release.seconds : 0;
+  const inst: SpellInst = { node, casterId, age: 0, timerFired: false, angle, pulseTimer: every, pulseCount: 0 };
   const team = w.team.get(casterId) ?? 'players';
   const hasRestore = node.effects.includes('restore');
   const hasWard = node.effects.includes('ward');
   const force = node.effects.includes('impact') ? SPELL.forceKnockback : 0;
 
   switch (node.form) {
+    case 'orb':
     case 'bolt': {
-      const t = node.tuning;
-      const speed = SPELL.bolt.speed * modPow(SPELL.modifiers.swiftSpeed, m.swift) * t.speed;
-      const range = SPELL.bolt.range * modPow(SPELL.modifiers.lingerDuration, m.linger) * t.range;
+      const base = projectileBase(node.form);
       spawnProjectile(sim, {
         ownerId: casterId,
         team,
         x,
         y,
         angle,
-        speed,
-        radius: SPELL.bolt.radius * modPow(SPELL.modifiers.largeRadius, m.large) * node.areaScale * t.radius,
-        range,
-        damage: spellDamage(sim, node, casterId, SPELL.bolt.damage),
+        speed: base.speed * t.speed,
+        radius: base.radius * node.areaScale * t.radius,
+        range: base.range * t.range,
+        damage: spellDamage(sim, node, casterId, base.damage),
         partial: {
           elements: [...node.elements],
-          pierceLeft: t.phase > 0 ? Infinity : m.pierce * SPELL.modifiers.pierceHits,
+          pierceLeft: t.phase > 0 ? Infinity : node.pierce,
           hitIds: new Set(inheritHits ?? []),
           knockback: force,
           heal: hasRestore ? SPELL.nova.heal * 0.6 * node.damageScale : 0,
@@ -277,8 +281,8 @@ function spawnForm(
       w.team.set(id, team);
       w.nova.set(id, {
         spell: inst,
-        maxRadius: SPELL.nova.radius * modPow(SPELL.modifiers.largeRadius, m.large) * node.areaScale * node.tuning.radius,
-        duration: SPELL.nova.durationSeconds / modPow(SPELL.modifiers.swiftSpeed, m.swift),
+        maxRadius: SPELL.nova.radius * node.areaScale * t.radius,
+        duration: (SPELL.nova.durationSeconds * t.range) / t.speed,
         hitIds: new Set(inheritHits ?? []),
       });
       return;
@@ -286,12 +290,12 @@ function spawnForm(
     case 'zone': {
       const id = w.create('zone');
       w.position.set(id, { x, y });
-      w.radius.set(id, SPELL.zone.radius * modPow(SPELL.modifiers.largeRadius, m.large) * node.areaScale * node.tuning.radius);
+      w.radius.set(id, SPELL.zone.radius * node.areaScale * t.radius);
       w.team.set(id, team);
       w.zone.set(id, {
         spell: inst,
-        duration: SPELL.zone.durationSeconds * modPow(SPELL.modifiers.lingerDuration, m.linger) * node.tuning.range,
-        tickInterval: SPELL.zone.tickSeconds / modPow(SPELL.modifiers.swiftSpeed, m.swift),
+        duration: SPELL.zone.durationSeconds * t.range,
+        tickInterval: SPELL.zone.tickSeconds / t.speed,
         tickTimer: 0,
       });
       return;
@@ -299,7 +303,7 @@ function spawnForm(
     case 'dash': {
       const p = w.player.get(casterId);
       if (!p || p.dash || p.respawnIn !== null) return;
-      const distance = SPELL.dash.distance * modPow(SPELL.modifiers.swiftDash, m.swift) * node.tuning.speed;
+      const distance = SPELL.dash.distance * t.speed;
       const v = distance / (SPELL.dash.ticks * SIM.dt);
       p.dash = { vx: Math.cos(angle) * v, vy: Math.sin(angle) * v, ticksLeft: SPELL.dash.ticks };
       p.dashSpell = { inst, hitIds: new Set(), hitFired: false };
@@ -312,60 +316,96 @@ function spawnForm(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Triggers
+// Releases
 
-/** Fires the node's branch if it uses `trigger`. Returns true when the node was replaced by split copies. */
-function fireTrigger(
-  sim: Simulation,
-  inst: SpellInst,
-  trigger: TriggerId,
-  x: number,
-  y: number,
-  angle: number,
-  hitIds: ReadonlySet<EntityId> | null,
-): boolean {
-  const b = inst.node.branch;
-  if (!b || b.trigger !== trigger) return false;
-  if (trigger === 'timer') {
-    if (inst.timerFired) return false;
+/** Spawns a node's payload where it released. Every payload shape goes off together. */
+function releasePayload(sim: Simulation, inst: SpellInst, x: number, y: number, angle: number, hitIds: ReadonlySet<EntityId> | null): void {
+  const every = inst.node.release?.kind === 'every';
+  for (const child of inst.node.payload) {
+    if (every && child.copies > 1) {
+      // Released every X s, split copies spray outward in a rotating ring (Frozen Orb) instead of a fan.
+      const base = inst.angle + inst.pulseCount * SPELL.pulseRotation;
+      for (let k = 0; k < child.copies; k++) spawnForm(sim, child, inst.casterId, x, y, base + (Math.PI * 2 * k) / child.copies, hitIds);
+    } else {
+      spawnSpell(sim, child, inst.casterId, x, y, angle, hitIds);
+    }
+  }
+  if (every) inst.pulseCount++;
+}
+
+/** Releases the payload if the node releases on `trigger`. `after` releases once. */
+function release(sim: Simulation, inst: SpellInst, trigger: ReleaseTrigger, x: number, y: number, angle: number, hitIds: ReadonlySet<EntityId> | null): void {
+  const r = inst.node.release;
+  if (!r || r.kind !== trigger || inst.node.payload.length === 0) return;
+  if (trigger === 'after') {
+    if (inst.timerFired) return;
     inst.timerFired = true;
   }
-  if (b.action === 'split' && trigger === 'pulse') {
-    // Pulse sprays copies outward in a rotating ring and keeps the parent alive.
-    const base = inst.angle + inst.pulseCount * SPELL.pulseRotation;
-    for (let k = 0; k < b.count; k++) spawnSpell(sim, b.node, inst.casterId, x, y, base + (Math.PI * 2 * k) / b.count, hitIds);
-    inst.pulseCount++;
-    return false;
-  }
-  if (b.action === 'split') {
-    placeCopies(b.node, b.count, x, y, angle, (cx, cy, ca) => spawnSpell(sim, b.node, inst.casterId, cx, cy, ca, hitIds));
-    return true;
-  }
-  spawnSpell(sim, b.node, inst.casterId, x, y, angle, hitIds);
-  return false;
+  releasePayload(sim, inst, x, y, angle, hitIds);
 }
 
 /**
- * Timer fires once after `timerSeconds`, or when the form ends if that comes first. Pulse fires
- * every `pulseSeconds` for as long as the form lives.
+ * `after X s` payloads whose shape ended first: they still go off X s after the shape spawned, where
+ * it ended, so a 0.3 s nova with "after 0.5 s" releases 0.2 s after its ring is gone.
  */
-function checkTimer(sim: Simulation, inst: SpellInst, x: number, y: number, angle: number, hits: ReadonlySet<EntityId> | null): boolean {
-  if (inst.node.branch?.trigger === 'pulse') {
-    inst.pulseTimer -= SIM.dt;
-    if (inst.pulseTimer <= 0) {
-      inst.pulseTimer += SPELL.pulseSeconds;
-      // Pulse shards should not ignore what the orb already touched, so they get a fresh hit list.
-      fireTrigger(sim, inst, 'pulse', x, y, angle, null);
-    }
-    return false;
+interface DelayedRelease {
+  inst: SpellInst;
+  x: number;
+  y: number;
+  angle: number;
+  hitIds: ReadonlySet<EntityId> | null;
+  left: number;
+}
+
+const delayedReleases = new WeakMap<Simulation, DelayedRelease[]>();
+
+/** Payloads of this caster still waiting on their `after` time, for tools that wait for a cast to finish. */
+export function pendingReleases(sim: Simulation, casterId: EntityId): number {
+  return (delayedReleases.get(sim) ?? []).filter((d) => d.inst.casterId === casterId).length;
+}
+
+function updateDelayedReleases(sim: Simulation, dt: number): void {
+  const list = delayedReleases.get(sim);
+  if (!list || list.length === 0) return;
+  const due: DelayedRelease[] = [];
+  const keep: DelayedRelease[] = [];
+  for (const d of list) {
+    d.left -= dt;
+    (d.left <= TIME_EPS ? due : keep).push(d);
   }
-  if (inst.timerFired || inst.age < SPELL.timerSeconds) return false;
-  return fireTrigger(sim, inst, 'timer', x, y, angle, hits);
+  delayedReleases.set(sim, keep);
+  for (const d of due) release(sim, d.inst, 'after', d.x, d.y, d.angle, d.hitIds);
+}
+
+/** `every` fires on its interval for as long as the form lives; `after` fires once at its time. */
+function checkTimer(sim: Simulation, inst: SpellInst, x: number, y: number, angle: number, hits: ReadonlySet<EntityId> | null): void {
+  const r = inst.node.release;
+  if (!r) return;
+  if (r.kind === 'every') {
+    inst.pulseTimer -= SIM.dt;
+    if (inst.pulseTimer <= TIME_EPS) {
+      inst.pulseTimer += r.seconds;
+      // Released shards should not ignore what the parent already touched, so they get a fresh hit list.
+      release(sim, inst, 'every', x, y, angle, null);
+    }
+    return;
+  }
+  if (r.kind === 'after' && !inst.timerFired && inst.age >= r.seconds - TIME_EPS) release(sim, inst, 'after', x, y, angle, hits);
 }
 
 function endSpell(sim: Simulation, inst: SpellInst, x: number, y: number, angle: number, hits: ReadonlySet<EntityId> | null): void {
-  if (!inst.timerFired && fireTrigger(sim, inst, 'timer', x, y, angle, hits)) return;
-  fireTrigger(sim, inst, 'onexpire', x, y, angle, hits);
+  const r = inst.node.release;
+  if (r?.kind === 'after' && !inst.timerFired && inst.node.payload.length > 0) {
+    const left = r.seconds - inst.age;
+    if (left <= TIME_EPS) release(sim, inst, 'after', x, y, angle, hits);
+    else {
+      const list = delayedReleases.get(sim) ?? [];
+      list.push({ inst, x, y, angle, hitIds: hits ? new Set(hits) : null, left });
+      delayedReleases.set(sim, list);
+    }
+    return;
+  }
+  release(sim, inst, 'onexpire', x, y, angle, hits);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -409,6 +449,8 @@ function* areaTargets(sim: Simulation): Generator<EntityId> {
 
 export function updateProjectiles(sim: Simulation, dt: number): void {
   const w = sim.world;
+  // Projectiles run first of the spell systems, so delayed payloads join this tick's updates.
+  updateDelayedReleases(sim, dt);
   for (const [id, proj] of w.projectile) {
     const pos = w.position.get(id);
     const vel = w.velocity.get(id);
@@ -421,10 +463,7 @@ export function updateProjectiles(sim: Simulation, dt: number): void {
 
     if (inst) {
       inst.age += dt;
-      if (checkTimer(sim, inst, pos.x, pos.y, angle, proj.hitIds)) {
-        w.destroy(id);
-        continue;
-      }
+      checkTimer(sim, inst, pos.x, pos.y, angle, proj.hitIds);
     }
     const hitWall = sim.map.pointBlocked(pos.x, pos.y, Math.max(2, (w.radius.get(id) ?? 0) * 0.5), 'shots');
     if (proj.lifetime <= 0 || hitWall) {
@@ -478,14 +517,11 @@ function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numb
     }
     if (proj.offensive) {
       const inst = proj.spell;
-      if (inst) applySpellHit(sim, inst, eid, x, y, { damage: SPELL.bolt.damage, heal: 0, shield: 0 });
+      if (inst) applySpellHit(sim, inst, eid, x, y, { damage: projectileBase(inst.node.form === 'orb' ? 'orb' : 'bolt').damage, heal: 0, shield: 0 });
       else dealDamage(sim, eid, proj.damage, proj.ownerId, proj.elements);
       if (!inst && proj.knockback > 0) knockback(sim, eid, x, y, proj.knockback);
     }
-    if (proj.spell && fireTrigger(sim, proj.spell, 'onhit', epos.x, epos.y, angle, proj.hitIds)) {
-      w.destroy(id);
-      return true;
-    }
+    if (proj.spell) release(sim, proj.spell, 'onhit', epos.x, epos.y, angle, proj.hitIds);
     return consumeOrPierce(sim, id, proj, x, y, angle);
   }
   return false;
@@ -578,10 +614,7 @@ export function updateNovas(sim: Simulation, dt: number): void {
       applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.nova.damage, heal: SPELL.nova.heal, shield: SPELL.nova.shield });
     }
 
-    if (checkTimer(sim, inst, pos.x, pos.y, inst.angle, nova.hitIds)) {
-      w.destroy(id);
-      continue;
-    }
+    checkTimer(sim, inst, pos.x, pos.y, inst.angle, nova.hitIds);
     if (inst.age >= nova.duration) {
       endSpell(sim, inst, pos.x, pos.y, inst.angle, nova.hitIds);
       w.destroy(id);
@@ -646,10 +679,7 @@ export function updateZones(sim: Simulation, dt: number): void {
         applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
     }
-    if (checkTimer(sim, inst, pos.x, pos.y, inst.angle, null)) {
-      w.destroy(id);
-      continue;
-    }
+    checkTimer(sim, inst, pos.x, pos.y, inst.angle, null);
     if (inst.age >= zone.duration) {
       endSpell(sim, inst, pos.x, pos.y, inst.angle, null);
       w.destroy(id);
@@ -677,7 +707,7 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
     applySpellHit(sim, inst, eid, pos.x, pos.y, { damage: SPELL.dash.damage, heal: 0, shield: 0 });
     if (!ds.hitFired) {
       ds.hitFired = true;
-      fireTrigger(sim, inst, 'onhit', epos.x, epos.y, inst.angle, ds.hitIds);
+      release(sim, inst, 'onhit', epos.x, epos.y, inst.angle, ds.hitIds);
     }
   }
   checkTimer(sim, inst, pos.x, pos.y, inst.angle, ds.hitIds);
@@ -688,7 +718,7 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
     if (inst.node.effects.includes('ward')) {
       grantShield(sim, pid, SPELL.nova.shield * 0.5 * inst.node.damageScale, SPELL.shieldSeconds, inst.node.combos.includes('burning_ward'));
     }
-    fireTrigger(sim, inst, 'onland', pos.x, pos.y, inst.angle, ds.hitIds);
-    if (!inst.timerFired) fireTrigger(sim, inst, 'timer', pos.x, pos.y, inst.angle, ds.hitIds);
+    release(sim, inst, 'onland', pos.x, pos.y, inst.angle, ds.hitIds);
+    endSpell(sim, inst, pos.x, pos.y, inst.angle, ds.hitIds);
   }
 }

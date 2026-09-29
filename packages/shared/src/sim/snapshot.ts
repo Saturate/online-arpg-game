@@ -3,7 +3,7 @@ import { xpToNext } from './progression.js';
 import { SIM } from '../config/sim.js';
 import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot, SpellSnap } from '../protocol/messages.js';
 import { STATUS } from '../protocol/messages.js';
-import { auraRadius, spiritReservedFor } from './auras.js';
+import { auraRadius, persistentNode, spiritReservedFor } from './auras.js';
 import type { EntityId, StatusComp } from './ecs.js';
 import { bestTier } from './inventory.js';
 import { distSq } from './math.js';
@@ -48,7 +48,8 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
         const links: EntityId[] = [];
         p.sigils.forEach((eq, slot) => {
           if (!eq?.compiled.ok || !eq.compiled.persistent) return;
-          const node = eq.compiled.program;
+          const node = persistentNode(eq.compiled.program);
+          if (!node) return;
           if (node.form === 'aura') auras.push({ r: round1(auraRadius(node)), fx: spellFx(node), el: node.elements[0] ?? null });
           const link = p.links[slot];
           if (node.form === 'bond' && link?.connected && link.targetId !== null) links.push(link.targetId);
@@ -96,6 +97,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
           owner: proj.ownerId,
           el: proj.elements[0] ?? null,
           fx: proj.spell ? spellFx(proj.spell.node) : 'damage',
+          ...(proj.spell?.node.form === 'orb' ? ORB_FLAG : {}),
         });
         break;
       }
@@ -158,6 +160,8 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
 }
 
 type SpellEntity = Extract<EntitySnap, { k: 'projectile' | 'nova' | 'zone' }>;
+
+const ORB_FLAG: { orb: true } = { orb: true };
 
 function isSpellEntity(e: EntitySnap): e is SpellEntity {
   return e.k === 'projectile' || e.k === 'nova' || e.k === 'zone';

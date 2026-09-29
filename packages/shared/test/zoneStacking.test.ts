@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SIM, Simulation, type EntityId } from '../src/index.js';
 import { compileText } from './helpers/spell.js';
-import { spawnSpell } from '../src/sim/spells.js';
+import { spawnProgram } from '../src/sim/spells.js';
 
 const fireZone = compileText('zone fire');
 
@@ -18,7 +18,7 @@ function damageTaken(casters: number, zonesEach: number): number {
   h.maxLife = 1e9;
   h.life = 1e9;
   e.speedMult = 0;
-  for (const caster of ids) for (let z = 0; z < zonesEach; z++) spawnSpell(sim, fireZone.program, caster, 900 + z * 5, 900, 0, null);
+  for (const caster of ids) for (let z = 0; z < zonesEach; z++) spawnProgram(sim, fireZone.program, caster, 900 + z * 5, 900, 0);
   for (let i = 0; i < 2 * SIM.tickRate; i++) sim.step();
   return 1e9 - h.life;
 }

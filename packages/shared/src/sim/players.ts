@@ -2,6 +2,8 @@ import { HEAT } from '../config/sim.js';
 import { emptyStatus } from './ecs.js';
 import type { Simulation } from './simulation.js';
 
+const COOLDOWN_EPS = 1e-6;
+
 /** Seconds a request stays pending before the portal can fire again, in case the server ignores it. */
 const PORTAL_RETRY_SECONDS = 3;
 
@@ -25,7 +27,9 @@ export function updatePlayers(sim: Simulation, dt: number): void {
       }
     }
     if (p.primaryCooldown > 0) p.primaryCooldown = Math.max(0, p.primaryCooldown - dt);
-    if (p.castCooldown > 0) p.castCooldown = Math.max(0, p.castCooldown - dt);
+    // Snapped to zero within a float's slack: 0.35 minus seven 0.05 s ticks leaves about 1e-17, which
+    // used to cost a whole extra tick before the next cast.
+    if (p.castCooldown > 0) p.castCooldown = p.castCooldown - dt > COOLDOWN_EPS ? p.castCooldown - dt : 0;
     if (p.heatPause > 0) {
       p.heatPause = Math.max(0, p.heatPause - dt);
       p.heatIdle = 0;

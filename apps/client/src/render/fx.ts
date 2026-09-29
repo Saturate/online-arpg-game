@@ -177,6 +177,31 @@ export class Effects {
     );
   }
 
+  /**
+   * An orb sheds small embers off its rim instead of the bolt's single puff: one puff the orb's size
+   * washed its dark core out to a white blob.
+   */
+  orbTrail(x: number, y: number, hex: number, radius: number): void {
+    for (let i = 0; i < 2; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.spawn(
+        {
+          x: x + Math.cos(a) * radius,
+          y: 18 + (Math.random() - 0.5) * radius,
+          z: y + Math.sin(a) * radius,
+          vx: Math.cos(a) * 14,
+          vy: 18,
+          vz: Math.sin(a) * 14,
+          life: 0,
+          maxLife: 0.45,
+          size: Math.max(2, radius * 0.22),
+          gravity: 0,
+        },
+        hex,
+      );
+    }
+  }
+
   shockwave(x: number, y: number, radius: number, hex: number, duration = 0.35): void {
     const mat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.8, blending: AdditiveBlending, depthWrite: false, side: DoubleSide });
     const mesh = new Mesh(this.ringGeo, mat);

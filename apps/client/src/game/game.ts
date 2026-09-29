@@ -919,7 +919,8 @@ export class Game {
         }
         if (to.k === 'projectile' && trail) {
           const color = to.team === 'enemies' ? COLORS.enemyBullet : to.el ? ELEMENT_COLORS[to.el] : COLORS.playerProjectile;
-          fx.trail(x, y, color, to.r * (to.team === 'enemies' ? 0.8 : 0.9));
+          if (to.orb) fx.orbTrail(x, y, color, r);
+          else fx.trail(x, y, color, to.r * (to.team === 'enemies' ? 0.8 : 0.9));
         }
         items.push({ key: `s${id}`, snap, x, y, isSelf: false, isAlly: to.k === 'player' || to.k === 'minion' });
       }

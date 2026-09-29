@@ -160,7 +160,15 @@ export type EntitySnap =
       st: number;
       a: number;
     })
-  | (EntitySnapBase & { k: 'projectile'; team: Team; owner: EntityId; el: ElementId | null; fx: SpellFx })
+  | (EntitySnapBase & {
+      k: 'projectile';
+      team: Team;
+      owner: EntityId;
+      el: ElementId | null;
+      fx: SpellFx;
+      /** An Orb rune's projectile, drawn as a slow rolling orb rather than a bolt. Absent otherwise. */
+      orb?: true;
+    })
   | (EntitySnapBase & { k: 'swing'; a: number; arc: number; owner: EntityId })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })

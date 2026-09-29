@@ -1,6 +1,6 @@
 import {
-  compileRunes,
-  DEFAULT_SIGIL_CONTEXT,
+  compileSigilItem,
+  createStarterSigil,
   formatRunes,
   HEAT,
   SIM,
@@ -11,7 +11,9 @@ import {
   type EntityId,
   type EnemyTypeId,
   type GameEvent,
+  sigilCastDelay,
   type SigilCompile,
+  type SigilItem,
   type StarterSigilDef,
 } from '@rune/shared';
 import { StudioMetrics, type TickSample } from './metrics.js';
@@ -52,11 +54,27 @@ export function studioSkillOf(def: StarterSigilDef): StudioSkill {
   return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(def.runes) };
 }
 
-/** Compiles like an unrolled starter sigil, so the studio prices skills the way the game does. */
-export function compileSkill(def: StudioSkill): SigilCompile {
+/**
+ * The sigil the game would hand a new character for this draft: a starter sigil holding its runes,
+ * so the studio compiles it with the same slots, Force multiplier and cast delay as play does.
+ */
+export function studioSigil(def: StudioSkill): SigilItem | null {
   const t = tokenizeSpell(def.text);
-  if (t.errors.length > 0) return { ok: false, errors: t.errors, force: 0 };
-  return compileRunes(t.runes, { ...DEFAULT_SIGIL_CONTEXT, classId: def.classId });
+  if (t.errors.length > 0) return null;
+  let uid = 1;
+  return createStarterSigil(() => uid++, { id: def.id, name: def.name, description: def.description, classId: def.classId, runes: t.runes }, { bound: true });
+}
+
+/** Compiles the draft exactly as the game compiles an equipped starter sigil. */
+export function compileSkill(def: StudioSkill): SigilCompile {
+  const sigil = studioSigil(def);
+  if (!sigil) return { ok: false, errors: tokenizeSpell(def.text).errors, force: 0 };
+  return compileSigilItem(sigil, def.classId);
+}
+
+function skillCastDelay(def: StudioSkill): number {
+  const sigil = studioSigil(def);
+  return sigil ? sigilCastDelay(sigil) : HEAT.castCooldownSeconds;
 }
 
 function dummyPositions(setup: StudioSetup, cx: number, cy: number): { x: number; y: number }[] {
@@ -94,6 +112,8 @@ export class StudioSim {
   readonly dummies: { id: EntityId; x: number; y: number }[] = [];
   readonly home: { x: number; y: number };
   compiled: SigilCompile;
+  /** The sigil's cast delay; a spell from the Spell Lab has no sigil and uses the default. */
+  castDelay: number = HEAT.castCooldownSeconds;
   cast: CastSettings = { mode: 'hold', intervalSeconds: 1, infiniteForce: false };
   /** Events from the last step, for the renderer. */
   lastEvents: GameEvent[] = [];
@@ -126,17 +146,19 @@ export class StudioSim {
       this.dummies.push({ id, x: at.x, y: at.y });
     }
     this.compiled = compileSkill(skill);
+    this.castDelay = skillCastDelay(skill);
     this.equip();
   }
 
   /** Swaps the skill under test without resetting the world. Metrics restart so numbers stay honest. */
   setSkill(skill: StudioSkill): void {
-    this.setCompiled(compileSkill(skill));
+    this.setCompiled(compileSkill(skill), skillCastDelay(skill));
   }
 
   /** Tests an already compiled spell, such as one from the Spell Lab. */
-  setCompiled(compiled: SigilCompile): void {
+  setCompiled(compiled: SigilCompile, castDelay: number = HEAT.castCooldownSeconds): void {
     this.compiled = compiled;
+    this.castDelay = castDelay;
     this.equip();
     this.metrics.reset();
   }
@@ -144,7 +166,7 @@ export class StudioSim {
   private equip(): void {
     const p = this.sim.world.player.get(this.playerId);
     if (!p) return;
-    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds };
+    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1, castDelay: this.castDelay };
     p.sigils[1] = null;
     p.sigils[2] = null;
     p.sigils[3] = null;

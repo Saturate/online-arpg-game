@@ -16,8 +16,8 @@
  * - The target point is `distance` units east of the player (250 by default; callers pass a short
  *   distance for spells that go off on the caster). One dummy sits on it for `single`, a sunflower
  *   pack of 6 around it for `pack` (same layout as the Spell Studio, dummies within 64 units of the target).
- * - Casts go off every 7 ticks (0.35 s), not every 6: the 0.3 s cast cooldown minus six 0.05 s
- *   ticks leaves a float remainder above zero. The harness measures that as the sim runs it.
+ * - Casts go off every 7 ticks (0.35 s). The v1 baseline was recorded with a 0.3 s cooldown that
+ *   waited seven ticks through a float remainder; the cooldown is 0.35 s now and exact.
  * - The skill button is held every tick while Force is at or below the bar, and released above it.
  *   That honours the sim's cast cooldown, Force cost and overheat cap, and never risks a misfire,
  *   which would spend a cast on self damage and make the numbers depend on the misfire roll.
@@ -33,6 +33,7 @@ import {
   type EquippedSigil,
   type GearSlot,
 } from '../../src/index.js';
+import { pendingReleases } from '../../src/sim/spells.js';
 
 export type EquipSkill = (sim: Simulation, playerId: EntityId) => EquippedSigil;
 
@@ -136,6 +137,11 @@ function liveEntities(b: Bench): number {
   return n;
 }
 
+/** Live entities plus payloads still waiting to go off, so a single cast is measured to its end. */
+function castInFlight(b: Bench): boolean {
+  return liveEntities(b) > 0 || pendingReleases(b.sim, b.pid) > 0;
+}
+
 function dashing(b: Bench): boolean {
   const p = b.sim.world.player.get(b.pid);
   return p !== undefined && (p.dash !== null || p.dashSpell !== null);
@@ -208,7 +214,7 @@ function singleCast(opts: Required<SkillDpsOptions>, dummyCount: number): { dama
   const b = setup(opts, dummyCount);
   const first = tick(b, true);
   let damage = first.damage;
-  for (let t = 0; t < DRAIN_LIMIT_SECONDS * SIM.tickRate && (liveEntities(b) > 0 || dashing(b)); t++) damage += tick(b, false).damage;
+  for (let t = 0; t < DRAIN_LIMIT_SECONDS * SIM.tickRate && (castInFlight(b) || dashing(b)); t++) damage += tick(b, false).damage;
   return { damage, force: first.heatSpent };
 }
 

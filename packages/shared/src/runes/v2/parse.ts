@@ -285,7 +285,7 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
     }
 
     if (!current && kind !== 'shape') {
-      if (i === 0) fail('FIRST_RUNE_SHAPE', 0, `The first rune must be a shape; ${label(0)} is a ${kind}.`);
+      if (i === 0) fail('FIRST_RUNE_SHAPE', 0, `The first rune must be a shape; ${label(0)} is ${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}.`);
       continue;
     }
 

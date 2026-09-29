@@ -242,7 +242,8 @@ describe('ambiguous cases', () => {
 
 describe('rules', () => {
   it('the first rune must be a shape', () => {
-    errorAt('Fire Orb', 'first-rune-shape', 0);
+    expect(errorAt('Fire Orb', 'first-rune-shape', 0)).toContain('is an infusion');
+    expect(errorAt('Split Orb', 'first-rune-shape', 0)).toContain('is a shaper');
   });
 
   it('empty spells are errors', () => {

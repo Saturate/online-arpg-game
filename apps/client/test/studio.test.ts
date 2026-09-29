@@ -1,8 +1,8 @@
-import { SIM, starterSigilById, tokenizeSpell } from '@rune/shared';
+import { compileSigilItem, createStarterSigil, SIM, STARTER_SIGILS, starterSigilById, tokenizeSpell } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { formatSkill, skillIdFromName } from '../src/dev/studio/exportSkill.js';
 import { StudioMetrics } from '../src/dev/studio/metrics.js';
-import { StudioSim, studioSkillOf, type StudioSetup, type StudioSkill } from '../src/dev/studio/studioSim.js';
+import { compileSkill, StudioSim, studioSkillOf, type StudioSetup, type StudioSkill } from '../src/dev/studio/studioSim.js';
 
 const SETUP: StudioSetup = { seed: 42, classId: 'mage', dummies: 6, dummyType: 'chaser', layout: 'pack', distance: 320 };
 
@@ -61,6 +61,18 @@ describe('studio sim', () => {
       unlimited.step();
     }
     expect(unlimited.metrics.summary().casts).toBeGreaterThanOrEqual(realistic.metrics.summary().casts);
+  });
+});
+
+describe('studio pricing', () => {
+  it('prices every starter exactly as the game prices the equipped sigil', () => {
+    for (const def of STARTER_SIGILS) {
+      let uid = 1;
+      const game = compileSigilItem(createStarterSigil(() => uid++, def, { bound: true }), def.classId);
+      const studio = compileSkill(studioSkillOf(def));
+      expect(studio.force, def.id).toBe(game.force);
+      expect(studio.ok && studio.spirit, def.id).toBe(game.ok && game.spirit);
+    }
   });
 });
 

@@ -8,8 +8,11 @@ import type { ClassId } from './classes.js';
  * are readable, copyable and improvable like any hand-built spell. The rune lists reproduce the v1
  * hand tuning where the grammar can express it; where it cannot, the entry says so.
  *
- * Numbers are relative to each shape's base. An Orb is a slow, big bolt (0.55 speed, 2x size,
- * 1.3x range of a Bolt), so an orb's affixes are the old tuning divided by that.
+ * Numbers are relative to each shape's base (SPELL in config/sim.ts). An Orb flies at 0.55 of a
+ * Bolt's speed with twice its size and 1.3x its range, and rolls through enemies unless it bursts on
+ * hit, so an orb's affixes are the old bolt tuning divided by that.
+ *
+ * Every entry is held to its v1 Force and damage by test/skillParity.test.ts.
  */
 export interface StarterSigilDef {
   id: string;
@@ -33,19 +36,20 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     name: 'Fireball',
     description: 'Explodes on impact and leaves the ground burning.',
     classId: 'mage',
-    // PLAN-runes.md's Fireball, not a copy of v1 (a bolt at 0.85 speed and 2x damage, Force set by
-    // hand to 24): the balance pass tunes it against the v1 baseline.
-    runes: spell('orb[onhit, -15% speed, +30% damage] fire nova[after 0.5s] zone[long]'),
+    // PLAN-runes.md's Fireball, not a copy of v1 (a bolt at 0.85 speed and 2x damage). The orb
+    // carries v1's 2x hit, since the burst and the burning ground only add to it; +75% duration is
+    // v1's Linger.
+    runes: spell('orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+75% duration]'),
   },
   {
     id: 'frozen_orb',
     name: 'Frozen Orb',
     description: 'A slow orb that sprays ice shards in every direction as it travels.',
     classId: 'mage',
-    // v1: speed 0.36, range 0.85, radius 2.2, damage 0.6 on a bolt. It passed through everything
-    // (phase); no affix does that yet, so pierce 20 stands in. v1 also let it exceed the entity cap
-    // (48); the grammar's live cap is 40 and it peaks well under that.
-    runes: spell('orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage, pierce 20] cold split(3) bolt'),
+    // v1: speed 0.36, range 0.85, radius 2.2, damage 0.6 on a bolt that passed through everything,
+    // which an orb does by itself. v1 also let it exceed the entity cap (48); the grammar's live cap
+    // is 40 and it peaks under that.
+    runes: spell('orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage] cold split(3) bolt'),
   },
   { id: 'static_nova', name: 'Static Nova', description: 'A wide ring of lightning that shocks everything it touches.', classId: 'mage', runes: spell('nova[+50% size] lightning') },
   // v1: two Swift runes, 1.3x dash distance each.
@@ -60,13 +64,15 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     runes: spell('dash[onland] impact nova[+50% size]'),
   },
   { id: 'war_cry', name: 'War Cry', description: 'A shockwave that hurls enemies away.', classId: 'warrior', runes: spell('nova[+50% size] impact') },
-  { id: 'flame_cleave', name: 'Flame Cleave', description: 'Three burning waves in a cone.', classId: 'warrior', runes: spell('bolt[-50% duration, +80% size] fire split(3)') },
+  // v1 radius was 1.8x; 1.6x hits the same dummies and keeps its v1 price.
+  { id: 'flame_cleave', name: 'Flame Cleave', description: 'Three burning waves in a cone.', classId: 'warrior', runes: spell('bolt[-50% duration, +60% size] fire split(3)') },
   { id: 'iron_skin', name: 'Iron Skin', description: 'Aura: you and nearby allies take less damage.', classId: 'warrior', runes: spell('aura ward') },
   // Ranger
   { id: 'multishot', name: 'Multishot', description: 'A wide fan of piercing arrows.', classId: 'ranger', runes: spell('bolt[pierce 2, +60% damage] split(3) split(3)') },
-  // v1 set both arrows' Force by hand to 16; the formula prices them now. v1's Swift was 1.5x bolt speed.
-  { id: 'exploding_arrow', name: 'Exploding Arrow', description: 'Bursts into flame on impact.', classId: 'ranger', runes: spell('bolt[onhit, +50% speed] fire nova') },
-  { id: 'freezing_arrow', name: 'Freezing Arrow', description: 'Leaves a patch of frost where it lands.', classId: 'ranger', runes: spell('bolt[onhit, +50% speed] cold zone') },
+  // v1 set both arrows' Force by hand to 16 with a Swift rune in them; without the speed the formula
+  // lands on that price, and speed changed neither arrow's damage.
+  { id: 'exploding_arrow', name: 'Exploding Arrow', description: 'Bursts into flame on impact.', classId: 'ranger', runes: spell('bolt[onhit] fire nova') },
+  { id: 'freezing_arrow', name: 'Freezing Arrow', description: 'Leaves a patch of frost where it lands.', classId: 'ranger', runes: spell('bolt[onhit] cold zone') },
   { id: 'evade', name: 'Evade', description: 'A quick sidestep.', classId: 'ranger', runes: spell('dash[+30% speed]') },
   // Priest
   { id: 'holy_nova', name: 'Holy Nova', description: 'Heals allies around you.', classId: 'priest', runes: spell('nova[+50% size] restore') },

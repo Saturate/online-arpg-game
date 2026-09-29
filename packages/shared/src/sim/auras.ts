@@ -1,6 +1,6 @@
-import { AURA, LINK, SPELL } from '../config/sim.js';
+import { AURA, LINK } from '../config/sim.js';
 import { vesselSpirit } from '../items/items.js';
-import type { EffectId, ElementId, SpellNode } from './program.js';
+import type { EffectId, ElementId, SpellNode, SpellProgram } from './program.js';
 import { dealDamage, healEntity, isTargetable, knockback } from './combat.js';
 import { emptyBuffs, type EntityId, type PlayerComp } from './ecs.js';
 import { angleDiff, distSq } from './math.js';
@@ -12,7 +12,12 @@ type AuraType = EffectId | ElementId;
 const AURA_AILMENT_SECONDS = 0.3;
 
 export function auraRadius(node: SpellNode): number {
-  return AURA.radius * SPELL.modifiers.largeRadius ** node.modifiers.large * node.areaScale * node.tuning.radius;
+  return AURA.radius * node.areaScale * node.tuning.radius;
+}
+
+/** The one shape of a persistent program (the grammar allows Aura and Bond only alone). */
+export function persistentNode(program: SpellProgram): SpellNode | null {
+  return program.roots[0] ?? null;
 }
 
 export function spiritReservedFor(p: PlayerComp): number {
@@ -86,7 +91,8 @@ export function updateAuras(sim: Simulation, dt: number): void {
     if (!pos || p.respawnIn !== null) continue;
     p.sigils.forEach((eq, slot) => {
       if (!eq || !eq.compiled.ok || !eq.compiled.persistent) return;
-      const node = eq.compiled.program;
+      const node = persistentNode(eq.compiled.program);
+      if (!node) return;
       const strength = node.damageScale;
 
       if (node.form === 'aura') {

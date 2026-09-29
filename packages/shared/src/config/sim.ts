@@ -48,26 +48,42 @@ export const HEAT = {
   dudHeatFraction: 0.5,
   affinityMultiplier: 0.8,
   offAffinityMultiplier: 1.2,
-  depthHeatFactor: 0.5,
-  /** Minimum time between any two sigil casts, so holding a key at 20 Hz input is not 20 casts per second. */
-  castCooldownSeconds: 0.3,
+  /**
+   * A rune inside a payload costs this share of its listed Force. The v1 skills were priced by hand
+   * far below what a depth surcharge gave (Exploding Arrow 16 against 47 by formula), and this share
+   * reproduces those prices: a payload only goes off when the cast lands, and the entity cap and
+   * depth limit already bound how far a chain can go. Split is exempt, since copies multiply the cast.
+   */
+  payloadForceFactor: 0.15,
+  /**
+   * A number affix costs this much Force per step of the plain rune it replaces (Swift, Large, the
+   * old Linger and Pierce runes each cost 3), measured on a log scale so two Swift steps cost twice
+   * one: `affixStepForce x ln(1 + v / 100) / ln(step)`.
+   */
+  affixStepForce: 3,
+  /** A negative roll gives back this share of what the same positive roll would cost. */
+  affixRefundShare: 0.5,
+  /**
+   * Minimum time between any two sigil casts, so holding a key at 20 Hz input is not 20 casts per
+   * second. 0.35 s is what the old 0.3 s actually waited (a float remainder cost a seventh tick),
+   * so every skill kept the cadence it was balanced at when the remainder was fixed.
+   */
+  castCooldownSeconds: 0.35,
 } as const;
 
 export const SPELL = {
-  maxDepth: 3,
-  maxEntities: 24,
-  splitDefaultCount: 3,
   splitEfficiency: 1.2,
   /** Angle between split copies of a directional form. */
   splitSpreadRadians: 0.26,
   /** Distance from the split point for copies of a non-directional form. */
   splitRingOffset: 70,
+  /** Seconds a Timer rune waits when it carries no seconds of its own. */
   timerSeconds: 0.5,
-  /** Pulse fires this often while its form lives. */
-  pulseSeconds: 0.18,
-  /** Pulse splits spray outward, rotating this much between pulses. */
+  /** Split payloads released every X s spray outward, rotating this much between releases. */
   pulseRotation: 0.7,
   bolt: { damage: 16, speed: 520, range: 560, radius: 8 },
+  /** Slow and big, and it rolls through enemies unless it bursts on hit. */
+  orb: { damage: 16, speed: 286, range: 728, radius: 16 },
   nova: { damage: 14, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
   // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
   /**
@@ -78,13 +94,13 @@ export const SPELL = {
   liveCap: { max: 40, projectile: 1, area: 0.35 },
   zone: { damage: 14, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
   dash: { damage: 12, distance: 190, ticks: 4, hitRadius: 26 },
-  modifiers: {
-    swiftSpeed: 1.5,
-    swiftDash: 1.3,
-    largeRadius: 1.5,
-    lingerDuration: 1.75,
-    pierceHits: 2,
-  },
+  /**
+   * What one plain-rune step of each number affix is worth, for pricing affixes (HEAT.affixStepForce).
+   * Speed is x1.5 on a projectile and x1.3 on a dash (the v1 Swift rune), size x1.5 (Large),
+   * duration x1.75 (Linger), damage x2 (no v1 rune; set so tuned starters keep their v1 price),
+   * and pierce 2 extra hits (the v1 Pierce rune).
+   */
+  affixSteps: { speed: 1.5, dashSpeed: 1.3, size: 1.5, duration: 1.75, damage: 2, pierce: 2 },
   forceKnockback: 320,
   shieldSeconds: 4,
   comboDamageBonus: 0.25,

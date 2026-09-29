@@ -330,6 +330,26 @@ function makeView(item: RenderItem): View {
         g.add(core, outline);
         g.position.y = 18;
         root.add(g);
+      } else if (s.orb) {
+        // A slow orb reads as a heavy thing, not a spark: a near-black core inside a thin element shell,
+        // a smouldering band that turns as it rolls, and a faint pool of light under it so it still
+        // reads at night.
+        const color = s.el ? ELEMENT_COLORS[s.el] : s.fx === 'damage' ? COLORS.playerProjectile : fxColor(s.fx, null);
+        const ember = new Color(color).multiplyScalar(0.18).getHex();
+        const core = new Mesh(GEO.sphere, sharedBasic(ember, 1));
+        core.scale.setScalar(s.r * 0.72);
+        const shell = new Mesh(GEO.sphere, own(basic(color, 0.18, true)));
+        shell.scale.setScalar(s.r);
+        shell.name = 'orb-shell';
+        const band = new Mesh(GEO.torus, sharedBasic(color, 0.85, true));
+        band.scale.setScalar(s.r * 0.86);
+        band.name = 'orb-band';
+        const g = new Group();
+        g.add(core, shell, band);
+        g.position.y = 20;
+        const pool = flatOnGround(new Mesh(GEO.disk, sharedBasic(color, 0.1, true)), 1.2);
+        pool.scale.setScalar(s.r * 2.4);
+        root.add(g, pool);
       } else {
         // Solid core in the element colour plus a faint additive halo: additive alone washes out to white on bright ground.
         const color = s.el ? ELEMENT_COLORS[s.el] : s.fx === 'damage' ? COLORS.playerProjectile : fxColor(s.fx, null);
@@ -693,6 +713,14 @@ export class EntityRenderer {
         }
         this.syncAuras(view, s);
       }
+    } else if (s.k === 'projectile' && s.orb) {
+      const band = view.root.getObjectByName('orb-band');
+      const shell = view.root.getObjectByName('orb-shell');
+      if (band) {
+        band.rotation.x += dt * 2.6;
+        band.rotation.y += dt * 1.1;
+      }
+      if (shell instanceof Mesh && shell.material instanceof MeshBasicMaterial) shell.material.opacity = 0.16 + Math.sin(t * 6 + view.bob) * 0.05;
     } else if (s.k === 'nova') {
       const ring = view.root.getObjectByName('ring');
       const fill = view.root.getObjectByName('fill');
