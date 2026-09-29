@@ -33,6 +33,8 @@ interface Member {
   playerId: EntityId;
   inputs: InputBuffer;
   sentInventoryVersion: number;
+  /** Spell entities this member's client already has a record of, with the motion it was sent. */
+  knownSpells: Map<EntityId, string>;
 }
 
 /** Rooms opened since start; each takes its own block of item ids (see Simulation.startItemUidsAt). */
@@ -80,7 +82,7 @@ export class Room {
 
   add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
     const playerId = this.sim.addPlayer(client.id, classId, name, save, at);
-    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1 });
+    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map() });
     client.room = this;
     // Someone joining ends a solo pause.
     this.paused = false;
@@ -284,7 +286,7 @@ export class Room {
         m.sentInventoryVersion = p.inventoryVersion;
       }
       if (m.client.congested) continue;
-      const snap = snapshotFor(this.sim, m.playerId, entities, events, NET.interestRadius);
+      const snap = snapshotFor(this.sim, m.playerId, entities, events, NET.interestRadius, m.knownSpells);
       snap.paused = this.paused;
       m.client.send(snap);
     }

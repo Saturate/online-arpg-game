@@ -157,6 +157,15 @@ export type EntitySnap =
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
   | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier }[]; gold: number });
 
+/**
+ * A spell entity as sent once, when it becomes visible or its motion changes: enough for the client
+ * to move a projectile, grow a nova or fade a zone by itself until it is listed as gone.
+ */
+export type SpellSnap =
+  | (Extract<EntitySnap, { k: 'projectile' }> & { vx: number; vy: number })
+  | (Extract<EntitySnap, { k: 'nova' }> & { age: number; dur: number })
+  | (Extract<EntitySnap, { k: 'zone' }> & { age: number; dur: number });
+
 export type GameEvent =
   | { e: 'dmg'; id: EntityId; amt: number; x: number; y: number; el: ElementId | null }
   | { e: 'heal'; id: EntityId; amt: number; x: number; y: number }
@@ -206,7 +215,12 @@ export interface Snapshot {
   tick: number;
   lastProcessedInputSeq: number;
   self: SelfState | null;
+  /** Everything but spell entities, in full every tick. */
   entities: EntitySnap[];
+  /** Spell entities that are new to this client or changed their motion since last sent. */
+  spells: SpellSnap[];
+  /** Spell entities this client knew that ended or left its view. */
+  gone: EntityId[];
   events: GameEvent[];
   /** Total entities in the room, for the debug overlay; differs from entities.length with interest management. */
   roomEntityCount: number;

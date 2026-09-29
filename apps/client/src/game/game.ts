@@ -44,6 +44,7 @@ import { ClickMover } from './clickMove.js';
 import { GamepadInput, type PadState } from './gamepad.js';
 import { InputState, screenToWorld, type SampledInput } from './input.js';
 import { InterpolationBuffer } from './interpolation.js';
+import { SpellTable } from './spellTable.js';
 import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
@@ -124,6 +125,8 @@ interface RoomView {
   input: InputState;
   predictor: Predictor;
   interp: InterpolationBuffer;
+  /** Spell entities arrive once and are carried forward here; see onSnapshot. */
+  spells: SpellTable;
   mover: ClickMover;
   minimap: Minimap | null;
 }
@@ -363,6 +366,7 @@ export class Game {
       input,
       predictor: new Predictor(CLASSES[this.classId].moveSpeed, game),
       interp: new InterpolationBuffer(SIM.tickMs, NET.interpolationDelayMs),
+      spells: new SpellTable(),
       mover: new ClickMover(game),
       minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`) : null,
     };
@@ -542,9 +546,10 @@ export class Game {
     }
   }
 
-  private onSnapshot(snap: Snapshot): void {
+  private onSnapshot(sent: Snapshot): void {
     const room = this.room;
     if (!room) return;
+    const snap = room.spells.expand(sent);
     const first = this.latest === null;
     this.latest = snap;
     if (snap.paused !== this.paused) {

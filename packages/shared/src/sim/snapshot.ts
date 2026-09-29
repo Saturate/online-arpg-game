@@ -1,6 +1,7 @@
 import { CLASSES } from '../data/classes.js';
 import { xpToNext } from './progression.js';
-import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot } from '../protocol/messages.js';
+import { SIM } from '../config/sim.js';
+import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot, SpellSnap } from '../protocol/messages.js';
 import { STATUS } from '../protocol/messages.js';
 import { auraRadius, spiritReservedFor } from './auras.js';
 import type { EntityId, StatusComp } from './ecs.js';
@@ -156,9 +157,59 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
   };
 }
 
+type SpellEntity = Extract<EntitySnap, { k: 'projectile' | 'nova' | 'zone' }>;
+
+function isSpellEntity(e: EntitySnap): e is SpellEntity {
+  return e.k === 'projectile' || e.k === 'nova' || e.k === 'zone';
+}
+
+/** The spell entity plus what the client needs to carry it forward on its own. */
+function spellRecord(sim: Simulation, e: SpellEntity): SpellSnap {
+  const w = sim.world;
+  if (e.k === 'projectile') {
+    const v = w.velocity.get(e.id);
+    return { ...e, vx: round1(v?.x ?? 0), vy: round1(v?.y ?? 0) };
+  }
+  if (e.k === 'nova') {
+    const n = w.nova.get(e.id);
+    return { ...e, age: round2(n?.spell.age ?? 0), dur: n?.duration ?? 1 };
+  }
+  const z = w.zone.get(e.id);
+  return { ...e, age: round2(z?.spell.age ?? 0), dur: z?.duration ?? 1 };
+}
+
+/** What would make a sent record stale: only a projectile's motion changes (a reflect, homing). */
+function motionKey(r: SpellSnap): string {
+  return r.k === 'projectile' ? `${r.vx},${r.vy},${r.team},${r.r}` : r.k;
+}
+
+/**
+ * A spell record carried forward `ticks` ticks, as the client does between records. Projectiles fly
+ * straight, novas grow to their full radius over their duration, zones fade over theirs.
+ */
+export function advanceSpell(r: SpellSnap, ticks: number): EntitySnap {
+  const dt = ticks * SIM.dt;
+  if (r.k === 'projectile') {
+    const { vx, vy, ...e } = r;
+    return { ...e, x: round1(e.x + vx * dt), y: round1(e.y + vy * dt) };
+  }
+  const age = r.age + dt;
+  if (r.k === 'nova') {
+    const { age: _a, dur, ...e } = r;
+    return { ...e, r: round1(e.maxR * Math.min(1, age / dur)) };
+  }
+  const { age: _a, dur, ...e } = r;
+  return { ...e, left: round2(Math.max(0, 1 - age / dur)) };
+}
+
 /**
  * Interest management: a player receives entities and events within `radius` of themselves, plus
  * their own minions and link targets wherever they are.
+ *
+ * With `known` (the spell records this client already has, by id), spell entities are sent only
+ * when new to the client or when their motion changes, then listed in `gone` when they end or leave
+ * view. They were half the bytes of a busy snapshot, resent every tick though the client can move
+ * them itself. Without `known`, every entity goes out in full, as tests and tools expect.
  */
 export function snapshotFor(
   sim: Simulation,
@@ -166,6 +217,7 @@ export function snapshotFor(
   all: readonly EntitySnap[],
   events: readonly PositionedEvent[],
   radius: number,
+  known?: Map<EntityId, string>,
 ): Snapshot {
   const w = sim.world;
   const p = w.player.get(pid);
@@ -178,7 +230,31 @@ export function snapshotFor(
   }
   const near = (x: number, y: number): boolean => !pos || distSq(x, y, pos.x, pos.y) <= r2;
 
-  const entities = all.filter((e) => always.has(e.id) || near(e.x, e.y) || (e.k === 'minion' && e.owner === pid));
+  const visible = all.filter((e) => always.has(e.id) || near(e.x, e.y) || (e.k === 'minion' && e.owner === pid));
+  const entities: EntitySnap[] = [];
+  const spells: SpellSnap[] = [];
+  const gone: EntityId[] = [];
+  if (!known) entities.push(...visible);
+  else {
+    const seen = new Set<EntityId>();
+    for (const e of visible) {
+      if (!isSpellEntity(e)) {
+        entities.push(e);
+        continue;
+      }
+      seen.add(e.id);
+      const record = spellRecord(sim, e);
+      const key = motionKey(record);
+      if (known.get(e.id) === key) continue;
+      known.set(e.id, key);
+      spells.push(record);
+    }
+    for (const id of known.keys()) {
+      if (seen.has(id)) continue;
+      known.delete(id);
+      gone.push(id);
+    }
+  }
   const evs: GameEvent[] = [];
   for (const pe of events) if (near(pe.x, pe.y)) evs.push(pe.ev);
 
@@ -194,6 +270,8 @@ export function snapshotFor(
     lastProcessedInputSeq: p?.lastProcessedInputSeq ?? -1,
     self: selfState(sim, pid),
     entities,
+    spells,
+    gone,
     events: evs,
     roomEntityCount: w.entityCount,
     wave: sim.wave,
