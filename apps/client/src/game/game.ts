@@ -28,6 +28,7 @@ import {
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
 import { Recorder, encodeReplay } from './replay.js';
+import { isOutdated, reloadForUpdate } from './update.js';
 import { netSettings } from '../net/settings.js';
 import { COLORS, cssColor, ELEMENT_COLORS, FX, TIER_COLORS, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
@@ -403,6 +404,10 @@ export class Game {
     }
     switch (msg.t) {
       case 'welcome':
+        if (this.session.kind === 'live' && isOutdated(msg.build)) {
+          if (reloadForUpdate(msg.build, { characterId: this.session.character.id, mode: this.session.mode })) return;
+          useUi.getState().notify('A new version is out. Reload the page to update.');
+        }
         if (useUi.getState().reconnectAttempt > 0) useUi.getState().notify('Reconnected');
         useUi.getState().connected();
         this.playerId = msg.playerId;

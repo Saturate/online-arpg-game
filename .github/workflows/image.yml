@@ -41,6 +41,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            BUILD_ID=${{ github.sha }}
           tags: |
             ghcr.io/saturate/online-arpg-game:latest
             ghcr.io/saturate/online-arpg-game:${{ github.sha }}

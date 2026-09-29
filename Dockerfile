@@ -12,6 +12,10 @@ COPY apps/server/package.json apps/server/
 COPY apps/client/package.json apps/client/
 RUN pnpm install --frozen-lockfile
 COPY . .
+# The commit this image was built from. Baked into the client and the server so a browser tab can
+# tell it is out of date after a deploy and reload itself.
+ARG BUILD_ID=dev
+ENV BUILD_ID=$BUILD_ID
 # The server and the shared package become one ESM file, so the runtime needs no node_modules.
 RUN pnpm typecheck && pnpm --filter @rune/client build && pnpm --filter @rune/server bundle
 
@@ -28,7 +32,9 @@ COPY --from=build /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY --from=build /app/apps/server/dist/server.mjs ./server.mjs
 COPY --from=build /app/apps/client/dist ./client
-ENV NODE_ENV=production \
+ARG BUILD_ID=dev
+ENV BUILD_ID=$BUILD_ID \
+    NODE_ENV=production \
     PORT=8080 \
     STATIC_DIR=/app/client \
     DB_PATH=/data/rune.db

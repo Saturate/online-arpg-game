@@ -248,6 +248,8 @@ export type ServerMessage =
       editor: boolean;
       townEditor: boolean;
       devTools: boolean;
+      /** Server build; a client from another build reloads itself. 'dev' disables the check. */
+      build: string;
     }
   | { t: 'instances'; list: InstanceInfo[] }
   /** `game` reaches everyone in your game; `whisper` one player; `system` is the server talking. */

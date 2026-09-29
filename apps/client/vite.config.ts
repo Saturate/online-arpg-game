@@ -4,6 +4,8 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
+  // Must match the server's BUILD_ID; a mismatch on connect makes the tab reload itself.
+  define: { __BUILD_ID__: JSON.stringify(process.env.BUILD_ID ?? 'dev') },
   server: {
     port: 5173,
     // Same-origin /api in dev, matching a production deploy that serves client and server together.

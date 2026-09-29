@@ -18,6 +18,9 @@ import {
 import type { Client } from './client.js';
 import { InputBuffer } from './inputBuffer.js';
 
+/** The commit this server was built from, baked into the image; 'dev' locally. */
+const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
+
 interface Member {
   client: Client;
   playerId: EntityId;
@@ -204,6 +207,7 @@ export class Room {
       editor: this.sim.editorAllowed,
       townEditor: this.townEditor,
       devTools: this.devTools,
+      build: SERVER_BUILD,
     });
     m.sentInventoryVersion = -1;
   }

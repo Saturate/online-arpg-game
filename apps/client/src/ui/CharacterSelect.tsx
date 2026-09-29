@@ -1,5 +1,6 @@
 import { ACCOUNT_RULES, CLASS_IDS, CLASSES, classSkills, type CharacterSummary, type ClassId, type GameMode } from '@rune/shared';
 import { useEffect, useState, type FormEvent } from 'react';
+import { takeResume } from '../game/update.js';
 import { api } from '../net/api.js';
 import { cssColor } from '../render/config.js';
 import { useUi } from './store.js';
@@ -111,6 +112,13 @@ export function CharacterSelect() {
           return;
         }
         setError(null);
+        // Coming back from an update reload: go straight back in with the same character.
+        const resume = takeResume();
+        const again = resume ? res.data.characters.find((c) => c.id === resume.characterId) : undefined;
+        if (resume && again) {
+          play(again, resume.mode);
+          return;
+        }
         useUi.setState({ username: res.data.username });
         setCharacters(res.data.characters);
         setSelected(res.data.characters[0]?.id ?? null);
