@@ -34,3 +34,26 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
   - `sim/`: the ECS world and systems, with `systems.ts` giving the tick order
 - `apps/server`: `ws` server running one 20 Hz simulation per room, with interest-managed snapshots.
 - `apps/client`: Vite + Three.js for the world (`render/`), React + Zustand for UI panels (`ui/`), and prediction, interpolation and input in `game/`.
+
+## Handoff (2026-09-29)
+
+**Where things stand.** Everything through commit `6bc04ea` is live at arpg.akj.io. Later commits (docs only) are local until the next deploy. All 240 tests pass. Live accounts: `LANGSOMT` (owner, via `ADMIN_USERS` in the server repo's `k3s/apps/arpg/deployment.yaml`) and `Bho`.
+
+**Working rules that carry over.**
+
+- Don't push to `main` without the owner's go: every push deploys and restarts the live server.
+- Commit unsigned (`git -c commit.gpgsign=false`) while 1Password is locked; SSH to `svr.akj.io` also needs 1Password approval.
+- Keep the look dark and gritty (D2 Act 1, PoE). Nights must stay playable.
+- Anything that moves items (bag, stash, trader, ground, forge) gets a fresh-eyes review for loss and duplication before it ships.
+
+**Open items.**
+
+- **Unreviewed:** click pickup, gold drops, runes and the forge went live without that review. Do it first.
+- **Reported, not reproduced:** "movement can get stuck". The stuck-key fix (Cmd release, tab hide) is live; if it still happens, find out whether it's terrain, input or desync.
+- **Tune live:** grime strength, the hero's light radius at night, the slower loot and level pace, Force cooling, minion strength after the buff.
+- **Asked, not answered:** put the most-tuned balance numbers (minion strength, Force cost and cooling, drop chances) on the admin page, so balance changes need no deploy.
+- **Parked:** weapon-gated skills (see DECISIONS.md, Parked ideas).
+- **CI:** a docs-only push still rebuilds and restarts the server; a `paths-ignore` for `*.md` in `.github/workflows/image.yml` would stop that.
+- **Owner chores:** rotate the Steam API key and the GHCR pull token that were pasted in chat, and decide on the overhead Postgres password rotation (restarting it also upgrades that image).
+
+**Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in `DECISIONS.md`.

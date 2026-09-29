@@ -225,9 +225,4 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Weapon-gated skills (not decided):** sigils could need a weapon family (arrows a bow, strikes an axe, spells a staff or wand) and minions a wand or sceptre, so the Binder trades weapon power for its army. Parked because it may make classes redundant: if weapons and sigils decide what you can do, classes could shrink to starting kits and stat leanings, all in config. Revisit alongside class balance.
 - **Restartless tuning (asked, not answered):** put the numbers tuned most often (minion strength, Force cost and cooling, drop chances) on the admin page, so balance changes need no deploy or restart.
 
-## Open items for the next session
-
-- **Review not done:** click pickup, gold, runes and the forge went live without the usual fresh-eyes review for item loss or duplication.
-- **Reported, not reproduced:** "movement can get stuck". The stuck-key fix (Cmd, tab hide) is live; if it still happens, find out whether it is terrain, input or desync.
-- **Tuning to check live:** grime strength, the hero's light radius at night, the new loot pace and Force cooling, and minion strength after the buff.
-- **Security chores for the owner:** rotate the Steam API key and the GHCR pull token that were pasted in chat; decide on the overhead Postgres password rotation (a restart would also upgrade that image).
+Open items and the handoff for the next session are in the README.
