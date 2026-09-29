@@ -380,6 +380,27 @@ function Settings({ token, role, notify }: TabProps) {
           <span>Message of the day</span>
           <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />
         </label>
+        <label className="adm-field">
+          <span>
+            World seed <b>{draft.worldSeed}</b>
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={SETTINGS_LIMITS.seedMax}
+            step={1}
+            value={draft.worldSeed}
+            aria-label="World seed"
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (e.target.value !== '' && Number.isInteger(v)) setDraft({ ...draft, worldSeed: v });
+            }}
+          />
+          <button type="button" onClick={() => setDraft({ ...draft, worldSeed: Math.floor(Math.random() * (SETTINGS_LIMITS.seedMax + 1)) })}>
+            Random
+          </button>
+          <small className="muted">The layout of the public world. Copies already running keep theirs until everyone leaves; new ones use this.</small>
+        </label>
         <label className="adm-check">
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
           Registration open <small className="muted">New accounts can be created</small>

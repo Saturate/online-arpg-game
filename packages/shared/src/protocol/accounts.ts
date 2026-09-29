@@ -90,12 +90,14 @@ export interface ServerSettings {
   /** Shown to everyone as they enter the world; empty for none. */
   motd: string;
   registrationOpen: boolean;
+  /** Seed of the public world. Only new copies use a changed seed; running ones keep theirs. */
+  worldSeed: number;
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true };
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1 };
 
 /** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
-export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200 } as const;
+export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200, seedMax: 999_999 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
 export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | string {
@@ -111,6 +113,10 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     if (typeof value.motd !== 'string' || value.motd.length > SETTINGS_LIMITS.motdMax) return `motd must be text up to ${SETTINGS_LIMITS.motdMax} characters`;
     // Sent as a system chat line, so it gets the same cleaning as chat.
     out.motd = cleanChat(value.motd) ?? '';
+  }
+  if (value.worldSeed !== undefined) {
+    if (typeof value.worldSeed !== 'number' || !Number.isInteger(value.worldSeed) || value.worldSeed < 0 || value.worldSeed > SETTINGS_LIMITS.seedMax) return `worldSeed must be a whole number from 0 to ${SETTINGS_LIMITS.seedMax}`;
+    out.worldSeed = value.worldSeed;
   }
   for (const key of ['registrationOpen'] as const) {
     const v = value[key];

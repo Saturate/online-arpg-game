@@ -1934,6 +1934,10 @@ kbd {
 .chat-line.whisper b {
   color: #d59cff;
 }
+.chat-line.party,
+.chat-line.party b {
+  color: #8fe07a;
+}
 .chat-line.system {
   color: #9fd4ff;
   font-style: italic;
@@ -1970,4 +1974,19 @@ kbd {
 
 .chat.shifted {
   left: 380px;
+}
+.party-invite {
+  position: absolute;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 16px;
+  z-index: 30;
+  pointer-events: auto;
+}
+.party-invite p {
+  margin: 0 0 10px;
+}
+.menu-actions.row {
+  grid-auto-flow: column;
 }

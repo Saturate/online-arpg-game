@@ -7,7 +7,7 @@ import { CharacterPanel } from './CharacterPanel.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { ChatBox } from './ChatBox.js';
 import { DevPanel } from './DevPanel.js';
-import { EscMenu } from './EscMenu.js';
+import { EscMenu, PartyInvitePrompt } from './EscMenu.js';
 import { SettingsPanel } from './SettingsPanel.js';
 import { useSettings } from './settings.js';
 import { useUi } from './store.js';
@@ -62,6 +62,7 @@ export function GameView({ token, character, mode }: { token: string; character:
         <SigilEditor />
         <DebugOverlay />
         <EscMenu />
+        <PartyInvitePrompt />
         <TownEditorPanel />
         <DevPanel />
         <StagingPanel />

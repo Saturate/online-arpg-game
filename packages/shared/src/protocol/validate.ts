@@ -65,12 +65,16 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return typeof value.paused === 'boolean' ? { t: 'pause', paused: value.paused } : null;
     case 'townPortal':
       return { t: 'townPortal' };
-    case 'listInstances':
-      return { t: 'listInstances' };
-    case 'newInstance':
-      return { t: 'newInstance', seed: isNonNegativeInt(value.seed) && value.seed < 1_000_000_000 ? value.seed : null };
-    case 'joinInstance':
-      return typeof value.id === 'string' && /^[a-z0-9-]{1,24}$/.test(value.id) ? { t: 'joinInstance', id: value.id } : null;
+    case 'partyInvite':
+      return typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 24 ? { t: 'partyInvite', name: value.name } : null;
+    case 'partyAnswer':
+      return typeof value.accept === 'boolean' ? { t: 'partyAnswer', accept: value.accept } : null;
+    case 'partyLeave':
+      return { t: 'partyLeave' };
+    case 'partyWorld':
+      return { t: 'partyWorld' };
+    case 'publicWorld':
+      return { t: 'publicWorld' };
     case 'chat': {
       const text = cleanChat(value.text);
       return text ? { t: 'chat', text } : null;
@@ -130,7 +134,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'instances', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

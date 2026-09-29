@@ -457,8 +457,15 @@ export class Game {
       case 'staging':
         useUi.setState({ staging: msg });
         return;
-      case 'instances':
-        useUi.setState({ instances: msg.list });
+      case 'world':
+        useUi.setState({ world: msg.world });
+        return;
+      case 'party':
+        useUi.setState({ partyInfo: msg.party });
+        return;
+      case 'partyInvite':
+        useUi.setState({ partyInvite: msg.from });
+        useUi.getState().notify(`${msg.from} invited you to a party`);
         return;
       case 'snapshot':
         this.onSnapshot(msg);

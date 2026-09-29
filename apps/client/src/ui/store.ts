@@ -4,7 +4,8 @@ import {
   type CharacterSummary,
   type ClassId,
   type GameMode,
-  type InstanceInfo,
+  type PartyInfo,
+  type WorldInfo,
   type MapTheme,
   type ClientMessage,
   type CompileResult,
@@ -38,7 +39,7 @@ export interface DebugStats {
 
 export interface ChatLine {
   id: number;
-  kind: 'game' | 'whisper' | 'system';
+  kind: 'game' | 'party' | 'whisper' | 'system';
   from: string;
   to: string | null;
   text: string;
@@ -81,7 +82,11 @@ interface UiState {
   menuOpen: boolean;
   settingsOpen: boolean;
   minimapVisible: boolean;
-  instances: InstanceInfo[];
+  /** Which copy of the world this character is in. */
+  world: WorldInfo | null;
+  partyInfo: PartyInfo | null;
+  /** Name of whoever invited us, while the invite is unanswered. */
+  partyInvite: string | null;
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
   /** Open waypoint menu: the waypoint underfoot and every one this character has found. */
@@ -188,7 +193,9 @@ export const useUi = create<UiState>((set, get) => ({
   menuOpen: false,
   settingsOpen: false,
   minimapVisible: true,
-  instances: [],
+  world: null,
+  partyInfo: null,
+  partyInvite: null,
   staging: null,
   waypointMenu: null,
   banner: null,
@@ -271,9 +278,8 @@ export const useUi = create<UiState>((set, get) => ({
     set({ menuOpen: open });
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
-    if (open) s.send?.({ t: 'listInstances' });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen, characterOpen: !s.inventoryOpen })),

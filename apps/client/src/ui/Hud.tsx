@@ -173,14 +173,18 @@ export function Hud() {
 }
 
 export function Party() {
-  const party = useUi((s) => s.party);
+  const players = useUi((s) => s.party);
+  const partyInfo = useUi((s) => s.partyInfo);
   const wave = useUi((s) => s.wave);
   const theme = useUi((s) => s.roomTheme);
   const playerId = useUi((s) => s.playerId);
+  // Public worlds are shared with strangers, so the frame lists yourself and your party only.
+  const members = new Set(partyInfo?.members.map((m) => m.name) ?? []);
+  const shown = players.filter((p) => p.id === playerId || members.has(p.name));
   return (
     <aside className="party">
       {theme === 'arena' && <h3>Wave {wave}</h3>}
-      {party.map((p) => (
+      {shown.map((p) => (
         <div key={p.id} className={`party-row${p.dead ? ' dead' : ''}${p.id === playerId ? ' me' : ''}`}>
           <span className="dot" style={{ background: cssColor(CLASSES[p.cls].color) }} />
           <span className="pname">

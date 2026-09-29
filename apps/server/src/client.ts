@@ -5,6 +5,12 @@ import type { Room } from './room.js';
 /** The parts of a ws socket a client uses, so tests can pass a stand-in. */
 export type ClientSocket = Pick<WebSocket, 'readyState' | 'OPEN' | 'send' | 'close'>;
 
+/** What the room manager listens to on a connection; a ws socket fits, and so does a test double. */
+export interface GameSocket extends ClientSocket {
+  on(event: 'message', listener: (data: unknown, isBinary: boolean) => void): unknown;
+  on(event: 'close' | 'error', listener: () => void): unknown;
+}
+
 /** Generous for 20 Hz input, pings and editor clicks; anything above is a misbehaving client. */
 export const MAX_MESSAGES_PER_SECOND = 80;
 

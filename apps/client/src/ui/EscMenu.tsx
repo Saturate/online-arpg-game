@@ -8,15 +8,14 @@ export function EscMenu() {
   const paused = useUi((s) => s.paused);
   const canPause = useUi((s) => s.canPause);
   const roomName = useUi((s) => s.roomName);
-  const instances = useUi((s) => s.instances);
+  const world = useUi((s) => s.world);
+  const party = useUi((s) => s.partyInfo);
   const toggleMenu = useUi((s) => s.toggleMenu);
-  const seed = useUi((s) => s.roomSeed);
   const recording = useUi((s) => s.recording);
   const recordKey = useSettings((s) => s.bindings.record);
   const toggleRecording = useUi((s) => s.toggleRecording);
-  const [seedText, setSeedText] = useState('');
+  const [inviteName, setInviteName] = useState('');
   if (!open) return null;
-  const parsedSeed = /^\d{1,9}$/.test(seedText.trim()) ? Number(seedText.trim()) : null;
 
   const go = (msg: Parameters<typeof sendCommand>[0]) => {
     sendCommand(msg);
@@ -29,7 +28,7 @@ export function EscMenu() {
         <h2>{paused ? 'Paused' : 'Menu'}</h2>
         <p className="muted">
           {roomName}
-          {seed !== null ? ` (seed ${seed})` : ''}
+          {world ? `, ${world.name} (${world.players}/${world.capacity})` : ''}
           {paused ? '. The world is frozen until you resume.' : canPause ? '' : '. Others are here or this is town, so the world keeps running.'}
         </p>
         <div className="menu-actions">
@@ -39,21 +38,16 @@ export function EscMenu() {
           <button type="button" onClick={() => go({ t: 'townPortal' })}>
             Town portal
           </button>
-          <button type="button" onClick={() => go({ t: 'newInstance', seed: null })}>
-            New game (fresh world)
-          </button>
-          <form
-            className="seed-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (parsedSeed !== null) go({ t: 'newInstance', seed: parsedSeed });
-            }}
-          >
-            <input value={seedText} onChange={(e) => setSeedText(e.target.value)} placeholder="Seed" inputMode="numeric" aria-label="World seed" />
-            <button type="submit" disabled={parsedSeed === null}>
-              New game from seed
+          {party && world?.kind !== 'party' && (
+            <button type="button" onClick={() => go({ t: 'partyWorld' })}>
+              {party.hasWorld ? 'Join the party world' : 'Open a party world'}
             </button>
-          </form>
+          )}
+          {world?.kind === 'party' && (
+            <button type="button" onClick={() => go({ t: 'publicWorld' })}>
+              Back to the public world
+            </button>
+          )}
           {toggleRecording && (
             <button type="button" onClick={toggleRecording}>
               {recording ? 'Stop and save replay' : 'Record replay'} <kbd>{keyLabel(recordKey)}</kbd>
@@ -66,31 +60,70 @@ export function EscMenu() {
             Quit to title
           </button>
         </div>
-        {instances.length > 0 && (
-          <>
-            <h3>Games</h3>
-            <ul className="instances">
-              {instances.map((i) => (
-                <li key={i.id}>
-                  <span>
-                    {i.name}{' '}
-                    <span className="muted">
-                      {i.players.length}/{i.capacity}
-                      {i.players.length > 0 ? `: ${i.players.join(', ')}` : ''}
-                    </span>
-                  </span>
-                  <button type="button" disabled={i.yours || i.players.length >= i.capacity} onClick={() => go({ t: 'joinInstance', id: i.id })}>
-                    {i.yours ? 'You are here' : i.players.length >= i.capacity ? 'Full' : 'Join'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
+        <h3>Party</h3>
+        {party ? (
+          <ul className="instances">
+            {party.members.map((m) => (
+              <li key={m.name}>
+                <span>
+                  {m.name}
+                  {m.name === party.leader ? <span className="muted"> (leader)</span> : null}
+                </span>
+                <span className="muted">{m.online ? 'online' : 'offline'}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted small">Invite someone to play in the same world and share a party world of your own.</p>
+        )}
+        <form
+          className="seed-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!inviteName.trim()) return;
+            sendCommand({ t: 'partyInvite', name: inviteName.trim() });
+            setInviteName('');
+          }}
+        >
+          <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Character name" maxLength={24} aria-label="Invite to party" />
+          <button type="submit" disabled={!inviteName.trim()}>
+            Invite
+          </button>
+        </form>
+        {party && (
+          <button type="button" onClick={() => go({ t: 'partyLeave' })}>
+            Leave party
+          </button>
         )}
         <p className="muted small">
           <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>Alt</kbd> show all loot
         </p>
       </section>
+    </div>
+  );
+}
+
+/** The invite prompt, like D2's party request, answered with a click or /accept and /decline. */
+export function PartyInvitePrompt() {
+  const from = useUi((s) => s.partyInvite);
+  if (!from) return null;
+  const answer = (accept: boolean) => {
+    sendCommand({ t: 'partyAnswer', accept });
+    useUi.setState({ partyInvite: null });
+  };
+  return (
+    <div className="panel party-invite" role="alertdialog" aria-label="Party invite">
+      <p>
+        <b>{from}</b> invites you to a party.
+      </p>
+      <div className="menu-actions row">
+        <button type="button" className="primary" onClick={() => answer(true)}>
+          Join
+        </button>
+        <button type="button" onClick={() => answer(false)}>
+          Decline
+        </button>
+      </div>
     </div>
   );
 }

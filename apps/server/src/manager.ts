@@ -4,6 +4,7 @@ import {
   INSTANCE_CAPACITY,
   jsonCodec,
   parseClientMessage,
+  SETTINGS_LIMITS,
   SIM,
   WILDS,
   ZONE_IDS,
@@ -15,16 +16,17 @@ import {
   type DungeonRef,
   type MapDescriptor,
   type PlayerSave,
+  type PartyInfo,
   type PortalRequest,
   type Role,
   type TownLayout,
   type Vec2,
+  type WorldInfo,
   type ZoneId,
 } from '@rune/shared';
-import type { WebSocket } from 'ws';
 import type { AccountStore } from './accounts.js';
 import { roleOf, type AdminHooks } from './http.js';
-import { Client, MAX_MESSAGES_PER_SECOND } from './client.js';
+import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { Room } from './room.js';
 import { Staging } from './staging.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
@@ -44,15 +46,28 @@ const CHAT_WINDOW_MS = 5000;
 const WAYPOINT_REACH = 120;
 
 /**
- * One party's game, D2 style: its own town and zones, seeded once, for up to six players. Zone rooms
- * are created when someone first walks in and closed when abandoned; they regenerate identically
- * from the instance seed, with fresh monsters, like re-entering an area.
+ * One copy of the world: its own town and zones, seeded once, for up to INSTANCE_CAPACITY players.
+ * Public copies all use the owner's world seed and fill up in turn; a party copy has a random seed
+ * of its own and only lets the party in. Zone rooms are created when someone first walks in and
+ * closed when abandoned; they regenerate identically from the seed, with fresh monsters.
  */
 interface Instance {
   id: string;
   seed: number;
-  host: string;
+  kind: 'public' | 'party';
+  name: string;
   rooms: Set<string>;
+  /** The party a party world belongs to. */
+  partyId: string | null;
+}
+
+/** Players who travel together. Kept by account, in memory, so a reconnect stays in the party. */
+interface Party {
+  id: string;
+  leader: number;
+  /** Account id to the character name last seen, for the member list. */
+  members: Map<number, string>;
+  instanceId: string | null;
 }
 
 /**
@@ -63,6 +78,10 @@ export class RoomManager implements AdminHooks {
   private readonly rooms = new Map<string, Room>();
   private readonly clients = new Map<string, Client>();
   private readonly instances = new Map<string, Instance>();
+  private readonly parties = new Map<string, Party>();
+  /** Invited account id to the inviting account id. */
+  private readonly invites = new Map<number, number>();
+  private nextPartyId = 1;
   /** Ready-check state per antechamber, keyed by the staging room id. */
   private readonly stagings = new Map<string, Staging>();
   private readonly arena: Room;
@@ -161,19 +180,30 @@ export class RoomManager implements AdminHooks {
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       memoryMb: Math.round(process.memoryUsage().rss / 1048576),
       online,
-      games: [...this.instances.values()].map((i) => ({ id: i.id, host: i.host, players: this.membersOf(i).length, rooms: i.rooms.size })),
+      games: [...this.instances.values()].map((i) => ({ id: i.id, host: i.name, players: this.membersOf(i).length, rooms: i.rooms.size })),
       rooms: [...this.rooms.values()].map((r) => ({ id: r.id, name: r.name, players: r.members.size, monsters: r.sim.world.enemy.size })),
     };
   }
 
   // -------------------------------------------------------------------------------------------
 
-  private newInstance(host: string, seed: number | null = null): Instance {
-    // Random seeds only need to differ between instances; a mixed counter keeps layouts varied.
-    const s = seed ?? (Math.imul(this.seedCounter++, 2654435761) >>> 0) % 1_000_000;
-    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed: s, host, rooms: new Set() };
+  private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null = null): Instance {
+    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId };
     this.instances.set(inst.id, inst);
     return inst;
+  }
+
+  /** The first public copy on the current world seed with room, or a new one. */
+  private publicInstance(): Instance {
+    const seed = this.current.worldSeed;
+    const open = [...this.instances.values()].find((i) => i.kind === 'public' && i.seed === seed && this.membersOf(i).length < INSTANCE_CAPACITY);
+    if (open) return open;
+    const n = [...this.instances.values()].filter((i) => i.kind === 'public').length + 1;
+    return this.newInstance('public', seed, `Public world ${n}`);
+  }
+
+  private partyInstance(party: Party): Instance | null {
+    return party.instanceId === null ? null : (this.instances.get(party.instanceId) ?? null);
   }
 
   private zoneDesc(inst: Instance, zone: ZoneId): Extract<MapDescriptor, { kind: 'zone' }> {
@@ -237,7 +267,14 @@ export class RoomManager implements AdminHooks {
       staging.broadcast(run?.members.size ?? 0);
     }
     for (const inst of [...this.instances.values()]) {
-      if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) this.instances.delete(inst.id);
+      if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) {
+        this.instances.delete(inst.id);
+        const party = inst.partyId === null ? undefined : this.parties.get(inst.partyId);
+        if (party?.instanceId === inst.id) {
+          party.instanceId = null;
+          this.sendParty(party);
+        }
+      }
     }
   }
 
@@ -276,7 +313,7 @@ export class RoomManager implements AdminHooks {
     for (const m of [...staging.room.members.values()]) this.move(m.client, run);
   }
 
-  connect(socket: WebSocket): void {
+  connect(socket: GameSocket): void {
     const client = new Client(`c${this.nextClientId++}`, socket);
     this.clients.set(client.id, client);
     socket.on('message', (data, isBinary) => this.onMessage(client, data, isBinary));
@@ -284,6 +321,10 @@ export class RoomManager implements AdminHooks {
       const room = client.room;
       if (room) this.persist(client, room, room.remove(client));
       this.clients.delete(client.id);
+      const inst = this.instanceOf(client);
+      if (inst) this.sendWorldToAll(inst);
+      const party = this.partyOf(client.accountId);
+      if (party) this.sendParty(party);
     });
     socket.on('error', () => socket.close());
   }
@@ -321,23 +362,22 @@ export class RoomManager implements AdminHooks {
       case 'townPortal':
         this.goHome(client);
         return;
-      case 'newInstance': {
-        const inst = this.newInstance(this.playerName(client), msg.seed);
-        client.instanceId = inst.id;
-        this.move(client, this.zoneRoom(inst, HOME_ZONE));
+      case 'partyInvite':
+        this.partyInvite(client, msg.name);
         return;
-      }
-      case 'joinInstance': {
-        const inst = this.instances.get(msg.id);
-        if (!inst) client.send({ t: 'notice', text: 'That game has closed' });
-        else if (inst.id === client.instanceId) client.send({ t: 'notice', text: 'You are already in that game' });
-        else if (this.membersOf(inst).length >= INSTANCE_CAPACITY) client.send({ t: 'notice', text: `That game is full (${INSTANCE_CAPACITY} players)` });
-        else {
-          client.instanceId = inst.id;
-          this.move(client, this.zoneRoom(inst, HOME_ZONE));
-        }
+      case 'partyAnswer':
+        this.partyAnswer(client, msg.accept);
         return;
-      }
+      case 'partyLeave':
+        this.partyLeave(client);
+        return;
+      case 'partyWorld':
+        this.goPartyWorld(client);
+        return;
+      case 'publicWorld':
+        if (this.instanceOf(client)?.kind === 'public') this.system(client, 'You are already in the public world');
+        else this.enterInstance(client, this.publicInstance());
+        return;
       case 'useWaypoint':
         this.useWaypoint(client, msg.zone);
         return;
@@ -374,20 +414,6 @@ export class RoomManager implements AdminHooks {
         client.send({ t: 'notice', text: 'Town saved' });
         return;
       }
-      case 'listInstances':
-        client.send({
-          t: 'instances',
-          // Empty games are about to close and cannot be met in, so they are not offered.
-          list: [...this.instances.values()].filter((inst) => this.membersOf(inst).length > 0).map((inst) => ({
-            id: inst.id,
-            name: `${inst.host}'s game`,
-            seed: inst.seed,
-            players: this.membersOf(inst).map((c) => this.playerName(c)),
-            capacity: INSTANCE_CAPACITY,
-            yours: inst.id === client.instanceId,
-          })),
-        });
-        return;
       default:
         client.room?.handle(client, msg);
     }
@@ -400,11 +426,130 @@ export class RoomManager implements AdminHooks {
     return p?.name ?? '?';
   }
 
-  /** The instance's town, or a fresh game if the old one is gone (after a restart, say). */
+  /** The town of the world the player is in, or of the public world if that copy is gone. */
   private goHome(client: Client): void {
-    const inst = this.instanceOf(client) ?? this.newInstance(this.playerName(client));
+    this.enterInstance(client, this.instanceOf(client) ?? this.publicInstance());
+  }
+
+  private enterInstance(client: Client, inst: Instance): void {
+    const before = this.instanceOf(client);
     client.instanceId = inst.id;
     this.move(client, this.zoneRoom(inst, HOME_ZONE));
+    if (before && before !== inst) this.sendWorldToAll(before);
+    this.sendWorldToAll(inst);
+  }
+
+  // Worlds and parties ------------------------------------------------------------------------
+
+  private worldInfo(inst: Instance): WorldInfo {
+    return { kind: inst.kind, name: inst.name, players: this.membersOf(inst).length, capacity: INSTANCE_CAPACITY };
+  }
+
+  private sendWorldToAll(inst: Instance): void {
+    const world = this.worldInfo(inst);
+    for (const c of this.membersOf(inst)) c.send({ t: 'world', world });
+  }
+
+  private partyOf(accountId: number | null): Party | null {
+    if (accountId === null) return null;
+    for (const p of this.parties.values()) if (p.members.has(accountId)) return p;
+    return null;
+  }
+
+  private onlineMembers(party: Party): Client[] {
+    return [...this.clients.values()].filter((c) => c.accountId !== null && c.characterId !== null && party.members.has(c.accountId));
+  }
+
+  private sendParty(party: Party): void {
+    const online = new Set(this.onlineMembers(party).map((c) => c.accountId));
+    const info: PartyInfo = {
+      leader: party.members.get(party.leader) ?? '?',
+      members: [...party.members].map(([acc, name]) => ({ name, online: online.has(acc) })),
+      hasWorld: this.partyInstance(party) !== null,
+    };
+    for (const c of this.onlineMembers(party)) c.send({ t: 'party', party: info });
+  }
+
+  private partyInvite(client: Client, name: string): void {
+    const me = client.accountId;
+    if (me === null) return;
+    const target = [...this.clients.values()].find((c) => c.characterId !== null && this.playerName(c).toLowerCase() === name.trim().toLowerCase());
+    if (!target || target.accountId === null) return this.system(client, `${name} is not online`);
+    if (target.accountId === me) return this.system(client, 'You cannot invite yourself');
+    if (this.partyOf(target.accountId)) return this.system(client, `${this.playerName(target)} is already in a party`);
+    let party = this.partyOf(me);
+    if (party && party.members.size >= INSTANCE_CAPACITY) return this.system(client, `Your party is full (${INSTANCE_CAPACITY})`);
+    if (!party) {
+      party = { id: `p${this.nextPartyId++}`, leader: me, members: new Map([[me, this.playerName(client)]]), instanceId: null };
+      this.parties.set(party.id, party);
+    }
+    this.invites.set(target.accountId, me);
+    target.send({ t: 'partyInvite', from: this.playerName(client) });
+    this.system(client, `Invited ${this.playerName(target)} to your party`);
+    this.sendParty(party);
+  }
+
+  private partyAnswer(client: Client, accept: boolean): void {
+    const me = client.accountId;
+    if (me === null) return;
+    const from = this.invites.get(me);
+    this.invites.delete(me);
+    const party = from === undefined ? null : this.partyOf(from);
+    const inviter = from === undefined ? undefined : [...this.clients.values()].find((c) => c.accountId === from);
+    if (!party) return this.system(client, 'That invite is no longer open');
+    if (!accept) {
+      if (inviter) this.system(inviter, `${this.playerName(client)} declined your invite`);
+      return;
+    }
+    if (this.partyOf(me)) return this.system(client, 'Leave your party first');
+    if (party.members.size >= INSTANCE_CAPACITY) return this.system(client, 'That party is full');
+    party.members.set(me, this.playerName(client));
+    this.sendParty(party);
+    for (const c of this.onlineMembers(party)) if (c !== client) this.system(c, `${this.playerName(client)} joined the party`);
+    // Joining a party means playing together, so go to where the inviter is if there is room.
+    const there = inviter ? this.instanceOf(inviter) : null;
+    if (there && there !== this.instanceOf(client) && this.membersOf(there).length < INSTANCE_CAPACITY) this.enterInstance(client, there);
+  }
+
+  private partyLeave(client: Client): void {
+    const me = client.accountId;
+    const party = this.partyOf(me);
+    if (me === null || !party) return this.system(client, 'You are not in a party');
+    const inPartyWorld = this.instanceOf(client)?.partyId === party.id;
+    party.members.delete(me);
+    client.send({ t: 'party', party: null });
+    for (const c of this.onlineMembers(party)) this.system(c, `${this.playerName(client)} left the party`);
+    if (party.members.size <= 1) {
+      // A party of one is no party; the last member keeps playing where they are.
+      for (const c of this.onlineMembers(party)) c.send({ t: 'party', party: null });
+      this.parties.delete(party.id);
+      const world = this.partyInstance(party);
+      if (world) world.partyId = null;
+    } else {
+      if (party.leader === me) party.leader = [...party.members.keys()][0] ?? me;
+      this.sendParty(party);
+    }
+    // A party world is for the party only.
+    if (inPartyWorld) this.enterInstance(client, this.publicInstance());
+  }
+
+  /** The leader opens the party's own world and brings everyone online; others follow into it. */
+  private goPartyWorld(client: Client): void {
+    const party = this.partyOf(client.accountId);
+    if (!party) return this.system(client, 'Invite someone first: /invite name');
+    let world = this.partyInstance(party);
+    if (!world) {
+      if (party.leader !== client.accountId) return this.system(client, 'Only the party leader can open a party world');
+      // Random, from the server: seeds are never chosen by players.
+      const seed = (Math.imul(this.seedCounter++, 2654435761) >>> 0) % (SETTINGS_LIMITS.seedMax + 1);
+      world = this.newInstance('party', seed, `${party.members.get(party.leader) ?? 'Party'}'s party world`, party.id);
+      party.instanceId = world.id;
+      for (const c of this.onlineMembers(party)) this.enterInstance(c, world);
+      this.sendParty(party);
+      return;
+    }
+    if (this.instanceOf(client) === world) return this.system(client, 'You are already in the party world');
+    this.enterInstance(client, world);
   }
 
   /** Rebuilds every town with the new layout and carries everyone inside over. */
@@ -497,11 +642,31 @@ export class RoomManager implements AdminHooks {
         case 'who': {
           const inst = this.instanceOf(client);
           const names = inst ? this.membersOf(inst).map((c) => this.playerName(c)) : [from];
-          this.system(client, `In your game: ${names.join(', ')}`);
+          this.system(client, `In this world: ${names.join(', ')}`);
+          return;
+        }
+        case 'invite':
+          this.partyInvite(client, rest.join(' '));
+          return;
+        case 'accept':
+          this.partyAnswer(client, true);
+          return;
+        case 'decline':
+          this.partyAnswer(client, false);
+          return;
+        case 'leave':
+          this.partyLeave(client);
+          return;
+        case 'p':
+        case 'party': {
+          const party = this.partyOf(client.accountId);
+          const body = rest.join(' ').trim();
+          if (!party) this.system(client, 'You are not in a party');
+          else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body });
           return;
         }
         case 'help':
-          this.system(client, 'Enter chats to your game. /w name message whispers anyone online. /who lists your game.');
+          this.system(client, 'Enter chats to your world. /p message to your party, /w name message whispers, /invite name, /accept, /decline, /leave, /who.');
           return;
         default:
           this.system(client, `Unknown command /${cmd}. Try /help`);
@@ -571,14 +736,19 @@ export class RoomManager implements AdminHooks {
     client.accountName = account.username;
     client.role = roleOf(account, this.owners);
     client.characterId = character.id;
-    // Everyone starts in a game of their own, like D2; friends join it from the menu.
-    const inst = this.newInstance(character.name);
+    // Back into the party's world if it is still running and has room, otherwise the public world.
+    const party = this.partyOf(account.id);
+    if (party) party.members.set(account.id, character.name);
+    const partyWorld = party ? this.partyInstance(party) : null;
+    const inst = partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance();
     client.instanceId = inst.id;
     const room = mode === 'arena' ? this.arena : this.zoneRoom(inst, HOME_ZONE);
     room.add(client, character.classId, character.name, character.save ?? undefined);
     // A brand new character gets its starter kit on first entry; store it right away.
     if (!character.save) this.persist(client, room, room.exportMember(client));
     if (this.current.motd) this.system(client, this.current.motd);
+    this.sendWorldToAll(inst);
+    if (party) this.sendParty(party);
   }
 
   private loadSave(client: Client): PlayerSave | null {

@@ -160,7 +160,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 ## Instances, seamless town and waypoints
 
-- **Instances:** no global town. Every login starts a game of its own, D2 style, holding up to 6 players (`INSTANCE_CAPACITY`). Friends join from the Esc menu's games list. A shared hub can come later.
+- **Worlds:** no global town, but no private games by default either. Everyone lands in a shared public copy of the world on the owner's world seed (admin Settings), up to 8 players (`INSTANCE_CAPACITY`); when all are full a new copy opens. Players never pick seeds. A party (invite by name, `/invite`) can open a party world with a random server-picked seed that only the party can enter.
 - **Zones:** an instance is a chain of six zones with rising level bands, from Mossy Barrens (1 to 3) to The Hollows (20 to 25). Each zone room is created when someone first enters it and closed when abandoned. Seeds come from the instance seed, so a zone regenerates identically with fresh monsters, like re-entering a D2 area.
 - **Seamless town:** the town layout sits at the origin of the home zone's map and is marked as a safe zone. Its fenced gates open straight onto the wilderness, so leaving town is a walk with no load. The layout stays at the origin so the town editor keeps working in town coordinates.
 - **Safe zone rule:** it lives in `isTargetable`, the one check both monster aggro and damage go through. Monsters lose their target at the gate and leash home. Packs and dungeon entrances keep outside aggro range of the town.

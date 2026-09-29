@@ -47,5 +47,5 @@ export function previousZone(id: ZoneId): ZoneId | null {
   return i > 0 ? (ZONE_IDS[i - 1] ?? null) : null;
 }
 
-/** Most players an instance holds, like a D2 game. */
-export const INSTANCE_CAPACITY = 6;
+/** Most players a world holds; the public world opens another copy once one is full. */
+export const INSTANCE_CAPACITY = 8;

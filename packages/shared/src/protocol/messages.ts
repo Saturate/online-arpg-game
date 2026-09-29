@@ -40,14 +40,17 @@ export type ClientMessage =
   | { t: 'pause'; paused: boolean }
   /** Leave the current room for town, like a D2 town portal. */
   | { t: 'townPortal' }
-  | { t: 'listInstances' }
-  | { t: 'joinInstance'; id: string }
+  /** Invite an online player (by character name) to your party; creates the party if needed. */
+  | { t: 'partyInvite'; name: string }
+  | { t: 'partyAnswer'; accept: boolean }
+  | { t: 'partyLeave' }
+  /** Go to the party's own world (the leader takes everyone online along), or back to the public one. */
+  | { t: 'partyWorld' }
+  | { t: 'publicWorld' }
   /** Chat to your game, or a command such as `/w name message`. */
   | { t: 'chat'; text: string }
   /** Travel from the waypoint the player stands on to another unlocked one. */
   | { t: 'useWaypoint'; zone: ZoneId }
-  /** Enter a fresh Wilds instance. A given seed reproduces a layout exactly; omit it for a random one. */
-  | { t: 'newInstance'; seed: number | null }
   | ({ t: 'input' } & InputFrame)
   | { t: 'ping'; clientTime: number }
   | { t: 'inscribe'; uid: ItemUid; runes: RuneId[] }
@@ -202,15 +205,19 @@ export interface Snapshot {
   paused: boolean;
 }
 
-/** A joinable game: one party's town and zones, up to INSTANCE_CAPACITY players. */
-export interface InstanceInfo {
-  id: string;
+/** The copy of the world the player is in: a shared public one, or their party's own. */
+export interface WorldInfo {
+  kind: 'public' | 'party';
   name: string;
-  seed: number;
-  players: string[];
+  players: number;
   capacity: number;
-  /** The game the asking player is in. */
-  yours: boolean;
+}
+
+export interface PartyInfo {
+  leader: string;
+  members: { name: string; online: boolean }[];
+  /** The party has its own world running (someone is in it). */
+  hasWorld: boolean;
 }
 
 export interface InventoryMessage {
@@ -251,9 +258,11 @@ export type ServerMessage =
       /** Server build; a client from another build reloads itself. 'dev' disables the check. */
       build: string;
     }
-  | { t: 'instances'; list: InstanceInfo[] }
-  /** `game` reaches everyone in your game; `whisper` one player; `system` is the server talking. */
-  | { t: 'chat'; kind: 'game' | 'whisper' | 'system'; from: string; to: string | null; text: string }
+  | { t: 'world'; world: WorldInfo }
+  | { t: 'party'; party: PartyInfo | null }
+  | { t: 'partyInvite'; from: string }
+  /** `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system` is the server. */
+  | { t: 'chat'; kind: 'game' | 'party' | 'whisper' | 'system'; from: string; to: string | null; text: string }
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
   | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
   | StagingMessage
