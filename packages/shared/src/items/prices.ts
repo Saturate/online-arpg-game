@@ -44,9 +44,11 @@ export function buyPrice(item: Item): number {
 }
 
 /**
- * Gold the forge charges to insert one of this rune, bound or not, from its one-rune value times
- * FORGE.insertPriceFactor. Bound runes cost the same as unbound ones: the forge's work is the same.
+ * Gold the forge charges to insert one of this rune: its one-rune value times
+ * FORGE.insertPriceFactor. Bound runes are free: they cannot be sold, so a price protects nothing,
+ * and a new character with no gold must be able to put its starter runes back.
  */
 export function forgeInsertPrice(rune: RuneItem): number {
+  if (isBound(rune)) return 0;
   return Math.max(0, Math.round(runeValue(rune) * FORGE.insertPriceFactor));
 }

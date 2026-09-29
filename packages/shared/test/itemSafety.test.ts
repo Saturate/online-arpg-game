@@ -224,7 +224,8 @@ describe('item safety', () => {
     expect(sim.inscribe(pid, sigil.uid, [{ from: 'keep', index: 0 }, { from: 'keep', index: 1 }, fire])).toBeNull();
     expect(stashed.count).toBe(4);
     expect(runeStacks(p, 'fire')).toEqual([]);
-    expect(p.gold).toBe(1000 - 3 * forgeInsertPrice(free));
+    // The bound one was free.
+    expect(p.gold).toBe(1000 - 2 * forgeInsertPrice(free));
   });
 
   it('inscribe takes a rolled rune from the bag or the stash, each uid at most once', () => {
@@ -431,6 +432,25 @@ describe('item safety', () => {
     expect(p.sigils[3]?.compiled.ok && p.sigils[3].compiled.persistent).toBe(true);
   });
 
+
+  it('a character with no gold can take a bound starter rune out and put it back', () => {
+    const { sim, pid, p, pos } = town();
+    standAt(pos, sim.mapDef.forge);
+    p.gold = 0;
+    const eq = p.sigils[0];
+    const starter = eq ? p.items.get(eq.uid) : undefined;
+    if (starter?.kind !== 'sigil') throw new Error('no starter sigil');
+    const last = starter.slots.at(-1);
+    if (!last?.bound) throw new Error('starter runes should be bound');
+    const before = JSON.stringify(starter.slots.map((r) => [r.rune, r.affixes, r.bound]));
+    const keep: RuneRef[] = starter.slots.slice(0, -1).map((_, i) => ({ from: 'keep', index: i }));
+    expect(sim.inscribe(pid, starter.uid, keep)).toBeNull();
+    const back: RuneRef = last.affixes.length > 0 ? { from: 'rolled', uid: last.uid } : { from: 'plain', rune: last.rune };
+    expect(forgeInsertPrice(last)).toBe(0);
+    expect(sim.inscribe(pid, starter.uid, [...keep, back])).toBeNull();
+    expect(JSON.stringify(starter.slots.map((r) => [r.rune, r.affixes, r.bound]))).toBe(before);
+    expect(p.gold).toBe(0);
+  });
 
   it('prices rolled runes above plain ones and sigils by their runes', () => {
     const { sim } = town();

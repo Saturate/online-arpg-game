@@ -197,8 +197,27 @@ function randomRefs(rng: Rng, w: World, sigil: Item | undefined): RuneRef[] {
 function expectedCost(p: PlayerComp, refs: readonly RuneRef[], free: boolean): number {
   if (free) return 0;
   let cost = 0;
+  // Plain runes come off bag stacks first, bound ones first, then the stash; bound ones are free.
+  const draws = new Map<RuneId, boolean[]>();
+  const drawOrder = (rune: RuneId): boolean[] => {
+    const order: boolean[] = [];
+    for (const cells of [p.inventory, p.stash]) {
+      const stacks = [...new Set(cells)].flatMap((u) => {
+        const it = u === null ? undefined : p.items.get(u);
+        return it?.kind === 'rune' && it.affixes.length === 0 && it.rune === rune ? [it] : [];
+      });
+      stacks.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+      for (const st of stacks) for (let i = 0; i < st.count; i++) order.push(st.bound === true);
+    }
+    return order;
+  };
   for (const r of refs) {
-    if (r.from === 'plain') cost += forgeInsertPrice(createRune(0, r.rune));
+    if (r.from === 'plain') {
+      const order = draws.get(r.rune) ?? drawOrder(r.rune);
+      draws.set(r.rune, order);
+      const bound = order.shift() ?? false;
+      if (!bound) cost += forgeInsertPrice(createRune(0, r.rune));
+    }
     if (r.from === 'rolled') {
       const it = p.items.get(r.uid);
       if (it?.kind === 'rune') cost += forgeInsertPrice(it);
