@@ -101,9 +101,9 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 ## World mode, town editor and prebaked skills (after M6, approved)
 
-**Modes.** The title screen picks World or Arena. World starts in the town (Emberwatch), a shared safe room with no damage and no monsters. Arena is the endless-wave test room and the only place the sigil editor works.
+**One way in.** Everyone enters the world, in the town (Emberwatch), a shared safe area with no damage and no monsters. The title screen had a World/Arena choice until the Arena became a zone reached from town (see "The Arena" below).
 
-**Rooms.** The server's `RoomManager` hosts the town, the arena, and any number of Wilds instances. Portals and the Esc menu move a character (class, name, items, equipment, stance) between rooms, in memory only. Each Wilds instance has its own seed and therefore its own layout. Empty instances close after 5 minutes. The town portal takes you back to your last instance if it is still open. The Esc menu can open a random instance, open a typed seed, or join any open instance.
+**Rooms.** The server's `RoomManager` hosts every room, each inside a world instance: town and zones, dungeon and Arena antechambers and their runs, and builders' sandboxes. Portals and the Esc menu move a character (class, name, items, equipment, stance) between rooms, in memory only. Each Wilds instance has its own seed and therefore its own layout. Empty instances close after 5 minutes. The town portal takes you back to your last instance if it is still open. The Esc menu can open a random instance, open a typed seed, or join any open instance.
 
 **Maps travel as descriptors, not geometry.** The welcome message carries `{ kind, seed }` for the Wilds and the full layout for the town. The client regenerates the identical map with the shared generator, so collision prediction stays exact.
 
@@ -139,7 +139,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Characters:** 12 per account, with names unique server-wide (case-insensitive). Every query is scoped by account id.
 - **One character online per account:** a second login ends the first session after saving it, which stops item duplication across two windows.
 - **Save points:** first entry, every room change, disconnect, a 30 s autosave, and shutdown.
-- **Arena progress is saved:** it used to be a throwaway sandbox, which cost players their levels without warning. It is saved like the world now, free sigil inscriptions included; that makes inscribing a real feature for now rather than a test bench. Revisit if runes should cost something.
+- **Arena runs are saved like any room:** XP earned in a run is kept, and characters move in and out through the same save-on-move path as every other room change.
 - **Not built yet:** TLS (passwords travel in the clear over plain http/ws until the deploy terminates TLS), password reset, account deletion, save versioning and migration (an unreadable save starts the character fresh and logs a warning), and trusting `X-Forwarded-For` behind a proxy.
 
 ## Dungeons and the antechamber
@@ -208,13 +208,25 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Loot pace:** normal monsters drop 8% of the time; tier weights lean common and magic (relic about 1 in 300 normal drops). Starter items are bound and can't be sold.
 - **Stations open on a click:** the stash, trader, forge and waypoints open when clicked, after the hero walks into reach, and close when you walk away, as in D2. Touching a waypoint still activates it; its menu waits for the click. The forge opens straight into the sigil editor.
 - **Trader:** the stall nearest the town spawn. Only relics ask before selling (an in-game prompt, not a browser dialog); everything else sells on the right-click. Sell for gold (tier and item level), buy at 3x from one shelf shared by the whole server; 50 items, the oldest destroyed when a 51st is sold. The shelf, the character and the stash are saved in one transaction per trade.
-- **Runes and the forge:** runes drop (a quarter of drops, forms and elements common, triggers rare) and stack 20 to a cell, and a stack sells for its count. The forge is the weapon rack nearest the spawn; there the sigil editor spends runes from the bag and returns ones taken out. Each sigil slot remembers whether its rune was bound, so a rune comes back out exactly as it went in. Builders keep a free test bench on the Arena and flat maps; runes put in there are bound, and only unbound runes (paid for at the forge, or from a drop) come back out of it. A rune that does not fit back in the bag goes to pending, never lost.
+- **Runes and the forge:** runes drop (a quarter of drops, forms and elements common, triggers rare) and stack 20 to a cell, and a stack sells for its count. The forge is the weapon rack nearest the spawn; there the sigil editor spends runes from the bag and returns ones taken out. Each sigil slot remembers whether its rune was bound, so a rune comes back out exactly as it went in. Builders keep a free test bench in their private sandbox (`/sandbox`); runes put in there are bound, and only unbound runes (paid for at the forge, or from a drop) come back out of it. A rune that does not fit back in the bag goes to pending, never lost.
 - **Bound items** (starter kit, dev items, and sigils holding bound runes) cannot be sold, dropped or put in the account stash, so a new character cannot farm them for another.
 - **Dev tools:** items given with them are bound, and monsters spawned with them drop nothing and give no XP. Monsters a shaman raised pay out nothing the second time.
 - **Adding to the bag is all or nothing:** a purchase that does not fit tops up no stacks. Ground pickups still take part of a rune stack, since they shrink the real ground item.
 - **Item ids** are unique across the server (each room takes its own range), so a command carrying an id from the room a player just left cannot touch a different item.
 - **Pickup** needs a clear line (walls and rocks block, water does not) and allows two input frames of extra reach for a request that overtakes its inputs.
 - **Warband:** 24 slots, a ceiling no build reaches; spirit is the real limit. Binders start with one minion (Zombie Brute).
+
+## The Arena
+
+- **A zone, reached from town:** the town's Arena portal leads to the Arena gate, one per world instance, an antechamber with the dungeon ready check (R). At the countdown everyone inside goes into a fresh run room. The staging code serves both kinds; dungeon gates still let latecomers walk into a live run.
+- **No latecomers:** runs are scored, so nobody joins one after it starts: the gate's pit portal only says to ready up, `/goto` refuses, and a reconnect lands in town. A gate can start another run while one is live; each run is its own room.
+- **Rules are room settings, not map checks:** the server calls `startArena` on a new run's simulation, and that state switches on the Arena waves, scoring, one life, no drops and reduced XP. Other rooms carry `RoomRules` (free bench, map waves).
+- **Waves:** the first comes 3 s after the start. Each wave brings more monsters (6, plus 2 a wave, up to 40, plus 60% of that per extra living player), a growing chance of rares (5% to 45%) and of whole biome packs with a rare leader (0 to 40%), and monster level starting at the party's average level, rising half a level per wave. Every fifth wave adds the biome's boss. A 5 s breather follows each cleared wave. Numbers live in `ARENA` in `config/sim.ts`.
+- **Score:** each kill scores the monster's XP value before the level-gap penalty (so outlevelling the waves does not shrink it), and clearing wave n adds 40 x n. Monsters that pay no rewards (raised corpses) score nothing. Live in the party frame, and on a score screen at the end.
+- **Rewards:** no items and no gold drop in a run; kill XP is 50%.
+- **One life:** the fallen stay down and watch from where they fell (spectating reaches as far as the interest radius, 1100 units). The run ends when everyone inside is down or has left; after 10 s on the score screen, everyone still there goes back to the gate on their feet. Runs never pause and refuse dev commands.
+- **Leaderboard:** SQLite table `arena_runs`, one row per finished run that reached wave 1: season, names, classes, party size, score, wave, seconds, finish time. Names are copied in, so the board keeps its history. Seasons are calendar months in UTC (`YYYY-MM`). Solo is a party of one, party is two or more; ties go to whoever finished first. `GET /api/arena/leaderboard?season=` is public (it shows names and scores only) under the normal rate limit. The champions' stone in the gate hall, the Arena party panel and the admin page's Arena tab show the season's top 10 of each board and every earlier season's winners.
+- **Builders' sandbox:** the free bench left the Arena, where it would be cheating. Builders open a private flat room with `/sandbox` (again, or the town portal, to leave), with the bench and F3 dev tools and no waves, so it is not a private farm. Saved like anywhere else; `/goto` will not follow a builder into it.
 
 ## Look and world
 
