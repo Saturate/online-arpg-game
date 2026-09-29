@@ -42,7 +42,8 @@ export function reloadForUpdate(serverBuild: string, resume: Resume): boolean {
   if (serverBuild === 'dev' || CLIENT_BUILD === 'dev' || serverBuild === CLIENT_BUILD) return false;
   if (read(ATTEMPT_KEY) === serverBuild) return false;
   write(ATTEMPT_KEY, serverBuild);
-  write(RESUME_KEY, JSON.stringify(resume));
+  // A background tab only picks up the new build; resuming would take the game from the tab in use.
+  write(RESUME_KEY, document.hidden ? null : JSON.stringify(resume));
   allowLeave();
   location.reload();
   return true;

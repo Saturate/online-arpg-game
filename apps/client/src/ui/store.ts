@@ -62,7 +62,8 @@ export interface Notice {
 }
 
 interface UiState {
-  phase: 'login' | 'characters' | 'playing';
+  /** 'elsewhere': another tab took the game over; this one waits to be told to play here. */
+  phase: 'login' | 'characters' | 'playing' | 'elsewhere';
   /** Session token from the HTTP login, kept in localStorage so a reload stays logged in. */
   token: string | null;
   username: string;

@@ -2,6 +2,7 @@ import type { CharacterSummary, GameMode } from '@rune/shared';
 import { useEffect, useRef } from 'react';
 import { Game } from '../game/game.js';
 import { guardLeaving } from '../game/leaveGuard.js';
+import { claimGame } from '../game/tabLock.js';
 import { CharacterPanel } from './CharacterPanel.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { ChatBox } from './ChatBox.js';
@@ -37,6 +38,7 @@ export function GameView({ token, character, mode }: { token: string; character:
   }, [token, character, mode, reconnectKey]);
 
   useEffect(guardLeaving, []);
+  useEffect(() => claimGame(() => useUi.setState({ phase: 'elsewhere' })), []);
 
   return (
     <div className="game">
