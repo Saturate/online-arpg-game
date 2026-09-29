@@ -22,7 +22,7 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
 
   const def = MINION_DEFS[item.minion];
   const levelMult = 1 + MINIONS.levelScaling * (item.level - 1);
-  const life = Math.round(def.life * levelMult * (1 + affixValue(item.affixes, 'armored') / 100) * owner.stats.minionLifeMult);
+  const life = Math.round(def.life * MINIONS.lifeMultiplier * levelMult * (1 + affixValue(item.affixes, 'armored') / 100) * owner.stats.minionLifeMult);
   const a = (Math.PI * 2 * slot) / MINIONS.warbandSlots;
 
   const id = w.create('minion');
@@ -42,7 +42,7 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
     targetId: null,
     attackCooldown: 0,
     attackCooldownBase: def.attackCooldown / (1 + affixValue(item.affixes, 'attack_speed') / 100),
-    damage: def.damage * levelMult * owner.stats.minionDamageMult,
+    damage: def.damage * MINIONS.damageMultiplier * levelMult * owner.stats.minionDamageMult,
     moveSpeed: def.moveSpeed * (1 + affixValue(item.affixes, 'hasted') / 100),
     tauntTimer: 0,
     lostSightTicks: 0,

@@ -158,6 +158,9 @@ export const SPIRIT = {
 } as const;
 
 export const MINIONS = {
+  /** On top of each minion's own numbers: they died too fast and hit too softly to be worth their spirit. */
+  damageMultiplier: 1.5,
+  lifeMultiplier: 1.4,
   warbandSlots: 4,
   armyCap: 6,
   respawnSeconds: 10,
