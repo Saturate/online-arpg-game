@@ -571,6 +571,13 @@ export function Inventory() {
   const [selUid, setSelUid] = useState<ItemUid | null>(null);
   // Beside the stash or the trader only the bag shows, like D2, so both windows fit on screen.
   const compact = useUi((s) => s.stashOpen || s.traderOpen);
+  const stashOpen = useUi((s) => s.stashOpen);
+  const traderOpen = useUi((s) => s.traderOpen);
+  // A window that closes under the mouse never sends mouseleave, so the tooltip of the item that
+  // was hovered would stay on screen. Any window opening or closing drops it.
+  useEffect(() => {
+    useHover.getState().set(null, 0, 0);
+  }, [open, stashOpen, traderOpen]);
   // Delete drops the bag item under the mouse (rares and relics still ask first).
   useEffect(() => {
     if (!open) return;

@@ -225,6 +225,10 @@ export interface DriveState {
  * Picks the clip from what the entity is doing. One-shots (attack, death, awaken) play through;
  * locomotion blends between idle, walk and run by actual speed.
  */
+/** Speeds where locomotion switches to running, and back to walking, in world units per second. */
+const RUN_UP = 170;
+const RUN_DOWN = 130;
+
 export function driveCharacter(cm: CharacterModel, s: DriveState): void {
   cm.mixer.update(s.dt);
   if (s.dead) {
@@ -252,7 +256,11 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     return;
   }
   if (oneShotRunning) return;
-  if (s.speed > 150) play(cm, 'run');
+  // A gap between the run and walk thresholds: a Zombie Brute moves at exactly 150, and a single
+  // threshold there flipped it between walk and run many times a second, restarting the crossfade
+  // each time, which read as stuttering (off roads; roads push it clear of the line).
+  const running = cm.current === 'run';
+  if (s.speed > (running ? RUN_DOWN : RUN_UP)) play(cm, 'run');
   else if (s.speed > 18) play(cm, cm.actions.has('walk') ? 'walk' : 'run');
   else play(cm, 'idle');
   const walk = cm.actions.get('walk');
