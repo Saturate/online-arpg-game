@@ -134,12 +134,15 @@ describe('compiling v2 spells', () => {
     // A release affix costs what its trigger rune would.
     expect(force('bolt[after 0.5s] nova', 'warrior')).toBeCloseTo(force('bolt timer nova', 'warrior'));
     expect(force('bolt fire onhit')).toBeGreaterThan(0);
-    // A free first rune waives its base cost only; its affixes still cost, and no cast is free.
+    // A free first rune waives its base cost up to a Bolt's, never its release or other affixes, and
+    // the cast still pays HEAT.minWaivedForceShare of its full price.
     const freeForce = (text: string): number => compileRunes(tokenizeSpell(text).runes, { ...ctx, classId: 'mage', firstRuneFree: true }).force;
-    expect(freeForce('bolt fire lightning')).toBeCloseTo((4 + 5) * 0.8);
-    expect(Math.abs(freeForce('orb[+55% damage, +75% duration, pierce 3]') - (force('orb[+55% damage, +75% duration, pierce 3]') - 10 * 1.2))).toBeLessThanOrEqual(0.11);
-    expect(freeForce('bolt fire')).toBe(HEAT.minForcePerCast);
-    expect(freeForce('nova[+55% damage, +50% size]')).toBeGreaterThanOrEqual(HEAT.minForcePerCast);
+    const repeating = 'zone[every 0.2s] split(6) nova';
+    expect(freeForce(repeating)).toBeCloseTo(force(repeating) - 8 * 1.2, 1);
+    for (const text of ['bolt fire lightning', 'bolt fire', 'orb[+55% damage, +75% duration, pierce 3]', 'nova[+55% damage, +50% size]']) {
+      // Both prices are rounded to 0.1, so they differ by up to 0.1 of rounding.
+      expect(Math.abs(freeForce(text) - Math.max(HEAT.minForcePerCast, force(text) * HEAT.minWaivedForceShare)), text).toBeLessThanOrEqual(0.11);
+    }
     expect(force('bolt[-90% speed, -90% damage]', 'warrior')).toBeGreaterThanOrEqual(HEAT.minForcePerCast);
   });
 

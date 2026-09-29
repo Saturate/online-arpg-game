@@ -262,30 +262,36 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
  * one that goes off many times). Affix costs are `affixForce`. On a payload, affixes and rider runes
  * (RIDER_KINDS) pay at least HEAT.payloadAffixShare: they make the payload as much stronger as they
  * would the cast whenever it lands, and at the payload's base share they were near free. A rune never costs
- * less than nothing. The first rune's base cost is waived on a sigil that rolled it, never its
- * affixes. `forceMultiplier` is HEAT.costMultiplier and the sigil's Force cost affix. At least
- * HEAT.minForcePerCast, rounded to 0.1.
+ * less than nothing. On a sigil that rolled "first rune is free", the first rune's base cost is
+ * waived up to a plain Bolt's (RUNE_FORCE.bolt), never its release or number affixes, and the cast
+ * still pays at least HEAT.minWaivedForceShare of its unwaived price. `forceMultiplier` is
+ * HEAT.costMultiplier and the sigil's Force cost affix. At least HEAT.minForcePerCast, rounded to 0.1.
  */
 export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null, ctx: SigilCompileContext): number {
   const affinitySet = new Set<string>(CLASSES[ctx.classId].affinityRunes);
   const affinity = (id: RuneId): number => (affinitySet.has(id) ? HEAT.affinityMultiplier : HEAT.offAffinityMultiplier);
   const nodes = runeNodes(runes, tree);
   const shares = nodeShares(tree, ctx);
-  let force = 0;
-  runes.forEach((rune, i) => {
-    let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
-    if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
-    if (i === 0 && ctx.firstRuneFree) cost = 0;
-    const node = nodes[i];
-    const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
-    const affixes = affixForce(rune, affinity);
-    const raised = Math.max(share, HEAT.payloadAffixShare);
-    const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
-    // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
-    const affixShare = affixes > 0 ? raised : share;
-    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
-  });
-  return Math.max(HEAT.minForcePerCast, round1(force * ctx.forceMultiplier));
+  const price = (waiveFirst: boolean): number => {
+    let force = 0;
+    runes.forEach((rune, i) => {
+      let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
+      if (i === 0 && waiveFirst) cost -= Math.min(cost, RUNE_FORCE.bolt);
+      if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
+      const node = nodes[i];
+      const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
+      const affixes = affixForce(rune, affinity);
+      const raised = Math.max(share, HEAT.payloadAffixShare);
+      const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
+      // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
+      const affixShare = affixes > 0 ? raised : share;
+      force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
+    });
+    return force * ctx.forceMultiplier;
+  };
+  const full = price(false);
+  const paid = ctx.firstRuneFree ? Math.max(price(true), full * HEAT.minWaivedForceShare) : full;
+  return Math.max(HEAT.minForcePerCast, round1(paid));
 }
 
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {

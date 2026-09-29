@@ -14,8 +14,6 @@ export const SIM = {
   /** Players (re)spawn at whichever of this many random points is farthest from enemies, so a camped corpse is not a death loop. */
   playerSpawnCandidates: 12,
   playerSpawnMargin: 120,
-  /** Melee hits resolve instantly; this only controls how long the arc stays visible. */
-  swingVisualSeconds: 0.15,
 } as const;
 
 export const ARMOR = {
@@ -75,6 +73,14 @@ export const HEAT = {
    * Bolt) costs 4.8, and a free first rune took single-rune spells to 0.
    */
   minForcePerCast: 4,
+  /**
+   * A sigil that waives its first rune's base cost still charges this share of the cast's full
+   * price. Waiving a whole Nova or Zone left a stationary root with a payload at the 4 floor, about
+   * 6x a starter's pack damage per Force. The most efficient plain spells (a Ranger's
+   * bolt[+55% damage]) already sit at 2x without the roll, so any share much below this pushes them
+   * past it: at 0.5 a random search found 3.9x.
+   */
+  minWaivedForceShare: 0.95,
   /**
    * A number affix costs this much Force per step of the plain rune it replaces (Swift, Large, the
    * old Linger and Pierce runes each cost 3), measured on a log scale so two Swift steps cost twice
