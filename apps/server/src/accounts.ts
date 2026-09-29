@@ -193,6 +193,23 @@ export class AccountStore {
     throw new Error('Could not pick a free guest name');
   }
 
+  /**
+   * Guests nobody claimed pile up forever otherwise. A guest counts as idle when neither the
+   * account nor any of its characters has been played for `idleMs`; its characters, sessions and
+   * stash go with it (the foreign keys cascade). Accounts in `keep` (online right now) are spared.
+   */
+  deleteIdleGuests(idleMs: number, keep: ReadonlySet<number>, now = Date.now()): number {
+    const cutoff = now - idleMs;
+    const idle = this.db
+      .prepare('SELECT a.id FROM accounts a LEFT JOIN characters c ON c.account_id = a.id WHERE a.is_guest = 1 GROUP BY a.id HAVING MAX(a.created_at, COALESCE(MAX(c.played_at), 0)) < ?')
+      .all(cutoff)
+      .map((r) => num(row(r)?.id))
+      .filter((id) => !keep.has(id));
+    const del = this.db.prepare('DELETE FROM accounts WHERE id = ? AND is_guest = 1');
+    for (const id of idle) del.run(id);
+    return idle.length;
+  }
+
   isGuest(accountId: number): boolean {
     return num(row(this.db.prepare('SELECT is_guest FROM accounts WHERE id = ?').get(accountId))?.is_guest) === 1;
   }

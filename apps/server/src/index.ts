@@ -13,6 +13,15 @@ const store = new AccountStore();
 const adminUsers = parseAdminUsers(process.env.ADMIN_USERS);
 const rooms = new RoomManager(seed, store, adminUsers);
 rooms.start();
+
+/** Unclaimed guests are removed after 90 days without play. */
+const GUEST_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
+const sweepGuests = (): void => {
+  const n = store.deleteIdleGuests(GUEST_IDLE_MS, rooms.onlineAccounts());
+  if (n > 0) console.log(`[guests] removed ${n} guest account${n === 1 ? '' : 's'} idle for 90 days`);
+};
+sweepGuests();
+setInterval(sweepGuests, 6 * 60 * 60 * 1000).unref();
 const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId), rooms, adminUsers);
 
 // Production serves the built client from here; in dev Vite does it.

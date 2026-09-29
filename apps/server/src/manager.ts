@@ -189,6 +189,11 @@ export class RoomManager implements AdminHooks {
     return null;
   }
 
+  /** Accounts with a character in the world right now. */
+  onlineAccounts(): Set<number> {
+    return new Set([...this.clients.values()].flatMap((c) => (c.accountId !== null && c.characterId !== null ? [c.accountId] : [])));
+  }
+
   currentTown(): TownLayout {
     return this.townLayout;
   }

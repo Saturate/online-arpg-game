@@ -375,3 +375,29 @@ describe('admin API', () => {
     expect(reg.status).toBe(403);
   });
 });
+
+describe('guest cleanup', () => {
+  it('removes guests idle past the cutoff, keeping played, online and claimed accounts', async () => {
+    const store = new AccountStore(':memory:');
+    const idle = await store.registerGuest();
+    const played = await store.registerGuest();
+    const online = await store.registerGuest();
+    const claimed = await store.registerGuest();
+    await store.claimGuest(claimed.id, 'claimedone', 'password123');
+    const ch = store.createCharacter(played.id, 'Recent', 'mage');
+    if (typeof ch === 'string') throw new Error(ch);
+    // The cutoff falls after every account was made but before the one character is played.
+    await new Promise((r) => setTimeout(r, 20));
+    const cutoff = Date.now();
+    await new Promise((r) => setTimeout(r, 20));
+    const sim = new Simulation(1);
+    const save = sim.exportPlayer(sim.addPlayer('c', 'mage', 'Recent'));
+    if (!save) throw new Error('no save');
+    store.saveCharacter(ch.id, save);
+    const idleMs = 1000;
+    expect(store.deleteIdleGuests(idleMs, new Set([online.id]), cutoff + idleMs)).toBe(1);
+    const left = store.listAccounts().map((a) => a.id);
+    expect(left).not.toContain(idle.id);
+    expect(left).toEqual(expect.arrayContaining([played.id, online.id, claimed.id]));
+  });
+});
