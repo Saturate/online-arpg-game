@@ -4,7 +4,6 @@ import {
   STASH_REACH,
   TRADER,
   CLASSES,
-  distSq,
   loadMap,
   NET,
   LOOT,
@@ -98,26 +97,6 @@ function stationAt(def: WorldMap, p: Vec2): Station | null {
 
 type PlayerSnap = Extract<EntitySnap, { k: 'player' }>;
 
-interface CosmeticBolt {
-  key: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  r: number;
-  lifetime: number;
-  spawnedAt: number;
-  serverId: EntityId | null;
-}
-
-interface CosmeticSwing {
-  key: string;
-  angle: number;
-  arc: number;
-  range: number;
-  lifetime: number;
-}
-
 /** Everything tied to one room. Replaced wholesale when the server moves us to another room. */
 interface RoomView {
   id: string;
@@ -173,10 +152,6 @@ export class Game {
   private accumulator = 0;
   private localAim = 0;
   private visualOffset = { x: 0, y: 0 };
-  private cosmeticId = 0;
-  private bolts: CosmeticBolt[] = [];
-  private swings: CosmeticSwing[] = [];
-  private seenOwnProjectiles = new Set<EntityId>();
   private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
   /** Item bags on screen, for clicking them up. Gold needs no click, so it is not listed. */
   private renderedLoot: { id: EntityId; x: number; y: number; r: number }[] = [];
@@ -389,10 +364,7 @@ export class Game {
       minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`) : null,
     };
     this.latest = null;
-    this.bolts = [];
-    this.swings = [];
     this.pendingEvents = [];
-    this.seenOwnProjectiles.clear();
     this.visualOffset = { x: 0, y: 0 };
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
@@ -611,7 +583,6 @@ export class Game {
       }
       this.publishHud(self, snap);
     }
-    this.pairCosmeticBolts(snap);
   }
 
   private frame(now: number): void {
@@ -629,7 +600,6 @@ export class Game {
     const decay = Math.exp(-VIEW.correctionSmoothingPerSecond * dt);
     this.visualOffset.x *= decay;
     this.visualOffset.y *= decay;
-    if (!this.paused) this.updateCosmetics(dt);
     this.draw(this.replay ? this.clock() : now, this.paused ? 0 : dt);
     this.publishDebug(now);
   }
@@ -810,42 +780,6 @@ export class Game {
     }
   }
 
-  /**
-   * Each new server primary-attack projectile of ours takes over the oldest unpaired cosmetic bolt.
-   * Once the server projectile is gone (hit or expired), the cosmetic one goes too.
-   */
-  private pairCosmeticBolts(snap: Snapshot): void {
-    const present = new Set<EntityId>();
-    for (const e of snap.entities) {
-      if (e.k !== 'projectile' || e.owner !== this.playerId || e.el !== null || e.fx !== 'damage') continue;
-      present.add(e.id);
-      if (this.seenOwnProjectiles.has(e.id)) continue;
-      this.seenOwnProjectiles.add(e.id);
-      const unpaired = this.bolts.find((b) => b.serverId === null);
-      if (unpaired && Math.abs(e.r - unpaired.r) < 0.5) unpaired.serverId = e.id;
-    }
-    for (const id of this.seenOwnProjectiles) if (!present.has(id)) this.seenOwnProjectiles.delete(id);
-    this.bolts = this.bolts.filter((b) => b.serverId === null || present.has(b.serverId));
-  }
-
-  private updateCosmetics(dt: number): void {
-    const room = this.room;
-    if (!room) return;
-    const now = performance.now();
-    const echoDeadline = (this.rttMs ?? 0) + SIM.tickMs * 2 + FX.cosmeticGraceMs;
-    const map = room.map;
-    this.bolts = this.bolts.filter((b) => {
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.lifetime -= dt;
-      if (b.lifetime <= 0) return false;
-      if (map.pointBlocked(b.x, b.y, b.r * 0.5, 'shots')) return false;
-      if (this.hitsRenderedEnemy(b)) return false;
-      return b.serverId !== null || now - b.spawnedAt < echoDeadline;
-    });
-    this.swings = this.swings.filter((s) => (s.lifetime -= dt) > 0);
-  }
-
   /** The waypoint menu belongs to the waypoint you stand on; walking off closes it, as in D2. */
   private closeWaypointMenuWhenAway(room: RoomView, at: { x: number; y: number }): void {
     if (!useUi.getState().waypointMenu) return;
@@ -892,15 +826,6 @@ export class Game {
     });
   }
 
-  /** Hides a cosmetic bolt where the player sees it connect, instead of waiting for the server's verdict. */
-  private hitsRenderedEnemy(b: CosmeticBolt): boolean {
-    for (const e of this.renderedEnemies) {
-      const reach = b.r + e.r + SIM.enemyHitLeniency;
-      if (distSq(b.x, b.y, e.x, e.y) <= reach * reach) return true;
-    }
-    return false;
-  }
-
   private draw(now: number, dt: number): void {
     const room = this.room;
     if (!room || !this.latest || this.playerId === null) return;
@@ -909,8 +834,6 @@ export class Game {
     const items: RenderItem[] = [];
     const labels: Parameters<Effects['syncLabels']>[0][number][] = [];
     const sample = room.interp.sample(now);
-    const pairedIds = new Set<EntityId>();
-    for (const b of this.bolts) if (b.serverId !== null) pairedIds.add(b.serverId);
     this.renderedEnemies = [];
     this.renderedLoot = [];
     const trail = fx.trailDue(dt);
@@ -919,8 +842,6 @@ export class Game {
     if (sample) {
       for (const [id, to] of sample.to) {
         if (id === playerId) continue;
-        if (to.k === 'swing' && to.owner === playerId) continue;
-        if (to.k === 'projectile' && pairedIds.has(id)) continue;
         const from = sample.from.get(id) ?? to;
         const x = from.x + (to.x - from.x) * sample.t;
         const y = from.y + (to.y - from.y) * sample.t;
@@ -960,27 +881,6 @@ export class Game {
     const px = prev.x + (cur.x - prev.x) * alpha + this.visualOffset.x;
     const py = prev.y + (cur.y - prev.y) * alpha + this.visualOffset.y;
 
-    for (const s of this.swings) {
-      items.push({
-        key: s.key,
-        snap: { id: -1, k: 'swing', x: px, y: py, r: s.range, a: s.angle, arc: s.arc, owner: playerId },
-        x: px,
-        y: py,
-        isSelf: false,
-        isAlly: true,
-      });
-    }
-    for (const b of this.bolts) {
-      if (trail) fx.trail(b.x, b.y, COLORS.playerProjectile, b.r * 1.2);
-      items.push({
-        key: b.key,
-        snap: { id: -1, k: 'projectile', x: b.x, y: b.y, r: b.r, team: 'players', owner: playerId, el: null, fx: 'damage' },
-        x: b.x,
-        y: b.y,
-        isSelf: false,
-        isAlly: true,
-      });
-    }
     const self = this.findSelf(this.latest);
     if (self) {
       items.push({
