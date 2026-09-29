@@ -16,7 +16,6 @@ import {
   type EntitySnap,
   type GameEvent,
   type GameMap,
-  type GameMode,
   type MapDescriptor,
   type ServerMessage,
   type Snapshot,
@@ -62,8 +61,10 @@ const MINIMAP_MS = 100;
 const WAYPOINT_OFFER_MS = 3500;
 /** How close to a station's centre a click has to land; the props are about this big on screen. */
 const STATION_PICK = 60;
+/** The leaderboard stone is only read, never checked by the server, so this is just a comfortable distance. */
+const BOARD_REACH = 110;
 
-type Station = { kind: 'stash' | 'forge' | 'trader' } | { kind: 'waypoint'; zone: ZoneId; x: number; y: number; r: number };
+type Station = { kind: 'stash' | 'forge' | 'trader' | 'board' } | { kind: 'waypoint'; zone: ZoneId; x: number; y: number; r: number };
 
 function stationPos(def: WorldMap, s: Station): Vec2 | null {
   return s.kind === 'waypoint' ? s : (def[s.kind] ?? null);
@@ -76,13 +77,13 @@ function stationInReach(def: WorldMap, s: Station | Station['kind'], at: Vec2): 
   if (!station || !pos) return false;
   const d = Math.hypot(pos.x - at.x, pos.y - at.y);
   if (station.kind === 'waypoint') return d <= station.r * 0.7;
-  const reach = station.kind === 'stash' ? STASH_REACH : station.kind === 'forge' ? FORGE_REACH : TRADER.reach;
+  const reach = station.kind === 'stash' ? STASH_REACH : station.kind === 'forge' ? FORGE_REACH : station.kind === 'board' ? BOARD_REACH : TRADER.reach;
   return d <= reach - 10;
 }
 
 /** The station under a clicked ground point, if any. */
 function stationAt(def: WorldMap, p: Vec2): Station | null {
-  for (const kind of ['stash', 'forge', 'trader'] as const) {
+  for (const kind of ['stash', 'forge', 'trader', 'board'] as const) {
     const pos = def[kind];
     if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= STATION_PICK) return { kind };
   }
@@ -146,7 +147,7 @@ export interface ReplaySource {
 }
 
 export type GameSession =
-  | { kind: 'live'; token: string; character: CharacterSummary; mode: GameMode }
+  | { kind: 'live'; token: string; character: CharacterSummary }
   | { kind: 'replay'; source: ReplaySource; classId: ClassId; name: string };
 
 export class Game {
@@ -265,7 +266,7 @@ export class Game {
       return;
     }
     if (this.destroyed) return;
-    conn.send({ t: 'join', token: session.token, characterId: session.character.id, mode: session.mode });
+    conn.send({ t: 'join', token: session.token, characterId: session.character.id });
     useUi.setState({ send: (msg) => conn.send(msg), toggleRecording: () => this.toggleRecording() });
     this.pingTimer = setInterval(() => conn.send({ t: 'ping', clientTime: performance.now() }), NET.pingIntervalMs);
     this.startLoop();
@@ -332,7 +333,7 @@ export class Game {
   /** Builds the scene for a room. The map is regenerated locally from its descriptor, identical to the server's. */
   private enterRoom(id: string, desc: MapDescriptor): void {
     this.teardownRoom();
-    useUi.setState({ staging: null });
+    useUi.setState({ staging: null, arena: null, boardOpen: false });
     clearItemInteractions();
     const { def, game } = loadMap(desc);
     useUi.setState({
@@ -469,7 +470,7 @@ export class Game {
     switch (msg.t) {
       case 'welcome':
         if (this.session.kind === 'live' && isOutdated(msg.build)) {
-          if (reloadForUpdate(msg.build, { characterId: this.session.character.id, mode: this.session.mode })) return;
+          if (reloadForUpdate(msg.build, { characterId: this.session.character.id })) return;
           useUi.getState().notify('A new version is out. Reload the page to update.');
         }
         if (useUi.getState().reconnectAttempt > 0) useUi.getState().notify('Reconnected');
@@ -523,6 +524,13 @@ export class Game {
         return;
       case 'staging':
         useUi.setState({ staging: msg });
+        return;
+      case 'arena':
+        // A new run's first status clears the last run's score screen.
+        useUi.setState((s) => ({ arena: msg, arenaResult: msg.wave === 0 ? null : s.arenaResult }));
+        return;
+      case 'arenaResult':
+        useUi.setState({ arenaResult: msg });
         return;
       case 'world':
         useUi.setState({ world: msg.world });
@@ -735,6 +743,7 @@ export class Game {
         }
         useUi.setState({ waypointMenu: { current: offer.current, unlocked: offer.unlocked } });
       } else if (station.kind === 'stash') useUi.setState({ stashOpen: true, inventoryOpen: true });
+      else if (station.kind === 'board') useUi.setState({ boardOpen: true });
       else if (station.kind === 'forge') {
         useUi.setState({ forgeOpen: true, inventoryOpen: true });
         if (!useUi.getState().editorOpen) useUi.getState().toggleEditor();
@@ -963,6 +972,7 @@ export class Game {
     // The trader's stall and the stash chest look like any other props, so they are named.
     if (room.def.trader) labels.push({ key: 'trader', x: room.def.trader.x, y: room.def.trader.y, text: 'Trader', color: '#e8c860', height: 110, className: 'fx-label portal' });
     if (room.def.forge) labels.push({ key: 'forge', x: room.def.forge.x, y: room.def.forge.y, text: 'Forge', color: '#e8c860', height: 90, className: 'fx-label portal' });
+    if (room.def.board) labels.push({ key: 'board', x: room.def.board.x, y: room.def.board.y, text: 'Champions of the Pit', color: '#e8c860', height: 90, className: 'fx-label portal' });
     if (room.def.stash) labels.push({ key: 'stash', x: room.def.stash.x, y: room.def.stash.y, text: 'Stash', color: '#e8c860', height: 70, className: 'fx-label portal' });
 
     this.playEvents(now);

@@ -1,9 +1,13 @@
 import {
+  ARENA,
   can,
   HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
   parseClientMessage,
+  partyLevel,
+  seasonOf,
+  startArena,
   buyPrice,
   sellPrice,
   SETTINGS_LIMITS,
@@ -14,6 +18,7 @@ import {
   ZONE_IDS,
   zoneArrival,
   type AdminOverview,
+  type ArenaResult,
   type ClientMessage,
   type ServerSettings,
   type ServerMessage,
@@ -24,16 +29,18 @@ import {
   type PartyInfo,
   type PortalRequest,
   type Role,
+  type RoomRules,
   type TownLayout,
   type Vec2,
   type WorldInfo,
   type ZoneId,
 } from '@rune/shared';
-import type { AccountStore, CharacterSaveRow, Market } from './accounts.js';
+import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
+import { ArenaRun } from './arena.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { Room } from './room.js';
-import { Staging } from './staging.js';
+import { Staging, type StagingTarget } from './staging.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
 
 const startedAt = Date.now();
@@ -76,8 +83,8 @@ interface Party {
 }
 
 /**
- * Owns every room and every connection. The Arena is one global test room; everything else lives
- * in party instances.
+ * Owns every room and every connection. Every room belongs to a world instance: its zones, the
+ * dungeon and Arena antechambers and their runs, and builders' private sandboxes.
  */
 export class RoomManager implements AdminHooks {
   private readonly rooms = new Map<string, Room>();
@@ -89,7 +96,10 @@ export class RoomManager implements AdminHooks {
   private nextPartyId = 1;
   /** Ready-check state per antechamber, keyed by the staging room id. */
   private readonly stagings = new Map<string, Staging>();
-  private readonly arena: Room;
+  /** Live and just-finished Arena runs, keyed by the run's room id. */
+  private readonly arenaRuns = new Map<string, ArenaRun>();
+  /** Builders' private sandbox rooms. */
+  private readonly sandboxes = new Set<string>();
   private townLayout: TownLayout;
   private nextClientId = 1;
   private nextInstanceId = 1;
@@ -109,11 +119,11 @@ export class RoomManager implements AdminHooks {
     this.current = store.loadSettings();
     this.market = store.loadMarket();
     this.townLayout = loadTownLayout();
-    this.arena = this.createRoom('arena', { kind: 'arena' }, null);
   }
 
-  private createRoom(id: string, desc: MapDescriptor, instance: Instance | null): Room {
-    const room = new Room(id, desc, this.seedCounter++);
+  /** The free bench is off unless a room asks for it; only the sandbox does. */
+  private createRoom(id: string, desc: MapDescriptor, instance: Instance | null, rules: Partial<RoomRules> = {}): Room {
+    const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules });
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
     if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.hostsTown = true;
@@ -183,7 +193,9 @@ export class RoomManager implements AdminHooks {
     const room = target.room;
     const at = room?.playerState(target);
     if (!room || !at) return 'That player is between rooms, try again';
-    if (room === this.arena) return 'That player is in the Arena';
+    // A scored run takes nobody who was not there at the start, and a sandbox is its builder's own.
+    if (this.arenaRuns.has(room.id)) return 'That player is in an Arena run';
+    if (this.sandboxes.has(room.id)) return 'That player is in a private sandbox';
     const beside = { x: at.x + 40, y: at.y };
     if (staff.room === room) room.placeMember(staff, beside.x, beside.y);
     else {
@@ -201,6 +213,11 @@ export class RoomManager implements AdminHooks {
   /** Accounts with a character in the world right now. */
   onlineAccounts(): Set<number> {
     return new Set([...this.clients.values()].flatMap((c) => (c.accountId !== null && c.characterId !== null ? [c.accountId] : [])));
+  }
+
+  /** A live room by id, for tests and tools that need to look inside one. */
+  roomById(id: string): Room | undefined {
+    return this.rooms.get(id);
   }
 
   currentTown(): TownLayout {
@@ -308,7 +325,8 @@ export class RoomManager implements AdminHooks {
     console.error(`[room ${room.id}] tick failed`, err);
   }
 
-  private tick(): void {
+  /** One server tick for every room. Public so tests can drive the world without timers. */
+  tick(): void {
     if (++this.ticksSinceSave >= AUTOSAVE_SECONDS * SIM.tickRate) {
       this.ticksSinceSave = 0;
       this.saveAll();
@@ -326,10 +344,17 @@ export class RoomManager implements AdminHooks {
       if (staging.runRoomId !== null && !this.rooms.has(staging.runRoomId)) staging.runRoomId = null;
       staging.recheck();
       if (staging.tick()) this.startRun(staging);
+      if (staging.target.kind === 'arena') {
+        let fighting = 0;
+        for (const run of this.arenaRuns.values()) if (run.gateId === staging.room.id && !run.finished) fighting += run.room.members.size;
+        staging.broadcast(fighting);
+        continue;
+      }
       const run = staging.runRoomId === null ? undefined : this.rooms.get(staging.runRoomId);
       if (run?.sim.cleared) staging.cleared = true;
       staging.broadcast(run?.members.size ?? 0);
     }
+    for (const run of [...this.arenaRuns.values()]) this.tickArena(run);
     for (const inst of [...this.instances.values()]) {
       if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) {
         this.instances.delete(inst.id);
@@ -342,24 +367,40 @@ export class RoomManager implements AdminHooks {
     }
   }
 
-  /** Abandoned rooms close. An antechamber stays while its run is live, so latecomers can still get in. */
+  /**
+   * Abandoned rooms close. An antechamber stays while its dungeon run is live, so latecomers can
+   * still get in. An Arena run closes as soon as it is over and empty: nobody can go back into it.
+   */
   private closable(room: Room): boolean {
-    if (room === this.arena || room.members.size > 0 || room.emptySeconds <= WILDS.idleCloseSeconds) return false;
+    if (room.members.size > 0) return false;
+    const run = this.arenaRuns.get(room.id);
+    if (run) return run.finished;
+    if (room.emptySeconds <= WILDS.idleCloseSeconds) return false;
     return room.desc.kind !== 'staging' || this.stagings.get(room.id)?.runRoomId === null;
   }
 
   private close(room: Room): void {
     this.rooms.delete(room.id);
     this.stagings.delete(room.id);
+    this.arenaRuns.delete(room.id);
+    this.sandboxes.delete(room.id);
     if (room.instanceId !== null) this.instances.get(room.instanceId)?.rooms.delete(room.id);
   }
 
   private stagingFor(inst: Instance, ref: DungeonRef): Room {
-    const id = `${inst.id}-st-${ref.seed}-${ref.level}`;
+    return this.antechamber(inst, `${inst.id}-st-${ref.seed}-${ref.level}`, { kind: 'staging', seed: ref.seed, level: ref.level }, { kind: 'dungeon', ref });
+  }
+
+  /** One Arena gate per world instance; parties in the same world share the hall and its board. */
+  private arenaGateFor(inst: Instance): Room {
+    return this.antechamber(inst, `${inst.id}-arena-gate`, { kind: 'arenaGate' }, { kind: 'arena' });
+  }
+
+  private antechamber(inst: Instance, id: string, desc: MapDescriptor, target: StagingTarget): Room {
     const existing = this.rooms.get(id);
     if (existing) return existing;
-    const room = this.createRoom(id, { kind: 'staging', seed: ref.seed, level: ref.level }, inst);
-    this.stagings.set(room.id, new Staging(room, ref));
+    const room = this.createRoom(id, desc, inst);
+    this.stagings.set(room.id, new Staging(room, target));
     return room;
   }
 
@@ -367,14 +408,55 @@ export class RoomManager implements AdminHooks {
   private startRun(staging: Staging): void {
     const inst = staging.room.instanceId === null ? undefined : this.instances.get(staging.room.instanceId);
     if (!inst) return;
-    const run = this.createRoom(
-      `${inst.id}-dg-${staging.ref.seed}-${staging.runs}`,
-      { kind: 'dungeon', seed: staging.ref.seed, level: staging.ref.level, run: staging.runs++ },
-      inst,
-    );
+    const target = staging.target;
+    if (target.kind === 'arena') {
+      const room = this.createRoom(`${inst.id}-ar-${staging.runs++}`, { kind: 'arena' }, inst);
+      // Before anyone arrives, so their welcome already carries the run's rules (no pause, no dev tools).
+      startArena(room.sim, partyLevel(staging.levels()));
+      for (const m of [...staging.room.members.values()]) this.move(m.client, room);
+      this.arenaRuns.set(room.id, new ArenaRun(room, staging.room.id));
+      return;
+    }
+    const run = this.createRoom(`${inst.id}-dg-${target.ref.seed}-${staging.runs}`, { kind: 'dungeon', seed: target.ref.seed, level: target.ref.level, run: staging.runs++ }, inst);
     staging.runRoomId = run.id;
     staging.cleared = false;
     for (const m of [...staging.room.members.values()]) this.move(m.client, run);
+  }
+
+  /** Live score to the players; at the end, the leaderboard row, the score screen, then back to the gate. */
+  private tickArena(run: ArenaRun): void {
+    if (run.returnIn === null) {
+      if (run.over) this.finishArena(run);
+      else run.broadcast();
+      return;
+    }
+    if (--run.returnIn > 0) return;
+    const gate = this.rooms.get(run.gateId) ?? this.gateForRun(run);
+    if (!gate) return;
+    for (const m of [...run.room.members.values()]) this.move(m.client, gate);
+  }
+
+  /** The gate closes when empty for a while, so a long run may need it opened again. */
+  private gateForRun(run: ArenaRun): Room | null {
+    const inst = run.room.instanceId === null ? undefined : this.instances.get(run.room.instanceId);
+    return inst ? this.arenaGateFor(inst) : null;
+  }
+
+  private finishArena(run: ArenaRun): void {
+    const sim = run.room.sim;
+    const score = sim.arena?.score ?? 0;
+    const season = seasonOf(Date.now());
+    const board = boardOf(run.party.length);
+    // A run that ended before the first wave is not a run anyone would want on the board.
+    const recorded = sim.wave >= 1 && run.party.length > 0;
+    const rank = recorded
+      ? this.store.recordArenaRun({ season, names: run.party.map((p) => p.name), classes: run.party.map((p) => p.cls), score, wave: sim.wave, seconds: run.seconds, finishedAt: Date.now() })
+      : null;
+    const result: ArenaResult = { t: 'arenaResult', score, wave: sim.wave, seconds: run.seconds, kills: sim.arena?.kills ?? 0, party: run.party, season, board, rank, returnIn: ARENA.resultSeconds };
+    run.broadcast(true);
+    for (const m of run.room.members.values()) m.client.send(result);
+    run.returnIn = ARENA.resultSeconds * SIM.tickRate;
+    if (recorded) console.log(`[arena] ${run.party.map((p) => p.name).join(', ')}: ${score} points, wave ${sim.wave}, ${board} #${rank ?? '?'} in ${season}`);
   }
 
   connect(socket: GameSocket): void {
@@ -427,7 +509,7 @@ export class RoomManager implements AdminHooks {
         client.send({ t: 'pong', clientTime: msg.clientTime });
         return;
       case 'join':
-        this.join(client, msg.token, msg.characterId, msg.mode);
+        this.join(client, msg.token, msg.characterId);
         return;
       case 'townPortal':
         this.goHome(client);
@@ -691,7 +773,7 @@ export class RoomManager implements AdminHooks {
         this.goHome(client);
         return;
       case 'arena':
-        this.move(client, this.arena);
+        if (inst) this.move(client, this.arenaGateFor(inst));
         return;
       case 'zone': {
         const zone = request.portal.zone;
@@ -712,6 +794,10 @@ export class RoomManager implements AdminHooks {
         return;
       case 'dungeon': {
         const staging = this.stagings.get(from.id);
+        if (staging?.target.kind === 'arena') {
+          client.send({ t: 'notice', text: 'The pit opens when everyone here is ready (R)' });
+          return;
+        }
         const run = staging?.runRoomId ? this.rooms.get(staging.runRoomId) : undefined;
         if (run) this.move(client, run);
         else client.send({ t: 'notice', text: 'The gate is sealed until everyone here is ready (R)' });
@@ -793,8 +879,15 @@ export class RoomManager implements AdminHooks {
           else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body });
           return;
         }
+        case 'sandbox':
+          if (!can(client.role, 'devTools')) {
+            this.system(client, 'Unknown command /sandbox. Try /help');
+            return;
+          }
+          this.toggleSandbox(client);
+          return;
         case 'help':
-          this.system(client, 'Enter chats to your world. /p message to your party, /w name message whispers, /invite name, /accept, /decline, /leave, /who.');
+          this.system(client, `Enter chats to your world. /p message to your party, /w name message whispers, /invite name, /accept, /decline, /leave, /who.${can(client.role, 'devTools') ? ' /sandbox opens or leaves your private test room.' : ''}`);
           return;
         default:
           this.system(client, `Unknown command /${cmd}. Try /help`);
@@ -804,6 +897,25 @@ export class RoomManager implements AdminHooks {
     const inst = this.instanceOf(client);
     const to = inst ? this.membersOf(inst) : [client];
     for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text });
+  }
+
+  /**
+   * A builder's private test room: the flat map with the free bench and dev tools. Waves are off,
+   * so it is not a private farm; builders spawn what they want to test. Saved like anywhere else.
+   */
+  private toggleSandbox(client: Client): void {
+    const room = client.room;
+    if (room && this.sandboxes.has(room.id)) {
+      this.goHome(client);
+      return;
+    }
+    const inst = this.instanceOf(client);
+    if (!inst || client.accountId === null) return;
+    const id = `${inst.id}-sb-${client.accountId}`;
+    const sandbox = this.rooms.get(id) ?? this.createRoom(id, { kind: 'flat' }, inst, { bench: true, waves: false });
+    this.sandboxes.add(sandbox.id);
+    this.move(client, sandbox);
+    this.system(client, 'Your sandbox: free inscriptions and F3 dev tools. /sandbox or the town portal takes you back.');
   }
 
   /** Checked on the server: standing on a waypoint, and the destination unlocked by this character. */
@@ -836,7 +948,7 @@ export class RoomManager implements AdminHooks {
     to.add(client, carried.classId, carried.name, carried, at);
   }
 
-  private join(client: Client, token: string, characterId: number, mode: 'world' | 'arena'): void {
+  private join(client: Client, token: string, characterId: number): void {
     if (client.characterId !== null) return;
     const account = this.store.accountForToken(token);
     if (!account) {
@@ -867,7 +979,7 @@ export class RoomManager implements AdminHooks {
     const partyWorld = party ? this.partyInstance(party) : null;
     const inst = partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance();
     client.instanceId = inst.id;
-    const room = mode === 'arena' ? this.arena : this.zoneRoom(inst, HOME_ZONE);
+    const room = this.zoneRoom(inst, HOME_ZONE);
     const stash = this.store.loadStash(account.id);
     if (stash === 'unreadable') {
       // Joining would save an empty stash over it; leave the row alone for a human to look at.
@@ -889,7 +1001,6 @@ export class RoomManager implements AdminHooks {
 
 
   private persist(client: Client, save: PlayerSave | null): void {
-    // The Arena is saved too, free sigil inscriptions included: the owner chose to keep them for now.
     if (!save || client.characterId === null || client.accountId === null) return;
     // The stash belongs to the account, so every character sees the same one. Both rows are written
     // together, or an item moved between bag and stash could land in neither.

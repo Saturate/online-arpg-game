@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, can, CLASS_IDS, CLASSES, classSkills, type CharacterSummary, type ClassId, type GameMode } from '@rune/shared';
+import { ACCOUNT_RULES, can, CLASS_IDS, CLASSES, classSkills, type CharacterSummary, type ClassId } from '@rune/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { takeResume } from '../game/update.js';
 import { api } from '../net/api.js';
@@ -143,7 +143,6 @@ export function CharacterSelect() {
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [mode, setMode] = useState<GameMode>('world');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -168,7 +167,7 @@ export function CharacterSelect() {
         const resume = takeResume();
         const again = resume ? res.data.characters.find((c) => c.id === resume.characterId) : undefined;
         if (resume && again) {
-          play(again, resume.mode);
+          play(again);
           return;
         }
         useUi.setState({ username: res.data.username });
@@ -253,7 +252,7 @@ export function CharacterSelect() {
                     setSelected(c.id);
                     setConfirmDelete(false);
                   }}
-                  onDoubleClick={() => play(c, mode)}
+                  onDoubleClick={() => play(c)}
                 >
                   <span className="swatch" style={{ background: cssColor(CLASSES[c.classId].color) }} />
                   <strong>{c.name}</strong>
@@ -264,16 +263,6 @@ export function CharacterSelect() {
               </li>
             ))}
           </ul>
-          <div className="mode-switch" role="radiogroup" aria-label="Mode">
-            <button type="button" role="radio" aria-checked={mode === 'world'} className={mode === 'world' ? 'on' : ''} onClick={() => setMode('world')}>
-              <strong>World</strong>
-              <span>Start in town, explore generated Wilds. Progress is saved.</span>
-            </button>
-            <button type="button" role="radio" aria-checked={mode === 'arena'} className={mode === 'arena' ? 'on' : ''} onClick={() => setMode('arena')}>
-              <strong>Arena</strong>
-              <span>Waves and free sigil editing. Progress is saved.</span>
-            </button>
-          </div>
           <div className="row-actions">
             <button type="button" onClick={() => setCreating(true)} disabled={characters.length >= ACCOUNT_RULES.maxCharacters}>
               New character
@@ -288,13 +277,13 @@ export function CharacterSelect() {
                   Delete
                 </button>
               ))}
-            <button type="button" className="primary" disabled={!current} onClick={() => current && play(current, mode)}>
+            <button type="button" className="primary" disabled={!current} onClick={() => current && play(current)}>
               Play{current ? ` ${current.name}` : ''}
             </button>
           </div>
         </>
       )}
-      <p className="hint">WASD to move, mouse to aim, left and right click cast the skills you pick on the skill bar (click a slot with that button, or scroll; Shift+scroll for the left), 1 to 4 cast directly, I inventory, C character, T minion stance, Esc menu, Tab minimap, Alt loot names, F1 debug, F3 sandbox, F8 record replay, Enter chat. Click-to-move and gamepad are in Esc, Settings.</p>
+      <p className="hint">WASD to move, mouse to aim, left and right click cast the skills you pick on the skill bar (click a slot with that button, or scroll; Shift+scroll for the left), 1 to 4 cast directly, I inventory, C character, T minion stance, Esc menu, Tab minimap, Alt loot names, F1 debug, F3 dev tools (builders), F8 record replay, Enter chat. Click-to-move and gamepad are in Esc, Settings.</p>
     </main>
   );
 }

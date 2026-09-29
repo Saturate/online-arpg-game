@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, DEFAULT_SERVER_SETTINGS, isLegacyTestSigil, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, DEFAULT_SERVER_SETTINGS, isLegacyTestSigil, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderEntry } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -111,6 +111,50 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
   }
 }
 
+export interface ArenaRunRow {
+  season: string;
+  names: string[];
+  classes: ClassId[];
+  score: number;
+  wave: number;
+  seconds: number;
+  finishedAt: number;
+}
+
+export function boardOf(partySize: number): ArenaBoard {
+  return partySize <= 1 ? 'solo' : 'party';
+}
+
+/** Fixed SQL fragments only, never player input, so building the query from them is safe. */
+function boardWhere(board: ArenaBoard): string {
+  return board === 'solo' ? 'party_size = 1' : 'party_size > 1';
+}
+
+function stringList(json: unknown): string[] {
+  if (typeof json !== 'string') return [];
+  try {
+    const v: unknown = JSON.parse(json);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function arenaEntry(r: Record<string, unknown> | null): LeaderboardEntry | null {
+  if (!r) return null;
+  const names = stringList(r.names_json);
+  if (names.length === 0) return null;
+  return {
+    names,
+    classes: stringList(r.classes_json).filter(isClassId),
+    partySize: num(r.party_size),
+    score: num(r.score),
+    wave: num(r.wave),
+    seconds: num(r.seconds),
+    finishedAt: num(r.finished_at),
+  };
+}
+
 export interface CharacterSaveRow {
   characterId: number;
   save: PlayerSave;
@@ -156,6 +200,20 @@ export class AccountStore {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      -- One row per finished Arena run. Names and classes are copied in, not referenced, so a board
+      -- keeps its history when a character is renamed or deleted.
+      CREATE TABLE IF NOT EXISTS arena_runs (
+        id INTEGER PRIMARY KEY,
+        season TEXT NOT NULL,
+        names_json TEXT NOT NULL,
+        classes_json TEXT NOT NULL,
+        party_size INTEGER NOT NULL,
+        score INTEGER NOT NULL,
+        wave INTEGER NOT NULL,
+        seconds INTEGER NOT NULL,
+        finished_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS arena_runs_board ON arena_runs(season, party_size, score DESC);
     `);
     // Columns added after launch, migrated in place so existing databases keep their data.
     const accountCols = this.db.prepare('PRAGMA table_info(accounts)').all().map((c) => str(row(c)?.name));
@@ -467,6 +525,38 @@ export class AccountStore {
     } catch {
       return fresh('not JSON');
     }
+  }
+
+  /** Stores a finished run and returns its place on its season's board (1 is the top). */
+  recordArenaRun(run: ArenaRunRow): number {
+    const res = this.db
+      .prepare('INSERT INTO arena_runs (season, names_json, classes_json, party_size, score, wave, seconds, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(run.season, JSON.stringify(run.names), JSON.stringify(run.classes), run.names.length, run.score, run.wave, run.seconds, run.finishedAt);
+    const id = num(res.lastInsertRowid);
+    // Ties go to whoever got there first, the same order the board lists them in.
+    const ahead = row(
+      this.db.prepare(`SELECT COUNT(*) AS n FROM arena_runs WHERE season = ? AND ${boardWhere(boardOf(run.names.length))} AND (score > ? OR (score = ? AND id < ?))`).get(run.season, run.score, run.score, id),
+    );
+    return num(ahead?.n) + 1;
+  }
+
+  /** The season's top runs on both boards, and the winners of every earlier season. */
+  leaderboard(season: string): LeaderboardResponse {
+    const top = (s: string, board: ArenaBoard, limit: number): LeaderboardEntry[] =>
+      this.db
+        .prepare(`SELECT * FROM arena_runs WHERE season = ? AND ${boardWhere(board)} ORDER BY score DESC, id ASC LIMIT ?`)
+        .all(s, limit)
+        .flatMap((r) => {
+          const e = arenaEntry(row(r));
+          return e ? [e] : [];
+        });
+    // Two years of past winners is plenty for a board on a wall.
+    const earlier = this.db
+      .prepare('SELECT DISTINCT season FROM arena_runs WHERE season < ? ORDER BY season DESC LIMIT 24')
+      .all(season)
+      .map((r) => str(row(r)?.season));
+    const winners: SeasonWinners[] = earlier.map((s) => ({ season: s, solo: top(s, 'solo', 1)[0] ?? null, party: top(s, 'party', 1)[0] ?? null }));
+    return { season, solo: top(season, 'solo', ARENA.leaderboardSize), party: top(season, 'party', ARENA.leaderboardSize), winners };
   }
 
   saveCharacter(characterId: number, save: PlayerSave): void {

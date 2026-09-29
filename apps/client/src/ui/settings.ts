@@ -40,7 +40,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   ready: 'Ready check',
   minimap: 'Minimap',
   showLoot: 'Show all loot (hold)',
-  sigilEditor: 'Sigil editor (Arena)',
+  sigilEditor: 'Sigil editor (forge)',
   record: 'Record replay',
 };
 

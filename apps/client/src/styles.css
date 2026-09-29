@@ -730,36 +730,6 @@ kbd {
   }
 }
 
-/* Mode switch on the title screen */
-.mode-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.mode-switch button {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  background: #15120e;
-  border: 1px solid #3a2f20;
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: left;
-}
-.mode-switch button.on {
-  border-color: var(--gold);
-  box-shadow: inset 0 0 12px rgba(217, 181, 106, 0.25);
-}
-.mode-switch strong {
-  font-family: Cinzel, serif;
-  color: var(--gold);
-}
-.mode-switch span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 /* Minimap */
 .minimap {
   position: absolute;
@@ -1553,6 +1523,119 @@ kbd {
 .staging-panel button.on {
   border-color: var(--good) !important;
   color: var(--good);
+}
+
+.staging-panel .row-actions {
+  justify-content: center;
+}
+
+/* Arena: live score in the party frame, the score screen and the champions' stone */
+.arena-status {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #3a2f20;
+}
+.arena-status h3 {
+  margin: 0;
+}
+.arena-status b {
+  font: 700 16px Cinzel, Georgia, serif;
+  color: #e0d2b0;
+  text-shadow: 0 0 8px rgba(160, 30, 10, 0.6);
+}
+.arena-status small {
+  grid-column: 1 / -1;
+  color: #c9a07a;
+  font-size: 11px;
+}
+.arena-result {
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 360px;
+  text-align: center;
+  border-color: #6a1a12;
+  background: radial-gradient(ellipse at top, rgba(40, 10, 6, 0.97), rgba(10, 8, 6, 0.97));
+}
+.arena-result h2 {
+  font: 700 22px Cinzel, Georgia, serif;
+  color: #ff5a4a;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+.arena-result .arena-score {
+  font: 700 46px Cinzel, Georgia, serif;
+  color: var(--gold);
+  margin: 6px 0 2px;
+  text-shadow: 0 0 18px rgba(217, 181, 106, 0.35), 0 2px 4px #000;
+}
+.arena-result dl {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  margin: 0 0 8px;
+}
+.arena-result dl div {
+  display: grid;
+}
+.arena-result dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.arena-result dd {
+  margin: 0;
+  font-size: 18px;
+}
+.arena-result ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+.arena-result li .dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.arena-result .arena-rank {
+  color: #e0d2b0;
+}
+.arena-result .row-actions {
+  justify-content: center;
+}
+.leaderboard-panel {
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 24px));
+}
+.arena-board table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.arena-board th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid #3a2f20;
+  padding: 3px 4px;
+}
+.arena-board td {
+  padding: 3px 4px;
+  border-bottom: 1px solid #1f1a13;
+}
+.arena-board tbody tr:first-child td {
+  color: var(--gold);
+}
+.arena-board .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Centre banner: dungeon cleared and similar moments */

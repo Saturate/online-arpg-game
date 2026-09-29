@@ -1,4 +1,4 @@
-import type { CharacterSummary, GameMode } from '@rune/shared';
+import type { CharacterSummary } from '@rune/shared';
 import { useEffect, useRef } from 'react';
 import { Game } from '../game/game.js';
 import { guardLeaving } from '../game/leaveGuard.js';
@@ -16,10 +16,11 @@ import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.
 import { Inventory, ItemTooltip, requestDrop, StashWindow, TraderWindow } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
 import { StagingPanel } from './StagingPanel.js';
+import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
 import { WaypointPanel } from './WaypointPanel.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 
-export function GameView({ token, character, mode }: { token: string; character: CharacterSummary; mode: GameMode }) {
+export function GameView({ token, character }: { token: string; character: CharacterSummary }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const fxRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
@@ -33,10 +34,10 @@ export function GameView({ token, character, mode }: { token: string; character:
     const host = hostRef.current;
     const fx = fxRef.current;
     if (!host || !fx) return;
-    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, { kind: 'live', token, character, mode });
+    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, { kind: 'live', token, character });
     void game.start();
     return () => game.destroy();
-  }, [token, character, mode, reconnectKey]);
+  }, [token, character, reconnectKey]);
 
   useEffect(guardLeaving, []);
   useEffect(() => claimGame(() => useUi.setState({ phase: 'elsewhere' })), []);
@@ -84,6 +85,8 @@ export function GameView({ token, character, mode }: { token: string; character:
         <TownEditorPanel />
         <DevPanel />
         <StagingPanel />
+        <LeaderboardPanel />
+        <ArenaResultPanel />
         <WaypointPanel />
         <SettingsPanel />
       </div>

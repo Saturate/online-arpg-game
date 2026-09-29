@@ -1,46 +1,12 @@
-import { INSTANCE_CAPACITY, isServerMessage, type ServerMessage } from '@rune/shared';
+import { INSTANCE_CAPACITY } from '@rune/shared';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
-import type { GameSocket } from '../src/client.js';
 import { RoomManager } from '../src/manager.js';
-
-/** A connection the test drives by hand, recording everything the server sends it. */
-class FakeSocket implements GameSocket {
-  readyState: 0 | 1 | 2 | 3 = 1;
-  readonly OPEN = 1;
-  readonly sent: ServerMessage[] = [];
-  private listeners = new Map<string, (data: unknown, isBinary: boolean) => void>();
-
-  on(event: 'message', listener: (data: unknown, isBinary: boolean) => void): this;
-  on(event: 'close' | 'error', listener: () => void): this;
-  on(event: string, listener: (data: unknown, isBinary: boolean) => void): this {
-    this.listeners.set(event, listener);
-    return this;
-  }
-  send(data: unknown): void {
-    const msg: unknown = JSON.parse(String(data));
-    if (isServerMessage(msg)) this.sent.push(msg);
-  }
-  close(): void {
-    this.readyState = 3;
-    this.listeners.get('close')?.(undefined, false);
-  }
-  emit(msg: object): void {
-    this.listeners.get('message')?.(Buffer.from(JSON.stringify(msg)), false);
-  }
-  worldName(): string | undefined {
-    const w = this.sent.filter((m) => m.t === 'world').at(-1);
-    return w?.t === 'world' ? w.world.name : undefined;
-  }
-  party(): Extract<ServerMessage, { t: 'party' }>['party'] | undefined {
-    const p = this.sent.filter((m) => m.t === 'party').at(-1);
-    return p?.t === 'party' ? p.party : undefined;
-  }
-}
+import { FakeSocket } from './fakeSocket.js';
 
 async function setup(players: number, owners: ReadonlySet<string> = new Set()) {
   const store = new AccountStore(':memory:');
@@ -53,7 +19,7 @@ async function setup(players: number, owners: ReadonlySet<string> = new Set()) {
     if (typeof ch === 'string') throw new Error(ch);
     const socket = new FakeSocket();
     rooms.connect(socket);
-    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id, mode: 'world' });
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
     sockets.push(socket);
   }
   return { rooms, sockets };
@@ -142,7 +108,7 @@ describe('stash safety', () => {
     const rooms = new RoomManager(1, store);
     const socket = new FakeSocket();
     rooms.connect(socket);
-    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id, mode: 'world' });
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
     expect(socket.sent.some((m) => m.t === 'sessionEnded' && m.reason.includes('stash could not be loaded'))).toBe(true);
     const row = raw.prepare('SELECT stash_json FROM accounts WHERE id = ?').get(acc.id);
     expect(row).toMatchObject({ stash_json: '{broken' });

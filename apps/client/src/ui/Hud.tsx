@@ -52,8 +52,8 @@ function SkillSlot({ slot }: { slot: number }) {
     <button
       type="button"
       className={`skill${persistent ? ' persistent' : ''}${result && !result.ok ? ' unstable' : ''}${sigil ? '' : ' empty'}${onLeft || onRight ? ' active' : ''}`}
-      // Left-click puts the skill on the left mouse button, right-click on the right one. In the
-      // Arena a second left-click on the left skill opens the sigil editor.
+      // Left-click puts the skill on the left mouse button, right-click on the right one. At the
+      // forge (or on a builder's bench) a second left-click on the left skill opens the sigil editor.
       onClick={() => {
         if (onLeft && uid !== null && editorAllowed) openEditor(uid);
         else pickSkill('left', slot);
@@ -214,6 +214,7 @@ export function Hud() {
   const heatMax = useUi((s) => s.heatMax);
   const respawnIn = useUi((s) => s.respawnIn);
   const roomName = useUi((s) => s.roomName);
+  const arena = useUi((s) => s.arena);
   const lowLife = maxLife > 0 && life / maxLife < 0.3;
   return (
     <>
@@ -236,9 +237,14 @@ export function Hud() {
       {respawnIn !== null && (
         <div className="death">
           <h2>You have fallen</h2>
-          <p>
-            Returning to {roomName || 'the camp'} in {respawnIn}
-          </p>
+          {/* One life in the Arena: the fallen watch the rest of the party until the run ends. */}
+          {arena ? (
+            <p>{arena.alive > 0 ? `${arena.alive} still fighting. Watch them, or leave by town portal (Esc).` : 'The run is over.'}</p>
+          ) : (
+            <p>
+              Returning to {roomName || 'the camp'} in {respawnIn}
+            </p>
+          )}
         </div>
       )}
     </>
@@ -248,15 +254,20 @@ export function Hud() {
 export function Party() {
   const players = useUi((s) => s.party);
   const partyInfo = useUi((s) => s.partyInfo);
-  const wave = useUi((s) => s.wave);
-  const theme = useUi((s) => s.roomTheme);
+  const arena = useUi((s) => s.arena);
   const playerId = useUi((s) => s.playerId);
   // Public worlds are shared with strangers, so the frame lists yourself and your party only.
   const members = new Set(partyInfo?.members.map((m) => m.name) ?? []);
   const shown = players.filter((p) => p.id === playerId || members.has(p.name));
   return (
     <aside className="party">
-      {theme === 'arena' && <h3>Wave {wave}</h3>}
+      {arena && (
+        <div className="arena-status">
+          <h3>Wave {arena.wave}</h3>
+          <b>{arena.score.toLocaleString()}</b>
+          {arena.nextWaveIn !== null && <small>{arena.wave === 0 ? 'First wave' : 'Next wave'} in {arena.nextWaveIn}</small>}
+        </div>
+      )}
       {shown.map((p) => (
         <div key={p.id} className={`party-row${p.dead ? ' dead' : ''}${p.id === playerId ? ' me' : ''}`}>
           <span className="dot" style={{ background: cssColor(CLASSES[p.cls].color) }} />

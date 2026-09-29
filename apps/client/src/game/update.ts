@@ -1,4 +1,3 @@
-import type { GameMode } from '@rune/shared';
 import { allowLeave } from './leaveGuard.js';
 
 /**
@@ -14,7 +13,6 @@ const ATTEMPT_KEY = 'rune.updateAttempt';
 
 export interface Resume {
   characterId: number;
-  mode: GameMode;
 }
 
 function read(key: string): string | null {
@@ -58,8 +56,7 @@ export function takeResume(): Resume | null {
     const v: unknown = JSON.parse(raw);
     if (typeof v !== 'object' || v === null) return null;
     const id: unknown = Reflect.get(v, 'characterId');
-    const mode: unknown = Reflect.get(v, 'mode');
-    return typeof id === 'number' && (mode === 'world' || mode === 'arena') ? { characterId: id, mode } : null;
+    return typeof id === 'number' ? { characterId: id } : null;
   } catch {
     return null;
   }

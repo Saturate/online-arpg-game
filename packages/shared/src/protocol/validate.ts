@@ -64,7 +64,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   switch (value.t) {
     case 'join':
       return isSessionToken(value.token) && isNonNegativeInt(value.characterId)
-        ? { t: 'join', token: value.token, characterId: value.characterId, mode: value.mode === 'arena' ? 'arena' : 'world' }
+        ? { t: 'join', token: value.token, characterId: value.characterId }
         : null;
     case 'pause':
       return typeof value.paused === 'boolean' ? { t: 'pause', paused: value.paused } : null;
@@ -153,7 +153,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

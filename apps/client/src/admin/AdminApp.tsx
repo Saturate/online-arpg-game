@@ -1,7 +1,8 @@
-import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
+import { LeaderboardTables } from '../ui/ArenaBoard.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -9,7 +10,9 @@ import { StaffGate, type StaffAccess } from './access.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'settings';
+type Tab = 'overview' | 'players' | 'arena' | 'settings';
+
+const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings' };
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -502,6 +505,34 @@ function Settings({ token, role, notify }: TabProps) {
   );
 }
 
+/** Read-only: the same boards the champions' stone shows in game, for any season. */
+function Arena({ notify }: Pick<TabProps, 'notify'>) {
+  const [season, setSeason] = useState(() => seasonOf(Date.now()));
+  const [board, setBoard] = useState<LeaderboardResponse | null>(null);
+  useEffect(() => {
+    if (!isSeason(season)) return;
+    let live = true;
+    void api.leaderboard(season).then((r) => {
+      if (!live) return;
+      if (r.ok) setBoard(r.data);
+      else notify(r.error);
+    });
+    return () => {
+      live = false;
+    };
+  }, [season, notify]);
+  return (
+    <>
+      <div className="adm-toolbar">
+        <label>
+          Season <input type="month" value={season} onChange={(e) => setSeason(e.target.value)} aria-label="Season" />
+        </label>
+      </div>
+      {board ? <LeaderboardTables board={board} /> : <p className="muted">Loading</p>}
+    </>
+  );
+}
+
 export function AdminApp() {
   return (
     <StaffGate title="Allan's ARPG admin" permission="viewAdmin">
@@ -523,9 +554,9 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'settings'] as const).map((t) => (
+          {(['overview', 'players', 'arena', 'settings'] as const).map((t) => (
             <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {t === 'overview' ? 'Overview' : t === 'players' ? 'Players' : 'Settings'}
+              {TAB_NAMES[t]}
             </button>
           ))}
         </nav>
@@ -540,6 +571,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <main className="adm-main">
         {tab === 'overview' && <Overview token={token} role={role} notify={notify} />}
         {tab === 'players' && <Players token={token} role={role} notify={notify} />}
+        {tab === 'arena' && <Arena notify={notify} />}
         {tab === 'settings' && <Settings token={token} role={role} notify={notify} />}
       </main>
       {toast && (

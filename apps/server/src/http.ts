@@ -2,11 +2,13 @@ import {
   can,
   cleanChat,
   isAssignableRole,
+  isSeason,
   isSessionToken,
   parseCredentials,
   parseNewCharacter,
   parseSettingsPatch,
   rank,
+  seasonOf,
   type AdminAccount,
   type AdminOverview,
   type CharactersResponse,
@@ -169,7 +171,7 @@ export class AccountApi {
   handle(req: IncomingMessage, res: ServerResponse): boolean {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return false;
-    this.route(req, url.pathname)
+    this.route(req, url.pathname, url.searchParams)
       .then(([status, body]) => send(res, status, body))
       .catch((err: unknown) => {
         if (err instanceof HttpError) send(res, err.status, { error: err.message });
@@ -181,7 +183,7 @@ export class AccountApi {
     return true;
   }
 
-  private async route(req: IncomingMessage, path: string): Promise<[number, unknown]> {
+  private async route(req: IncomingMessage, path: string, query: URLSearchParams): Promise<[number, unknown]> {
     const ip = clientIp(req);
     const method = req.method ?? 'GET';
     const isAuth = path === '/api/register' || path === '/api/login' || path === '/api/guest';
@@ -211,6 +213,12 @@ export class AccountApi {
     }
 
     if (method === 'GET' && path === '/api/town') return [200, this.admin.currentTown()];
+    // Public like the board in the Arena gate hall: it shows character names and scores, nothing else.
+    if (method === 'GET' && path === '/api/arena/leaderboard') {
+      const season = query.get('season') || seasonOf(Date.now());
+      if (!isSeason(season)) throw new HttpError(400, 'season must be a month like 2026-09');
+      return [200, this.store.leaderboard(season)];
+    }
 
     const token = bearer(req);
     const account = token ? this.store.accountForToken(token) : null;

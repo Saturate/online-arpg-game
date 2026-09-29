@@ -7,8 +7,7 @@ export function App() {
   const phase = useUi((s) => s.phase);
   const token = useUi((s) => s.token);
   const character = useUi((s) => s.character);
-  const mode = useUi((s) => s.mode);
-  if (phase === 'playing' && token && character) return <GameView token={token} character={character} mode={mode} />;
+  if (phase === 'playing' && token && character) return <GameView token={token} character={character} />;
   if (phase === 'elsewhere' && token && character) {
     return (
       <main className="picker">

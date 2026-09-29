@@ -1,17 +1,21 @@
-import { DUNGEON, SIM, type DungeonRef, type StagingMessage } from '@rune/shared';
+import { DUNGEON, partyLevel, SIM, type DungeonRef, type StagingMessage } from '@rune/shared';
 import type { Client } from './client.js';
 import type { Room } from './room.js';
 
+/** What the antechamber leads to: one dungeon, or the Arena. */
+export type StagingTarget = { kind: 'dungeon'; ref: DungeonRef } | { kind: 'arena' };
+
 /**
- * Ready check for one dungeon antechamber. When everyone inside is ready a short countdown runs,
- * then the manager sends the whole party into a fresh run together. While that run is live, the
- * gate lets latecomers straight in, like joining a party's side area in PoE.
+ * Ready check for one antechamber. When everyone inside is ready a short countdown runs, then the
+ * manager sends the whole party into a fresh run together. While a dungeon run is live, its gate
+ * lets latecomers straight in, like joining a party's side area in PoE. Arena runs are scored, so
+ * they never take latecomers; the gate stays free for the next party instead.
  */
 export class Staging {
   readonly ready = new Set<string>();
   /** Ticks left on the countdown, or null when not everyone is ready. */
   countdown: number | null = null;
-  /** Room id of the live run, if any. The manager clears it when that room closes. */
+  /** Room id of the live dungeon run, if any. The manager clears it when that room closes. */
   runRoomId: string | null = null;
   runs = 0;
   /** The current or last run was cleared; reset when a new run starts. */
@@ -20,7 +24,7 @@ export class Staging {
 
   constructor(
     readonly room: Room,
-    readonly ref: DungeonRef,
+    readonly target: StagingTarget,
   ) {}
 
   setReady(client: Client, ready: boolean): void {
@@ -48,6 +52,11 @@ export class Staging {
     return true;
   }
 
+  /** Character levels of everyone inside, for the Arena's starting monster level. */
+  levels(): number[] {
+    return [...this.room.members.values()].map((m) => this.room.sim.world.player.get(m.playerId)?.level ?? 1);
+  }
+
   message(inside: number): StagingMessage {
     const members = [...this.room.members.values()].map((m) => {
       const p = this.room.sim.world.player.get(m.playerId);
@@ -55,11 +64,12 @@ export class Staging {
     });
     return {
       t: 'staging',
+      kind: this.target.kind,
       members,
       countdown: this.countdown === null ? null : Math.ceil(this.countdown / SIM.tickRate),
       open: this.runRoomId !== null,
       inside,
-      level: this.ref.level,
+      level: this.target.kind === 'dungeon' ? this.target.ref.level : partyLevel(this.levels()),
       cleared: this.cleared,
     };
   }

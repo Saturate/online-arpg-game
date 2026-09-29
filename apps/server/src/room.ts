@@ -20,6 +20,7 @@ import {
   type MapDescriptor,
   type PlayerSave,
   type PortalRequest,
+  type RoomRules,
   type Vec2,
 } from '@rune/shared';
 import type { Client } from './client.js';
@@ -53,7 +54,7 @@ export class Room {
   timeScale = 1;
   private timeAccumulator = 0;
   private announcedClear = false;
-  /** The party instance this room belongs to; null for the global Arena. */
+  /** The world instance this room belongs to. */
   instanceId: string | null = null;
   /** Seconds with nobody inside, so the manager can close abandoned instances. */
   emptySeconds = 0;
@@ -62,8 +63,9 @@ export class Room {
     readonly id: string,
     readonly desc: MapDescriptor,
     seed: number,
+    rules: Partial<RoomRules> = {},
   ) {
-    this.sim = new Simulation(seed, desc);
+    this.sim = new Simulation(seed, desc, rules);
     this.sim.startItemUidsAt(++roomSerial * ITEM_UIDS_PER_ROOM);
   }
 
@@ -75,9 +77,9 @@ export class Room {
     return this.desc.kind === 'town';
   }
 
-  /** Pausing a server-authoritative world is only fair when nobody else is in it. */
+  /** Pausing a server-authoritative world is only fair when nobody else is in it. Arena runs are timed and scored, so they never pause. */
   get canPause(): boolean {
-    return !this.shared && this.members.size === 1;
+    return !this.shared && this.members.size === 1 && this.sim.arena === null;
   }
 
   add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
@@ -213,6 +215,11 @@ export class Room {
           client.send({ t: 'notice', text: 'Dev tools need the builder role' });
           return;
         }
+        // Spawning, healing, god mode and free items would all make a score meaningless.
+        if (this.sim.arena) {
+          client.send({ t: 'notice', text: 'Dev tools are off in Arena runs' });
+          return;
+        }
         if (msg.cmd.c === 'timeScale') {
           this.timeScale = msg.cmd.scale;
           client.send({ t: 'notice', text: `Time x${msg.cmd.scale}` });
@@ -269,7 +276,7 @@ export class Room {
       canPause: this.canPause,
       editor: this.sim.editorAllowed,
       townEditor: this.hostsTown && can(m.client.role, 'townEdit'),
-      devTools: can(m.client.role, 'devTools'),
+      devTools: can(m.client.role, 'devTools') && this.sim.arena === null,
       build: SERVER_BUILD,
     });
     m.sentInventoryVersion = -1;

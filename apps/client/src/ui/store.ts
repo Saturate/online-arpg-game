@@ -1,9 +1,10 @@
 import {
   compileSigilItem,
   type AffixId,
+  type ArenaResult,
+  type ArenaStatus,
   type CharacterSummary,
   type ClassId,
-  type GameMode,
   type PartyInfo,
   type TraderEntry,
   type WorldInfo,
@@ -73,7 +74,6 @@ interface UiState {
   character: CharacterSummary | null;
   classId: ClassId | null;
   name: string;
-  mode: GameMode;
   roomName: string;
   roomTheme: MapTheme;
   /** Seed of the current Wilds instance, or null outside the wilds. */
@@ -91,6 +91,12 @@ interface UiState {
   partyInvite: string | null;
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
+  /** Live wave and score, while in an Arena run. */
+  arena: ArenaStatus | null;
+  /** The score screen of the run that just ended, until closed. */
+  arenaResult: ArenaResult | null;
+  /** The Arena leaderboard window. */
+  boardOpen: boolean;
   /** Open waypoint menu: the waypoint underfoot and every one this character has found. */
   waypointMenu: { current: ZoneId; unlocked: ZoneId[] } | null;
   banner: { id: number; title: string; text: string } | null;
@@ -154,7 +160,7 @@ interface UiState {
 
   setSession: (token: string, username: string) => void;
   logout: () => void;
-  play: (character: CharacterSummary, mode: GameMode) => void;
+  play: (character: CharacterSummary) => void;
   toggleMenu: () => void;
   leave: (error: string | null) => void;
   toggleDebug: () => void;
@@ -195,7 +201,6 @@ export const useUi = create<UiState>((set, get) => ({
   character: null,
   classId: null,
   name: '',
-  mode: 'world',
   roomName: '',
   roomTheme: 'town',
   roomSeed: null,
@@ -209,6 +214,9 @@ export const useUi = create<UiState>((set, get) => ({
   partyInfo: null,
   partyInvite: null,
   staging: null,
+  arena: null,
+  arenaResult: null,
+  boardOpen: false,
   waypointMenu: null,
   banner: null,
   chat: [],
@@ -290,7 +298,7 @@ export const useUi = create<UiState>((set, get) => ({
     storeToken(null);
     set({ token: null, username: '', character: null, phase: 'login' });
   },
-  play: (character, mode) => set({ phase: 'playing', character, classId: character.classId, name: character.name, mode, connectionError: null }),
+  play: (character) => set({ phase: 'playing', character, classId: character.classId, name: character.name, connectionError: null }),
   toggleMenu: () => {
     const s = get();
     const open = !s.menuOpen;
@@ -298,7 +306,7 @@ export const useUi = create<UiState>((set, get) => ({
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, menuOpen: false, paused: false, reconnectAttempt: 0 }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen, characterOpen: !s.inventoryOpen })),

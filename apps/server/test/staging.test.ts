@@ -15,7 +15,7 @@ describe('Staging ready check', () => {
 
   it('counts down only once everyone is ready, and a newcomer stops it', () => {
     const room = new Room('staging-5-2', { kind: 'staging', ...ref }, 1);
-    const staging = new Staging(room, ref);
+    const staging = new Staging(room, { kind: 'dungeon', ref });
     const a = fakeClient('a');
     const b = fakeClient('b');
     room.add(a, 'mage', 'Ann');
@@ -41,10 +41,10 @@ describe('Staging ready check', () => {
 
   it('reports members and whether a run is live', () => {
     const room = new Room('staging-5-2', { kind: 'staging', ...ref }, 1);
-    const staging = new Staging(room, ref);
+    const staging = new Staging(room, { kind: 'dungeon', ref });
     room.add(fakeClient('a'), 'binder', 'Kay');
     staging.runRoomId = 'dungeon-5-2-0';
     const msg: ServerMessage = staging.message(3);
-    expect(msg).toMatchObject({ t: 'staging', members: [{ name: 'Kay', cls: 'binder', ready: false }], open: true, inside: 3, level: 2 });
+    expect(msg).toMatchObject({ t: 'staging', kind: 'dungeon', members: [{ name: 'Kay', cls: 'binder', ready: false }], open: true, inside: 3, level: 2 });
   });
 });

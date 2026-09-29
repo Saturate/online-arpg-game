@@ -1,4 +1,5 @@
 import type { Lighting } from './accounts.js';
+import type { ArenaResult, ArenaStatus } from './arena.js';
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { ZoneId } from '../data/zones.js';
@@ -33,11 +34,9 @@ export interface InputFrame {
   buttons: number;
 }
 
-export type GameMode = 'world' | 'arena';
-
 export type ClientMessage =
   /** Enter the world as one of the account's characters. The token comes from the HTTP login. */
-  | { t: 'join'; token: string; characterId: number; mode: GameMode }
+  | { t: 'join'; token: string; characterId: number }
   | { t: 'pause'; paused: boolean }
   /** Leave the current room for town, like a D2 town portal. */
   | { t: 'townPortal' }
@@ -72,7 +71,7 @@ export type ClientMessage =
   | { t: 'moveItem'; uid: ItemUid; to: 'bag' | 'stash'; x: number; y: number }
   | { t: 'sortInventory' }
   | { t: 'cycleStance' }
-  /** Dungeon antechamber ready check. */
+  /** Antechamber ready check (a dungeon's or the Arena gate). */
   | { t: 'ready'; ready: boolean }
   /** `slot` picks a ring slot when dragging onto one; null lets the server choose. */
   | { t: 'equipGear'; uid: ItemUid; slot: GearSlot | null }
@@ -267,12 +266,16 @@ export interface InventoryMessage {
 /** Antechamber state, sent to everyone inside it whenever it changes. */
 export interface StagingMessage {
   t: 'staging';
+  /** A dungeon's antechamber, or the Arena gate. */
+  kind: 'dungeon' | 'arena';
   members: { name: string; cls: ClassId; ready: boolean }[];
   /** Seconds until the party is sent in, or null when not everyone is ready. */
   countdown: number | null;
-  /** A run is live: the gate lets latecomers straight in. */
+  /** A dungeon run is live: the gate lets latecomers straight in. Arena runs never take latecomers. */
   open: boolean;
+  /** Players in the live dungeon run, or in every Arena run started from this gate. */
   inside: number;
+  /** The dungeon's monster level, or the level the Arena's first wave would be for this party. */
   level: number;
   /** The current or last run's boss is dead. */
   cleared: boolean;
@@ -304,6 +307,8 @@ export type ServerMessage =
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
   | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
   | StagingMessage
+  | ArenaStatus
+  | ArenaResult
   | Snapshot
   | InventoryMessage
   | { t: 'notice'; text: string }

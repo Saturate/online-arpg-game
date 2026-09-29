@@ -1,4 +1,4 @@
-import { isClassId, isRole, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isLeaderboardResponse, isRole, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -124,6 +124,8 @@ export const api = {
   characters: async (token: string) => narrow(await call('GET', '/api/characters', token), isCharacters),
   createCharacter: async (token: string, name: string, classId: ClassId) => narrow(await call('POST', '/api/characters', token, { name, classId }), isCharacter),
   deleteCharacter: (token: string, id: number) => call('DELETE', `/api/characters/${id}`, token),
+  /** No season means the current one. */
+  leaderboard: async (season?: string) => narrow(await call('GET', `/api/arena/leaderboard${season ? `?season=${encodeURIComponent(season)}` : ''}`, null), isLeaderboardResponse),
 };
 
 export const adminApi = {
