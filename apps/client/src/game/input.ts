@@ -89,12 +89,16 @@ export class InputState {
         const r = canvas.getBoundingClientRect();
         this.mouseX = e.clientX - r.left;
         this.mouseY = e.clientY - r.top;
+        // mouseenter never fires when the cursor is already over the canvas as the game starts, so
+        // the target decides; UI panels on top are other elements.
+        this.overCanvas = e.target === canvas;
       },
       opts,
     );
     canvas.addEventListener(
       'mousedown',
       (e) => {
+        this.overCanvas = true;
         if (e.button === 0) {
           this.mouseDown = true;
           this.leftPresses++;
