@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  STARTER_VESSELS,
   SKILL_BUTTONS,
   AURA,
   BUTTON,
@@ -255,8 +256,8 @@ describe('binder', () => {
 
   it('spawns a minion per equipped vessel', () => {
     const { sim, p } = binder();
-    expect(p.minions.filter((m) => m !== null)).toHaveLength(2);
-    expect(sim.world.minion.size).toBe(2);
+    expect(p.minions.filter((m) => m !== null)).toHaveLength(STARTER_VESSELS.length);
+    expect(sim.world.minion.size).toBe(STARTER_VESSELS.length);
   });
 
   it('a dead minion respawns after the cooldown', () => {

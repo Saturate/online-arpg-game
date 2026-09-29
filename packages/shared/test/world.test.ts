@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUTTON, CLASSES, loadMap, SIM, Simulation, SPELL, stepPlayer, WILDS, type InputFrame, type MoveState } from '../src/index.js';
+import { BUTTON, CLASSES, loadMap, SIM, Simulation, SPELL, STARTER_VESSELS, stepPlayer, WILDS, type InputFrame, type MoveState } from '../src/index.js';
 
 const frame = (seq: number, over: Partial<InputFrame> = {}): InputFrame => ({ seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0, ...over });
 
@@ -126,7 +126,7 @@ describe('rooms', () => {
     expect(p.items.size).toBe(save.items.length);
     expect(p.sigils.filter((s) => s?.compiled.ok)).toHaveLength(4);
     wilds.step();
-    expect(p.minions.filter((m) => m !== null).length).toBe(2);
+    expect(p.minions.filter((m) => m !== null).length).toBe(STARTER_VESSELS.length);
   });
 
   it('town is safe: nothing takes damage', () => {

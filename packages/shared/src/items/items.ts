@@ -318,4 +318,8 @@ export function isBound(item: Item): boolean {
   return item.bound === true || (item.kind === 'sigil' && item.name === TEST_SIGIL.name && item.tier === TEST_SIGIL.tier && item.corrupted);
 }
 
-export const STARTER_VESSELS: MinionTypeId[] = ['zombie_brute', 'skeleton_archer'];
+/**
+ * One minion to start: with no basic attack every class fights with its skills, and two free
+ * minions on top made the Binder clearly ahead. More vessels drop as loot.
+ */
+export const STARTER_VESSELS: MinionTypeId[] = ['zombie_brute'];
