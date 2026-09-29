@@ -564,9 +564,12 @@ export function Inventory() {
             <>
               <h3 className="inv-section">Warband</h3>
               <div className="inv-row">
-                {inv.warband.map((uid, slot) => (
-                  <ItemCell key={slot} label={String(slot + 1)} item={itemByUid(inv, uid)} place={{ at: 'warband', slot }} selected={uid !== null && uid === selUid} onSelect={() => setSelUid(uid)} />
-                ))}
+                {/* Every bound minion, then one free slot to bind another; spirit is the only limit. */}
+                {inv.warband.map((uid, slot) =>
+                  uid !== null || slot === inv.warband.indexOf(null) ? (
+                    <ItemCell key={slot} label={String(slot + 1)} item={itemByUid(inv, uid)} place={{ at: 'warband', slot }} selected={uid !== null && uid === selUid} onSelect={() => setSelUid(uid)} />
+                  ) : null,
+                )}
               </div>
             </>
           )}

@@ -1,3 +1,4 @@
+import { MINIONS } from '../config/sim.js';
 import { isRuneId, type RuneId } from '../data/runes.js';
 import { GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 
@@ -13,6 +14,10 @@ import { BUTTON_MASK, type ClientMessage, type ServerMessage } from './messages.
 /** Longer than any sigil can hold; the simulation enforces the real capacity. */
 const MAX_RUNES = 12;
 const SLOT_COUNT = 4;
+
+function isWarbandSlot(value: unknown): value is number {
+  return isNonNegativeInt(value) && value < MINIONS.warbandSlots;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -108,9 +113,9 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'swapSigils':
       return isSlot(value.a) && isSlot(value.b) ? { t: 'swapSigils', a: value.a, b: value.b } : null;
     case 'equipVessel':
-      return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipVessel', uid: value.uid, slot: value.slot } : null;
+      return isNonNegativeInt(value.uid) && isWarbandSlot(value.slot) ? { t: 'equipVessel', uid: value.uid, slot: value.slot } : null;
     case 'unequipVessel':
-      return isSlot(value.slot) ? { t: 'unequipVessel', slot: value.slot } : null;
+      return isWarbandSlot(value.slot) ? { t: 'unequipVessel', slot: value.slot } : null;
     case 'sortInventory':
       return { t: 'sortInventory' };
     case 'traderList':

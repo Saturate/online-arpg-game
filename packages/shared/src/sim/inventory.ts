@@ -1,4 +1,4 @@
-import { LOOT, WAVES } from '../config/sim.js';
+import { LOOT, MINIONS, WAVES } from '../config/sim.js';
 import { CLASSES } from '../data/classes.js';
 import { RUNES, type RuneId } from '../data/runes.js';
 import { categoryForSlot, GEAR_SLOTS, type GearSlot } from '../data/gear.js';
@@ -166,7 +166,8 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   const re = (u: ItemUid | null): ItemUid | null => (u === null ? null : (remap.get(u) ?? null));
   p.inventory = layOut(save.inventory.map(re), BAG, p.items);
   p.stash = layOut(save.stash.map(re), STASH, p.items);
-  p.warband = save.warband.map(re);
+  // Saves from when the warband had four slots are padded out to the current size.
+  p.warband = Array.from({ length: MINIONS.warbandSlots }, (_, i) => re(save.warband[i] ?? null));
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
   p.stance = save.stance;
   p.waypoints = [...save.waypoints];

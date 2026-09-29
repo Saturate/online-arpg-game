@@ -18,7 +18,6 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
   const uid = owner.warband[slot];
   const item = uid === null || uid === undefined ? undefined : owner.items.get(uid);
   if (!item || item.kind !== 'vessel') return null;
-  if (owner.minions.filter((m) => m !== null).length >= MINIONS.armyCap) return null;
 
   const def = MINION_DEFS[item.minion];
   const levelMult = 1 + MINIONS.levelScaling * (item.level - 1);
@@ -155,14 +154,18 @@ function navigate(sim: Simulation, pos: Vec2, radius: number, goal: Vec2, trail:
 }
 
 /** Formation slot for a minion: an arc behind the master's heading; bodyguards take the front. */
+const FORMATION_ROW = 6;
+
 function formationPoint(owner: { heading: number }, opos: Vec2, slot: number, bodyguard: boolean): Vec2 {
   const back = owner.heading + Math.PI;
   if (bodyguard) {
-    const a = owner.heading + (slot - 1.5) * 0.5;
-    return { x: opos.x + Math.cos(a) * MINIONS.bodyguardDistance, y: opos.y + Math.sin(a) * MINIONS.bodyguardDistance };
+    const a = owner.heading + ((slot % FORMATION_ROW) - (FORMATION_ROW - 1) / 2) * 0.4;
+    const r = MINIONS.bodyguardDistance + Math.floor(slot / FORMATION_ROW) * 26;
+    return { x: opos.x + Math.cos(a) * r, y: opos.y + Math.sin(a) * r };
   }
-  const spread = (slot - (MINIONS.warbandSlots - 1) / 2) * 0.55;
-  const d = MINIONS.followDistance + (slot % 2) * MINIONS.formationSpacing;
+  // Rows of six behind the master, so a big warband forms ranks instead of a circle around them.
+  const spread = ((slot % FORMATION_ROW) - (FORMATION_ROW - 1) / 2) * 0.45;
+  const d = MINIONS.followDistance + Math.floor(slot / FORMATION_ROW) * MINIONS.formationSpacing + (slot % 2) * 10;
   return { x: opos.x + Math.cos(back + spread) * d, y: opos.y + Math.sin(back + spread) * d };
 }
 

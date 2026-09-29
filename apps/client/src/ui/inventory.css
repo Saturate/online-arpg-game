@@ -237,6 +237,7 @@
 .inv-row {
   display: grid;
   grid-template-columns: repeat(4, 52px);
+  grid-auto-rows: 52px;
   gap: 6px;
   justify-content: center;
 }

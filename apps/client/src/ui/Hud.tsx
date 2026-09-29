@@ -194,7 +194,8 @@ function Warband() {
       </span>
       {inv.warband.map((uid, slot) => {
         const item = itemByUid(inv, uid);
-        if (!item || item.kind !== 'vessel') return <span key={slot} className="minion-pip empty" />;
+        // Only bound minions show: the warband is as big as spirit allows, so empty slots are noise.
+        if (!item || item.kind !== 'vessel') return null;
         const t = respawn[slot] ?? 0;
         return (
           <span key={slot} className={`minion-pip${t > 0 ? ' down' : ''}`} style={{ borderColor: cssColor(MINION_DEFS[item.minion].color) }} title={item.name}>

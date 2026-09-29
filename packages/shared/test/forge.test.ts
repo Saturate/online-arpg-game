@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRune, createSigil, ownedRunes, rollDrops, Rng, RUNE_STACK, Simulation, DEFAULT_DROP_TUNING } from '../src/index.js';
+import { createRune, createSigil, createVessel, ownedRunes, rollDrops, Rng, RUNE_STACK, Simulation, DEFAULT_DROP_TUNING } from '../src/index.js';
 import { addItem } from '../src/sim/inventory.js';
 
 function atForge() {
@@ -78,5 +78,27 @@ describe('forge', () => {
     expect(sim.inscribe(pid, starter.uid, [])).toBeNull();
     const back = [...p.items.values()].find((i) => i.kind === 'rune' && i.rune === first);
     expect(back?.bound).toBe(true);
+  });
+});
+
+describe('warband size', () => {
+  it('is limited by spirit, not by a slot count', () => {
+    const sim = new Simulation(6, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'binder');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('no player');
+    p.stats.spiritMax = 10_000;
+    for (let slot = 1; slot < 9; slot++) {
+      const v = createVessel(sim.newItemUid(), sim.rand.loot, 'common', 'zombie_brute');
+      addItem(p, v);
+      expect(sim.equipVessel(pid, v.uid, slot)).toBeNull();
+    }
+    for (let i = 0; i < 5; i++) sim.step();
+    expect(p.minions.filter((m) => m !== null).length).toBe(9);
+    // With normal spirit the next one is refused.
+    p.stats.spiritMax = 1;
+    const extra = createVessel(sim.newItemUid(), sim.rand.loot, 'common', 'zombie_brute');
+    addItem(p, extra);
+    expect(sim.equipVessel(pid, extra.uid, 12)).toBe('Not enough spirit to bind that vessel');
   });
 });

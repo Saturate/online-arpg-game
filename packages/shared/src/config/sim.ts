@@ -163,8 +163,11 @@ export const MINIONS = {
   /** On top of each minion's own numbers: they died too fast and hit too softly to be worth their spirit. */
   damageMultiplier: 1.5,
   lifeMultiplier: 1.4,
-  warbandSlots: 4,
-  armyCap: 6,
+  /**
+   * Spirit is the real limit on how many minions a Binder keeps; this is only a ceiling far above
+   * what any build can pay for, so saves and the protocol keep a fixed size.
+   */
+  warbandSlots: 24,
   respawnSeconds: 10,
   followDistance: 70,
   defensiveEngageRadius: 260,
