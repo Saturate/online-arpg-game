@@ -31,6 +31,7 @@ export interface DebugStats {
   visibleEntities: number;
   fps: number;
   pendingInputs: number;
+  heldKeys: string;
   correctionPx: number;
   addedRttMs: number;
   drawCalls: number;
@@ -253,6 +254,7 @@ export const useUi = create<UiState>((set, get) => ({
     visibleEntities: 0,
     fps: 0,
     pendingInputs: 0,
+    heldKeys: '',
     correctionPx: 0,
     addedRttMs: 0,
     drawCalls: 0,

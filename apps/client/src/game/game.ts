@@ -1104,6 +1104,7 @@ export class Game {
         visibleEntities: this.latest?.entities.length ?? 0,
         fps: this.fps,
         pendingInputs: room?.predictor.pendingCount ?? 0,
+        heldKeys: room?.input.heldKeys.join(' ') ?? '',
         correctionPx: Math.round((room?.predictor.lastCorrection ?? 0) * 10) / 10,
         addedRttMs: netSettings.addedRttMs,
         drawCalls: room?.world.renderer.info.render.calls ?? 0,

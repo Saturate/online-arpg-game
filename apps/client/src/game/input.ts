@@ -24,6 +24,18 @@ function isTypingTarget(target: EventTarget | null): boolean {
 /** Tracks raw key and mouse state; the game loop samples it once per tick. */
 export class InputState {
   private keys = new Set<string>();
+
+  /** Keys the game thinks are down, for the F1 debug view: a stuck key shows up here. */
+  get heldKeys(): readonly string[] {
+    return [...this.keys];
+  }
+
+  /** Forgets every held key and button. Used wherever the browser may swallow the releases. */
+  private releaseAll(): void {
+    this.keys.clear();
+    this.mouseDown = false;
+    this.rightDown = false;
+  }
   /** The show-loot key is held, or the player chose to always show labels. */
   get showLootDown(): boolean {
     if (useSettings.getState().options.alwaysShowLoot) return true;
@@ -76,6 +88,9 @@ export class InputState {
       'keyup',
       (e) => {
         this.keys.delete(e.code);
+        // Windows moves focus to the browser's menu bar when Alt (show loot) is released, and the
+        // next key releases go there instead of the page. Blocking the default keeps focus here.
+        if (actionFor(e.code) !== null && !isTypingTarget(e.target)) e.preventDefault();
         // macOS sends no keyup for keys released while Cmd is held, so a held W would stay "down"
         // forever after any Cmd shortcut. Releasing Cmd forgets everything instead.
         if (e.key === 'Meta') this.keys.clear();
@@ -86,20 +101,22 @@ export class InputState {
     document.addEventListener(
       'visibilitychange',
       () => {
-        if (document.hidden) {
-          this.keys.clear();
-          this.mouseDown = false;
-          this.rightDown = false;
-        }
+        if (document.hidden) this.releaseAll();
       },
       opts,
     );
+    // Native menus and dialogs take key releases without always firing blur: the context menu over
+    // a UI panel, and the "leave this page?" prompt after Ctrl+W or Ctrl+R. Coming back to the
+    // window is a clean slate too.
+    window.addEventListener('blur', () => this.releaseAll(), opts);
+    window.addEventListener('focus', () => this.releaseAll(), opts);
+    window.addEventListener('beforeunload', () => this.releaseAll(), opts);
     window.addEventListener(
-      'blur',
-      () => {
-        this.keys.clear();
-        this.mouseDown = false;
-        this.rightDown = false;
+      'contextmenu',
+      (e) => {
+        // Text fields keep their menu (paste into chat); everywhere else the game has no use for it.
+        if (isTypingTarget(e.target)) return this.releaseAll();
+        e.preventDefault();
       },
       opts,
     );
@@ -136,7 +153,6 @@ export class InputState {
       },
       opts,
     );
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault(), opts);
     canvas.addEventListener('mouseenter', () => (this.overCanvas = true), opts);
     canvas.addEventListener('mouseleave', () => (this.overCanvas = false), opts);
   }

@@ -25,6 +25,8 @@ export function DebugOverlay() {
         </dd>
         <dt>pending inputs</dt>
         <dd>{d.pendingInputs}</dd>
+        <dt>keys held</dt>
+        <dd>{d.heldKeys || 'none'}</dd>
         <dt>last correction</dt>
         <dd>{d.correctionPx} px</dd>
         <dt>force (heat)</dt>
