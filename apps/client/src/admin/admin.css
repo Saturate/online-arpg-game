@@ -18,8 +18,7 @@ body {
   top: 0;
   z-index: 2;
 }
-.adm-header h1,
-.adm-gate h1 {
+.adm-header h1 {
   font-family: Cinzel, Georgia, serif;
   color: var(--gold);
   font-size: 20px;
@@ -31,9 +30,6 @@ body {
   flex: 1;
 }
 .adm-header a,
-.adm-gate a {
-  color: var(--gold);
-}
 .adm button {
   padding: 6px 12px;
   border-radius: 5px;
@@ -219,13 +215,6 @@ body {
   background: rgba(10, 8, 6, 0.95);
   border: 1px solid var(--gold);
   border-radius: 6px;
-}
-.adm-gate {
-  max-width: 480px;
-  margin: 15vh auto;
-  text-align: center;
-  display: grid;
-  gap: 12px;
 }
 .adm fieldset {
   border: 0;
