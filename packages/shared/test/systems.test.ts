@@ -33,7 +33,7 @@ function setup(runes: RuneId[], classId: 'mage' | 'priest' | 'binder' | 'warrior
   p.items.set(item.uid, item);
   p.inventory[p.inventory.indexOf(null)] = item.uid;
   p.sigils[0] = null;
-  expect(sim.inscribe(id, item.uid, runes)).toBeNull();
+  expect(sim.inscribe(id, item.uid, runes, true)).toBeNull();
   expect(sim.equipSigil(id, item.uid, 0)).toBeNull();
   let seq = 0;
   const cast = (over: Partial<InputFrame> = {}) => {
@@ -237,8 +237,8 @@ describe('items and loot', () => {
     const rare = createSigil(sim.newItemUid(), sim.rng, 'rare');
     p.items.set(rare.uid, rare);
     p.inventory[p.inventory.indexOf(null)] = rare.uid;
-    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split'])).toBeNull();
-    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split', 'large'])).toMatch(/Too many/);
+    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split'], true)).toBeNull();
+    expect(sim.inscribe(id, rare.uid, ['bolt', 'fire', 'cold', 'swift', 'split', 'large'], true)).toMatch(/Too many/);
     expect(sim.equipSigil(id, rare.uid, 3)).toBeNull();
     expect(p.sigils[3]?.compiled.ok).toBe(true);
     sim.applyInput(id, frame(0, { buttons: BUTTON.skill4 }));

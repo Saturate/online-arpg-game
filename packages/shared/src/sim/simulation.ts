@@ -249,16 +249,16 @@ export class Simulation {
     return spawnEnemy(this, typeId, x, y, { rare, level: 1, aggro: true });
   }
 
-  /** The sigil editor is a testing tool for now, allowed only on some maps. */
+  /** Maps where builders may inscribe freely (the test bench); everyone else uses the forge. */
   get editorAllowed(): boolean {
     return this.mapDef.theme === 'arena' || this.mapDef.theme === 'flat';
   }
 
   // Commands from the inventory and editor UI. Each returns an error message, or null on success.
 
-  inscribe(id: EntityId, uid: ItemUid, runes: RuneId[]): string | null {
-    if (!this.editorAllowed) return 'Sigils can only be reinscribed in the test arena for now';
-    return inv.inscribe(this, id, uid, runes);
+  /** `devTools`: the caller may use the free test bench, which only works on editorAllowed maps. */
+  inscribe(id: EntityId, uid: ItemUid, runes: RuneId[], devTools = false): string | null {
+    return inv.inscribe(this, id, uid, runes, devTools && this.editorAllowed);
   }
 
   equipSigil(id: EntityId, uid: ItemUid, slot: number): string | null {

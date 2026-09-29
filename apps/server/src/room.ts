@@ -162,7 +162,7 @@ export class Room {
         if (msg.paused && !this.canPause) client.send({ t: 'notice', text: 'Others are here, so the world keeps running' });
         return;
       case 'inscribe':
-        error = this.sim.inscribe(pid, msg.uid, msg.runes);
+        error = this.sim.inscribe(pid, msg.uid, msg.runes, can(client.role, 'devTools'));
         break;
       case 'equipSigil':
         error = this.sim.equipSigil(pid, msg.uid, msg.slot);

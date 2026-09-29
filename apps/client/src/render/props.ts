@@ -377,6 +377,12 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     group.add(built.group);
     animated.push(built.update);
   }
+  // The forge's fire, beside its weapon rack, so the spot reads as a smithy at night too.
+  if (def.forge) {
+    const forgeFire = campfire(def.forge.x + 38, def.forge.y + 22);
+    group.add(forgeFire.group);
+    animated.push(forgeFire.update);
+  }
   // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
   if (def.theme === 'wilds' && !def.safeZones?.length) {
     const fire = campfire(def.spawn.x + 40, def.spawn.y + 60);

@@ -140,6 +140,8 @@ export const LOOT = {
   normalDropChance: 0.08,
   gearShareOfDrops: 0.5,
   vesselShareOfDrops: 0.15,
+  /** Runes are the forge's currency, so a good share of drops are runes. */
+  runeShareOfDrops: 0.25,
   rareDropCount: { min: 1, max: 2 },
   /** Chance a normal monster drops gold; rares and bosses always do. */
   goldChance: 0.35,

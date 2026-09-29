@@ -61,7 +61,18 @@ export function SigilEditor() {
   const changed = draft.join(',') !== original.join(',');
   const equippedSlot = (u: number) => inv.sigils.indexOf(u);
 
+  // At the forge only runes in the bag can go in (the server takes them); the builders' bench is free.
+  const free = useUi.getState().editorAllowed && useUi.getState().devTools;
+  const owned = new Map<RuneId, number>();
+  for (const u of new Set(inv.inventory)) {
+    const it = u === null ? undefined : inv.items.find((i) => i.uid === u);
+    if (it?.kind === 'rune') owned.set(it.rune, (owned.get(it.rune) ?? 0) + it.count);
+  }
   const insert = (rune: RuneId, at: number) => {
+    if (!free && (owned.get(rune) ?? 0) === 0) {
+      useUi.getState().notify(`You have no ${RUNES[rune].name} Rune. Runes drop from monsters.`);
+      return;
+    }
     const next = [...draft];
     if (draft.length >= capacity) {
       // Full: dropping onto a slot replaces what is there instead of silently doing nothing.
@@ -100,7 +111,7 @@ export function SigilEditor() {
   return (
     <section className="panel editor" aria-label="Sigil editor">
       <header>
-        <h2>Sigil editor</h2>
+        <h2>{free ? 'Sigil editor (test bench)' : 'Forge'}</h2>
         <button type="button" className="close" onClick={() => useUi.setState({ editorOpen: false })} aria-label="Close editor">
           x
         </button>
@@ -190,15 +201,24 @@ export function SigilEditor() {
                 <div key={cat} className="palette-group">
                   <h4>{cat}</h4>
                   <div className="rune-row">
-                    {RUNE_IDS.filter((r) => RUNES[r].category === cat).map((r) => (
-                      <div key={r} draggable onDragStart={(e) => e.dataTransfer.setData(DRAG_RUNE, r)}>
-                        <RuneChip id={r} onClick={() => insert(r, draft.length)} />
-                      </div>
-                    ))}
+                    {RUNE_IDS.filter((r) => RUNES[r].category === cat).map((r) => {
+                      const have = owned.get(r) ?? 0;
+                      return (
+                        <div key={r} className={`palette-rune${free || have > 0 ? '' : ' none'}`} draggable={free || have > 0} onDragStart={(e) => e.dataTransfer.setData(DRAG_RUNE, r)}>
+                          <RuneChip id={r} onClick={() => insert(r, draft.length)} />
+                          {!free && <span className="rune-count">{have}</span>}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
-              <p className="muted">Changes apply instantly. Click a rune to append it, click a slotted rune to remove it, or drag to place, replace and reorder.</p>
+              <p className="muted">
+                {free
+                  ? 'Test bench: any rune, nothing spent. '
+                  : 'Runes come from your bag and are used up; runes you take out go back into it. '}
+                Click a rune to append it, click a slotted rune to remove it, or drag to place, replace and reorder.
+              </p>
             </div>
           </div>
         ) : (

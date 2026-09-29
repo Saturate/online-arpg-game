@@ -21,7 +21,7 @@ describe('loot simulator', () => {
     const r = simulateLoot({ ...BASE, source: { level: 6, rare: true, boss: false }, classId: 'mage' });
     const tierTotal = ITEM_TIERS.reduce((s, t) => s + r.tiers[t], 0);
     expect(tierTotal).toBe(r.drops);
-    expect(r.kinds.gear + r.kinds.sigil + r.kinds.vessel).toBe(r.drops);
+    expect(r.kinds.gear + r.kinds.sigil + r.kinds.vessel + r.kinds.rune).toBe(r.drops);
     expect(r.affixCounts.reduce((s, n) => s + n, 0)).toBe(r.drops);
     expect(r.bases.reduce((s, b) => s + b.count, 0)).toBe(r.kinds.gear);
     // Rares drop 1 to 2 items each.
@@ -37,7 +37,7 @@ describe('loot simulator', () => {
   });
 
   it('respects kind share overrides', () => {
-    const r = simulateLoot({ ...BASE, tuning: { normalDropChance: 1, gearShare: 1, vesselShare: 0 } });
+    const r = simulateLoot({ ...BASE, tuning: { normalDropChance: 1, gearShare: 1, vesselShare: 0, runeShare: 0 } });
     expect(r.drops).toBe(BASE.kills);
     expect(r.kinds.gear).toBe(r.drops);
   });

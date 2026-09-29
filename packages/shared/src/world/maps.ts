@@ -229,6 +229,7 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): 
     map.oaks = [...(map.oaks ?? []), ...(town.oaks ?? [])];
     if (town.stash) map.stash = town.stash;
     if (town.trader) map.trader = town.trader;
+    if (town.forge) map.forge = town.forge;
     // The town's own Wilds portal is replaced by the open gates; the rest (the Arena) stays.
     map.portals.push(...town.portals.filter((p) => p.target !== 'wilds' && p.target !== 'town'));
   }

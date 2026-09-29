@@ -3,7 +3,7 @@ import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffix
 import type { ClassId } from '../data/classes.js';
 import { GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
-import type { RuneId } from '../data/runes.js';
+import { RUNE_IDS, RUNES, type RuneId } from '../data/runes.js';
 import { skillById, SKILLS } from '../data/skills.js';
 import { compile, NEUTRAL_MODS, type CompileMods, type CompileResult } from '../runes/compiler.js';
 import type { Rng } from '../sim/rng.js';
@@ -73,7 +73,39 @@ export interface GearItem {
   bound?: boolean;
 }
 
-export type Item = SigilItem | VesselItem | GearItem;
+/** A rune to inscribe at the forge. Runes stack: one bag cell holds up to RUNE_STACK of the same one. */
+export interface RuneItem {
+  uid: ItemUid;
+  kind: 'rune';
+  tier: ItemTier;
+  name: string;
+  ilvl: number;
+  rune: RuneId;
+  count: number;
+  /** Always empty: runes have no rolls. Present so code that lists any item's affixes needs no case for it. */
+  affixes: AffixRoll[];
+  bound?: boolean;
+}
+
+export type Item = SigilItem | VesselItem | GearItem | RuneItem;
+
+export const RUNE_STACK = 20;
+
+/** Shapes are common, what they do is rarer, and triggers (which chain spells) are the rare finds. */
+export function runeTier(rune: RuneId): ItemTier {
+  const c = RUNES[rune].category;
+  return c === 'form' || c === 'element' ? 'common' : c === 'effect' || c === 'modifier' ? 'magic' : 'rare';
+}
+
+export function createRune(uid: ItemUid, rune: RuneId, count = 1): RuneItem {
+  return { uid, kind: 'rune', tier: runeTier(rune), name: `${RUNES[rune].name} Rune`, ilvl: 1, rune, count, affixes: [] };
+}
+
+/** A random rune, weighted toward the common ones. */
+export function rollRune(rng: Rng): RuneId {
+  const weight = { common: 6, magic: 3, rare: 1, relic: 0 } as const;
+  return weightedPick(rng, RUNE_IDS.map((id) => ({ item: id, weight: weight[runeTier(id)] }))) ?? 'bolt';
+}
 
 export function sigilCapacity(item: SigilItem): number {
   return SIGIL_CAPACITY[item.tier] + (item.corrupted ? 1 : 0);

@@ -1,16 +1,18 @@
 import { LOOT, WAVES } from '../config/sim.js';
 import { CLASSES } from '../data/classes.js';
-import type { RuneId } from '../data/runes.js';
+import { RUNES, type RuneId } from '../data/runes.js';
 import { categoryForSlot, GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 import { classSkills } from '../data/skills.js';
 import {
   compileSigilItem,
+  createRune,
   createSigil,
   createGear,
   createVessel,
   isBound,
   ITEM_TIERS,
   rollTier,
+  RUNE_STACK,
   sigilCapacity,
   sigilMods,
   STARTER_VESSELS,
@@ -32,6 +34,7 @@ import { computeStats } from './stats.js';
 
 /** How close to the stash chest a player must stand to use it; like waypoints, checked on the server. */
 export const STASH_REACH = 150;
+export const FORGE_REACH = 170;
 
 
 export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
@@ -66,6 +69,21 @@ export function fitsInBag(p: PlayerComp, item: Item): boolean {
 }
 
 export function addItem(p: PlayerComp, item: Item): boolean {
+  // Runes top up stacks of the same rune first, and only need a cell for what is left over.
+  if (item.kind === 'rune') {
+    for (const uid of new Set(p.inventory)) {
+      const stack = uid === null ? undefined : p.items.get(uid);
+      // Bound runes (from starter sigils) keep their own stacks, so they never make sellable ones.
+      if (stack?.kind !== 'rune' || stack.rune !== item.rune || stack.count >= RUNE_STACK || (stack.bound === true) !== (item.bound === true)) continue;
+      const moved = Math.min(item.count, RUNE_STACK - stack.count);
+      stack.count += moved;
+      item.count -= moved;
+      if (item.count === 0) {
+        changed(p);
+        return true;
+      }
+    }
+  }
   if (!fitsInBag(p, item)) return false;
   p.items.set(item.uid, item);
   stow(p, item.uid);
@@ -166,12 +184,83 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
   changed(p);
 }
 
-export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: RuneId[]): string | null {
+/** Runes of each kind in the bag, the ones the forge can use. */
+export function ownedRunes(p: PlayerComp): Map<RuneId, number> {
+  const out = new Map<RuneId, number>();
+  for (const uid of new Set(p.inventory)) {
+    const it = uid === null ? undefined : p.items.get(uid);
+    if (it?.kind === 'rune') out.set(it.rune, (out.get(it.rune) ?? 0) + it.count);
+  }
+  return out;
+}
+
+function countRunes(list: readonly RuneId[]): Map<RuneId, number> {
+  const m = new Map<RuneId, number>();
+  for (const r of list) m.set(r, (m.get(r) ?? 0) + 1);
+  return m;
+}
+
+/** Spends one rune, bound ones first, so the sellable ones are what stays. */
+function takeRune(p: PlayerComp, rune: RuneId): void {
+  const stacks = [...new Set(p.inventory)].flatMap((uid) => {
+    const it = uid === null ? undefined : p.items.get(uid);
+    return it?.kind === 'rune' && it.rune === rune ? [it] : [];
+  });
+  stacks.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+  for (const it of stacks) {
+    it.count--;
+    if (it.count <= 0) {
+      removeFrom(p.inventory, it.uid);
+      p.items.delete(it.uid);
+    }
+    return;
+  }
+}
+
+/** Whether `runes` (one each) could all go back into the bag, stacking where they can. */
+function roomForRunes(p: PlayerComp, runes: ReadonlyMap<RuneId, number>): boolean {
+  let cellsNeeded = 0;
+  for (const [rune, n] of runes) {
+    let space = 0;
+    for (const uid of new Set(p.inventory)) {
+      const it = uid === null ? undefined : p.items.get(uid);
+      if (it?.kind === 'rune' && it.rune === rune) space += RUNE_STACK - it.count;
+    }
+    cellsNeeded += Math.ceil(Math.max(0, n - space) / RUNE_STACK);
+  }
+  return p.inventory.filter((c) => c === null).length >= cellsNeeded;
+}
+
+export function nearForge(sim: Simulation, pid: EntityId): boolean {
+  const at = sim.mapDef.forge;
+  const pos = sim.world.position.get(pid);
+  return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= FORGE_REACH * FORGE_REACH;
+}
+
+/**
+ * Sets a sigil's runes. At the forge this costs runes: new ones come out of the bag and runes taken
+ * out go back into it. `free` is the builders' test bench (the Arena with dev tools), where any rune
+ * goes and nothing is spent.
+ */
+export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: RuneId[], free = false): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   const item = p.items.get(uid);
   if (!item || item.kind !== 'sigil') return 'Not a sigil you own';
   if (runes.length > sigilCapacity(item)) return 'Too many runes for this sigil';
+  if (!free && !nearForge(sim, pid)) return 'Sigils are inscribed at the forge in town';
+  // What changes: runes to spend and runes to hand back, compared as counts so order does not matter.
+  const before = countRunes(item.runes);
+  const after = countRunes(runes);
+  const spend = new Map<RuneId, number>();
+  const refund = new Map<RuneId, number>();
+  for (const [r, n] of after) if (n > (before.get(r) ?? 0)) spend.set(r, n - (before.get(r) ?? 0));
+  for (const [r, n] of before) if (n > (after.get(r) ?? 0)) refund.set(r, n - (after.get(r) ?? 0));
+  if (!free) {
+    const owned = ownedRunes(p);
+    for (const [r, n] of spend) if ((owned.get(r) ?? 0) < n) return `You need a ${RUNES[r].name} Rune`;
+    if (!roomForRunes(p, refund)) return 'No room in your bag for the runes you take out';
+  }
 
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
   const previous = item.runes;
@@ -180,15 +269,24 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
   // Hand-inscribing replaces the prebaked skill; the sigil is now a custom one.
   item.skill = null;
   if (slot >= 0) {
-    const before = p.sigils[slot] ?? null;
+    const previousCompiled = p.sigils[slot] ?? null;
     p.sigils[slot] = compileSigil(p, item);
     if (spiritReservedFor(p) > spiritMax(p)) {
       item.runes = previous;
       item.skill = previousSkill;
-      p.sigils[slot] = before;
+      p.sigils[slot] = previousCompiled;
       return 'Not enough spirit for that persistent skill';
     }
     p.links[slot] = null;
+  }
+  if (!free) {
+    for (const [r, n] of spend) for (let i = 0; i < n; i++) takeRune(p, r);
+    for (const [r, n] of refund) {
+      const back = createRune(sim.newItemUid(), r, n);
+      // A starter sigil's runes stay bound: usable, but not a free source of sellable runes.
+      if (isBound(item)) back.bound = true;
+      addItem(p, back);
+    }
   }
   changed(p);
   return null;
@@ -336,7 +434,7 @@ export function unequipGear(sim: Simulation, pid: EntityId, slot: GearSlot): str
   return null;
 }
 
-const KIND_ORDER: Readonly<Record<Item['kind'], number>> = { gear: 0, sigil: 1, vessel: 2 };
+const KIND_ORDER: Readonly<Record<Item['kind'], number>> = { gear: 0, sigil: 1, vessel: 2, rune: 3 };
 const CATEGORY_ORDER = ['weapon', 'helmet', 'body', 'gloves', 'boots', 'belt', 'amulet', 'ring'];
 
 /** Bag order after sorting: gear by slot, then sigils, then vessels; best tier and item level first. */

@@ -110,6 +110,8 @@ export interface WorldMap {
   stash?: Vec2;
   /** Where the trader stands; only maps with a town have one. */
   trader?: Vec2;
+  /** Where sigils are inscribed with runes; only maps with a town have one. */
+  forge?: Vec2;
 }
 
 export interface Decor {

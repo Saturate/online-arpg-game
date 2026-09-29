@@ -64,7 +64,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Same spirit as isPlayerSave: the server wrote these, so this catches old or damaged rows, not attacks. */
 function isStoredItem(v: unknown): v is Item {
-  return isRecord(v) && typeof v.uid === 'number' && (v.kind === 'gear' || v.kind === 'sigil' || v.kind === 'vessel') && typeof v.name === 'string' && typeof v.tier === 'string';
+  return isRecord(v) && typeof v.uid === 'number' && (v.kind === 'gear' || v.kind === 'sigil' || v.kind === 'vessel' || v.kind === 'rune') && typeof v.name === 'string' && typeof v.tier === 'string';
 }
 
 /**

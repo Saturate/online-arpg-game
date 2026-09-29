@@ -78,7 +78,7 @@ export function LootTab() {
       seed,
       source: { level, rare: rare || boss, boss },
       kills,
-      tuning: { normalDropChance: dropChance, gearShare, vesselShare: Math.min(vesselShare, 1 - gearShare) },
+      tuning: { normalDropChance: dropChance, gearShare, vesselShare: Math.min(vesselShare, 1 - gearShare), runeShare: DEFAULT_DROP_TUNING.runeShare },
       classId,
     };
     const acc = new LootAccumulator(setup);

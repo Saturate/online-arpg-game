@@ -156,6 +156,12 @@ export function layoutToMap(layout: TownLayout): WorldMap {
   const stalls = layout.props.filter((p) => p.kind === 'stall').sort((a, b) => Math.hypot(a.x - layout.spawn.x, a.y - layout.spawn.y) - Math.hypot(b.x - layout.spawn.x, b.y - layout.spawn.y));
   const stall = stalls[0];
   map.trader = stall ? { x: stall.x, y: stall.y } : { x: layout.spawn.x + 160, y: layout.spawn.y + 70 };
+  // The forge is the weapon rack nearest the spawn, so builders move it with the decor tool; a town
+  // without one gets a rack placed beside the spawn.
+  const racks = layout.decor.filter((d) => d.asset === 'weaponrack').sort((a, b) => Math.hypot(a.x - layout.spawn.x, a.y - layout.spawn.y) - Math.hypot(b.x - layout.spawn.x, b.y - layout.spawn.y));
+  const rack = racks[0];
+  map.forge = rack ? { x: rack.x, y: rack.y } : { x: layout.spawn.x + 200, y: layout.spawn.y + 190 };
+  if (!rack) map.decor.push({ asset: 'weaponrack', x: map.forge.x, y: map.forge.y, angle: 0, scale: 1 });
   for (const portal of layout.portals) map.portals.push({ x: portal.x, y: portal.y, r: portal.target === 'wilds' ? 70 : 60, target: portal.target, label: PORTAL_LABELS[portal.target] });
   return map;
 }

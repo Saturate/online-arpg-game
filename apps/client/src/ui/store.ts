@@ -123,6 +123,8 @@ interface UiState {
   stashOpen: boolean;
   /** Standing at the trader: the shelf shows and right-click sells. */
   traderOpen: boolean;
+  /** Standing at the forge: the sigil editor can be opened, spending runes from the bag. */
+  forgeOpen: boolean;
   traderStock: TraderEntry[];
   characterOpen: boolean;
   devOpen: boolean;
@@ -231,6 +233,7 @@ export const useUi = create<UiState>((set, get) => ({
   rightSkill: 1,
   stashOpen: false,
   traderOpen: false,
+  forgeOpen: false,
   traderStock: [],
   characterOpen: false,
   devOpen: false,

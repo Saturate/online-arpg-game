@@ -270,7 +270,27 @@ function ModelOrArt({ item, size }: { item: Extract<Item, { kind: 'gear' }>; siz
 export function ItemIcon({ item, size = 44 }: { item: Item; size?: number }) {
   if (item.kind === 'gear') return <ModelOrArt item={item} size={size} />;
   if (item.kind === 'vessel') return <VesselIcon item={item} size={size} />;
+  if (item.kind === 'rune') return <RuneIcon item={item} size={size} />;
   return <SigilIcon item={item} size={size} />;
+}
+
+/** A carved stone with the rune's syllable, tinted by the rune, and the stack count in the corner. */
+function RuneIcon({ item, size }: { item: Extract<Item, { kind: 'rune' }>; size: number }) {
+  const def = RUNES[item.rune];
+  const c = cssColor(def.color);
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M32 6 L54 18 L54 46 L32 58 L10 46 L10 18 Z" fill="#1c1813" stroke={c} strokeWidth="3" />
+      <text x="32" y="40" textAnchor="middle" fontSize="20" fontWeight="700" fill={c} fontFamily="Cinzel, serif">
+        {def.syllable}
+      </text>
+      {item.count > 1 && (
+        <text x="56" y="60" textAnchor="end" fontSize="16" fontWeight="700" fill="#f0e6d0" stroke="#000" strokeWidth="3" paintOrder="stroke">
+          {item.count}
+        </text>
+      )}
+    </svg>
+  );
 }
 
 function VesselIcon({ item, size }: { item: Extract<Item, { kind: 'vessel' }>; size: number }) {

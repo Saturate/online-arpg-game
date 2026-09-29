@@ -1,6 +1,6 @@
 import { LOOT } from '../config/sim.js';
 import type { Rng } from '../sim/rng.js';
-import { createGear, createSigil, createVessel, rollTier, type Item, type ItemTier, type ItemUid } from './items.js';
+import { createGear, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid } from './items.js';
 
 /**
  * The monster drop roll without the Simulation around it. The game's `dropLoot` and the loot
@@ -30,12 +30,14 @@ export interface DropTuning {
   normalDropChance: number;
   gearShare: number;
   vesselShare: number;
+  runeShare: number;
 }
 
 export const DEFAULT_DROP_TUNING: DropTuning = {
   normalDropChance: LOOT.normalDropChance,
   gearShare: LOOT.gearShareOfDrops,
   vesselShare: LOOT.vesselShareOfDrops,
+  runeShare: LOOT.runeShareOfDrops,
 };
 
 /**
@@ -58,10 +60,16 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
   for (let i = 0; i < count; i++) {
     const tier = rollTier(rng, weights);
     const roll = rng.next();
+    // Runes first, then the rest split as before; a rune's rarity comes from the rune, not the drop tier.
+    if (roll < tuning.runeShare) {
+      items.push(createRune(newUid(), rollRune(rng)));
+      continue;
+    }
+    const rest = (roll - tuning.runeShare) / (1 - tuning.runeShare);
     items.push(
-      roll < tuning.gearShare
+      rest < tuning.gearShare
         ? createGear(newUid(), rng, tier, src.level)
-        : roll < tuning.gearShare + tuning.vesselShare
+        : rest < tuning.gearShare + tuning.vesselShare
           ? createVessel(newUid(), rng, tier, undefined, src.level)
           : createSigil(newUid(), rng, tier, { ilvl: src.level, allowCorrupt: true, skill: 'random' }),
     );

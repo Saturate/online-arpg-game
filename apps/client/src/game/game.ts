@@ -1,5 +1,6 @@
 import {
   SKILL_BUTTONS,
+  FORGE_REACH,
   STASH_REACH,
   TRADER,
   CLASSES,
@@ -395,8 +396,8 @@ export class Game {
         useUi.setState((s) => ({ characterOpen: !s.characterOpen }));
         break;
       case 'sigilEditor':
-        if (ui.editorAllowed) ui.toggleEditor();
-        else ui.notify('Skills are locked for now. The sigil editor works in the Arena.');
+        if (ui.forgeOpen || (ui.editorAllowed && ui.devTools)) ui.toggleEditor();
+        else ui.notify('Sigils are inscribed at the forge in town');
         break;
       case 'stance':
         this.send({ t: 'cycleStance' });
@@ -565,6 +566,9 @@ export class Game {
     const stash = room.def.stash;
     const atStash = !!stash && Math.hypot(stash.x - origin.x, stash.y - origin.y) <= STASH_REACH - 10;
     if (atStash !== useUi.getState().stashOpen) useUi.setState(atStash ? { stashOpen: true, inventoryOpen: true } : { stashOpen: false });
+    const forge = room.def.forge;
+    const atForge = !!forge && Math.hypot(forge.x - origin.x, forge.y - origin.y) <= FORGE_REACH - 10;
+    if (atForge !== useUi.getState().forgeOpen) useUi.setState(atForge ? { forgeOpen: true, inventoryOpen: true } : { forgeOpen: false, editorOpen: false });
     const trader = room.def.trader;
     const atTrader = !!trader && Math.hypot(trader.x - origin.x, trader.y - origin.y) <= TRADER.reach - 10;
     if (atTrader !== useUi.getState().traderOpen) {
@@ -876,6 +880,7 @@ export class Game {
     for (const p of room.def.portals) labels.push({ key: `portal-${p.x}-${p.y}`, x: p.x, y: p.y, text: p.label, color: '#e0d0ff', height: p.r * 2 + 40, className: 'fx-label portal' });
     // The trader's stall and the stash chest look like any other props, so they are named.
     if (room.def.trader) labels.push({ key: 'trader', x: room.def.trader.x, y: room.def.trader.y, text: 'Trader', color: '#e8c860', height: 110, className: 'fx-label portal' });
+    if (room.def.forge) labels.push({ key: 'forge', x: room.def.forge.x, y: room.def.forge.y, text: 'Forge', color: '#e8c860', height: 90, className: 'fx-label portal' });
     if (room.def.stash) labels.push({ key: 'stash', x: room.def.stash.x, y: room.def.stash.y, text: 'Stash', color: '#e8c860', height: 70, className: 'fx-label portal' });
 
     this.playEvents(now);

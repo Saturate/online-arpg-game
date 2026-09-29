@@ -36,4 +36,4 @@ export * from './world/town.js';
 export * from './data/gear.js';
 export * from './sim/stats.js';
 export * from './sim/dev.js';
-export { buyItem, nearTrader, sellItem, nearStash, pendingItems, restoreStash, splitStash, STASH_REACH, type StashSave } from './sim/inventory.js';
+export { buyItem, FORGE_REACH, nearForge, nearTrader, ownedRunes, sellItem, nearStash, pendingItems, restoreStash, splitStash, STASH_REACH, type StashSave } from './sim/inventory.js';

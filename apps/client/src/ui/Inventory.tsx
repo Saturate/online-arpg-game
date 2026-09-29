@@ -453,7 +453,8 @@ export function TraderWindow() {
 
 /** The account's shared stash, beside the bag while standing at the chest in town. */
 export function StashWindow() {
-  const open = useUi((s) => s.stashOpen && s.inventoryOpen);
+  // The forge sits near the chest; its editor takes the stash's place on screen while it is open.
+  const open = useUi((s) => s.stashOpen && s.inventoryOpen && !s.editorOpen);
   const inv = useUi((s) => s.inventory);
   const [selUid, setSelUid] = useState<ItemUid | null>(null);
   if (!open || !inv) return null;
@@ -513,7 +514,7 @@ export function Inventory() {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const openEditor = useUi((s) => s.openEditor);
-  const editorAllowed = useUi((s) => s.editorAllowed);
+  const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const [selUid, setSelUid] = useState<ItemUid | null>(null);
   // Beside the stash or the trader only the bag shows, like D2, so both windows fit on screen.
   const compact = useUi((s) => s.stashOpen || s.traderOpen);

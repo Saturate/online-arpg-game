@@ -32,7 +32,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const castCooldown = useUi((s) => s.castCooldown);
-  const editorAllowed = useUi((s) => s.editorAllowed);
+  const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const openEditor = useUi((s) => s.openEditor);
   const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
   const onLeft = useUi((s) => s.leftSkill === slot);

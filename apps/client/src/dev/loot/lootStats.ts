@@ -82,7 +82,7 @@ export class LootAccumulator {
   private drops = 0;
   private corrupted = 0;
   private readonly tiers: Record<ItemTier, number> = { common: 0, magic: 0, rare: 0, relic: 0 };
-  private readonly kinds: Record<Item['kind'], number> = { gear: 0, sigil: 0, vessel: 0 };
+  private readonly kinds: Record<Item['kind'], number> = { gear: 0, sigil: 0, vessel: 0, rune: 0 };
   private readonly slots: Partial<Record<GearCategory, number>> = {};
   private readonly bases = new Map<string, number>();
   private readonly affixes = new Map<AffixId, { count: number; tiers: number[]; min: number; max: number; sum: number }>();

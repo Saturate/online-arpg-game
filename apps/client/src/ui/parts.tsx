@@ -123,7 +123,22 @@ function GearDetails({ item }: { item: Extract<Item, { kind: 'gear' }> }) {
 export function ItemDetails({ item, classId }: { item: Item; classId: ClassId }) {
   if (item.kind === 'gear') return <GearDetails item={item} />;
   if (item.kind === 'vessel') return <VesselDetails item={item} />;
+  if (item.kind === 'rune') return <RuneDetails item={item} />;
   return <SigilDetails item={item} classId={classId} />;
+}
+
+function RuneDetails({ item }: { item: Extract<Item, { kind: 'rune' }> }) {
+  const def = RUNES[item.rune];
+  return (
+    <div className="tt-body">
+      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
+      <p className="muted">
+        {def.category[0]?.toUpperCase()}
+        {def.category.slice(1)} rune · {item.count} in this stack
+      </p>
+      <p>Inscribe it into a sigil at the forge in town. It is used up; runes taken back out return to your bag.</p>
+    </div>
+  );
 }
 
 function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
@@ -147,7 +162,7 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
 /** Separate components per kind so each one's hooks run unconditionally. */
 function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }>; classId: ClassId }) {
   const debug = useUi((s) => s.debugVisible);
-  const editorAllowed = useUi((s) => s.editorAllowed);
+  const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
   const skill = skillById(item.skill);
   return (
@@ -162,7 +177,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
       {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />
       <div className="rune-row">
-        {item.runes.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Sigils can be inscribed in the Arena.'}</span> : item.runes.map((r, i) => <RuneChip key={i} id={r} small />)}
+        {item.runes.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span> : item.runes.map((r, i) => <RuneChip key={i} id={r} small />)}
       </div>
       {item.runes.length > 0 && <CostLine result={result} />}
       {result.ok &&
