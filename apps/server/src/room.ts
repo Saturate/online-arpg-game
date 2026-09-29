@@ -176,8 +176,11 @@ export class Room {
       case 'inscribe': {
         // Answered on its own rather than as a notice, so the forge never mistakes another notice
         // for its refusal.
-        const refused = this.sim.inscribe(pid, msg.uid, msg.slots, can(client.role, 'devTools'));
-        client.send(refused === null ? { t: 'inscribed', uid: msg.uid, ok: true } : { t: 'inscribed', uid: msg.uid, ok: false, error: refused });
+        const refused = this.sim.inscribe(pid, msg.uid, msg.slots, can(client.role, 'devTools'), msg.base);
+        // The new inventory goes first: the forge frees its button on the reply, and until the new
+        // slots are on screen a second click would resend a draft made against the old ones.
+        if (refused === null) this.sendInventory(m);
+        client.send(refused === null ? { t: 'inscribed', uid: msg.uid, attempt: msg.attempt, ok: true } : { t: 'inscribed', uid: msg.uid, attempt: msg.attempt, ok: false, error: refused });
         break;
       }
       case 'equipSigil':
@@ -292,17 +295,20 @@ export class Room {
     const entities = serializeEntities(this.sim);
     const events = this.sim.takeEvents();
     for (const m of this.members.values()) {
-      const p = this.sim.world.player.get(m.playerId);
-      if (p && p.inventoryVersion !== m.sentInventoryVersion) {
-        const inv = inventoryMessage(this.sim, m.playerId);
-        if (inv) m.client.send(inv);
-        m.sentInventoryVersion = p.inventoryVersion;
-      }
+      this.sendInventory(m);
       if (m.client.congested) continue;
       const snap = snapshotFor(this.sim, m.playerId, entities, events, NET.interestRadius, m.knownSpells);
       snap.paused = this.paused;
       m.client.send(snap);
     }
+  }
+
+  private sendInventory(m: Member): void {
+    const p = this.sim.world.player.get(m.playerId);
+    if (!p || p.inventoryVersion === m.sentInventoryVersion) return;
+    const inv = inventoryMessage(this.sim, m.playerId);
+    if (inv) m.client.send(inv);
+    m.sentInventoryVersion = p.inventoryVersion;
   }
 }
 

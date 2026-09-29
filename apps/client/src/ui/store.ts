@@ -143,8 +143,11 @@ interface UiState {
   xpNext: number;
   editorOpen: boolean;
   editorUid: ItemUid | null;
-  /** The sigil of the inscribe in flight, until the server's reply to it comes back. */
-  inscribing: ItemUid | null;
+  /**
+   * The inscribe in flight, until the server's reply to this attempt comes back. The server sends
+   * the new inventory before an accepted reply, so by then the forge already shows the new slots.
+   */
+  inscribing: { uid: ItemUid; attempt: number } | null;
   /** The server's reason for refusing the last inscribe, shown in the forge until the next try. */
   forgeError: string | null;
 
@@ -173,9 +176,12 @@ interface UiState {
   openEditor: (uid: ItemUid) => void;
   notify: (text: string) => void;
   inscribed: (reply: InscribeReply) => void;
+  /** Marks a new inscribe attempt in flight and returns its id for the message. */
+  startInscribe: (uid: ItemUid) => number;
 }
 
 let noticeId = 1;
+let inscribeAttempt = 0;
 
 const TOKEN_KEY = 'rune.session';
 const RECONNECT_ATTEMPTS = 8;
@@ -332,10 +338,17 @@ export const useUi = create<UiState>((set, get) => ({
     set((s) => ({ notices: [...s.notices, { id, text }].slice(-4) }));
     setTimeout(() => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })), 3500);
   },
+  startInscribe: (uid) => {
+    const attempt = inscribeAttempt++;
+    set({ inscribing: { uid, attempt }, forgeError: null });
+    return attempt;
+  },
   inscribed: (reply) => {
     const s = get();
-    // A reply to an older save (the player moved on to another sigil) is not this forge's business.
-    if (s.inscribing === reply.uid) set({ inscribing: null });
+    // Only the latest attempt counts: a late answer to one that timed out must not free the button
+    // for the retry still in flight, nor show a refusal that no longer applies.
+    if (s.inscribing?.attempt !== reply.attempt) return;
+    set({ inscribing: null });
     if (reply.ok) {
       if (s.editorUid === reply.uid) set({ forgeError: null });
       return;

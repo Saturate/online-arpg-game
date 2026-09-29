@@ -287,8 +287,12 @@ function oneOf(uid: ItemUid, stack: RuneItem): RuneItem {
  *
  * A rune that comes back out has its rolls brought into the loot table (clampRuneRolls): a starter
  * rune's hand-set rolls only hold inside a sigil.
+ *
+ * `base`, when given, is the slot uids the refs were written against. `keep` indices point into the
+ * sigil as it is now, so a save drafted from an older sigil (a resent click after the first save
+ * landed) would keep the wrong runes and buy the rest again; it is refused instead.
  */
-export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: readonly RuneRef[], free = false): string | null {
+export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: readonly RuneRef[], free = false, base?: readonly ItemUid[]): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   const item = p.items.get(uid);
@@ -296,6 +300,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
   // Only a sigil the character carries: one in the shared stash could carry bound runes to another.
   if (!inBag(p, uid) && slot < 0) return p.stash.includes(uid) ? 'Take the sigil out of the stash first' : 'That sigil is not in your bag';
+  if (base && (base.length !== item.slots.length || item.slots.some((r, i) => r.uid !== base[i]))) return 'The sigil changed; look again';
   // The validator refuses these too; checked again because nothing else stops one rune filling two slots.
   const keptIdx = new Set<number>();
   const rolledUids = new Set<ItemUid>();

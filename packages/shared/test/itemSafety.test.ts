@@ -238,8 +238,9 @@ describe('item safety', () => {
     addItem(p, inBag);
     const inStash = putInStash(p, rolledRune(sim, 'bolt'));
     const twice: RuneRef[] = [{ from: 'rolled', uid: inBag.uid }, { from: 'rolled', uid: inBag.uid }];
-    expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, slots: twice })).toBeNull();
-    expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, slots: [{ from: 'keep', index: 0 }, { from: 'keep', index: 0 }] })).toBeNull();
+    expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, base: [], slots: [{ from: 'rolled', uid: inBag.uid }], attempt: 0 })).not.toBeNull();
+    expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, base: [], slots: twice, attempt: 0 })).toBeNull();
+    expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, base: [], slots: [{ from: 'keep', index: 0 }, { from: 'keep', index: 0 }], attempt: 0 })).toBeNull();
     const before = state(p);
     expect(sim.inscribe(pid, sigil.uid, twice)).toBe('A rune can only fill one slot');
     expect(state(p)).toBe(before);

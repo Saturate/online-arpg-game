@@ -320,9 +320,12 @@ export class Simulation {
 
   // Commands from the inventory and editor UI. Each returns an error message, or null on success.
 
-  /** `devTools`: the caller may use the free test bench, which only works on editorAllowed maps. */
-  inscribe(id: EntityId, uid: ItemUid, slots: readonly RuneRef[], devTools = false): string | null {
-    return inv.inscribe(this, id, uid, slots, devTools && this.editorAllowed);
+  /**
+   * `devTools`: the caller may use the free test bench, which only works on editorAllowed maps.
+   * `base`: the slot uids the client drafted from (see the inscribe message); the server always passes it.
+   */
+  inscribe(id: EntityId, uid: ItemUid, slots: readonly RuneRef[], devTools = false, base?: readonly ItemUid[]): string | null {
+    return inv.inscribe(this, id, uid, slots, devTools && this.editorAllowed, base);
   }
 
   equipSigil(id: EntityId, uid: ItemUid, slot: number): string | null {

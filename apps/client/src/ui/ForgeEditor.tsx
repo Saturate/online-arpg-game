@@ -303,8 +303,8 @@ export function ForgeEditor() {
 
   const save = () => {
     if (!sigil || saveReason) return;
-    useUi.setState({ inscribing: sigil.uid, forgeError: null });
-    sendCommand({ t: 'inscribe', uid: sigil.uid, slots: draft });
+    const attempt = useUi.getState().startInscribe(sigil.uid);
+    sendCommand({ t: 'inscribe', uid: sigil.uid, base: sigil.slots.map((r) => r.uid), slots: draft, attempt });
   };
 
   const plainShown = (pool?.plain ?? []).filter((p) => filter === 'all' || runeKind(p.rune) === filter);

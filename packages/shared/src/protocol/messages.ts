@@ -64,7 +64,12 @@ export type ClientMessage =
   | { t: 'useWaypoint'; zone: ZoneId }
   | ({ t: 'input' } & InputFrame)
   | { t: 'ping'; clientTime: number }
-  | { t: 'inscribe'; uid: ItemUid; slots: RuneRef[] }
+  /**
+   * `base`: the uids of the sigil's slots the draft was made from. `keep` indices only mean what the
+   * player saw while the sigil still holds exactly these, so the server refuses a save made against
+   * an older sigil. `attempt` is echoed in the reply, so the client can ignore answers to older tries.
+   */
+  | { t: 'inscribe'; uid: ItemUid; base: ItemUid[]; slots: RuneRef[]; attempt: number }
   | { t: 'equipSigil'; uid: ItemUid; slot: number }
   | { t: 'unequipSigil'; slot: number }
   /** Reorders the skill bar: the skills in slots a and b trade places. */
@@ -301,10 +306,11 @@ export interface StagingMessage {
 }
 
 /**
- * The answer to one inscribe, so the forge can tell its own refusal from any other notice. The new
- * inventory follows an accepted one as usual.
+ * The answer to one inscribe, so the forge can tell its own refusal from any other notice. An
+ * accepted one is sent after the inventory that shows the new sigil, so the forge never frees its
+ * button while the old slots are still on screen.
  */
-export type InscribeReply = { t: 'inscribed'; uid: ItemUid; ok: true } | { t: 'inscribed'; uid: ItemUid; ok: false; error: string };
+export type InscribeReply = { t: 'inscribed'; uid: ItemUid; attempt: number; ok: true } | { t: 'inscribed'; uid: ItemUid; attempt: number; ok: false; error: string };
 
 export type ServerMessage =
   | {

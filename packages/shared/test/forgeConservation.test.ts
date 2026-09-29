@@ -244,6 +244,18 @@ function randomRefs(rng: Rng, w: World, sigil: Item | undefined): RuneRef[] {
   return refs;
 }
 
+/** The slot uids the client drafted from: usually the sigil as it is, sometimes an older or wrong view of it. */
+function randomBase(rng: Rng, sigil: Item | undefined, previous: ItemUid[] | undefined): { base: ItemUid[]; stale: boolean } {
+  const now = sigil?.kind === 'sigil' ? sigil.slots.map((r) => r.uid) : [];
+  const roll = rng.next();
+  // A resend after the first save landed: the slots the player saw before it.
+  if (roll < 0.08 && previous) return { base: previous, stale: previous.join() !== now.join() };
+  if (roll < 0.11 && now.length > 1) return { base: [...now].reverse(), stale: true };
+  if (roll < 0.14 && now.length > 0) return { base: now.slice(1), stale: true };
+  if (roll < 0.16) return { base: [...now, rng.int(0, 5000)], stale: true };
+  return { base: now, stale: false };
+}
+
 function expectedCost(p: PlayerComp, refs: readonly RuneRef[], free: boolean): number {
   if (free) return 0;
   let cost = 0;
@@ -288,6 +300,8 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
   let ok = 0;
   let refused = 0;
   let clamped = 0;
+  let stale = 0;
+  const seen = new Map<ItemUid, ItemUid[]>();
   checkUids(p);
   for (let step = 0; step < steps; step++) {
     const env = rng.next();
@@ -299,7 +313,9 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
     const uid = rng.next() < 0.03 ? rng.int(0, 5000) : (sigils[rng.int(0, sigils.length - 1)] ?? 0);
     const sigil = p.items.get(uid);
     const refs = randomRefs(rng, w, sigil);
-    const valid = parseClientMessage({ t: 'inscribe', uid, slots: refs });
+    const drafted = randomBase(rng, sigil, seen.get(uid));
+    if (sigil?.kind === 'sigil') seen.set(uid, sigil.slots.map((r) => r.uid));
+    const valid = parseClientMessage({ t: 'inscribe', uid, base: drafted.base, slots: refs, attempt: step });
     const keeps = refs.filter((r) => r.from === 'keep').map((r) => r.index);
     const rolls = refs.filter((r) => r.from === 'rolled').map((r) => r.uid);
     if (new Set(keeps).size < keeps.length || new Set(rolls).size < rolls.length) expect(valid).toBeNull();
@@ -308,7 +324,11 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
     const rolledBefore = rolledByUid(p);
     const gold = p.gold;
     const cost = expectedCost(p, refs, free);
-    const error = sim.inscribe(pid, uid, refs, free);
+    const error = sim.inscribe(pid, uid, refs, free, drafted.base);
+    if (drafted.stale && sigil?.kind === 'sigil') {
+      stale++;
+      expect(error).not.toBeNull();
+    }
     if (error !== null) {
       refused++;
       expect(snapshot(p), error).toBe(before);
@@ -322,8 +342,39 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
     }
     checkUids(p);
   }
+  expect(stale).toBeGreaterThan(0);
   return { ok, refused, clamped };
 }
+
+describe('a save drafted from an older sigil', () => {
+  it('is refused and changes nothing, after the first save landed', () => {
+    const w = setup(21, false, false);
+    const { sim, pid, p } = w;
+    p.gold = 1000;
+    const s = [...p.items.values()].find((i) => i.kind === 'sigil' && i.slots.length >= 3 && p.inventory.includes(i.uid));
+    if (s?.kind !== 'sigil') throw new Error('no filled sigil in the bag');
+    const base = s.slots.map((r) => r.uid);
+    // Keep the first two, drop the rest, buy a Fire: the same click sent twice.
+    const refs: RuneRef[] = [{ from: 'keep', index: 0 }, { from: 'keep', index: 1 }, { from: 'plain', rune: 'fire' }];
+    expect(sim.inscribe(pid, s.uid, refs, false, base)).toBeNull();
+    const before = snapshot(p);
+    const runes = runeMultiset(p);
+    expect(sim.inscribe(pid, s.uid, refs, false, base)).toBe('The sigil changed; look again');
+    expect(snapshot(p)).toBe(before);
+    expect(runeMultiset(p)).toEqual(runes);
+    checkUids(p);
+    // Drafted again from what is there now, the same refs go through.
+    expect(sim.inscribe(pid, s.uid, refs, false, s.slots.map((r) => r.uid))).toBeNull();
+  });
+
+  it('is refused even when it would change nothing', () => {
+    const w = setup(22, false, false);
+    const s = [...w.p.items.values()].find((i) => i.kind === 'sigil' && i.slots.length > 0);
+    if (s?.kind !== 'sigil') throw new Error('no filled sigil');
+    const keepAll = s.slots.map((_, index): RuneRef => ({ from: 'keep', index }));
+    expect(w.sim.inscribe(w.pid, s.uid, keepAll, false, [])).toBe('The sigil changed; look again');
+  });
+});
 
 describe('forge conservation', () => {
   let clampedTotal = 0;

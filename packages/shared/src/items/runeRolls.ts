@@ -51,8 +51,10 @@ export function clampRoll(a: AffixRoll): AffixRoll {
   const range = rollRange(a.id);
   if (!range) return a;
   const better = betterOf(a.id);
-  if ((better === 'higher' || better === 'either') && a.value > range.max.value) return { id: a.id, tier: range.max.tier, value: range.max.value };
-  if ((better === 'lower' || better === 'either') && a.value < range.min.value) return { id: a.id, tier: range.min.tier, value: range.min.value };
+  // The tier only ever goes down: sell value and forge price count tiers, and a hand-set tier 0
+  // starter roll re-tiered to the top would come out worth more than it went in.
+  if ((better === 'higher' || better === 'either') && a.value > range.max.value) return { id: a.id, tier: Math.min(a.tier, range.max.tier), value: range.max.value };
+  if ((better === 'lower' || better === 'either') && a.value < range.min.value) return { id: a.id, tier: Math.min(a.tier, range.min.tier), value: range.min.value };
   return a;
 }
 

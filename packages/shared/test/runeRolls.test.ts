@@ -11,6 +11,12 @@ import {
   createStarterSigil,
   isInscribeReply,
   isServerMessage,
+  parseClientMessage,
+  SIGIL_MAX_SLOTS,
+  sellPrice,
+  forgeInsertPrice,
+  createRolledRune,
+  Rng,
   matchingStarter,
   pendingItems,
   rollLosses,
@@ -58,7 +64,8 @@ function fillBag(sim: Simulation, p: PlayerComp): void {
 describe('rolls past the loot table', () => {
   it('clamp a higher-is-better roll down to the best any tier rolls', () => {
     const top = best('rune_damage', 'max');
-    expect(clampRoll({ id: 'rune_damage', tier: 0, value: 100 })).toEqual({ id: 'rune_damage', tier: AFFIXES.rune_damage.tiers.length - 1, value: top });
+    expect(clampRoll({ id: 'rune_damage', tier: 0, value: 100 })).toEqual({ id: 'rune_damage', tier: 0, value: top });
+    expect(clampRoll({ id: 'rune_damage', tier: 9, value: 100 })).toEqual({ id: 'rune_damage', tier: AFFIXES.rune_damage.tiers.length - 1, value: top });
     const inside: AffixRoll = { id: 'rune_damage', tier: 1, value: 25 };
     expect(clampRoll(inside)).toBe(inside);
     // Weaker than any drop (a slow starter orb) is left as it is.
@@ -97,6 +104,41 @@ describe('rolls past the loot table', () => {
     let uid = 1;
     const past = STARTER_SIGILS.flatMap((def) => createStarterSigil(() => uid++, def, { bound: false }).slots.flatMap(rollLosses));
     expect(past.length).toBeGreaterThan(0);
+  });
+});
+
+describe('clamped runes are worth no more', () => {
+  function unbound(r: RuneItem): RuneItem {
+    const { bound: _b, ...rest } = r;
+    return rest;
+  }
+
+  it('sell for no more and cost no more to insert than before, for every starter rune', () => {
+    let uid = 1;
+    let clamped = 0;
+    for (const def of STARTER_SIGILS) {
+      for (const r of createStarterSigil(() => uid++, def, { bound: false }).slots.map(unbound)) {
+        const out = clampRuneRolls(r);
+        if (out !== r) clamped++;
+        expect(sellPrice(out), `${def.id} ${r.rune}`).toBeLessThanOrEqual(sellPrice(r));
+        expect(forgeInsertPrice(out), `${def.id} ${r.rune}`).toBeLessThanOrEqual(forgeInsertPrice(r));
+        out.affixes.forEach((a, i) => expect(a.tier).toBeLessThanOrEqual(r.affixes[i]?.tier ?? 0));
+      }
+    }
+    expect(clamped).toBeGreaterThan(0);
+  });
+
+  it('sell for no more and cost no more to insert than before, for random rolled runes pushed past the table', () => {
+    const rng = new Rng(77);
+    for (let n = 0; n < 400; n++) {
+      const tier = (['magic', 'rare', 'relic'] as const)[rng.int(0, 2)] ?? 'magic';
+      const r = createRolledRune(n + 1, rng, tier, rng.int(1, 30));
+      // Half of them get a roll far past the table at a random tier, as a hand-set starter roll would.
+      const pushed: RuneItem = rng.next() < 0.5 ? r : { ...r, affixes: r.affixes.map((a) => ({ ...a, tier: rng.int(0, 4), value: a.value * 5 + (a.id === 'release_every' || a.id === 'release_after' ? -a.value * 4.99 : 50) })) };
+      const out = clampRuneRolls(pushed);
+      expect(sellPrice(out)).toBeLessThanOrEqual(sellPrice(pushed));
+      expect(forgeInsertPrice(out)).toBeLessThanOrEqual(forgeInsertPrice(pushed));
+    }
   });
 });
 
@@ -223,13 +265,38 @@ describe('starter identity', () => {
 
 describe('inscribe reply', () => {
   it('validates both shapes and rejects anything else', () => {
-    expect(isInscribeReply({ t: 'inscribed', uid: 4, ok: true })).toBe(true);
-    expect(isInscribeReply({ t: 'inscribed', uid: 4, ok: false, error: 'That costs 12 gold' })).toBe(true);
-    expect(isInscribeReply({ t: 'inscribed', uid: 4, ok: false })).toBe(false);
-    expect(isInscribeReply({ t: 'inscribed', uid: -1, ok: true })).toBe(false);
-    expect(isInscribeReply({ t: 'inscribed', uid: 4, ok: 'yes' })).toBe(false);
-    expect(isServerMessage({ t: 'inscribed', uid: 4, ok: true })).toBe(true);
-    expect(isServerMessage({ t: 'inscribed', uid: 'x', ok: true })).toBe(false);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, attempt: 0, ok: true })).toBe(true);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, attempt: 3, ok: false, error: 'That costs 12 gold' })).toBe(true);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, attempt: 0, ok: false })).toBe(false);
+    expect(isInscribeReply({ t: 'inscribed', uid: -1, attempt: 0, ok: true })).toBe(false);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, attempt: 0, ok: 'yes' })).toBe(false);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, ok: true })).toBe(false);
+    expect(isInscribeReply({ t: 'inscribed', uid: 4, attempt: 1.5, ok: true })).toBe(false);
+    expect(isServerMessage({ t: 'inscribed', uid: 4, attempt: 0, ok: true })).toBe(true);
+    expect(isServerMessage({ t: 'inscribed', uid: 'x', attempt: 0, ok: true })).toBe(false);
+  });
+});
+
+describe('inscribe message', () => {
+  const msg = { t: 'inscribe', uid: 4, base: [11, 12], slots: [{ from: 'keep', index: 1 }], attempt: 2 };
+  it('carries the slot uids the draft was made from and an attempt id', () => {
+    expect(parseClientMessage(msg)).toEqual(msg);
+    expect(parseClientMessage({ ...msg, base: [] })).not.toBeNull();
+  });
+
+  it('refuses a base that is missing, too long, repeats a uid or holds a non-uid', () => {
+    const { base: _b, ...noBase } = msg;
+    expect(parseClientMessage(noBase)).toBeNull();
+    const { attempt: _a, ...noAttempt } = msg;
+    expect(parseClientMessage(noAttempt)).toBeNull();
+    expect(parseClientMessage({ ...msg, attempt: -1 })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: Array.from({ length: SIGIL_MAX_SLOTS + 1 }, (_, i) => i + 1) })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: Array.from({ length: SIGIL_MAX_SLOTS }, (_, i) => i + 1) })).not.toBeNull();
+    expect(parseClientMessage({ ...msg, base: [11, 11] })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: [11, -2] })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: [11, 1.5] })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: ['11'] })).toBeNull();
+    expect(parseClientMessage({ ...msg, base: 11 })).toBeNull();
   });
 });
 

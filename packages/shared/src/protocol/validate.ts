@@ -73,6 +73,17 @@ function parseRuneRefs(value: unknown): RuneRef[] | null {
   return out;
 }
 
+/** The slot uids a draft was made from: at most a full sigil, each uid once. */
+function parseBase(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length > SIGIL_MAX_SLOTS) return null;
+  const out: number[] = [];
+  for (const v of value) {
+    if (!isNonNegativeInt(v) || out.includes(v)) return null;
+    out.push(v);
+  }
+  return out;
+}
+
 export const CHAT_MAX_LENGTH = 200;
 
 /**
@@ -132,7 +143,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isFiniteNumber(value.clientTime) ? { t: 'ping', clientTime: value.clientTime } : null;
     case 'inscribe': {
       const slots = parseRuneRefs(value.slots);
-      return isNonNegativeInt(value.uid) && slots ? { t: 'inscribe', uid: value.uid, slots } : null;
+      const base = parseBase(value.base);
+      return isNonNegativeInt(value.uid) && isNonNegativeInt(value.attempt) && base && slots ? { t: 'inscribe', uid: value.uid, base, slots, attempt: value.attempt } : null;
     }
     case 'equipSigil':
       return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipSigil', uid: value.uid, slot: value.slot } : null;
@@ -197,7 +209,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
  * so its fields are checked rather than trusted to the tag.
  */
 export function isInscribeReply(value: unknown): value is InscribeReply {
-  if (!isRecord(value) || value.t !== 'inscribed' || !isNonNegativeInt(value.uid)) return false;
+  if (!isRecord(value) || value.t !== 'inscribed' || !isNonNegativeInt(value.uid) || !isNonNegativeInt(value.attempt)) return false;
   if (value.ok === true) return value.error === undefined;
   return value.ok === false && typeof value.error === 'string' && value.error.length > 0;
 }
