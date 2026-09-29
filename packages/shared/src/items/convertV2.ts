@@ -40,6 +40,11 @@ export interface ConversionReport {
   starterSigils: string[];
   /** v1 runes carried over one to one (Link becomes Bond): loose, hand-inscribed and unpacked. */
   runesMapped: { from: string; to: RuneId; count: number }[];
+  /**
+   * v1 runes inside built-in skill sigils, by v1 id. The starter sigil's own runes take their place
+   * and nothing is paid for them: they were the skill, not runes the player put in.
+   */
+  runesReplaced: { from: string; count: number }[];
   /** Runes with no v2 counterpart (Linger, Pierce), paid out at their v1 sell value. */
   runesRefunded: { from: string; count: number; gold: number }[];
   /** Gold credited to the owner for refunded runes (0 on the trader shelf, which has no owner). */
@@ -77,7 +82,7 @@ export interface TraderShelfConversion {
 }
 
 export function emptyReport(): ConversionReport {
-  return { starterSigils: [], runesMapped: [], runesRefunded: [], gold: 0, runesReturned: 0, runesPending: 0, testSigilsUnpacked: 0, warnings: [] };
+  return { starterSigils: [], runesMapped: [], runesReplaced: [], runesRefunded: [], gold: 0, runesReturned: 0, runesPending: 0, testSigilsUnpacked: 0, warnings: [] };
 }
 
 /** Stored JSON carries this marker once it is v2; anything without it is v1. */
@@ -391,6 +396,11 @@ class Converter {
       item.affixes = affixes;
       item.corrupted = corrupted;
       this.report.starterSigils.push(def.id);
+      for (const r of runes) {
+        const row = this.report.runesReplaced.find((x) => x.from === r);
+        if (row) row.count++;
+        else this.report.runesReplaced.push({ from: r, count: 1 });
+      }
       return item;
     }
 

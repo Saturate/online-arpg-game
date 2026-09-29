@@ -1,9 +1,12 @@
 import {
   CASTABLE_RUNES,
+  clampRuneRolls,
   createRune,
+  rollLosses,
   isCastableRune,
   isPlainRune,
   RUNE_STACK,
+  type AffixRoll,
   type InventoryMessage,
   type ItemUid,
   type RuneId,
@@ -75,8 +78,15 @@ export interface Resolution {
   slots: ResolvedSlot[];
   /** The refs that still point at something; anything else was dropped (the item moved away). */
   valid: RuneRef[];
-  /** Current slots not kept: they come back out. */
+  /**
+   * Current slots not kept, as they come back out: rolls brought into the loot table, and bench
+   * runes left out since they are gone once they leave a sigil.
+   */
   refunds: RuneItem[];
+  /** Rolls the refunds lose on the way out, one row per roll. */
+  refundWeakened: { rune: RuneId; before: AffixRoll; after: AffixRoll }[];
+  /** Bench runes taken out, which are not handed back. */
+  benchGone: number;
   price: number;
   /** Bag cells the inserts free up: rolled runes taken from the bag, and plain stacks used up. */
   freedBagCells: number;
@@ -122,7 +132,7 @@ export function resolveDraft(sigil: SigilItem, draft: readonly RuneRef[], stock:
       continue;
     }
     if (stock.bench) {
-      const item = { ...createRune(-1, ref.rune), bound: true };
+      const item = { ...createRune(-1, ref.rune), bound: true, bench: true };
       slots.push({ ref, item, origin: 'bag', price: 0 });
       valid.push(ref);
       continue;
@@ -137,8 +147,10 @@ export function resolveDraft(sigil: SigilItem, draft: readonly RuneRef[], stock:
     valid.push(ref);
   }
 
-  const refunds = sigil.slots.filter((_, i) => !keptIndex.has(i));
-  return { slots, valid, refunds, price: slots.reduce((sum, s) => sum + s.price, 0), freedBagCells };
+  const out = sigil.slots.filter((_, i) => !keptIndex.has(i));
+  const back = out.filter((r) => r.bench !== true);
+  const refundWeakened = back.flatMap((r) => rollLosses(r).map((l) => ({ rune: r.rune, ...l })));
+  return { slots, valid, refunds: back.map(clampRuneRolls), refundWeakened, benchGone: out.length - back.length, price: slots.reduce((sum, s) => sum + s.price, 0), freedBagCells };
 }
 
 export interface PlainEntry {

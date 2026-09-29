@@ -173,9 +173,13 @@ export class Room {
         this.paused = msg.paused && this.canPause;
         if (msg.paused && !this.canPause) client.send({ t: 'notice', text: 'Others are here, so the world keeps running' });
         return;
-      case 'inscribe':
-        error = this.sim.inscribe(pid, msg.uid, msg.slots, can(client.role, 'devTools'));
+      case 'inscribe': {
+        // Answered on its own rather than as a notice, so the forge never mistakes another notice
+        // for its refusal.
+        const refused = this.sim.inscribe(pid, msg.uid, msg.slots, can(client.role, 'devTools'));
+        client.send(refused === null ? { t: 'inscribed', uid: msg.uid, ok: true } : { t: 'inscribed', uid: msg.uid, ok: false, error: refused });
         break;
+      }
       case 'equipSigil':
         error = this.sim.equipSigil(pid, msg.uid, msg.slot);
         break;

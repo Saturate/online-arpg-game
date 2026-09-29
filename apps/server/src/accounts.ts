@@ -97,7 +97,8 @@ export interface LoadedStash {
 function logConversion(what: string, r: ConversionReport): void {
   const mapped = r.runesMapped.map((m) => `${m.from}->${m.to} x${m.count}`).join(', ') || 'none';
   const refunded = r.runesRefunded.map((m) => `${m.from} x${m.count}`).join(', ') || 'none';
-  console.log(`v1 ${what} converted: ${r.starterSigils.length} starter sigils, runes ${mapped}, refunded ${refunded} for ${r.gold} gold, ${r.runesReturned} returned (${r.runesPending} pending), ${r.testSigilsUnpacked} test sigils taken apart`);
+  const replaced = r.runesReplaced.map((m) => `${m.from} x${m.count}`).join(', ') || 'none';
+  console.log(`v1 ${what} converted: ${r.starterSigils.length} starter sigils (replacing v1 runes ${replaced}), runes ${mapped}, refunded ${refunded} for ${r.gold} gold, ${r.runesReturned} returned (${r.runesPending} pending), ${r.testSigilsUnpacked} test sigils taken apart`);
   for (const w of r.warnings) console.log(`  v1 ${what}: ${w}`);
 }
 

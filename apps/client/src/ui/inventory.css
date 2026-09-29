@@ -642,3 +642,51 @@
   line-height: 1.4;
   color: #e8dcc0;
 }
+
+/* Items waiting for room, under the bag. */
+.inv-pending {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px dashed #4a3b24;
+  border-radius: 6px;
+  background: rgba(20, 12, 6, 0.5);
+}
+.inv-pending-head {
+  font: 600 11px Cinzel, Georgia, serif;
+  color: #d9b56a;
+  letter-spacing: 0.5px;
+}
+.inv-pending-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.inv-pending-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #3a2f20;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0.85;
+}
+.inv-pending-cell small {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font: 600 10px ui-monospace, monospace;
+  color: #cfc6b6;
+}
+
+.tt-warn {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid #3a1f16;
+  color: #e0806a;
+  font-size: 12px;
+  text-align: center;
+}

@@ -3,10 +3,12 @@ import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffix
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
-import { starterSigilById } from '../data/starterSigils.js';
+import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
+
+export { clampRoll, clampRuneRolls, isNoStronger, rollLosses } from './runeRolls.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
@@ -96,6 +98,11 @@ export interface RuneItem {
   /** Rune affixes (target 'rune'). Empty means plain. */
   affixes: AffixRoll[];
   bound?: boolean;
+  /**
+   * Made on the builders' free bench. It exists only inside a sigil: whenever it leaves one, at the
+   * bench or a real forge, it is gone, so the bench never becomes a free supply of runes.
+   */
+  bench?: boolean;
 }
 
 export type Item = SigilItem | VesselItem | GearItem | RuneItem;
@@ -240,6 +247,18 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
   }
   if (bound) item.bound = true;
   return item;
+}
+
+/**
+ * The starter sigil this one still is: its `starter`, while the slots hold that starter's runes in
+ * its order. Only the rune ids are compared, since balance passes retune the starters' rolls and
+ * sigils already out there keep the rolls they were made with. Once the runes change, the sigil is
+ * named and described by what it holds, not by the starter it came from.
+ */
+export function matchingStarter(item: SigilItem): StarterSigilDef | undefined {
+  const def = starterSigilById(item.starter);
+  if (!def || def.runes.length !== item.slots.length) return undefined;
+  return def.runes.every((r, i) => item.slots[i]?.rune === r.id) ? def : undefined;
 }
 
 /**

@@ -3,6 +3,8 @@ import {
   categoryForSlot,
   findSpot,
   GEAR_SLOTS,
+  holdsBoundRunes,
+  isBound,
   itemSize,
   STASH,
   gearStats,
@@ -30,7 +32,7 @@ export type ItemPlace =
   /** On the trader's shelf: only for tooltips, never dragged or dropped. */
   | { at: 'trader'; price: number }
   /** In the forge editor's slots or pool: only for tooltips, with the hint to show under it. */
-  | { at: 'forge'; hint: string };
+  | { at: 'forge'; hint: string; warn?: string };
 
 export interface DragPayload {
   uid: ItemUid;
@@ -157,4 +159,20 @@ export function compareGear(next: GearItem, current: GearItem | null): StatDelta
   return STAT_IDS.map((stat) => ({ stat, delta: Math.round(((a[stat] ?? 0) - (b[stat] ?? 0)) * 100) / 100 }))
     .filter((d) => d.delta !== 0)
     .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
+}
+
+/**
+ * Why the server would refuse to drop an item on the ground, so the bag can say it at once instead
+ * of sending a command that only comes back as a notice.
+ */
+export function dropRefusal(item: Item): string | null {
+  if (isBound(item)) return 'Bound items stay with this character';
+  if (holdsBoundRunes(item)) return 'Take the bound runes out first';
+  return null;
+}
+
+/** Items the character owns that sit in no grid and no slot: they wait for room (see pendingItems on the server). */
+export function pendingOf(inv: InventoryMessage): Item[] {
+  const placed = new Set<ItemUid | null>([...inv.inventory, ...inv.stash, ...inv.warband, ...inv.sigils, ...Object.values(inv.gear)]);
+  return inv.items.filter((i) => !placed.has(i.uid));
 }

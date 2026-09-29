@@ -94,6 +94,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.forge-sigil-starter {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .forge-sigil-runes {
   font-size: 10px;
 }
@@ -114,6 +121,11 @@
 }
 .forge-title .muted {
   font-size: 12px;
+}
+.forge-starter-note {
+  font-size: 11px;
+  color: #b8a888;
+  font-style: italic;
 }
 .forge-warn {
   margin: 6px 0;
@@ -264,6 +276,14 @@
   border-radius: 50%;
   background: #6b86a8;
 }
+/* A rune whose rolls are past the loot table: it keeps them only while it stays in. */
+.mark.weakens {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 7px solid #e0806a;
+}
 .forge-tag {
   font-size: 9px;
   text-transform: uppercase;
@@ -383,6 +403,11 @@
   color: #f0d890;
   font-family: Cinzel, Georgia, serif;
 }
+.panel .forge-inscribe.fizzles:not(:disabled) {
+  border-color: #6a2a1e;
+  background: linear-gradient(180deg, #3a1a12, #1f0e0a);
+  color: #e0a080;
+}
 
 /* Pool */
 .forge-pool {
@@ -451,6 +476,7 @@
   display: grid;
   justify-items: end;
   gap: 3px;
+  white-space: nowrap;
   font: 600 11px ui-monospace, monospace;
   color: #cfc6b6;
 }

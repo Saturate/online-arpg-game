@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { addItem } from '../src/sim/inventory.js';
 import {
+  clampRoll,
   createGear,
+  createStarterSigil,
+  isNoStronger,
+  starterSigilById,
   createRolledRune,
   createRune,
   createSigil,
@@ -24,9 +28,11 @@ import {
 } from '../src/index.js';
 
 /**
- * Random inscribe sequences against the one promise the forge makes: runes only move. Every rune
- * (by id, rolls and binding) is somewhere afterwards, gold drops by exactly the forge price of what
- * went in, a refusal changes nothing, and no uid is ever in two places.
+ * Random inscribe sequences against the one promise the forge makes: runes only move. Every plain
+ * rune (by id and binding) and every rolled rune (by uid) is somewhere afterwards, gold drops by
+ * exactly the forge price of what went in, a refusal changes nothing, and no uid is ever in two
+ * places. The one change allowed on the way: a rolled rune that leaves a sigil loses rolls past the
+ * loot table, down to the best a drop can have, and nothing else.
  */
 
 const PLAIN_POOL: readonly RuneId[] = ['orb', 'bolt', 'fire', 'cold', 'nova', 'aura', 'ward', 'split', 'lightning'];
@@ -36,17 +42,56 @@ function key(r: RuneItem): string {
   return `${r.rune}|${r.bound === true}|${JSON.stringify(r.affixes)}`;
 }
 
-/** Every rune the character has, wherever it is: bag, stash, pending, or a slot of any sigil. */
+/** Every plain rune the character has, wherever it is: bag, stash, pending, or a slot of any sigil. */
 function runeMultiset(p: PlayerComp, skip: (r: RuneItem) => boolean = () => false): Map<string, number> {
   const out = new Map<string, number>();
   const add = (r: RuneItem, n: number): void => {
-    if (!skip(r)) out.set(key(r), (out.get(key(r)) ?? 0) + n);
+    if (!skip(r) && r.affixes.length === 0) out.set(key(r), (out.get(key(r)) ?? 0) + n);
   };
   for (const it of p.items.values()) {
     if (it.kind === 'rune') add(it, it.count);
     if (it.kind === 'sigil') for (const r of it.slots) add(r, 1);
   }
   return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function cloneRune(r: RuneItem): RuneItem {
+  return { ...r, affixes: r.affixes.map((a) => ({ ...a })) };
+}
+
+/** Every rolled rune by uid, and whether it sits in a sigil. */
+function rolledByUid(p: PlayerComp): Map<ItemUid, { rune: RuneItem; inSigil: boolean }> {
+  const out = new Map<ItemUid, { rune: RuneItem; inSigil: boolean }>();
+  for (const it of p.items.values()) {
+    if (it.kind === 'rune' && it.affixes.length > 0) out.set(it.uid, { rune: cloneRune(it), inSigil: false });
+    if (it.kind === 'sigil') for (const r of it.slots) if (r.affixes.length > 0) out.set(r.uid, { rune: cloneRune(r), inSigil: true });
+  }
+  return out;
+}
+
+/** Rolled runes kept their uid, rune and binding; a roll changed only where it left a sigil and was past the table. */
+function checkRolled(before: ReturnType<typeof rolledByUid>, after: ReturnType<typeof rolledByUid>): number {
+  let clamped = 0;
+  expect([...after.keys()].sort((a, b) => a - b)).toEqual([...before.keys()].sort((a, b) => a - b));
+  for (const [uid, was] of before) {
+    const now = after.get(uid);
+    if (!now) throw new Error(`rolled rune ${uid} is gone`);
+    expect(now.rune.rune).toBe(was.rune.rune);
+    expect(now.rune.bound === true).toBe(was.rune.bound === true);
+    expect(now.rune.affixes.map((a) => a.id)).toEqual(was.rune.affixes.map((a) => a.id));
+    const leftSigil = was.inSigil && !now.inSigil;
+    was.rune.affixes.forEach((a, i) => {
+      const b = now.rune.affixes[i];
+      if (!b) throw new Error('affix lost');
+      if (b.value === a.value) return;
+      clamped++;
+      expect(leftSigil, `${uid} changed a roll without leaving a sigil`).toBe(true);
+      expect(clampRoll(a), `${a.id} ${a.value} was inside the table`).not.toBe(a);
+      expect(b.value).toBe(clampRoll(a).value);
+      expect(isNoStronger(a, b)).toBe(true);
+    });
+  }
+  return clamped;
 }
 
 function snapshot(p: PlayerComp): string {
@@ -135,6 +180,11 @@ function setup(seed: number, flat: boolean, fullBag: boolean): World {
     stash(p, rolled(rune, false));
   }
   stash(p, createSigil(sim.newItemUid(), loot, 'magic'));
+  // Dropped starter sigils are unbound, and their hand-set rolls go past what any drop can have.
+  for (const id of ['fireball', 'frozen_orb', 'multishot']) {
+    const def = starterSigilById(id);
+    if (def) addItem(p, createStarterSigil(() => sim.newItemUid(), def, { bound: false }));
+  }
   // Another character in the same room, with runes of its own in its stash.
   const oid = sim.addPlayer('d', 'mage');
   const other = sim.world.player.get(oid);
@@ -226,17 +276,18 @@ function expectedCost(p: PlayerComp, refs: readonly RuneRef[], free: boolean): n
   return cost;
 }
 
-function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok: number; refused: number } {
+function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok: number; refused: number; clamped: number } {
   const w = setup(seed, flat, fullBag);
   const { sim, pid, p } = w;
   const pos = sim.world.position.get(pid);
   if (!pos) throw new Error('setup');
   const rng = new Rng(seed * 7919 + 1);
   const free = flat;
-  // The bench makes bound plain runes out of nothing and lets them go again, so those are left out.
-  const skip = free ? (r: RuneItem): boolean => r.bound === true && r.affixes.length === 0 : undefined;
+  // The bench makes runes out of nothing and lets them go again, so those are left out.
+  const skip = (r: RuneItem): boolean => r.bench === true;
   let ok = 0;
   let refused = 0;
+  let clamped = 0;
   checkUids(p);
   for (let step = 0; step < steps; step++) {
     const env = rng.next();
@@ -254,6 +305,7 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
     if (new Set(keeps).size < keeps.length || new Set(rolls).size < rolls.length) expect(valid).toBeNull();
     const before = snapshot(p);
     const runes = runeMultiset(p, skip);
+    const rolledBefore = rolledByUid(p);
     const gold = p.gold;
     const cost = expectedCost(p, refs, free);
     const error = sim.inscribe(pid, uid, refs, free);
@@ -263,24 +315,31 @@ function run(seed: number, flat: boolean, fullBag: boolean, steps: number): { ok
     } else {
       ok++;
       expect(runeMultiset(p, skip)).toEqual(runes);
+      clamped += checkRolled(rolledBefore, rolledByUid(p));
       const unchanged = sigil?.kind === 'sigil' && refs.length === sigil.slots.length && refs.every((r, i) => r.from === 'keep' && r.index === i);
       expect(p.gold).toBe(unchanged ? gold : gold - cost);
       expect(p.gold).toBeGreaterThanOrEqual(0);
     }
     checkUids(p);
   }
-  return { ok, refused };
+  return { ok, refused, clamped };
 }
 
 describe('forge conservation', () => {
+  let clampedTotal = 0;
   for (const seed of [1, 2, 3, 4, 5, 6]) {
     it(`seed ${seed}: runes only move and gold pays for what goes in`, () => {
-      const { ok, refused } = run(seed, false, false, 250);
+      const { ok, refused, clamped } = run(seed, false, false, 250);
+      clampedTotal += clamped;
       // Both paths get exercised, or the check proves nothing.
       expect(ok).toBeGreaterThan(20);
       expect(refused).toBeGreaterThan(20);
     });
   }
+
+  it('the random runs took out-of-table starter runes out of their sigils', () => {
+    expect(clampedTotal).toBeGreaterThan(0);
+  });
 
   it('with a full bag, refunds wait as pending instead of vanishing', () => {
     for (const seed of [7, 8, 9]) {

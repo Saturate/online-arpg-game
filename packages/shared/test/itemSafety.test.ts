@@ -357,7 +357,7 @@ describe('item safety', () => {
     expect(state(p)).toBe(before);
   });
 
-  it('the free bench inserts plain runes bound, costs nothing and refunds only unbound and rolled runes', () => {
+  it('the free bench inserts plain runes bound, costs nothing and drops only its own runes when they come out', () => {
     const sim = new Simulation(5);
     const pid = sim.addPlayer('b', 'mage');
     const p = sim.world.player.get(pid);
@@ -369,7 +369,7 @@ describe('item safety', () => {
     sigil.slots = [found, rolledIn];
     addItem(p, sigil);
     expect(sim.inscribe(pid, sigil.uid, [{ from: 'plain', rune: 'fire' }, { from: 'plain', rune: 'bolt' }], true)).toBeNull();
-    expect(sigil.slots.map((r) => [r.rune, r.bound])).toEqual([['fire', true], ['bolt', true]]);
+    expect(sigil.slots.map((r) => [r.rune, r.bound, r.bench])).toEqual([['fire', true, true], ['bolt', true, true]]);
     expect(p.gold).toBe(0);
     // The unbound Cold and the bound rolled Orb come back; bench-made runes do not.
     expect(runeStacks(p, 'cold').map((r) => r.count)).toEqual([1]);

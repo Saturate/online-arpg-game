@@ -1,4 +1,4 @@
-import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, starterSigilById, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, matchingStarter, MINION_DEFS, sigilCastDelay, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
 import { useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -48,6 +48,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const castCooldown = useUi((s) => s.castCooldown);
+  const castSpeed = useUi((s) => s.stats?.castSpeedMult ?? 1);
   const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const openEditor = useUi((s) => s.openEditor);
   const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
@@ -58,11 +59,14 @@ function SkillSlot({ slot }: { slot: number }) {
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
   const result = sigil && classId ? compileFor(sigil, classId) : null;
   const persistent = result?.ok === true && result.persistent;
-  const skill = starterSigilById(sigil?.starter);
+  // Named and described as its starter only while it still holds the starter's runes.
+  const skill = sigil ? matchingStarter(sigil) : undefined;
   const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
   const [hovered, setHovered] = useState(false);
   const cost = !result ? '' : !result.ok ? 'fizzles' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
-  const cd = persistent ? 0 : Math.min(1, castCooldown / HEAT.castCooldownSeconds);
+  // The server sets the cooldown to the cast sigil's own delay over cast speed, so the sweep is measured against that.
+  const delay = sigil ? sigilCastDelay(sigil) / Math.max(0.01, castSpeed) : HEAT.castCooldownSeconds;
+  const cd = persistent || delay <= 0 ? 0 : Math.min(1, castCooldown / delay);
   const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
 
   return (

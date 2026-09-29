@@ -10,7 +10,7 @@ import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken } from './accounts.js';
 import { isZoneId } from '../data/zones.js';
-import { BUTTON_MASK, type ClientMessage, type RuneRef, type ServerMessage } from './messages.js';
+import { BUTTON_MASK, type ClientMessage, type InscribeReply, type RuneRef, type ServerMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
 function isWarbandSlot(value: unknown): value is number {
@@ -181,12 +181,23 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
  * the shared types on the sending side.
  */
 export function isServerMessage(value: unknown): value is ServerMessage {
-  return isRecord(value) && typeof value.t === 'string' && SERVER_TAGS.has(value.t);
+  if (!isRecord(value) || typeof value.t !== 'string' || !SERVER_TAGS.has(value.t)) return false;
+  return value.t !== 'inscribed' || isInscribeReply(value);
+}
+
+/**
+ * The forge acts on this one directly (it clears or shows the refusal for the sigil being edited),
+ * so its fields are checked rather than trusted to the tag.
+ */
+export function isInscribeReply(value: unknown): value is InscribeReply {
+  if (!isRecord(value) || value.t !== 'inscribed' || !isNonNegativeInt(value.uid)) return false;
+  if (value.ok === true) return value.error === undefined;
+  return value.ok === false && typeof value.error === 'string' && value.error.length > 0;
 }

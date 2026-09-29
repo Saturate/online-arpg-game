@@ -2,15 +2,17 @@ import {
   bracketTree,
   describeTree,
   forgeInsertPrice,
+  formatAffix,
   HEAT,
+  matchingStarter,
   RULES,
   runeColor,
   runeDescription,
   runeKind,
   runeName,
+  rollLosses,
   sigilCapacity,
   sigilCastDelay,
-  starterSigilById,
   type GrammarError,
   type InventoryMessage,
   type ItemUid,
@@ -21,7 +23,7 @@ import {
   type SigilCompile,
   type SigilItem,
 } from '@rune/shared';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
 import { cssColor } from '../render/config.js';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refKey, refundOverflow, removeAt, resolveDraft, runeStock, sameDraft, type PlainEntry, type RolledEntry, type RuneOrigin } from './forge/draft.js';
 import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
@@ -63,8 +65,17 @@ function sigilsOf(inv: InventoryMessage): SigilPlace[] {
   return out;
 }
 
-function sigilName(item: SigilItem): string {
-  return starterSigilById(item.starter)?.name ?? item.name;
+/** The starter a sigil still is, as a subtitle under its own name; nothing once its runes changed. */
+function starterNote(item: SigilItem): string | null {
+  const def = matchingStarter(item);
+  return def && def.name !== item.name ? def.name : null;
+}
+
+/** What taking a rune out of the sigil costs it, or null when it comes out as it is. */
+function weakening(item: RuneItem): string | null {
+  const losses = rollLosses(item);
+  if (losses.length === 0) return null;
+  return `Taking this rune out weakens it: ${losses.map((l) => `${formatAffix(l.before)} becomes ${formatAffix(l.after)}`).join('; ')}`;
 }
 
 function runeStyle(id: RuneId): CSSProperties & Record<'--rune', string> {
@@ -81,8 +92,8 @@ function Glyph({ id }: { id: RuneId }) {
 }
 
 function OriginTag({ origin }: { origin: RuneOrigin }) {
-  if (origin === 'stash') return <span className="forge-tag stash" title="Taken from the account stash">stash</span>;
-  if (origin === 'sigil') return <span className="forge-tag kept" title="Already in this sigil: free to put back">in sigil</span>;
+  if (origin === 'stash') return <span className="forge-tag stash" title="In the account stash">in stash</span>;
+  if (origin === 'sigil') return <span className="forge-tag kept" title="Taken out of this sigil in this draft: free to put back">taken out</span>;
   return null;
 }
 
@@ -107,8 +118,8 @@ function parseDragData(raw: string): DragData | null {
   }
 }
 
-function hover(item: RuneItem, e: MouseEvent, hint: string): void {
-  useHover.getState().set(item, e.clientX, e.clientY, { at: 'forge', hint });
+function hover(item: RuneItem, e: MouseEvent, hint: string, warn: string | null = null): void {
+  useHover.getState().set(item, e.clientX, e.clientY, warn ? { at: 'forge', hint, warn } : { at: 'forge', hint });
 }
 
 function unhover(): void {
@@ -192,21 +203,16 @@ export function ForgeEditor() {
   const uid = useUi((s) => s.editorUid);
   const forgeOpen = useUi((s) => s.forgeOpen);
   const bench = useUi((s) => s.editorAllowed && s.devTools);
-  const inscribing = useUi((s) => s.inscribing);
+  const inscribing = useUi((s) => s.inscribing !== null);
   const forgeError = useUi((s) => s.forgeError);
   const [draftState, setDraftState] = useState<DraftState | null>(null);
   const [filter, setFilter] = useState<RuneKind | 'all'>('all');
   const [dropAt, setDropAt] = useState<number | null>(null);
-  const invRef = useRef(inv);
 
-  // A new inventory while inscribing means the server took it; a refusal comes as a notice instead.
-  useEffect(() => {
-    if (invRef.current !== inv && useUi.getState().inscribing) useUi.setState({ inscribing: false, forgeError: null });
-    invRef.current = inv;
-  }, [inv]);
+  // The server answers every inscribe; this only frees the button if the reply is lost with a dropped connection.
   useEffect(() => {
     if (!inscribing) return;
-    const t = setTimeout(() => useUi.setState({ inscribing: false }), 5000);
+    const t = setTimeout(() => useUi.setState({ inscribing: null }), 5000);
     return () => clearTimeout(t);
   }, [inscribing]);
   useEffect(() => {
@@ -291,15 +297,20 @@ export function ForgeEditor() {
   else if (price > inv.gold) saveReason = `Needs ${price - inv.gold} more gold`;
   else if (inscribing) saveReason = 'Inscribing';
 
+  // Building in steps is allowed, so a spell that fizzles can still be saved; the button says so.
+  const fizzles = draft.length > 0 && result !== null && !result.ok;
+  const inscribeLabel = inscribing ? 'Inscribing' : `${fizzles ? 'Inscribe anyway' : 'Inscribe'}${price > 0 ? ` for ${price} gold` : ''}${fizzles ? ' (fizzles)' : ''}`;
+
   const save = () => {
     if (!sigil || saveReason) return;
-    useUi.setState({ inscribing: true, forgeError: null });
+    useUi.setState({ inscribing: sigil.uid, forgeError: null });
     sendCommand({ t: 'inscribe', uid: sigil.uid, slots: draft });
   };
 
   const plainShown = (pool?.plain ?? []).filter((p) => filter === 'all' || runeKind(p.rune) === filter);
   const rolledShown = (pool?.rolled ?? []).filter((r) => filter === 'all' || runeKind(r.item.rune) === filter);
-  const plainCount = (p: PlainEntry) => p.loose + p.bag + p.stash;
+  const poolEmpty = !pool || pool.plain.length + pool.rolled.length === 0;
+  const filterLabel = KIND_FILTERS.find((f) => f.id === filter)?.label.toLowerCase() ?? 'runes';
 
   return (
     <section className="panel forge" aria-label="Forge">
@@ -327,7 +338,10 @@ export function ForgeEditor() {
               title={p.where === 'stash' ? 'Take it out of the stash first' : undefined}
             >
               <span className="forge-sigil-where">{p.where === 'equipped' ? <kbd>{p.slot + 1}</kbd> : p.where === 'stash' ? 'stash' : 'bag'}</span>
-              <span className="forge-sigil-name">{sigilName(p.item)}</span>
+              <span className="forge-sigil-name">
+                {p.item.name}
+                {starterNote(p.item) && <small className="forge-sigil-starter">{starterNote(p.item)}</small>}
+              </span>
               <span className="forge-sigil-runes muted">
                 {p.item.slots.length}/{sigilCapacity(p.item)}
               </span>
@@ -339,7 +353,8 @@ export function ForgeEditor() {
           {sigil && result && resolution ? (
             <>
               <div className="forge-title">
-                <h3 style={{ color: tierColor(sigil) }}>{sigilName(sigil)}</h3>
+                <h3 style={{ color: tierColor(sigil) }}>{sigil.name}</h3>
+                {starterNote(sigil) && <span className="forge-starter-note">{starterNote(sigil)}</span>}
                 <span className="muted">
                   {capacity} slots · {sigilCastDelay(sigil).toFixed(2)} s between casts
                   {sigil.corrupted ? ' · corrupted' : ''}
@@ -359,6 +374,9 @@ export function ForgeEditor() {
                     );
                   }
                   const rolled = slot.item.affixes.length > 0;
+                  // Only a rune already in the sigil can lose rolls on the way out; a new one came in within the table.
+                  const weakens = slot.origin === 'sigil' ? weakening(slot.item) : null;
+                  const hint = 'Click to take it out · Drag to move it';
                   return (
                     <li key={`${refKey(slot.ref)}-${i}`} className={cls} onDragOver={(e) => dragOver(e, i)} onDragLeave={() => setDropAt(null)} onDrop={(e) => onSlotDrop(e, i)}>
                       <button
@@ -371,10 +389,10 @@ export function ForgeEditor() {
                           unhover();
                           setDraft(removeAt(draft, i));
                         }}
-                        onMouseEnter={(e) => hover(slot.item, e, 'Click to take it out · Drag to move it')}
-                        onMouseMove={(e) => hover(slot.item, e, 'Click to take it out · Drag to move it')}
+                        onMouseEnter={(e) => hover(slot.item, e, hint, weakens)}
+                        onMouseMove={(e) => hover(slot.item, e, hint, weakens)}
                         onMouseLeave={unhover}
-                        aria-label={`Slot ${i + 1}: ${runeName(slot.item.rune)}${rolled ? ', rolled' : ''}`}
+                        aria-label={`Slot ${i + 1}: ${runeName(slot.item.rune)}${rolled ? ', rolled' : ''}${weakens ? `. ${weakens}` : ''}`}
                       >
                         <span className="forge-slot-num">{i + 1}</span>
                         <Glyph id={slot.item.rune} />
@@ -382,6 +400,7 @@ export function ForgeEditor() {
                         <span className="forge-slot-marks">
                           {rolled && <i className="mark rolled" title="Rolled" />}
                           {slot.item.bound && <i className="mark bound" title="Bound" />}
+                          {weakens && <i className="mark weakens" title={weakens} />}
                           {slot.origin === 'stash' && <i className="mark stash" title="From the stash" />}
                           {slot.price > 0 && <span className="forge-price">{slot.price}g</span>}
                         </span>
@@ -398,12 +417,13 @@ export function ForgeEditor() {
               <div className="forge-foot">
                 <ForgePreviewCanvas classId={classId} spellKey={`${sigil.uid}:${draftKey}`} compiled={draft.length > 0 ? result : null} castDelay={sigilCastDelay(sigil)} />
                 <div className="forge-save">
-                  {resolution.refunds.length > 0 && (
-                    <p className="muted">
-                      Comes back out: {resolution.refunds.map((r) => runeName(r.rune)).join(', ')}
-                      {free ? ' (bound bench runes are not handed back)' : ''}
+                  {resolution.refunds.length > 0 && <p className="muted">Comes back out: {resolution.refunds.map((r) => runeName(r.rune)).join(', ')}</p>}
+                  {resolution.refundWeakened.length > 0 && (
+                    <p className="forge-warn">
+                      {resolution.refundWeakened.map((l) => `${runeName(l.rune)}: ${formatAffix(l.before)} becomes ${formatAffix(l.after)}`).join('; ')}. Rolls past what a drop can have only hold inside a sigil.
                     </p>
                   )}
+                  {resolution.benchGone > 0 && <p className="muted">Bench runes taken out are gone: {resolution.benchGone}</p>}
                   {overflow > 0 && (
                     <p className="forge-warn">
                       Your bag is full: {overflow} {overflow === 1 ? 'rune goes' : 'runes go'} to pending until you make room.
@@ -413,8 +433,8 @@ export function ForgeEditor() {
                     {free ? 'Free on the bench' : price > 0 ? <>Costs <span className="gold">{price} gold</span> (runes kept or taken out are free)</> : 'No gold needed'}
                   </p>
                   <div className="forge-actions">
-                    <button type="button" className="forge-inscribe" disabled={saveReason !== null} onClick={save}>
-                      {inscribing ? 'Inscribing' : price > 0 ? `Inscribe for ${price} gold` : 'Inscribe'}
+                    <button type="button" className={`forge-inscribe${fizzles ? ' fizzles' : ''}`} disabled={saveReason !== null} onClick={save}>
+                      {inscribeLabel}
                     </button>
                     <button type="button" disabled={!changed || inscribing} onClick={() => setDraft(keepAll(sigil))}>
                       Reset
@@ -439,13 +459,14 @@ export function ForgeEditor() {
               </button>
             ))}
           </div>
-          {pool && pool.plain.length + pool.rolled.length === 0 && <p className="muted">You own no runes. They drop from monsters; plain ones stack, rolled ones carry affixes.</p>}
+          {poolEmpty && <p className="muted">You own no runes. They drop from monsters; plain ones stack, rolled ones carry affixes.</p>}
+          {!poolEmpty && plainShown.length + rolledShown.length === 0 && <p className="muted">No {filterLabel} to add. Pick another kind above.</p>}
           {plainShown.length > 0 && (
             <>
               <h4>Plain</h4>
               <ul className="forge-list">
                 {plainShown.map((p) => (
-                  <PlainRow key={p.rune} entry={p} count={plainCount(p)} disabled={locked || full} onAdd={() => sigil && add(plainRef(sigil, draft, p))} onDrag={(e) => startDrag(e, { kind: 'pool', key: `plain:${p.rune}` })} />
+                  <PlainRow key={p.rune} entry={p} disabled={locked || full} onAdd={() => sigil && add(plainRef(sigil, draft, p))} onDrag={(e) => startDrag(e, { kind: 'pool', key: `plain:${p.rune}` })} />
                 ))}
               </ul>
             </>
@@ -467,7 +488,12 @@ export function ForgeEditor() {
   );
 }
 
-function PlainRow({ entry, count, disabled, onAdd, onDrag }: { entry: PlainEntry; count: number; disabled: boolean; onAdd: () => void; onDrag: (e: DragEvent) => void }) {
+/**
+ * How many of a plain rune can go in, and where they come from. The count is the total; the tags
+ * say how much of it is not in the bag, so "x3 · 1 taken out · 2 in stash" reads without guessing.
+ */
+function PlainRow({ entry, disabled, onAdd, onDrag }: { entry: PlainEntry; disabled: boolean; onAdd: () => void; onDrag: (e: DragEvent) => void }) {
+  const count = entry.loose + entry.bag + entry.stash;
   const sample: RuneItem = { uid: -1, kind: 'rune', tier: 'common', name: `${runeName(entry.rune)} Rune`, ilvl: 1, rune: entry.rune, count: 1, affixes: [] };
   const hint = entry.loose > 0 ? 'Click to put it back (free)' : entry.bag > 0 ? 'Click to add from your bag' : 'Click to add from the stash';
   return (
@@ -492,9 +518,17 @@ function PlainRow({ entry, count, disabled, onAdd, onDrag }: { entry: PlainEntry
           <span className="forge-rune-desc">{runeDescription(entry.rune)}</span>
         </span>
         <span className="forge-rune-count">
-          {entry.unlimited ? 'free' : `x${count}`}
-          {entry.loose > 0 && <OriginTag origin="sigil" />}
-          {entry.stash > 0 && <span className="forge-tag stash" title={`${entry.stash} in the account stash`}>{entry.bag + entry.loose > 0 ? `${entry.stash} stash` : 'stash'}</span>}
+          <span>{entry.unlimited ? 'free' : `x${count}`}</span>
+          {entry.loose > 0 && (
+            <span className="forge-tag kept" title="Taken out of this sigil in this draft: free to put back">
+              {entry.loose} taken out
+            </span>
+          )}
+          {entry.stash > 0 && (
+            <span className="forge-tag stash" title="In the account stash">
+              {entry.stash} in stash
+            </span>
+          )}
         </span>
       </button>
     </li>
@@ -502,7 +536,12 @@ function PlainRow({ entry, count, disabled, onAdd, onDrag }: { entry: PlainEntry
 }
 
 function RolledRow({ entry, free, disabled, onAdd, onDrag }: { entry: RolledEntry; free: boolean; disabled: boolean; onAdd: () => void; onDrag: (e: DragEvent) => void }) {
-  const hint = entry.origin === 'sigil' || free ? 'Click to add it (free)' : `Click to add · ${forgeInsertPrice(entry.item)} gold to inscribe`;
+  const hint =
+    entry.origin === 'sigil'
+      ? 'Click to put it back (free, keeps its rolls)'
+      : free
+        ? 'Click to add it (free)'
+        : `Click to add · ${forgeInsertPrice(entry.item)} gold to inscribe`;
   return (
     <li>
       <button

@@ -12,6 +12,7 @@ import {
   type ClientMessage,
   type SigilCompile,
   type EntityId,
+  type InscribeReply,
   type InventoryMessage,
   type Item,
   type ItemUid,
@@ -142,8 +143,8 @@ interface UiState {
   xpNext: number;
   editorOpen: boolean;
   editorUid: ItemUid | null;
-  /** An inscribe was sent and neither its refusal nor the new inventory has come back yet. */
-  inscribing: boolean;
+  /** The sigil of the inscribe in flight, until the server's reply to it comes back. */
+  inscribing: ItemUid | null;
   /** The server's reason for refusing the last inscribe, shown in the forge until the next try. */
   forgeError: string | null;
 
@@ -171,6 +172,7 @@ interface UiState {
   toggleEditor: () => void;
   openEditor: (uid: ItemUid) => void;
   notify: (text: string) => void;
+  inscribed: (reply: InscribeReply) => void;
 }
 
 let noticeId = 1;
@@ -257,7 +259,7 @@ export const useUi = create<UiState>((set, get) => ({
   xpNext: 1,
   editorOpen: false,
   editorUid: null,
-  inscribing: false,
+  inscribing: null,
   forgeError: null,
   debugVisible: false,
   debug: {
@@ -326,12 +328,20 @@ export const useUi = create<UiState>((set, get) => ({
   },
   openEditor: (uid) => set({ editorOpen: true, editorUid: uid }),
   notify: (text) => {
-    // The server answers a refused command with a notice and nothing else, so while an inscribe is
-    // in flight the next notice is its refusal.
-    if (get().inscribing) set({ inscribing: false, forgeError: text });
     const id = noticeId++;
     set((s) => ({ notices: [...s.notices, { id, text }].slice(-4) }));
     setTimeout(() => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })), 3500);
+  },
+  inscribed: (reply) => {
+    const s = get();
+    // A reply to an older save (the player moved on to another sigil) is not this forge's business.
+    if (s.inscribing === reply.uid) set({ inscribing: null });
+    if (reply.ok) {
+      if (s.editorUid === reply.uid) set({ forgeError: null });
+      return;
+    }
+    if (s.editorOpen && s.editorUid === reply.uid) set({ forgeError: reply.error });
+    else s.notify(reply.error);
   },
 }));
 

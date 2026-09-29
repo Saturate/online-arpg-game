@@ -5,6 +5,7 @@ import { convertCharacterSave, convertStash } from '../items/convertV2.js';
 import {
   createGear,
   createRune,
+  clampRuneRolls,
   createVessel,
   holdsBoundRunes,
   isBound,
@@ -72,12 +73,12 @@ export function fitsInBag(p: PlayerComp, item: Item): boolean {
 }
 
 /**
- * Bag stacks a plain rune can top up. Bound runes keep their own stacks, so they never make sellable
- * ones, and rolled runes never stack at all.
+ * Stacks in a grid (the bag unless told otherwise) a plain rune can top up. Bound runes keep their
+ * own stacks, so they never make sellable ones, and rolled runes never stack at all.
  */
-function matchingStacks(p: PlayerComp, rune: RuneId, bound: boolean): RuneItem[] {
+function matchingStacks(p: PlayerComp, rune: RuneId, bound: boolean, cells: readonly (ItemUid | null)[] = p.inventory): RuneItem[] {
   const out: RuneItem[] = [];
-  for (const uid of new Set(p.inventory)) {
+  for (const uid of new Set(cells)) {
     const stack = uid === null ? undefined : p.items.get(uid);
     if (stack?.kind === 'rune' && isPlainRune(stack) && stack.rune === rune && (stack.bound === true) === bound && stack.count < RUNE_STACK) out.push(stack);
   }
@@ -88,10 +89,10 @@ function stackSpace(p: PlayerComp, rune: RuneId, bound: boolean): number {
   return matchingStacks(p, rune, bound).reduce((n, s) => n + RUNE_STACK - s.count, 0);
 }
 
-/** Moves as much of a plain rune item as fits into existing stacks. `item` shrinks by what moved. */
-function topUpStacks(p: PlayerComp, item: RuneItem): void {
+/** Moves as much of a plain rune item as fits into existing stacks of a grid. `item` shrinks by what moved. */
+function topUpStacks(p: PlayerComp, item: RuneItem, cells: readonly (ItemUid | null)[] = p.inventory): void {
   if (!isPlainRune(item)) return;
-  for (const stack of matchingStacks(p, item.rune, item.bound === true)) {
+  for (const stack of matchingStacks(p, item.rune, item.bound === true, cells)) {
     const moved = Math.min(item.count, RUNE_STACK - stack.count);
     stack.count += moved;
     item.count -= moved;
@@ -280,9 +281,12 @@ function oneOf(uid: ItemUid, stack: RuneItem): RuneItem {
  * stash, the slots are set, gold is paid, and every slot not kept goes back to the bag, or pending
  * when the bag is full; never the stash (it is the account's, and a bound rune must not reach it).
  *
- * `free` is the builders' test bench: plain runes are made on the spot, bound, and nothing costs
- * gold. Bound plain runes taken out of it are not handed back, since the bench would otherwise be a
- * free supply; unbound runes and rolled ones (the bench never makes those) come back as usual.
+ * `free` is the builders' test bench: plain runes are made on the spot, bound and marked `bench`,
+ * and nothing costs gold. A bench rune is never handed back, here or at a real forge, since the
+ * bench would otherwise be a free supply; every other rune comes back as usual.
+ *
+ * A rune that comes back out has its rolls brought into the loot table (clampRuneRolls): a starter
+ * rune's hand-set rolls only hold inside a sigil.
  */
 export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: readonly RuneRef[], free = false): string | null {
   const p = sim.world.player.get(pid);
@@ -326,6 +330,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
       if (free) {
         const made = createRune(sim.newItemUid(), r.rune, 1);
         made.bound = true;
+        made.bench = true;
         slots.push(made);
         continue;
       }
@@ -349,7 +354,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
     slots.push(rune);
   }
   if (!free && p.gold < cost) return `That costs ${cost} gold`;
-  const refunds = item.slots.filter((_, i) => !keptIdx.has(i)).filter((r) => !free || !r.bound || !isPlainRune(r));
+  const refunds = item.slots.filter((r, i) => !keptIdx.has(i) && r.bench !== true).map(clampRuneRolls);
 
   if (slot >= 0) {
     const previous = p.sigils[slot] ?? null;
@@ -383,6 +388,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
     const eq = p.sigils[slot];
     if (eq?.compiled.ok && eq.compiled.program.form === 'bond') acquireLink(sim, pid, slot);
   }
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -410,6 +416,7 @@ export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: n
   p.links[slot] = null;
   const eq = p.sigils[slot];
   if (eq?.compiled.ok && eq.compiled.program.form === 'bond') acquireLink(sim, pid, slot);
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -449,6 +456,7 @@ export function equipVessel(sim: Simulation, pid: EntityId, uid: ItemUid, slot: 
   }
   despawnMinion(sim, pid, slot);
   p.minionRespawn[slot] = 0;
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -506,6 +514,7 @@ export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid, target: 
     refreshStats(sim, pid);
     return 'Removing that would leave you without enough spirit';
   }
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -573,6 +582,7 @@ export function sortInventory(sim: Simulation, pid: EntityId): string | null {
     place(cells, BAG, item.uid, s, spot.x, spot.y);
   }
   p.inventory = cells;
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -588,6 +598,7 @@ export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | 
   removeFrom(p.inventory, uid);
   p.items.delete(uid);
   spawnBag(sim, pos.x, pos.y, [item], LOOT.bagRadius, pid);
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -746,6 +757,7 @@ export function moveItem(sim: Simulation, pid: EntityId, uid: ItemUid, to: 'bag'
   if (!canPlace(target, dims, size, x, y, from === to ? uid : null)) return 'No room there';
   removeFrom(from === 'bag' ? p.inventory : p.stash, uid);
   place(target, dims, uid, size, x, y);
+  settlePending(p);
   changed(p);
   return null;
 }
@@ -756,21 +768,39 @@ export function pendingItems(p: PlayerComp): ItemUid[] {
   return [...p.items.keys()].filter((uid) => !placed.has(uid));
 }
 
-/** Lays pending items into the stash, then the bag, as far as there is room. */
-function placePending(p: PlayerComp): void {
+/**
+ * Lays pending items out as far as there is room. A plain rune first tops up matching stacks, the
+ * bag's then the stash's, so a refund never takes a cell a stack could hold. Then, on load
+ * (`withStash`), what is left goes to the stash first and the bag second; otherwise only to the bag,
+ * since the stash is not at hand.
+ */
+function placePending(p: PlayerComp, withStash = true): void {
   for (const uid of pendingItems(p)) {
     const item = p.items.get(uid);
     if (!item) continue;
     // Bound items stay with the character: bag or pending, never the account's shared stash.
-    if (isBound(item) || holdsBoundRunes(item)) {
-      stow(p, uid);
-      continue;
+    const bound = isBound(item) || holdsBoundRunes(item);
+    const stash = withStash && !bound;
+    if (item.kind === 'rune' && isPlainRune(item)) {
+      topUpStacks(p, item);
+      if (stash) topUpStacks(p, item, p.stash);
+      if (item.count <= 0) {
+        p.items.delete(uid);
+        continue;
+      }
     }
     const s = itemSize(item);
-    const inStash = findSpot(p.stash, STASH, s);
+    const inStash = stash ? findSpot(p.stash, STASH, s) : null;
     if (inStash) place(p.stash, STASH, uid, s, inStash.x, inStash.y);
     else stow(p, uid);
   }
+}
+
+/** After anything that can free bag room: pending items move in by themselves. */
+function settlePending(p: PlayerComp): void {
+  if (pendingItems(p).length === 0) return;
+  placePending(p, false);
+  changed(p);
 }
 
 /** The account stash as stored, apart from any character. */
@@ -838,6 +868,7 @@ export function sellItem(sim: Simulation, pid: EntityId, uid: ItemUid): Item | s
   removeFrom(p.inventory, uid);
   p.items.delete(uid);
   p.gold += sellPrice(item);
+  settlePending(p);
   changed(p);
   return item;
 }

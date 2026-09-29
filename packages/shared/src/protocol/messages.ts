@@ -300,6 +300,12 @@ export interface StagingMessage {
   cleared: boolean;
 }
 
+/**
+ * The answer to one inscribe, so the forge can tell its own refusal from any other notice. The new
+ * inventory follows an accepted one as usual.
+ */
+export type InscribeReply = { t: 'inscribed'; uid: ItemUid; ok: true } | { t: 'inscribed'; uid: ItemUid; ok: false; error: string };
+
 export type ServerMessage =
   | {
       t: 'welcome';
@@ -333,6 +339,7 @@ export type ServerMessage =
   | Snapshot
   | InventoryMessage
   | { t: 'notice'; text: string }
+  | InscribeReply
   /** A big centre-screen announcement, like a cleared dungeon. */
   | { t: 'banner'; title: string; text: string }
   /** The server refused or ended the session; the socket closes right after. */

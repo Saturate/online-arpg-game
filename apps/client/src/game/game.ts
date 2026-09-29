@@ -520,6 +520,9 @@ export class Game {
       case 'notice':
         useUi.getState().notify(msg.text);
         return;
+      case 'inscribed':
+        useUi.getState().inscribed(msg);
+        return;
       case 'banner': {
         const id = performance.now();
         useUi.setState({ banner: { id, title: msg.title, text: msg.text } });

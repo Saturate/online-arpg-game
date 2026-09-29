@@ -240,14 +240,16 @@ function NumberRow({ field, value, saved, editable, onChange }: { field: Field; 
       <td className="muted small" title={`Allowed ${field.spec.min} to ${field.spec.max}`}>
         code {fmt(field.code)}
       </td>
-      <td className="mon-mark">
-        {overridden && <span className="badge gold" title={`Saved override: ${fmt(saved)}`}>override</span>}
-        {unsaved && <span className="badge" title={`Was ${fmt(saved ?? field.code)}`}>unsaved</span>}
-        {shown !== field.code && editable && (
-          <button type="button" className="small" title="Back to the code default" onClick={() => onChange(undefined)}>
-            reset
-          </button>
-        )}
+      <td>
+        <div className="mon-mark">
+          {overridden && <span className="badge gold" title={`Saved override: ${fmt(saved)}`}>override</span>}
+          {unsaved && <span className="badge" title={`Was ${fmt(saved ?? field.code)}`}>unsaved</span>}
+          {shown !== field.code && editable && (
+            <button type="button" className="small" title="Back to the code default" onClick={() => onChange(undefined)}>
+              reset
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -419,9 +421,11 @@ export function TuningTab({ kind, token, role, notify }: { kind: Kind; token: st
                 />
               </td>
               <td className="muted small">{modelAsset ? `model ${modelAsset.height}` : 'procedural'}</td>
-              <td className="mon-mark">
-                {savedDraft.height !== null && <span className="badge gold">override</span>}
-                {draft.height !== savedDraft.height && <span className="badge">unsaved</span>}
+              <td>
+                <div className="mon-mark">
+                  {savedDraft.height !== null && <span className="badge gold">override</span>}
+                  {draft.height !== savedDraft.height && <span className="badge">unsaved</span>}
+                </div>
               </td>
             </tr>
           </tbody>

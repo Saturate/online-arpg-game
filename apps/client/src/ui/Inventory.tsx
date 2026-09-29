@@ -2,7 +2,7 @@ import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
-import { compareGear, DRAG_TYPE, dropAction, parseDrag, quickAction, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
+import { compareGear, DRAG_TYPE, dropAction, dropRefusal, parseDrag, pendingOf, quickAction, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
 import { affixPips, placeTooltip, unusable } from './itemView.js';
 import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
@@ -78,6 +78,11 @@ export function clearItemInteractions(): void {
 export function requestDrop(uid: ItemUid): void {
   const item = itemByUid(useUi.getState().inventory, uid);
   if (!item) return;
+  const refusal = dropRefusal(item);
+  if (refusal) {
+    useUi.getState().notify(refusal);
+    return;
+  }
   if (item.tier === 'rare' || item.tier === 'relic') {
     usePendingDrop.setState({ uid, sell: false });
     return;
@@ -149,6 +154,7 @@ export function ItemTooltip() {
       <ItemDetails item={item} classId={classId} />
       <SpiritPreview item={item} place={place} />
       {place?.at === 'bag' && <Comparison item={item} />}
+      {place?.at === 'forge' && place.warn && <p className="tt-warn">{place.warn}</p>}
       <footer className="tt-hint">
         {place?.at === 'forge'
           ? place.hint
@@ -219,6 +225,11 @@ export function ItemCell({
     if (!item || !inventory || !cls) return;
     setHover(null, 0, 0);
     if (e.shiftKey && place.at === 'bag') {
+      const refusal = dropRefusal(item);
+      if (refusal) {
+        useUi.getState().notify(refusal);
+        return;
+      }
       // A good drop needs a second shift+right-click; junk goes straight away.
       const pending = usePendingDrop.getState();
       if ((item.tier === 'rare' || item.tier === 'relic') && (pending.uid !== item.uid || pending.sell)) {
@@ -532,6 +543,41 @@ export function StashWindow() {
   );
 }
 
+/**
+ * Items waiting for room: forge refunds and loot that found the bag full. They sit in no grid, so
+ * without this strip they would be invisible until they move in by themselves.
+ */
+function PendingStrip() {
+  const inv = useUi((s) => s.inventory);
+  if (!inv) return null;
+  const pending = pendingOf(inv);
+  if (pending.length === 0) return null;
+  const count = pending.reduce((n, i) => n + (i.kind === 'rune' ? i.count : 1), 0);
+  return (
+    <div className="inv-pending" aria-label="Pending items">
+      <span className="inv-pending-head">Pending: {count}</span>
+      <div className="inv-pending-items">
+        {/* Not ItemCells: a pending item cannot be dragged or used, only looked at. */}
+        {pending.map((item) => (
+          <span
+            key={item.uid}
+            className={`inv-pending-cell tier-${item.tier}`}
+            style={{ borderColor: tierColor(item) }}
+            onMouseEnter={(e) => useHover.getState().set(item, e.clientX, e.clientY, { at: 'forge', hint: 'Pending: waits for room in your bag' })}
+            onMouseMove={(e) => useHover.getState().set(item, e.clientX, e.clientY, { at: 'forge', hint: 'Pending: waits for room in your bag' })}
+            onMouseLeave={() => useHover.getState().set(null, 0, 0)}
+            aria-label={`${item.name}, pending`}
+          >
+            <ItemIcon item={item} size={28} />
+            {item.kind === 'rune' && item.count > 1 && <small>{item.count}</small>}
+          </span>
+        ))}
+      </div>
+      <span className="muted small">They move into your bag as soon as there is room.</span>
+    </div>
+  );
+}
+
 function DropConfirm() {
   const uid = usePendingDrop((s) => s.uid);
   const sell = usePendingDrop((s) => s.sell);
@@ -654,6 +700,7 @@ export function Inventory() {
             <ItemGrid which="bag" selUid={selUid} onSelect={(uid) => setSelUid(uid === selUid ? null : uid)} />
             {used === 0 && <p className="inv-empty">Your bag is empty. Walk over loot to pick it up.</p>}
           </div>
+          <PendingStrip />
           <DropConfirm />
           {selected && (
             <div className="inv-selection">
@@ -665,12 +712,13 @@ export function Inventory() {
                     Inscribe
                   </button>
                 )}
-                {inBag && (
+                {inBag && dropRefusal(selected) && <span className="muted small">{dropRefusal(selected)}</span>}
+                {inBag && !dropRefusal(selected) && (
                   <button
                     type="button"
                     className="danger"
                     onClick={() => {
-                      sendCommand({ t: 'discard', uid: selected.uid });
+                      requestDrop(selected.uid);
                       setSelUid(null);
                     }}
                   >

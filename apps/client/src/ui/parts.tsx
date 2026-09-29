@@ -16,7 +16,7 @@ import {
   RUNE_STACK,
   sigilCapacity,
   sigilCastDelay,
-  starterSigilById,
+  matchingStarter,
   STAT_IDS,
   STAT_LABELS,
   vesselSpirit,
@@ -202,7 +202,8 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
-  const skill = starterSigilById(item.starter);
+  // Still the starter it came from only while it holds the starter's runes.
+  const skill = matchingStarter(item);
   const sub = item.corrupted ? 'Corrupted Sigil' : skill ? 'Starter Sigil' : 'Sigil';
   return (
     <div className="item-details">

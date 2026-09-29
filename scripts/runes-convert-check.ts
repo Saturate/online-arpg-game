@@ -61,8 +61,8 @@ const key = (rune: string, bound: boolean): string => `${rune}${bound ? ' (bound
 interface V1Tally {
   /** Loose, hand-inscribed and Test Sigil runes, by v1 id and binding. */
   runes: Counts;
-  /** Runes inside built-in skill sigils, which starter runes replace. */
-  inSkillSigils: number;
+  /** Runes inside built-in skill sigils, by v1 id: starter runes replace them, and the report must list them. */
+  inSkillSigils: Counts;
   testSigils: number;
   /** Rune units plus one per other item: what the conversion must keep, less gold runes and Test Sigils. */
   units: number;
@@ -73,7 +73,7 @@ interface V1Tally {
 }
 
 function tallyV1(rawItems: readonly unknown[], gold: number): V1Tally {
-  const t: V1Tally = { runes: new Map(), inSkillSigils: 0, testSigils: 0, units: 0, sigils: 0, others: [], gold };
+  const t: V1Tally = { runes: new Map(), inSkillSigils: new Map(), testSigils: 0, units: 0, sigils: 0, others: [], gold };
   for (const it of rawItems) {
     if (!isRecord(it)) continue;
     const bound = it.bound === true;
@@ -89,7 +89,7 @@ function tallyV1(rawItems: readonly unknown[], gold: number): V1Tally {
       const test = isV1TestSigil(it);
       if (test) t.testSigils++;
       if (!test && typeof it.skill === 'string' && starterSigilById(it.skill)) {
-        t.inSkillSigils += runes.length;
+        for (const r of runes) add(t.inSkillSigils, String(r), 1);
         continue;
       }
       runes.forEach((r: unknown, i: number) => {
@@ -138,7 +138,7 @@ function tallyV2(items: readonly Item[]): V2Tally {
 }
 
 let failures = 0;
-const totals = { containers: 0, v1Runes: 0, v2Runes: 0, gold: 0, refunded: 0, starters: 0, warnings: 0, compiled: 0, sigils: 0 };
+const totals = { containers: 0, v1Runes: 0, v2Runes: 0, gold: 0, refunded: 0, replaced: 0, starters: 0, starterRunes: 0, warnings: 0, compiled: 0, sigils: 0 };
 
 function check(problems: string[], ok: boolean, what: string): void {
   if (!ok) problems.push(what);
@@ -180,7 +180,11 @@ function report(title: string, rawItems: readonly unknown[], goldBefore: number,
   let goldRefunds = 0;
   for (const x of r.runesRefunded) goldRefunds += x.gold;
 
-  console.log(`  v1 runes: ${show(v1.runes)}${v1.inSkillSigils > 0 ? `; plus ${v1.inSkillSigils} inside built-in skill sigils, replaced by starter runes` : ''}`);
+  let replacedTotal = 0;
+  for (const n of v1.inSkillSigils.values()) replacedTotal += n;
+  const reportedReplaced: Counts = new Map(r.runesReplaced.map((x) => [x.from, x.count]));
+  console.log(`  v1 runes: ${show(v1.runes)}`);
+  console.log(`  v1 runes in built-in skill sigils, replaced by starter runes (no gold): ${show(reportedReplaced)}`);
   console.log(`  v2 runes: ${show(v2.runes)}${v2.starterRunes > 0 ? `; plus ${v2.starterRunes} inside starter sigils` : ''}`);
   const refundLine = r.runesRefunded.map((x) => `${x.from} x${x.count} = ${x.gold} gold`).join(', ');
   console.log(`  to gold: ${refundLine || 'none'}${opts.shelf ? '; the shelf has no owner, so nobody is paid' : goldAfter === null ? `; owed to the character that loads it: ${r.gold}` : `; gold ${goldBefore} -> ${goldAfter}`}`);
@@ -188,6 +192,9 @@ function report(title: string, rawItems: readonly unknown[], goldBefore: number,
   console.log(`  returned from sigils: ${r.runesReturned} (${r.runesPending} pending); Test Sigils taken apart: ${r.testSigilsUnpacked}`);
 
   check(problems, same(expected, v2.runes), `runes do not add up: expected ${show(expected)}, got ${show(v2.runes)}`);
+  check(problems, same(v1.inSkillSigils, reportedReplaced), `replaced runes do not add up: found ${show(v1.inSkillSigils)}, reported ${show(reportedReplaced)}`);
+  const starterExpected = r.starterSigils.reduce((n, id) => n + (starterSigilById(id)?.runes.length ?? 0), 0);
+  check(problems, v2.starterRunes === starterExpected, `starter sigils hold ${v2.starterRunes} runes, their definitions ${starterExpected}`);
   check(problems, same(refundedUnits, reportedRefunds), `refunds do not add up: expected ${show(refundedUnits)}, reported ${show(reportedRefunds)}`);
   check(problems, v2Total + refundTotal === v1Total, `rune total: ${v2Total} mapped + ${refundTotal} to gold != ${v1Total} v1`);
   check(problems, r.gold === (opts.shelf ? 0 : goldRefunds), `report gold ${r.gold} != refunds ${goldRefunds}`);
@@ -221,6 +228,8 @@ function report(title: string, rawItems: readonly unknown[], goldBefore: number,
   totals.v2Runes += v2Total;
   totals.gold += r.gold;
   totals.refunded += refundTotal;
+  totals.replaced += replacedTotal;
+  totals.starterRunes += v2.starterRunes;
   totals.starters += r.starterSigils.length;
   totals.warnings += r.warnings.length;
   if (problems.length > 0) {
@@ -304,7 +313,7 @@ function main(): void {
     rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `\nsummary: ${totals.containers} rows, ${totals.v1Runes} v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils, ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,
+    `\nsummary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,
   );
   process.exit(failures === 0 ? 0 : 1);
 }

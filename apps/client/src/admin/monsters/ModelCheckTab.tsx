@@ -131,7 +131,7 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
         {error && <p className="mon-error">{error}</p>}
         {file && (
           <>
-            <h3>{file.name}</h3>
+            <h3 className="mon-file-name">{file.name}</h3>
             <label className="mon-field">
               <span>Height in game units (hero 54)</span>
               <input type="number" min={MODEL_HEIGHT.min} max={MODEL_HEIGHT.max} value={height} onChange={(e) => setHeight(Number(e.target.value))} className={heightOk ? '' : 'mon-bad'} />
