@@ -236,6 +236,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 - **Dark and gritty (D2 Act 1 / PoE), not cute:** low overcast light, a vignette, a global canvas grade (desaturate, contrast, a little sepia) and a shared-shader grime pass (world-space blotches, soot near the ground) over the KayKit models. Dungeons are torch-lit dark.
 - **Day and night:** visual only, from the wall clock so everyone sees the same sky; the admin sets day length, night brightness and the clock. `?time=0.75` pins the time locally for testing.
+- **Weather:** a clear day is sunny; the gloom comes from the colour grade, the night and overcast spells. The sky's cloud cover also follows the wall clock (a new value every 9 minutes, blended), mostly clear; cloud dims and greys the sun and flattens the light rather than making it dark. `?weather=0..1` pins it for testing.
 - **Map edges:** grass runs 1500 units past the edge under an instanced forest with rocks and mountain rings, so the camera never sees void.
 - **Minimap:** fog of war, uncovered as you walk (remembered per map for the session); party members in the same map share their vision and always show.
 

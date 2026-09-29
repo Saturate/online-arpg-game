@@ -21,7 +21,7 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
-import { lampLevel, lighting, nightFactor } from './daylight.js';
+import { lampLevel, lighting, nightFactor, overcast } from './daylight.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
@@ -38,6 +38,8 @@ export interface GroundBasis {
 applyGrit();
 
 const MOONLIGHT = new Color(0x7488c8);
+/** The sun's colour under heavy cloud: grey and cold. */
+const CLOUDLIGHT = new Color(0x9aa0a8);
 
 interface Lighting {
   sky: number;
@@ -54,9 +56,10 @@ interface Lighting {
 
 /** Each theme gets its own time of day. */
 const LIGHTING: Record<MapTheme, Lighting> = {
-  // Dark and gritty, D2 Act 1 and PoE: an overcast, low-sun day where the hero's own light matters.
-  town: { sky: 0xb0a490, groundLight: 0x2a2218, hemi: 1.15, ambient: 0.5, sun: 1.9, sunColor: 0xffc890, exposure: 1.3, playerLight: 2.2 },
-  wilds: { sky: 0x8c96a2, groundLight: 0x221a12, hemi: 1.0, ambient: 0.45, sun: 1.8, sunColor: 0xe6dccb, exposure: 1.22, playerLight: 2.0 },
+  // Dark and gritty, D2 Act 1 and PoE, but a clear day is sunny: the gloom comes from the grade,
+  // the weather (overcast spells dim it) and the night, not from a permanently dim sun.
+  town: { sky: 0xc4b69c, groundLight: 0x3a2e20, hemi: 1.45, ambient: 0.6, sun: 2.7, sunColor: 0xffd6a0, exposure: 1.6, playerLight: 2.2 },
+  wilds: { sky: 0xa6aeb6, groundLight: 0x30251a, hemi: 1.3, ambient: 0.55, sun: 2.55, sunColor: 0xf2e4ca, exposure: 1.52, playerLight: 2.0 },
   arena: { sky: 0x9aa8d0, groundLight: 0x3a2a1c, hemi: 1.0, ambient: 0.6, sun: 1.6, sunColor: 0xffe2c0, exposure: 1.3, playerLight: 2.2 },
   // Underground: almost no sky, torches and the hero's own light do the work.
   dungeon: { sky: 0x6a7aa0, groundLight: 0x2a2018, hemi: 0.7, ambient: 0.45, sun: 0.5, sunColor: 0x8090c0, exposure: 1.3, playerLight: 1.8, playerDecay: 0 },
@@ -191,19 +194,25 @@ export class WorldScene {
    */
   private applyDaylight(): void {
     const night = this.outdoors ? nightFactor() : 0;
-    lampLevel.value = 1 + night * 1.4;
+    const cloud = this.outdoors ? overcast() : 0;
+    lampLevel.value = 1 + night * 1.4 + cloud * 0.3;
     // The light only changes over minutes; skipping unchanged frames saves the uniform churn.
-    const key = night + lighting.nightBrightness * 10;
+    const key = night + lighting.nightBrightness * 10 + cloud * 100;
     if (Math.abs(key - this.lastNight) < 0.002) return;
     this.lastNight = key;
     const b = this.base;
     const mix = (day: number, dark: number) => day + (dark - day) * night;
     // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 is daylight.
     const keep = 0.3 + 0.7 * lighting.nightBrightness;
-    this.hemi.intensity = mix(b.hemi, b.hemi * keep);
-    this.ambient.intensity = mix(b.ambient, b.ambient * Math.min(1, keep + 0.2));
-    this.sun.intensity = mix(b.sun, b.sun * keep * 0.8);
-    this.sun.color.copy(this.sunDay).lerp(MOONLIGHT, night);
+    // Cloud mostly takes the sun away and flattens the light; the sky light dims less, so an
+    // overcast day is grey and shadowless rather than dark.
+    const sunCloud = 1 - 0.5 * cloud;
+    const skyCloud = 1 - 0.1 * cloud;
+    this.hemi.intensity = mix(b.hemi, b.hemi * keep) * skyCloud;
+    // Cloud scatters light: flat fill rises a little while the sun fades.
+    this.ambient.intensity = mix(b.ambient, b.ambient * Math.min(1, keep + 0.2)) * (1 + 0.25 * cloud);
+    this.sun.intensity = mix(b.sun, b.sun * keep * 0.8) * sunCloud;
+    this.sun.color.copy(this.sunDay).lerp(CLOUDLIGHT, cloud * 0.7).lerp(MOONLIGHT, night);
     // The hero's light becomes the D2 light radius: brighter and slower to fall off.
     this.playerLight.intensity = mix(b.playerLight, b.playerLight * 3);
     this.playerLight.distance = mix(520, 700);
