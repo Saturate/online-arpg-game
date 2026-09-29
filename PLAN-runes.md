@@ -146,7 +146,11 @@ The cap is 1000 today, so nothing limits a big spell. It comes back down to roug
 Each phase ships on its own and gets the item review before deploy.
 
 0. **Item bugs from the review:** the trader stack dup, bound runes, runes lost with a full bag, stack prices. The rune item changes build on these.
-1. **Prototype in Spell Studio** (dev tools only): the new rules and affixes in the shared compiler behind a flag, so spells can be felt before saves change.
+1. **Prototype and budgets** (dev tools and engine only, saves untouched):
+   - Done: the Spell Lab tab reads rune lists with the new rules.
+   - Spells castable from the Spell Lab against training dummies: an adapter turns a v2 spell tree into what the engine already runs (orb and bolt, nova, zone, dash, infusions, effects, split, triggers and release affixes, pulse). Parts the engine cannot run yet (beam, arrows, link, orbit, homing, charge and the rest) are listed as not castable instead of silently ignored.
+   - Spell spawn events: projectiles, novas and zones are sent once when they appear (position, velocity or radius, lifetime), then only their removal; the client moves them itself. Homing and reflected projectiles send corrections.
+   - A live cap per player, weighted: a projectile counts 1, a zone or nova 0.35, up to 40; the oldest of that player's spell entities goes first when a cast would pass it.
 2. **Rolled runes:** rune affixes on items, drops, and the forge editor rebuilt around left to right with a live sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts.") and a preview on training dummies.
 3. **Sigils as wands:** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
 4. **New shapers and Beam:** Link, Orbit, Homing, Bounce, Chain, Charge, and the channelled Beam shape.
