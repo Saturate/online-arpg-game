@@ -3,6 +3,9 @@ name: image
 on:
   push:
     branches: [main]
+    # Docs-only pushes would otherwise rebuild the image and restart the live server.
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:
