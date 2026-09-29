@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRune, createSigil, createVessel, ownedRunes, rollDrops, Rng, RUNE_STACK, Simulation, DEFAULT_DROP_TUNING } from '../src/index.js';
+import { createRune, createSigil, createVessel, dayPhaseAt, hourOfPhase, phaseOfHour, ownedRunes, rollDrops, Rng, RUNE_STACK, Simulation, DEFAULT_DROP_TUNING } from '../src/index.js';
 import { addItem } from '../src/sim/inventory.js';
 
 function atForge() {
@@ -100,5 +100,22 @@ describe('warband size', () => {
     const extra = createVessel(sim.newItemUid(), sim.rand.loot, 'common', 'zombie_brute');
     addItem(p, extra);
     expect(sim.equipVessel(pid, extra.uid, 12)).toBe('Not enough spirit to bind that vessel');
+  });
+});
+
+describe('world clock', () => {
+  const base = { dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle' as const, clockOffset: 0, heldPhase: 0.25 };
+  it('maps phases and hours both ways', () => {
+    expect(hourOfPhase(0)).toBe(6);
+    expect(phaseOfHour(6)).toBe(0);
+    expect(hourOfPhase(phaseOfHour(21.5))).toBeCloseTo(21.5);
+  });
+  it('shifts a running clock by the offset, and holds when told to', () => {
+    const now = 1_000_000_000;
+    const raw = dayPhaseAt(now, base);
+    const target = phaseOfHour(22);
+    const offset = (((target - raw) % 1) + 1) % 1;
+    expect(hourOfPhase(dayPhaseAt(now, { ...base, clockOffset: offset }))).toBeCloseTo(22);
+    expect(dayPhaseAt(now + 60_000, { ...base, timeOfDay: 'hold', heldPhase: target })).toBe(target);
   });
 });

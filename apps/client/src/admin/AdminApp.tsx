@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, CLASSES, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 
@@ -345,6 +345,45 @@ function Players({ token, role, notify }: TabProps) {
   );
 }
 
+function clockText(hour: number): string {
+  const h = Math.floor(hour);
+  const m = Math.floor((hour - h) * 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * The in-game clock: shows what time it is now and sets it. Setting a time while cycling shifts the
+ * clock (it keeps running from there); holding stops it at that time.
+ */
+function ClockControl({ draft, setDraft }: { draft: ServerSettings; setDraft: (s: ServerSettings) => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const current = hourOfPhase(dayPhaseAt(now, draft));
+  const setHour = (hour: number) => {
+    const target = phaseOfHour(hour);
+    // The offset that makes the running clock read `target` right now.
+    const raw = dayPhaseAt(now, { ...draft, timeOfDay: 'cycle', clockOffset: 0 });
+    setDraft({ ...draft, heldPhase: target, clockOffset: (((target - raw) % 1) + 1) % 1 });
+  };
+  return (
+    <label className="adm-field">
+      <span>
+        Time of day <b>{clockText(current)}</b> {draft.timeOfDay === 'hold' ? '(held)' : ''}
+      </span>
+      <input type="range" min={0} max={23.99} step={0.25} value={current} onChange={(e) => setHour(Number(e.target.value))} aria-label="Set the clock" />
+      <span className="adm-inline">
+        <label>
+          <input type="checkbox" checked={draft.timeOfDay === 'hold'} onChange={(e) => setDraft({ ...draft, timeOfDay: e.target.checked ? 'hold' : 'cycle', heldPhase: phaseOfHour(current) })} /> Hold the clock here
+        </label>
+      </span>
+      <small className="muted">Day 06:00 to 19:10, dusk to 21:40, night until 03:40. Saving applies it to everyone online right away.</small>
+    </label>
+  );
+}
+
 function Settings({ token, role, notify }: TabProps) {
   const [saved, setSaved] = useState<ServerSettings | null>(null);
   const [draft, setDraft] = useState<ServerSettings | null>(null);
@@ -426,21 +465,7 @@ function Settings({ token, role, notify }: TabProps) {
           <input type="range" min={0} max={1} step={0.05} value={draft.nightBrightness} onChange={(e) => setDraft({ ...draft, nightBrightness: Number(e.target.value) })} />
           <small className="muted">How much light is left at the darkest point of night.</small>
         </label>
-        <label className="adm-field">
-          <span>Time of day</span>
-          <select
-            value={draft.timeOfDay}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === 'cycle' || v === 'day' || v === 'night') setDraft({ ...draft, timeOfDay: v });
-            }}
-          >
-            <option value="cycle">Day and night cycle</option>
-            <option value="day">Always day</option>
-            <option value="night">Always night</option>
-          </select>
-          <small className="muted">Applies to everyone online right away.</small>
-        </label>
+        <ClockControl draft={draft} setDraft={setDraft} />
         <label className="adm-check">
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
           Registration open <small className="muted">New accounts can be created</small>

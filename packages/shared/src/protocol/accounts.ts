@@ -98,14 +98,33 @@ export interface ServerSettings {
   dayMinutes: number;
   /** How much light is left at the darkest point of night, 0 (pitch) to 1 (as bright as day). */
   nightBrightness: number;
-  /** 'cycle' follows the clock; 'day' or 'night' holds it there. */
-  timeOfDay: 'cycle' | 'day' | 'night';
+  /** 'cycle' runs the clock; 'hold' stops it at heldPhase. */
+  timeOfDay: 'cycle' | 'hold';
+  /** Added to the running clock, 0 to 1 of a day, so an admin can set the time without stopping it. */
+  clockOffset: number;
+  /** Where the clock stands while held, 0 to 1 of a day. */
+  heldPhase: number;
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1, dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle' };
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, worldSeed: 1, dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle', clockOffset: 0, heldPhase: 0.25 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
-export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay'>;
+export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay' | 'clockOffset' | 'heldPhase'>;
+
+/** Where in the day the world is (0 to 1), shared by clients and the admin page so both agree. */
+export function dayPhaseAt(now: number, l: Lighting): number {
+  if (l.timeOfDay === 'hold') return l.heldPhase;
+  return (((now / 1000 / (l.dayMinutes * 60) + l.clockOffset) % 1) + 1) % 1;
+}
+
+/** Phase 0 is 06:00, so the day runs 06:00 to about 19:10, dusk to 21:40, night until 03:40, dawn until 06:00. */
+export function hourOfPhase(phase: number): number {
+  return (phase * 24 + 6) % 24;
+}
+
+export function phaseOfHour(hour: number): number {
+  return ((((hour - 6) / 24) % 1) + 1) % 1;
+}
 
 /** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
 export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200, seedMax: 999_999, dayMinutesMin: 2, dayMinutesMax: 240 } as const;
@@ -139,8 +158,14 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     out.nightBrightness = value.nightBrightness;
   }
   if (value.timeOfDay !== undefined) {
-    if (value.timeOfDay !== 'cycle' && value.timeOfDay !== 'day' && value.timeOfDay !== 'night') return 'timeOfDay must be cycle, day or night';
+    if (value.timeOfDay !== 'cycle' && value.timeOfDay !== 'hold') return 'timeOfDay must be cycle or hold';
     out.timeOfDay = value.timeOfDay;
+  }
+  for (const key of ['clockOffset', 'heldPhase'] as const) {
+    const v = value[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v >= 1) return `${key} must be at least 0 and below 1`;
+    out[key] = v;
   }
   for (const key of ['registrationOpen'] as const) {
     const v = value[key];

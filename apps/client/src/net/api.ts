@@ -91,7 +91,7 @@ function isAccounts(v: unknown): v is AdminAccount[] {
 }
 
 function isSettings(v: unknown): v is ServerSettings {
-  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'day' || v.timeOfDay === 'night');
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number';
 }
 
 function isClaimed(v: unknown): v is { username: string } {
