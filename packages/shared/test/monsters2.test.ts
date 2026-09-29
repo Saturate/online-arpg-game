@@ -135,3 +135,29 @@ describe('new monster behaviours', () => {
     expect(sim.map.pointBlocked(wp.x, wp.y, 1, 'move')).toBe(false);
   });
 });
+
+describe('starter monsters', () => {
+  const volley = (level: number, rare = false): number => {
+    const { sim, pos } = setup(3);
+    const id = spawnEnemy(sim, 'shooter', pos.x + 200, pos.y, { rare, level, aggro: true });
+    for (let t = 0; t < 200; t++) {
+      sim.step();
+      const shots = [...sim.world.projectile.values()].filter((p) => p.ownerId === id).length;
+      if (shots > 0) return shots;
+    }
+    return 0;
+  };
+
+  it('fire a single projectile below the multishot level, and spreads from it on', () => {
+    expect(volley(1)).toBe(1);
+    expect(volley(5)).toBeGreaterThan(1);
+  });
+
+  it('never roll Multishot while low level', () => {
+    const { sim, pos } = setup(4);
+    for (let i = 0; i < 60; i++) {
+      const id = spawnEnemy(sim, 'shooter', pos.x + 300, pos.y + i, { rare: true, level: 2, aggro: false });
+      expect(sim.world.enemy.get(id)?.affixes.some((a) => a.id === 'extra_projectiles')).toBe(false);
+    }
+  });
+});

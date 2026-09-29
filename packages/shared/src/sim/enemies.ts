@@ -88,7 +88,9 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   const w = sim.world;
   const boss = opts.boss ?? false;
   const affixCount = boss ? 3 : sim.rand.world.int(1, 3);
-  const affixes = opts.rare || boss ? rollAffixes(sim.rand.world, 'enemy', affixCount, 2) : [];
+  const rolled = opts.rare || boss ? rollAffixes(sim.rand.world, 'enemy', affixCount, 2) : [];
+  // Dropped after rolling rather than excluded from the roll, so the random stream is the same either way.
+  const affixes = opts.level < ENEMY_LEVEL.multishotFromLevel ? rolled.filter((a) => a.id !== 'extra_projectiles') : rolled;
   const levelMult = 1 + ENEMY_LEVEL.lifePerLevel * (opts.level - 1);
   const lifeMult =
     (opts.rare || boss ? WAVES.rareLifeMultiplier : 1) * (boss ? ENEMY_LEVEL.bossLifeMultiplier : 1) * levelMult * (1 + affixValue(affixes, 'armored') / 100);
@@ -311,7 +313,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
         e.fireCooldown = def.fireCooldown;
         sim.emit({ e: 'attack', id }, pos.x, pos.y);
         if (def.behaviour === 'shooter') {
-          const n = def.bullets + e.extraProjectiles;
+          const n = e.level < ENEMY_LEVEL.multishotFromLevel ? 1 : def.bullets + e.extraProjectiles;
           const angles = Array.from({ length: n }, (_, k) => toward + (k - (n - 1) / 2) * def.spread);
           fireBullets(sim, id, def, e, pos.x, pos.y, angles);
         } else {
@@ -665,7 +667,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       break;
     }
     case 'shoot': {
-      const n = a.bullets + e.extraProjectiles;
+      const n = e.level < ENEMY_LEVEL.multishotFromLevel ? 1 : a.bullets + e.extraProjectiles;
       const target = a.homing ? pickTarget(sim, e, pos.x, pos.y, a.range * 1.5) : null;
       for (let k = 0; k < n; k++) {
         const pid = spawnProjectile(sim, {

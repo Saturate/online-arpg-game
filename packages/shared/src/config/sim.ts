@@ -301,6 +301,11 @@ export const ENEMY_LEVEL = {
   lifePerLevel: 0.28,
   damagePerLevel: 0.14,
   bossLifeMultiplier: 3,
+  /**
+   * Below this level spread shots fire one projectile and rares cannot roll Multishot: a fan of
+   * bullets from the first monsters a new character meets felt unfair and like a later-game threat.
+   */
+  multishotFromLevel: 5,
 } as const;
 
 export const GROUND = {
