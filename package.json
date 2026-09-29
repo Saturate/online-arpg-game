@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "pnpm -r --parallel --filter './apps/*' dev",
     "test": "vitest run",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "town:pull": "pnpm --filter @rune/server town:pull"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

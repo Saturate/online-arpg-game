@@ -13,6 +13,7 @@ import {
   type Permission,
   type Role,
   type ServerSettings,
+  type TownLayout,
 } from '@rune/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
@@ -72,6 +73,8 @@ export interface AdminHooks {
   announce(text: string): number;
   kickCharacter(characterId: number): boolean;
   kickAccount(accountId: number): void;
+  /** The live town, for `pnpm town:pull`. Every player is sent it on entering town, so it is public. */
+  currentTown(): TownLayout;
   /** Applies a new role to the account's live session, if it has one. */
   roleChanged(accountId: number, role: Role): void;
 }
@@ -199,6 +202,8 @@ export class AccountApi {
       if (account === 'banned') throw new HttpError(403, 'This account is banned');
       return [200, { token: this.store.createSession(account.id), username: account.username }];
     }
+
+    if (method === 'GET' && path === '/api/town') return [200, this.admin.currentTown()];
 
     const token = bearer(req);
     const account = token ? this.store.accountForToken(token) : null;

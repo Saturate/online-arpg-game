@@ -1,0 +1,36 @@
+name: town-sync
+
+# Copies the town built on the live server into git. It pushes a town/live branch rather than
+# opening a PR, since Actions may not create PRs in this repo; open one from the branch to merge.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm town:pull
+      - name: Push town/live if the town changed
+        run: |
+          if git diff --quiet -- apps/server/data/town-layout.json; then
+            echo "Live town matches main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c town/live
+          git commit -m "chore(town): pull the live town" -- apps/server/data/town-layout.json
+          git push --force origin town/live
+          echo "Town changed: https://github.com/${GITHUB_REPOSITORY}/compare/main...town/live?expand=1" >> "$GITHUB_STEP_SUMMARY"

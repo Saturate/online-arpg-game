@@ -135,6 +135,10 @@ export class RoomManager implements AdminHooks {
     for (const c of [...this.clients.values()]) if (c.accountId === accountId) this.endSession(c, 'This account has been banned');
   }
 
+  currentTown(): TownLayout {
+    return this.townLayout;
+  }
+
   roleChanged(accountId: number, role: Role): void {
     for (const c of this.clients.values()) {
       if (c.accountId !== accountId) continue;

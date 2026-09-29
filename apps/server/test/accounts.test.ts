@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DEFAULT_SERVER_SETTINGS, isSessionToken, Simulation, type Role, type ServerSettings } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, DEFAULT_TOWN_LAYOUT, isSessionToken, Simulation, type Role, type ServerSettings } from '@rune/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -143,6 +143,7 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     kickCharacter: () => false,
     kickAccount: (id) => kicked.push(id),
     roleChanged: (id, role) => roles.push([id, role]),
+    currentTown: () => DEFAULT_TOWN_LAYOUT,
   };
 }
 
@@ -333,6 +334,12 @@ describe('admin API', () => {
     const otherOwner = await accountId(owner, 'mod');
     store.setBanned(otherOwner, true);
     expect((await call('POST', `/api/admin/accounts/${otherOwner}/ban`, owner, { banned: false })).status).toBe(200);
+  });
+
+  it('serves the live town without a login, for pulling it into git', async () => {
+    const res = await fetch(`${base}/api/town`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ version: 1, name: DEFAULT_TOWN_LAYOUT.name });
   });
 
   it('will not let anyone register a name listed as admin', async () => {
