@@ -6,7 +6,7 @@ import { compareGear, DRAG_TYPE, dropAction, parseDrag, quickAction, replacedBy,
 import { affixPips, placeTooltip, unusable } from './itemView.js';
 import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
-import { itemByUid, sendCommand, useUi } from './store.js';
+import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
 import './inventory.css';
 
 interface HoverState {
@@ -201,7 +201,8 @@ export function ItemCell({
     const moving = itemByUid(inventory, payload.uid);
     if (!moving) return;
     const msg = dropAction(inventory, moving, payload, cellUnder(e), cls);
-    if (msg) sendCommand(msg);
+    if (msg?.t === 'swapSigils') swapSkills(msg.a, msg.b);
+    else if (msg) sendCommand(msg);
   };
 
   /** A grid place refined to the exact cell under the pointer: an item spans several cells. */

@@ -105,6 +105,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipSigil', uid: value.uid, slot: value.slot } : null;
     case 'unequipSigil':
       return isSlot(value.slot) ? { t: 'unequipSigil', slot: value.slot } : null;
+    case 'swapSigils':
+      return isSlot(value.a) && isSlot(value.b) ? { t: 'swapSigils', a: value.a, b: value.b } : null;
     case 'equipVessel':
       return isNonNegativeInt(value.uid) && isSlot(value.slot) ? { t: 'equipVessel', uid: value.uid, slot: value.slot } : null;
     case 'unequipVessel':

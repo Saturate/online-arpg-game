@@ -56,6 +56,8 @@ export type ClientMessage =
   | { t: 'inscribe'; uid: ItemUid; runes: RuneId[] }
   | { t: 'equipSigil'; uid: ItemUid; slot: number }
   | { t: 'unequipSigil'; slot: number }
+  /** Reorders the skill bar: the skills in slots a and b trade places. */
+  | { t: 'swapSigils'; a: number; b: number }
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }

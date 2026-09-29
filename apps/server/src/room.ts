@@ -170,6 +170,9 @@ export class Room {
       case 'unequipSigil':
         error = this.sim.unequipSigil(pid, msg.slot);
         break;
+      case 'swapSigils':
+        error = this.sim.swapSigils(pid, msg.a, msg.b);
+        break;
       case 'equipVessel':
         error = this.sim.equipVessel(pid, msg.uid, msg.slot);
         break;

@@ -65,3 +65,15 @@ describe('trader', () => {
     expect(buyPrice(common)).toBe(sellPrice(common) * 3);
   });
 });
+
+describe('skill bar order', () => {
+  it('swaps two skill slots without unequipping anything', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const pid = sim.addPlayer('c', 'mage');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('no player');
+    const [a, b] = [p.sigils[0]?.uid, p.sigils[2]?.uid];
+    expect(sim.swapSigils(pid, 0, 2)).toBeNull();
+    expect([p.sigils[0]?.uid, p.sigils[2]?.uid]).toEqual([b, a]);
+  });
+});

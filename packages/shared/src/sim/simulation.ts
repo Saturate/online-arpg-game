@@ -268,6 +268,10 @@ export class Simulation {
     return inv.unequipSigil(this, id, slot);
   }
 
+  swapSigils(id: EntityId, a: number, b: number): string | null {
+    return inv.swapSigils(this, id, a, b);
+  }
+
   equipVessel(id: EntityId, uid: ItemUid, slot: number): string | null {
     return inv.equipVessel(this, id, uid, slot);
   }

@@ -6,7 +6,7 @@ import { keyLabel, useSettings } from './settings.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 import { spiritUses } from './spirit.js';
-import { compileFor, itemByUid, pickSkill, useUi } from './store.js';
+import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
 function Orb({ label, value, max, kind, danger }: { label: string; value: number; max: number; kind: 'life' | 'force'; danger?: boolean }) {
@@ -24,6 +24,9 @@ function Orb({ label, value, max, kind, danger }: { label: string; value: number
     </div>
   );
 }
+
+/** Drag type for reordering the skill bar; kept apart from item drags so the two never mix. */
+const SKILL_DRAG = 'application/x-rune-skill-slot';
 
 function SkillSlot({ slot }: { slot: number }) {
   const inv = useUi((s) => s.inventory);
@@ -58,6 +61,20 @@ function SkillSlot({ slot }: { slot: number }) {
       onContextMenu={(e) => {
         e.preventDefault();
         pickSkill('right', slot);
+      }}
+      // Drag a skill onto another slot to reorder the bar.
+      draggable={sigil !== null}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(SKILL_DRAG, String(slot));
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(SKILL_DRAG)) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData(SKILL_DRAG));
+        if (Number.isInteger(from) && from >= 0 && from < 4) swapSkills(from, slot);
       }}
       title={`${skill ? `${skill.name}: ${skill.description}` : name}. Left-click or right-click to put it on that mouse button.`}
     >

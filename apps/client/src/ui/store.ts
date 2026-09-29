@@ -348,6 +348,16 @@ function isSlot(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
 }
 
+/** Swaps two skill slots; the mouse picks follow their skills rather than staying on the slot. */
+export function swapSkills(a: number, b: number): void {
+  if (a === b) return;
+  sendCommand({ t: 'swapSigils', a, b });
+  const { leftSkill, rightSkill } = useUi.getState();
+  const moved = (slot: number) => (slot === a ? b : slot === b ? a : slot);
+  pickSkill('left', moved(leftSkill));
+  pickSkill('right', moved(rightSkill));
+}
+
 /** Sets which slot a mouse button casts, and remembers it for this character. */
 export function pickSkill(side: 'left' | 'right', slot: number): void {
   useUi.setState(side === 'left' ? { leftSkill: slot } : { rightSkill: slot });

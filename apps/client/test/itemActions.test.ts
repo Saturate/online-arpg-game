@@ -80,3 +80,13 @@ describe('grid drops', () => {
     expect(dropAction(inv(), ring, drag, { at: 'bag', x: 0, y: 0 }, 'mage')).toBeNull();
   });
 });
+
+describe('skill slots', () => {
+  it('dragging a skill onto another slot swaps them', () => {
+    const { sim, inv } = setup();
+    const sigil = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1, { category: 'ring' });
+    const drag = { uid: sigil.uid, from: { at: 'sigil' as const, slot: 0 }, grab: { x: 0, y: 0 } };
+    expect(dropAction(inv(), sigil, drag, { at: 'sigil', slot: 3 }, 'mage')).toEqual({ t: 'swapSigils', a: 0, b: 3 });
+    expect(dropAction(inv(), sigil, drag, { at: 'sigil', slot: 0 }, 'mage')).toBeNull();
+  });
+});

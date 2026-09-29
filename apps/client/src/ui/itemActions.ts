@@ -123,7 +123,9 @@ export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload,
     const y = target.y - drag.grab.y;
     return x >= 0 && y >= 0 ? { t: 'moveItem', uid: item.uid, to: target.at, x, y } : null;
   }
-  // Moving between two equipped slots is not supported by the server; take it off first.
+  // Dragging one skill onto another slot reorders the skill bar.
+  if (drag.from.at === 'sigil' && target.at === 'sigil') return drag.from.slot === target.slot ? null : { t: 'swapSigils', a: drag.from.slot, b: target.slot };
+  // Other moves between two equipped slots are not supported; take it off first.
   if (drag.from.at !== 'bag') return null;
   if (target.at === 'sigil') return item.kind === 'sigil' ? { t: 'equipSigil', uid: item.uid, slot: target.slot } : null;
   if (target.at === 'warband') return item.kind === 'vessel' && classId === 'binder' ? { t: 'equipVessel', uid: item.uid, slot: target.slot } : null;

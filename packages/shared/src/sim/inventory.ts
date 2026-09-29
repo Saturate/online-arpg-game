@@ -597,3 +597,19 @@ export function buyItem(sim: Simulation, pid: EntityId, item: Item, price: numbe
   p.gold -= price;
   return null;
 }
+
+/** Reorders two skill slots. Nothing is equipped or taken off, so spirit is unchanged. */
+export function swapSigils(sim: Simulation, pid: EntityId, a: number, b: number): string | null {
+  const p = sim.world.player.get(pid);
+  if (!p) return 'No player';
+  if (a === b) return null;
+  const sa = p.sigils[a] ?? null;
+  p.sigils[a] = p.sigils[b] ?? null;
+  p.sigils[b] = sa;
+  // A persistent link follows its skill to the new slot.
+  const la = p.links[a] ?? null;
+  p.links[a] = p.links[b] ?? null;
+  p.links[b] = la;
+  changed(p);
+  return null;
+}
