@@ -155,9 +155,20 @@ Each phase ships on its own and gets the item review before deploy.
    **Minion abilities** can come earlier, on their own: base abilities for today's three minion types plus vessel ability affixes need no other phase.
 7. **Force rebalance** with numbers on the admin page, endgame affix tiers, and the combo codex.
 
+## Decisions (owner, 2026-09-29)
+
+- **Grammar:** infusions, effects and shapers attach to the nearest shape on their left; a payload starts at the next shape after a trigger. A Split right after a trigger splits the payload. Casting shapes together inside a payload counts against the sigil's multicast. These are the rules the Spell Lab prototype (`/admin/dev/`, Spell Lab) implements.
+- **Triggers stay common plain runes;** release affixes on shapes are the rare upgrade that saves a slot.
+- **Edge cases allowed for now:** a split Nova makes several rings, and doubled runes stack. Limit them later if testing shows they are too strong.
+- **Swift and Large stay as plain runes** alongside the affixes: they teach the system early and fade once sigils have the slots for better runes.
+- **Shape-changing sigils (idea, later):** some sigils could turn one shape into another, an Orb into Arrows, or an Arrow into a Nova, as a sigil affix.
+- **Existing characters are converted,** not wiped: built-in skill sigils become rolled-rune versions, Linger runes become gold, Link becomes Bond. (Live data: 72 built-in skill sigils, 6 loose runes, nothing hand-inscribed.)
+- **Rune trader stock is shared server-wide:** a rare rune appears for everyone with a chat line, and the first buyer gets it.
+- **Character creation keeps the five classes as starting kits** mapped onto the styles (Warrior melee; Ranger ranged; Mage, Priest and Binder spell).
+- **Charging** slows the hero to about half speed; a rare affix lifts that.
+- **"Fireball summon":** a vessel can come with a rolled special ability, for example a random sigil its minion casts on a cooldown (a skeleton mage that throws fireballs).
+- **Arena** (separate plan): reduced XP (about 50%), no loot or gold, one life per run, monthly leaderboard seasons.
+
 ## Open questions
 
-1. Keep Swift and Large as plain runes as well as affixes?
-2. Rune trader stock: per player or shared server-wide?
-3. Existing characters: convert or wipe?
-4. Character creation: pick one of three styles, or keep the five classes as starting kits mapped onto the styles (Warrior melee; Ranger ranged; Mage, Priest and Binder spell)?
+None for now; new ones go here.
