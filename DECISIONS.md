@@ -169,7 +169,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 ## Character progression
 
-- **XP curve:** XP to the next level is `60 * L^1.75`, with a cap of 50. Monsters are worth `6 * m^1.35`, times 4 for rares and 18 for bosses.
+- **XP curve:** XP to the next level is `90 * L^1.9` (slowed from `60 * L^1.75` so gear requirements gate longer), with a cap of 50. Monsters are worth `6 * m^1.35`, times 4 for rares and 18 for bosses.
 - **Low-level penalty:** monsters more than 5 levels below you lose 15% of their XP per extra level, down to a 5% floor, so farming the first zone at level 30 pays almost nothing, as in D2.
 - **Party XP:** every living player within 1500 units shares a kill. The pool grows 35% per extra member, so a group levels faster than the same players alone.
 - **Level growth:** per level, +6% of the class's base life, +12 Force, +1 spirit and +1.5% damage, added to gear's "increased damage" as in PoE. Level-up refills life and Force.
@@ -185,10 +185,49 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 
 ## Controls and chat
 
-- **Control schemes:** WASD plus mouse, or click-to-move (D2 style), set under Esc → Settings. Click-to-move plans A* over the nav grid, string-pulled along clear lines, and sends ordinary movement frames, so the server and prediction didn't change. Pressing on a monster locks onto it and attacks while held, walking into range first for melee. Shift attacks in place, and right-click casts skill 1.
+- **No basic attack:** every hit comes from a sigil; the server ignores the old primary button. Force is the limit: skills cost 75% of their listed Force, and cooling ramps up the longer you hold off (30/s, plus that again per second, up to 6x), so a full bar clears in about 8 s.
+- **Mouse skills, D2 style:** left and right mouse each cast a picked skill slot. Left-click a skill slot to put it on the left button, right-click for the right, or scroll (Shift for the left). Picks are saved per character in localStorage; the default is the first two cast (not persistent) skills. Dragging a skill onto another slot swaps them, and the picks follow.
+- **Control schemes:** WASD plus mouse, or click-to-move (D2 style), set under Esc → Settings. Click-to-move plans A* over the nav grid, string-pulled along clear lines, and sends ordinary movement frames, so the server and prediction didn't change. Pressing on a monster locks onto it and casts the left skill while held, walking into range first. Shift casts in place.
+- **Browser safety:** Back, mouse side buttons and swipes don't leave the game; reload and close ask first (not in dev). One game tab at a time: a tab entering the game tells the others over a BroadcastChannel and they step aside. Stuck keys are cleared on Cmd release and when the tab hides (macOS drops keyups while Cmd is held).
 - **Gamepad:** a standard-mapping pad works under either scheme and only takes over while in use, so a pad left plugged in doesn't fight the mouse.
 - **Chat:** Enter chats to everyone in your game, `/w name` whispers anyone online, and `/who` lists your game. The server strips control and zero-width characters, caps messages at 200 characters and allows 6 per 5 s. Text is only ever set through React or `textContent`, never as HTML. A speaker's line also shows as a speech bubble over their head for 6 s.
+
+## Admin, roles and accounts
+
+- **Roles:** owner (from `ADMIN_USERS`, never grantable), admin, moderator, builder, player, each a fixed permission set in `protocol/roles.ts`. Staff act only on accounts ranked below them. Builders get the town editor (F2) and the F3 dev tools; moderators and up kick, ban, announce and `/goto` players. Names in `ADMIN_USERS` can't be registered or claimed.
+- **Admin page** (`/admin.html`): online players, games and rooms, announcements, accounts with characters, roles, bans, and live settings (XP and loot rates, motd, registration, world seed, day length, night brightness, and the in-game clock, which can be set or held).
+- **Guests:** "Play as guest" makes an account with a generated name and a one-year session; the character screen offers to claim it with a real name and password. Unclaimed guests are deleted after 90 days without play.
+
+## Items, loot and economy
+
+- **Grid inventory:** bag 12x8, stash 12x10, D2 footprints (armour and weapons 2x3, helmets, gloves and boots 2x2, belts 2x1, vessels 1x2, jewellery, sigils and runes 1x1). Grids are flat cell arrays (one uid per covered cell), so saves barely changed; a save of another size is repacked on load, and anything that fits nowhere stays *pending* with the character and is retried every load, never dropped.
+- **Stash:** per account, shared by all its characters, at the town chest. Stored separately from characters and written in one transaction with them; an unreadable stash refuses the join instead of being saved over.
+- **Pickup:** items wait on the ground until clicked (bag or label, Alt shows all); the hero walks there first. Gold drops (a third of kills, always from rares and bosses) and is picked up by walking over it.
+- **Loot pace:** normal monsters drop 8% of the time; tier weights lean common and magic (relic about 1 in 300 normal drops). Starter items are bound and can't be sold.
+- **Trader:** the stall nearest the town spawn. Sell for gold (tier and item level), buy at 3x from one shelf shared by the whole server; 50 items, the oldest destroyed when a 51st is sold. The shelf, the character and the stash are saved in one transaction per trade.
+- **Runes and the forge:** runes drop (a quarter of drops, forms and elements common, triggers rare) and stack 20 to a cell. The forge is the weapon rack nearest the spawn; there the sigil editor spends runes from the bag and returns ones taken out. Builders keep a free test bench on the Arena and flat maps. Runes from starter sigils come back bound.
+- **Warband:** 24 slots, a ceiling no build reaches; spirit is the real limit. Binders start with one minion (Zombie Brute).
+
+## Look and world
+
+- **Dark and gritty (D2 Act 1 / PoE), not cute:** low overcast light, a vignette, a global canvas grade (desaturate, contrast, a little sepia) and a shared-shader grime pass (world-space blotches, soot near the ground) over the KayKit models. Dungeons are torch-lit dark.
+- **Day and night:** visual only, from the wall clock so everyone sees the same sky; the admin sets day length, night brightness and the clock. `?time=0.75` pins the time locally for testing.
+- **Map edges:** grass runs 1500 units past the edge under an instanced forest with rocks and mountain rings, so the camera never sees void.
+- **Minimap:** fog of war, uncovered as you walk (remembered per map for the session); party members in the same map share their vision and always show.
+
+## Operations
+
+- **Deploys:** a push to `main` builds the image in GitHub Actions and Flux rolls it out to arpg.akj.io, restarting the server (everyone is saved first and reconnects). Hold pushes until the owner says deploy.
+- **Town in git:** `GET /api/town` serves the live town; `pnpm town:pull` writes it to `apps/server/data/town-layout.json`, which is bundled as the starting town. The daily `town-sync` workflow pushes a `town/live` branch when the live town changed (Actions can't open PRs in this repo).
 
 ## Parked ideas
 
 - **Weapon-gated skills (not decided):** sigils could need a weapon family (arrows a bow, strikes an axe, spells a staff or wand) and minions a wand or sceptre, so the Binder trades weapon power for its army. Parked because it may make classes redundant: if weapons and sigils decide what you can do, classes could shrink to starting kits and stat leanings, all in config. Revisit alongside class balance.
+- **Restartless tuning (asked, not answered):** put the numbers tuned most often (minion strength, Force cost and cooling, drop chances) on the admin page, so balance changes need no deploy or restart.
+
+## Open items for the next session
+
+- **Review not done:** click pickup, gold, runes and the forge went live without the usual fresh-eyes review for item loss or duplication.
+- **Reported, not reproduced:** "movement can get stuck". The stuck-key fix (Cmd, tab hide) is live; if it still happens, find out whether it is terrain, input or desync.
+- **Tuning to check live:** grime strength, the hero's light radius at night, the new loot pace and Force cooling, and minion strength after the buff.
+- **Security chores for the owner:** rotate the Steam API key and the GHCR pull token that were pasted in chat; decide on the overhead Postgres password rotation (a restart would also upgrade that image).
