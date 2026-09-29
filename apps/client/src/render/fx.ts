@@ -91,7 +91,8 @@ export class Effects {
   private readonly mesh: InstancedMesh;
   private readonly waves: Shockwave[] = [];
   private readonly texts: FloatingText[] = [];
-  private readonly labels = new Map<string, HTMLSpanElement>();
+  /** Last values written per label: reading style.color back returns the browser's rgb() form, so it never matched. */
+  private readonly labels = new Map<string, { el: HTMLSpanElement; text: string; color: string; className: string }>();
   private readonly ringGeo = new RingGeometry(0.8, 1, 48);
   private readonly edgeGeo = new RingGeometry(0.92, 1, 48);
   private readonly diskGeo = new CircleGeometry(1, 40);
@@ -99,6 +100,7 @@ export class Effects {
   private readonly teles: Telegraph[] = [];
   private readonly pools: Pool[] = [];
   private cursor = 0;
+  private trailClock = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -141,6 +143,20 @@ export class Effects {
         hex,
       );
     }
+  }
+
+  /**
+   * Whether projectile trails emit this frame. A fixed rate keeps trail density and particle pool use
+   * the same at any refresh rate; per-frame emission wrapped the pool at 144 Hz.
+   */
+  trailDue(dt: number): boolean {
+    if (dt <= 0) return false;
+    this.trailClock += dt;
+    const step = 1 / FX.trailHz;
+    if (this.trailClock < step) return false;
+    // Modulo, not subtraction: a long hitch must not turn into a burst of catch-up emissions.
+    this.trailClock %= step;
+    return true;
   }
 
   trail(x: number, y: number, hex: number, size: number): void {
@@ -252,22 +268,23 @@ export class Effects {
     const seen = new Set<string>();
     for (const e of entries) {
       seen.add(e.key);
-      let el = this.labels.get(e.key);
-      if (!el) {
-        el = document.createElement('span');
-        this.layer.appendChild(el);
-        this.labels.set(e.key, el);
+      let label = this.labels.get(e.key);
+      if (!label) {
+        label = { el: document.createElement('span'), text: '', color: '', className: '' };
+        this.layer.appendChild(label.el);
+        this.labels.set(e.key, label);
       }
-      if (el.className !== e.className) el.className = e.className;
-      if (el.textContent !== e.text) el.textContent = e.text;
-      if (el.style.color !== e.color) el.style.color = e.color;
+      const el = label.el;
+      if (label.className !== e.className) el.className = label.className = e.className;
+      if (label.text !== e.text) el.textContent = label.text = e.text;
+      if (label.color !== e.color) el.style.color = label.color = e.color;
       el.onclick = e.onClick ?? null;
       const p = this.world.project(e.x, e.y, e.height);
       el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
     }
-    for (const [key, el] of this.labels) {
+    for (const [key, label] of this.labels) {
       if (seen.has(key)) continue;
-      el.remove();
+      label.el.remove();
       this.labels.delete(key);
     }
   }
@@ -370,7 +387,7 @@ export class Effects {
     }
     this.pools.length = 0;
     for (const t of this.texts) t.el.remove();
-    for (const el of this.labels.values()) el.remove();
+    for (const label of this.labels.values()) label.el.remove();
   }
 
   private spawn(p: Particle, hex: number): void {

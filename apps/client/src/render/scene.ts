@@ -88,6 +88,10 @@ export class WorldScene {
   private time = 0;
   private width = 1;
   private height = 1;
+  /** Reading the host's size every frame forces a layout; an observer flags the rare real change instead. */
+  private readonly resizeObserver: ResizeObserver;
+  private sizeDirty = true;
+  private readonly projected = new Vector3();
 
   constructor(
     private readonly host: HTMLElement,
@@ -136,6 +140,10 @@ export class WorldScene {
     this.world = buildWorld(def);
     this.scene.add(this.world.group, this.overlay);
     this.resize();
+    this.resizeObserver = new ResizeObserver(() => {
+      this.sizeDirty = true;
+    });
+    this.resizeObserver.observe(host);
   }
 
   get canvas(): HTMLCanvasElement {
@@ -148,6 +156,7 @@ export class WorldScene {
   }
 
   resize(): void {
+    this.sizeDirty = false;
     const w = this.host.clientWidth || 1;
     const h = this.host.clientHeight || 1;
     if (w === this.width && h === this.height) return;
@@ -219,7 +228,7 @@ export class WorldScene {
   }
 
   render(): void {
-    this.resize();
+    if (this.sizeDirty) this.resize();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -234,12 +243,13 @@ export class WorldScene {
 
   /** Simulation position (plus height) to canvas pixels, for DOM overlays like damage numbers. */
   project(x: number, y: number, height: number): Vec2 {
-    const v = new Vector3(x, height, y).project(this.camera);
+    const v = this.projected.set(x, height, y).project(this.camera);
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
   /** Room changes rebuild the whole scene, so everything on the GPU for this one is released. */
   dispose(): void {
+    this.resizeObserver.disconnect();
     this.world.dispose();
     this.scene.traverse((o) => {
       if (o instanceof Mesh) o.geometry.dispose();

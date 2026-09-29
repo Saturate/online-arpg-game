@@ -874,7 +874,7 @@ export class Game {
     for (const b of this.bolts) if (b.serverId !== null) pairedIds.add(b.serverId);
     this.renderedEnemies = [];
     this.renderedLoot = [];
-    const trail = dt > 0 && this.frameNo % FX.trailEveryFrames === 0;
+    const trail = fx.trailDue(dt);
     const showAllLoot = room.input.showLootDown;
 
     if (sample) {
