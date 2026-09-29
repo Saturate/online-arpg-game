@@ -1,9 +1,14 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { isSessionToken, Simulation } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, isSessionToken, Simulation, type ServerSettings } from '@rune/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { AccountStore } from '../src/accounts.js';
-import { AccountApi, RateLimiter } from '../src/http.js';
+import { AccountApi, RateLimiter, type AdminHooks } from '../src/http.js';
+import { Room } from '../src/room.js';
 
 describe('AccountStore', () => {
   const store = new AccountStore(':memory:');
@@ -48,6 +53,40 @@ describe('AccountStore', () => {
   });
 });
 
+describe('server settings', () => {
+  it('round-trip through the store, and fall back to the given defaults when missing or corrupt', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rune-settings-')), 'rune.db');
+    const store = new AccountStore(file);
+    const devDefaults = { ...DEFAULT_SERVER_SETTINGS, devTools: true };
+    expect(store.loadSettings(devDefaults)).toEqual(devDefaults);
+    store.saveSettings({ ...DEFAULT_SERVER_SETTINGS, xpRate: 3, motd: 'hi' });
+    // Once saved, the stored value wins over the boot default.
+    expect(store.loadSettings(devDefaults)).toMatchObject({ xpRate: 3, motd: 'hi', devTools: false });
+    store.close();
+    const raw = new DatabaseSync(file);
+    raw.prepare(`UPDATE settings SET value = '{"xpRate":999,"motd":"kept","registrationOpen":false}' WHERE key = 'server'`).run();
+    const reopened = new AccountStore(file);
+    // A stored value out of range drops only that field.
+    expect(reopened.loadSettings()).toEqual({ ...DEFAULT_SERVER_SETTINGS, motd: 'kept', registrationOpen: false });
+    raw.prepare("UPDATE settings SET value = '{not json' WHERE key = 'server'").run();
+    raw.close();
+    expect(reopened.loadSettings()).toEqual(DEFAULT_SERVER_SETTINGS);
+    reopened.close();
+  });
+
+  it('turning dev tools off undoes god mode and time scale', () => {
+    const room = new Room('t', { kind: 'flat' }, 1);
+    const pid = room.sim.addPlayer('c', 'warrior');
+    const p = room.sim.world.player.get(pid);
+    if (!p) throw new Error('no player');
+    p.god = true;
+    room.timeScale = 4;
+    room.clearDevEffects();
+    expect(p.god).toBe(false);
+    expect(room.timeScale).toBe(1);
+  });
+});
+
 describe('RateLimiter', () => {
   it('allows the limit per minute per key, then recovers', () => {
     let now = 0;
@@ -59,13 +98,28 @@ describe('RateLimiter', () => {
   });
 });
 
+function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings } {
+  const state: ServerSettings = { ...DEFAULT_SERVER_SETTINGS };
+  const kicked: number[] = [];
+  return {
+    kicked,
+    state,
+    overview: () => ({ build: 'test', uptimeSeconds: 1, memoryMb: 1, online: [], games: [], rooms: [] }),
+    settings: () => ({ ...state }),
+    updateSettings: (patch) => Object.assign(state, patch),
+    announce: () => 0,
+    kickCharacter: () => false,
+    kickAccount: (id) => kicked.push(id),
+  };
+}
+
 describe('AccountApi', () => {
   let server: Server;
   let base = '';
   const deleted: number[] = [];
 
   beforeAll(async () => {
-    const api = new AccountApi(new AccountStore(':memory:'), (id) => deleted.push(id));
+    const api = new AccountApi(new AccountStore(':memory:'), (id) => deleted.push(id), fakeHooks(), new Set());
     server = createServer((req, res) => {
       if (!api.handle(req, res)) res.writeHead(404).end();
     });
@@ -110,5 +164,97 @@ describe('AccountApi', () => {
     expect(form.status).toBe(415);
     const huge = await post('/api/login', { username: 'x'.repeat(10_000), password: 'y' });
     expect(huge.status).toBe(413);
+  });
+});
+
+describe('admin API', () => {
+  let server: Server;
+  let base = '';
+  const hooks = fakeHooks();
+
+  beforeAll(async () => {
+    // Listed admin names cannot be registered through the API, so their accounts exist up front.
+    const store = new AccountStore(':memory:');
+    await store.register('Boss', 'password123');
+    await store.register('mod', 'password123');
+    const api = new AccountApi(store, () => undefined, hooks, new Set(['boss', 'mod', 'ghost']));
+    server = createServer((req, res) => {
+      if (!api.handle(req, res)) res.writeHead(404).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const addr: AddressInfo | string | null = server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    base = `http://127.0.0.1:${addr.port}`;
+  });
+  afterAll(() => server.close());
+
+  const call = (method: string, path: string, token: string, body?: unknown) => {
+    const init: RequestInit = { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' } };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    return fetch(base + path, init);
+  };
+  const register = async (username: string): Promise<string> => {
+    const res = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: 'password123' }) });
+    const body: unknown = await res.json();
+    const token = typeof body === 'object' && body !== null && 'token' in body ? body.token : null;
+    if (!isSessionToken(token)) throw new Error(`no token for ${username}`);
+    return token;
+  };
+  const login = async (username: string): Promise<string> => {
+    const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: 'password123' }) });
+    const body: unknown = await res.json();
+    const token = typeof body === 'object' && body !== null && 'token' in body ? body.token : null;
+    if (!isSessionToken(token)) throw new Error(`no token for ${username}`);
+    return token;
+  };
+  const accountId = async (adminToken: string, username: string): Promise<number> => {
+    const accounts: unknown = await (await call('GET', '/api/admin/accounts', adminToken)).json();
+    const found = Array.isArray(accounts) ? accounts.find((a: unknown) => typeof a === 'object' && a !== null && Reflect.get(a, 'username') === username) : undefined;
+    const id: unknown = found ? Reflect.get(found, 'id') : undefined;
+    if (typeof id !== 'number') throw new Error(`no id for ${username}`);
+    return id;
+  };
+
+  it('hides the admin API from everyone but admins', async () => {
+    const player = await register('player1');
+    expect((await call('GET', '/api/admin/accounts', player)).status).toBe(404);
+    const boss = await login('Boss');
+    const res = await call('GET', '/api/admin/accounts', boss);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(expect.arrayContaining([expect.objectContaining({ username: 'Boss', admin: true }), expect.objectContaining({ username: 'player1', admin: false })]));
+    const chars: unknown = await (await call('GET', '/api/characters', boss)).json();
+    expect(chars).toMatchObject({ admin: true });
+  });
+
+  it('bans end the session, block login, and can be undone', async () => {
+    const victim = await register('griefer');
+    const adminToken = await login('Boss');
+    const griefId = await accountId(adminToken, 'griefer');
+    expect((await call('POST', `/api/admin/accounts/${griefId}/ban`, adminToken, { banned: true })).status).toBe(200);
+    expect(hooks.kicked).toContain(griefId);
+    expect((await call('GET', '/api/characters', victim)).status).toBe(401);
+    const bannedLogin = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'griefer', password: 'password123' }) });
+    expect(bannedLogin.status).toBe(403);
+    expect((await call('POST', `/api/admin/accounts/${griefId}/ban`, adminToken, { banned: false })).status).toBe(200);
+    expect((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'griefer', password: 'password123' }) })).status).toBe(200);
+    // The ban deleted the old session, so unbanning does not revive it.
+    expect((await call('GET', '/api/characters', victim)).status).toBe(401);
+    // Admins cannot lock themselves or each other out.
+    expect((await call('POST', `/api/admin/accounts/${await accountId(adminToken, 'Boss')}/ban`, adminToken, { banned: true })).status).toBe(400);
+    expect((await call('POST', `/api/admin/accounts/${await accountId(adminToken, 'mod')}/ban`, adminToken, { banned: true })).status).toBe(400);
+  });
+
+  it('will not let anyone register a name listed as admin', async () => {
+    const res = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'Ghost', password: 'password123' }) });
+    expect(res.status).toBe(409);
+  });
+
+  it('validates settings and enforces closed registration', async () => {
+    const token = await login('Boss');
+    expect((await call('PUT', '/api/admin/settings', token, { xpRate: 999 })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/settings', token, { xpRate: 2, registrationOpen: false })).status).toBe(200);
+    expect(hooks.state.xpRate).toBe(2);
+    const reg = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'latecomer', password: 'password123' }) });
+    expect(reg.status).toBe(403);
   });
 });

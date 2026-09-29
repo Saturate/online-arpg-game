@@ -12,7 +12,7 @@ const seed = Number(process.env.SEED ?? 1337);
 const store = new AccountStore();
 const rooms = new RoomManager(seed, store);
 rooms.start();
-const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId));
+const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId), rooms);
 
 // Production serves the built client from here; in dev Vite does it.
 const serveStatic = process.env.STATIC_DIR ? staticHandler(process.env.STATIC_DIR) : null;

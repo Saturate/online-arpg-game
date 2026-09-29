@@ -1398,7 +1398,8 @@ kbd {
   opacity: 0.5;
   cursor: default;
 }
-.picker button.link {
+.picker button.link,
+.picker a.link {
   background: none;
   border: 0;
   padding: 0;

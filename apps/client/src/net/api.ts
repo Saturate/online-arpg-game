@@ -1,4 +1,4 @@
-import type { CharacterSummary, CharactersResponse, ClassId, SessionResponse } from '@rune/shared';
+import { isClassId, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -39,11 +39,71 @@ function isSession(v: unknown): v is SessionResponse {
 }
 
 function isCharacter(v: unknown): v is CharacterSummary {
-  return isRecord(v) && typeof v.id === 'number' && typeof v.name === 'string' && typeof v.classId === 'string';
+  return isRecord(v) && typeof v.id === 'number' && typeof v.name === 'string' && isClassId(v.classId) && typeof v.createdAt === 'number' && typeof v.playedAt === 'number';
 }
 
 function isCharacters(v: unknown): v is CharactersResponse {
-  return isRecord(v) && typeof v.username === 'string' && Array.isArray(v.characters) && v.characters.every(isCharacter);
+  return isRecord(v) && typeof v.username === 'string' && typeof v.admin === 'boolean' && Array.isArray(v.characters) && v.characters.every(isCharacter);
+}
+
+function isOnlinePlayer(v: unknown): v is AdminOnlinePlayer {
+  return (
+    isRecord(v) &&
+    typeof v.characterId === 'number' &&
+    typeof v.name === 'string' &&
+    isClassId(v.classId) &&
+    typeof v.level === 'number' &&
+    typeof v.account === 'string' &&
+    (v.game === null || typeof v.game === 'string') &&
+    typeof v.room === 'string'
+  );
+}
+
+function isGameRow(v: unknown): v is AdminOverview['games'][number] {
+  return isRecord(v) && typeof v.id === 'string' && typeof v.host === 'string' && typeof v.players === 'number' && typeof v.rooms === 'number';
+}
+
+function isRoomRow(v: unknown): v is AdminOverview['rooms'][number] {
+  return isRecord(v) && typeof v.id === 'string' && typeof v.name === 'string' && typeof v.players === 'number' && typeof v.monsters === 'number';
+}
+
+function isOverview(v: unknown): v is AdminOverview {
+  return (
+    isRecord(v) &&
+    typeof v.build === 'string' &&
+    typeof v.uptimeSeconds === 'number' &&
+    typeof v.memoryMb === 'number' &&
+    Array.isArray(v.online) &&
+    v.online.every(isOnlinePlayer) &&
+    Array.isArray(v.games) &&
+    v.games.every(isGameRow) &&
+    Array.isArray(v.rooms) &&
+    v.rooms.every(isRoomRow)
+  );
+}
+
+function isAdminCharacter(v: unknown): v is AdminCharacter {
+  return isCharacter(v) && isRecord(v) && typeof v.level === 'number';
+}
+
+function isAccounts(v: unknown): v is AdminAccount[] {
+  return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && typeof a.admin === 'boolean' && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
+}
+
+function isSettings(v: unknown): v is ServerSettings {
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.devTools === 'boolean';
+}
+
+function isOk(v: unknown): v is { ok: true } {
+  return isRecord(v) && v.ok === true;
+}
+
+function isKicked(v: unknown): v is { kicked: boolean } {
+  return isRecord(v) && typeof v.kicked === 'boolean';
+}
+
+function isReached(v: unknown): v is { reached: number } {
+  return isRecord(v) && typeof v.reached === 'number';
 }
 
 function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiResult<T> {
@@ -58,4 +118,14 @@ export const api = {
   characters: async (token: string) => narrow(await call('GET', '/api/characters', token), isCharacters),
   createCharacter: async (token: string, name: string, classId: ClassId) => narrow(await call('POST', '/api/characters', token, { name, classId }), isCharacter),
   deleteCharacter: (token: string, id: number) => call('DELETE', `/api/characters/${id}`, token),
+};
+
+export const adminApi = {
+  overview: async (token: string) => narrow(await call('GET', '/api/admin/overview', token), isOverview),
+  accounts: async (token: string) => narrow(await call('GET', '/api/admin/accounts', token), isAccounts),
+  settings: async (token: string) => narrow(await call('GET', '/api/admin/settings', token), isSettings),
+  saveSettings: async (token: string, patch: Partial<ServerSettings>) => narrow(await call('PUT', '/api/admin/settings', token, patch), isSettings),
+  ban: async (token: string, accountId: number, banned: boolean) => narrow(await call('POST', `/api/admin/accounts/${accountId}/ban`, token, { banned }), isOk),
+  kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
+  announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),
 };

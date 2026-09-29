@@ -40,7 +40,7 @@ export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number)
     if (p.respawnIn === null && pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) near.push(id);
   }
   if (near.length === 0) return;
-  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1));
+  const pool = monsterXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp;
   for (const id of near) {
     const p = w.player.get(id);
     if (p) addXp(sim, id, (pool / near.length) * grayFactor(p.level, e.level));

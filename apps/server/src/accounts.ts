@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, HOME_ZONE, isClassId, isZoneId, PROGRESSION, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
+import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type ServerSettings, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -116,7 +116,14 @@ export class AccountStore {
         played_at INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS characters_account ON characters(account_id);
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
+    // Columns added after launch, migrated in place so existing databases keep their data.
+    const accountCols = this.db.prepare('PRAGMA table_info(accounts)').all().map((c) => str(row(c)?.name));
+    if (!accountCols.includes('banned')) this.db.exec('ALTER TABLE accounts ADD COLUMN banned INTEGER NOT NULL DEFAULT 0');
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   }
 
@@ -137,8 +144,9 @@ export class AccountStore {
     }
   }
 
-  async verify(username: string, password: string): Promise<Account | null> {
-    const r = row(this.db.prepare('SELECT id, username, password_salt, password_hash FROM accounts WHERE username = ?').get(username));
+  /** 'banned' only once the password checked out, so a ban never reveals that an account exists. */
+  async verify(username: string, password: string): Promise<Account | 'banned' | null> {
+    const r = row(this.db.prepare('SELECT id, username, password_salt, password_hash, banned FROM accounts WHERE username = ?').get(username));
     const salt = r?.password_salt;
     const stored = r?.password_hash;
     if (!r || !(salt instanceof Uint8Array) || !(stored instanceof Uint8Array)) {
@@ -147,7 +155,8 @@ export class AccountStore {
       return null;
     }
     const hash = await hashPassword(password, Buffer.from(salt));
-    return hash.length === stored.length && timingSafeEqual(hash, stored) ? { id: num(r.id), username: str(r.username) } : null;
+    if (hash.length !== stored.length || !timingSafeEqual(hash, stored)) return null;
+    return num(r.banned) === 1 ? 'banned' : { id: num(r.id), username: str(r.username) };
   }
 
   createSession(accountId: number): string {
@@ -159,10 +168,76 @@ export class AccountStore {
   accountForToken(token: string): Account | null {
     const r = row(
       this.db
-        .prepare('SELECT a.id, a.username FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?')
+        // A ban takes effect on the next request, since every API call and world join goes through here.
+        .prepare('SELECT a.id, a.username FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ? AND a.banned = 0')
         .get(tokenHash(token), Date.now()),
     );
     return r ? { id: num(r.id), username: str(r.username) } : null;
+  }
+
+  setBanned(accountId: number, banned: boolean): boolean {
+    const found = num(this.db.prepare('UPDATE accounts SET banned = ? WHERE id = ?').run(banned ? 1 : 0, accountId).changes) > 0;
+    // Dropped rather than just hidden, so an unban does not bring old (possibly leaked) tokens back.
+    if (found && banned) this.db.prepare('DELETE FROM sessions WHERE account_id = ?').run(accountId);
+    return found;
+  }
+
+  usernameFor(accountId: number): string | null {
+    const r = row(this.db.prepare('SELECT username FROM accounts WHERE id = ?').get(accountId));
+    return r ? str(r.username) : null;
+  }
+
+  usernameExists(username: string): boolean {
+    return this.db.prepare('SELECT 1 FROM accounts WHERE username = ?').get(username) !== undefined;
+  }
+
+  /** Every account with its characters, for the admin page. Level comes from the save, 1 if never played. */
+  listAccounts(): { id: number; username: string; createdAt: number; banned: boolean; characters: AdminCharacter[] }[] {
+    const chars = new Map<number, AdminCharacter[]>();
+    // Level is read in SQL so the page does not parse every full save (inventories and all) per request.
+    const query = "SELECT id, account_id, name, class_id, created_at, played_at, CASE WHEN json_valid(save_json) THEN json_extract(save_json, '$.level') END AS level FROM characters ORDER BY played_at DESC";
+    for (const raw of this.db.prepare(query).all()) {
+      const r = row(raw);
+      const classId = r?.class_id;
+      if (!r || !isClassId(classId)) continue;
+      const level = typeof r.level === 'number' ? r.level : 1;
+      const list = chars.get(num(r.account_id)) ?? [];
+      list.push({ id: num(r.id), name: str(r.name), classId, createdAt: num(r.created_at), playedAt: num(r.played_at), level });
+      chars.set(num(r.account_id), list);
+    }
+    return this.db
+      .prepare('SELECT id, username, created_at, banned FROM accounts ORDER BY id')
+      .all()
+      .flatMap((raw) => {
+        const r = row(raw);
+        return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, characters: chars.get(num(r.id)) ?? [] }] : [];
+      });
+  }
+
+  /** `defaults` covers a fresh database and any field a stored row lacks or has corrupted. */
+  loadSettings(defaults: ServerSettings = DEFAULT_SERVER_SETTINGS): ServerSettings {
+    const r = row(this.db.prepare("SELECT value FROM settings WHERE key = 'server'").get());
+    const raw = r?.value;
+    if (typeof raw !== 'string') return { ...defaults };
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return { ...defaults };
+    }
+    if (!isRecord(stored)) return { ...defaults };
+    // Field by field, so one value that no longer passes (say, after a limit is lowered) does not reset the rest.
+    const out = { ...defaults };
+    for (const key of Object.keys(DEFAULT_SERVER_SETTINGS)) {
+      const patch = parseSettingsPatch({ [key]: stored[key] });
+      if (typeof patch === 'string') console.warn(`[settings] ignoring stored ${key}: ${patch}`);
+      else Object.assign(out, patch);
+    }
+    return out;
+  }
+
+  saveSettings(settings: ServerSettings): void {
+    this.db.prepare("INSERT INTO settings (key, value) VALUES ('server', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings));
   }
 
   deleteSession(token: string): void {

@@ -88,6 +88,7 @@ export function CharacterSelect() {
   const notice = useUi((s) => s.connectionError);
   const play = useUi((s) => s.play);
   const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -120,6 +121,7 @@ export function CharacterSelect() {
           return;
         }
         useUi.setState({ username: res.data.username });
+        setIsAdmin(res.data.admin);
         setCharacters(res.data.characters);
         setSelected(res.data.characters[0]?.id ?? null);
         setCreating(res.data.characters.length === 0);
@@ -158,6 +160,13 @@ export function CharacterSelect() {
       <header className="account-bar">
         <h1>Allan's ARPG</h1>
         <span className="muted">
+          {isAdmin && (
+            <>
+              <a className="link" href="/admin.html">
+                Admin
+              </a>{' '}
+            </>
+          )}
           {username}{' '}
           <button type="button" className="link" onClick={logout}>
             Log out

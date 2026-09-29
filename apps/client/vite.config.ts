@@ -14,7 +14,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       // The game and the dev tools are separate pages; dev tools never ship inside the game bundle.
-      input: { main: resolve(import.meta.dirname, 'index.html'), dev: resolve(import.meta.dirname, 'dev.html') },
+      input: { main: resolve(import.meta.dirname, 'index.html'), dev: resolve(import.meta.dirname, 'dev.html'), admin: resolve(import.meta.dirname, 'admin.html') },
     },
   },
 });

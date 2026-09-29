@@ -1,4 +1,14 @@
-import { isSessionToken, parseCredentials, parseNewCharacter, type CharactersResponse } from '@rune/shared';
+import {
+  cleanChat,
+  isSessionToken,
+  parseCredentials,
+  parseNewCharacter,
+  parseSettingsPatch,
+  type AdminAccount,
+  type AdminOverview,
+  type CharactersResponse,
+  type ServerSettings,
+} from '@rune/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
 
@@ -47,6 +57,24 @@ function clientIp(req: IncomingMessage): string {
   const header = mode === 'x-real-ip' ? req.headers['x-real-ip'] : mode === 'cloudflare' ? req.headers['cf-connecting-ip'] : undefined;
   if (typeof header === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(header)) return header;
   return req.socket.remoteAddress ?? 'unknown';
+}
+
+/** What the admin API needs from the running game; the room manager provides it. */
+export interface AdminHooks {
+  overview(): AdminOverview;
+  settings(): ServerSettings;
+  updateSettings(patch: Partial<ServerSettings>): ServerSettings;
+  announce(text: string): number;
+  kickCharacter(characterId: number): boolean;
+  kickAccount(accountId: number): void;
+}
+
+export function parseAdminUsers(raw: string | undefined): ReadonlySet<string> {
+  return new Set((raw ?? '').split(',').map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0));
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 class HttpError extends Error {
@@ -106,8 +134,18 @@ export class AccountApi {
     private readonly store: AccountStore,
     /** Called when a character is deleted, so a live session on it is ended first. */
     private readonly onCharacterDeleted: (characterId: number) => void,
+    private readonly admin: AdminHooks,
+    /** Lower-cased usernames allowed on the admin API, from ADMIN_USERS. Empty means nobody. */
+    private readonly adminUsers: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
   ) {
     this.sweepTimer.unref();
+    for (const name of adminUsers) {
+      if (!store.usernameExists(name)) console.warn(`[admin] ADMIN_USERS lists "${name}" but no such account exists; it cannot be registered while listed`);
+    }
+  }
+
+  private isAdmin(account: Account): boolean {
+    return this.adminUsers.has(account.username.toLowerCase());
   }
 
   /** Returns false for paths outside /api so the caller can 404 them. */
@@ -136,6 +174,9 @@ export class AccountApi {
       const creds = parseCredentials(await readJson(req));
       if (typeof creds === 'string') throw new HttpError(400, creds);
       if (path === '/api/register') {
+        if (!this.admin.settings().registrationOpen) throw new HttpError(403, 'Registration is closed on this server');
+        // Admin rights follow the username, so a listed name must not be claimable by a stranger.
+        if (this.adminUsers.has(creds.username.toLowerCase())) throw new HttpError(409, 'That username is taken');
         const account = await this.store.register(creds.username, creds.password);
         if (account === 'taken') throw new HttpError(409, 'That username is taken');
         return [201, { token: this.store.createSession(account.id), username: account.username }];
@@ -143,6 +184,7 @@ export class AccountApi {
       const account = await this.store.verify(creds.username, creds.password);
       // One message for both cases, so the endpoint does not reveal which usernames exist.
       if (!account) throw new HttpError(401, 'Wrong username or password');
+      if (account === 'banned') throw new HttpError(403, 'This account is banned');
       return [200, { token: this.store.createSession(account.id), username: account.username }];
     }
 
@@ -165,6 +207,7 @@ export class AccountApi {
         return [201, made];
       }
     }
+    if (path.startsWith('/api/admin/')) return this.adminRoute(req, method, path, account);
     const match = /^\/api\/characters\/(\d{1,9})$/.exec(path);
     if (match && method === 'DELETE') {
       const id = Number(match[1]);
@@ -177,6 +220,56 @@ export class AccountApi {
   }
 
   private characters(account: Account): CharactersResponse {
-    return { username: account.username, characters: this.store.listCharacters(account.id) };
+    return { username: account.username, characters: this.store.listCharacters(account.id), admin: this.isAdmin(account) };
+  }
+
+  /** Admin actions are logged with who did them, since they change other players' accounts and the live server. */
+  private async adminRoute(req: IncomingMessage, method: string, path: string, account: Account): Promise<[number, unknown]> {
+    // 404 rather than 403, so the admin API is not advertised to everyone else.
+    if (!this.isAdmin(account)) throw new HttpError(404, 'Not found');
+    const log = (what: string) => console.log(`[admin] ${account.username}: ${what}`);
+    if (method === 'GET' && path === '/api/admin/overview') return [200, this.admin.overview()];
+    if (method === 'GET' && path === '/api/admin/accounts') {
+      const list: AdminAccount[] = this.store.listAccounts().map((a) => ({ ...a, admin: this.adminUsers.has(a.username.toLowerCase()) }));
+      return [200, list];
+    }
+    if (path === '/api/admin/settings') {
+      if (method === 'GET') return [200, this.admin.settings()];
+      if (method === 'PUT') {
+        const patch = parseSettingsPatch(await readJson(req));
+        if (typeof patch === 'string') throw new HttpError(400, patch);
+        log(`settings ${JSON.stringify(patch)}`);
+        return [200, this.admin.updateSettings(patch)];
+      }
+    }
+    if (method === 'POST' && path === '/api/admin/announce') {
+      const body = await readJson(req);
+      const text = cleanChat(isRecord(body) ? body.text : undefined);
+      if (!text) throw new HttpError(400, 'Announcement text is required');
+      log(`announce "${text}"`);
+      return [200, { reached: this.admin.announce(text) }];
+    }
+    if (method === 'POST' && path === '/api/admin/kick') {
+      const body = await readJson(req);
+      const id = isRecord(body) ? body.characterId : undefined;
+      if (typeof id !== 'number' || !Number.isSafeInteger(id)) throw new HttpError(400, 'characterId is required');
+      log(`kick character ${id}`);
+      return [200, { kicked: this.admin.kickCharacter(id) }];
+    }
+    const ban = /^\/api\/admin\/accounts\/(\d{1,9})\/ban$/.exec(path);
+    if (ban && method === 'POST') {
+      const id = Number(ban[1]);
+      const body = await readJson(req);
+      const banned = isRecord(body) ? body.banned : undefined;
+      if (typeof banned !== 'boolean') throw new HttpError(400, 'banned must be true or false');
+      if (id === account.id) throw new HttpError(400, 'You cannot ban yourself');
+      const target = this.store.usernameFor(id);
+      if (banned && target !== null && this.adminUsers.has(target.toLowerCase())) throw new HttpError(400, 'Admins cannot be banned; remove them from ADMIN_USERS first');
+      if (!this.store.setBanned(id, banned)) throw new HttpError(404, 'No such account');
+      if (banned) this.admin.kickAccount(id);
+      log(`${banned ? 'ban' : 'unban'} account ${id}`);
+      return [200, { ok: true }];
+    }
+    throw new HttpError(404, 'Not found');
   }
 }

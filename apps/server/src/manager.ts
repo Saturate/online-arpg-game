@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SERVER_SETTINGS,
   HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
@@ -7,7 +8,9 @@ import {
   WILDS,
   ZONE_IDS,
   zoneArrival,
+  type AdminOverview,
   type ClientMessage,
+  type ServerSettings,
   type ServerMessage,
   type DungeonRef,
   type MapDescriptor,
@@ -19,13 +22,16 @@ import {
 } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { AccountStore } from './accounts.js';
+import type { AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND } from './client.js';
 import { Room } from './room.js';
 import { Staging } from './staging.js';
 import { loadTownLayout, saveTownLayout, townEditorEnabled } from './townStore.js';
 
-/** Encounter sandbox and other dev commands. Off unless explicitly enabled. */
-const devToolsEnabled = process.env.DEV_TOOLS === '1';
+/** DEV_TOOLS=1 turns the encounter sandbox on at boot; admins can flip it later from the admin page. */
+const devToolsAtBoot = process.env.DEV_TOOLS === '1';
+const startedAt = Date.now();
+const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
 
 /** Bounds what a crash can lose; room changes and disconnects save straight away. */
 const AUTOSAVE_SECONDS = 30;
@@ -53,7 +59,7 @@ interface Instance {
  * Owns every room and every connection. The Arena is one global test room; everything else lives
  * in party instances.
  */
-export class RoomManager {
+export class RoomManager implements AdminHooks {
   private readonly rooms = new Map<string, Room>();
   private readonly clients = new Map<string, Client>();
   private readonly instances = new Map<string, Instance>();
@@ -66,25 +72,95 @@ export class RoomManager {
   private seedCounter: number;
   private timer: NodeJS.Timeout | null = null;
   private ticksSinceSave = 0;
+  private current: ServerSettings;
 
   constructor(
     seed: number,
     private readonly store: AccountStore,
   ) {
     this.seedCounter = seed;
+    // DEV_TOOLS only seeds a fresh database; after that the admin page decides.
+    this.current = store.loadSettings({ ...DEFAULT_SERVER_SETTINGS, devTools: devToolsAtBoot });
     this.townLayout = loadTownLayout();
     this.arena = this.createRoom('arena', { kind: 'arena' }, null);
   }
 
   private createRoom(id: string, desc: MapDescriptor, instance: Instance | null): Room {
     const room = new Room(id, desc, this.seedCounter++);
-    room.devTools = devToolsEnabled;
+    this.applySettings(room);
     room.instanceId = instance?.id ?? null;
     if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.townEditor = townEditorEnabled;
     this.rooms.set(room.id, room);
     instance?.rooms.add(room.id);
     return room;
   }
+
+  private applySettings(room: Room): void {
+    room.devTools = this.current.devTools;
+    room.sim.rates = { xp: this.current.xpRate, loot: this.current.lootRate };
+  }
+
+  // Admin hooks -------------------------------------------------------------------------------
+
+  settings(): ServerSettings {
+    return { ...this.current };
+  }
+
+  updateSettings(patch: Partial<ServerSettings>): ServerSettings {
+    this.current = { ...this.current, ...patch };
+    this.store.saveSettings(this.current);
+    for (const room of this.rooms.values()) {
+      const hadDev = room.devTools;
+      this.applySettings(room);
+      // Clients read the dev flag from the welcome, so they learn about a change on the next one.
+      if (hadDev === room.devTools) continue;
+      if (!room.devTools) room.clearDevEffects();
+      room.rewelcome();
+    }
+    return this.settings();
+  }
+
+  announce(text: string): number {
+    let reached = 0;
+    for (const c of this.clients.values()) {
+      if (c.characterId === null) continue;
+      c.send({ t: 'chat', kind: 'system', from: '', to: null, text: `Announcement: ${text}` });
+      c.send({ t: 'banner', title: 'Announcement', text });
+      reached++;
+    }
+    return reached;
+  }
+
+  kickCharacter(characterId: number): boolean {
+    const c = [...this.clients.values()].find((x) => x.characterId === characterId);
+    if (!c) return false;
+    this.endSession(c, 'You were removed from the game by an admin');
+    return true;
+  }
+
+  kickAccount(accountId: number): void {
+    for (const c of [...this.clients.values()]) if (c.accountId === accountId) this.endSession(c, 'This account has been banned');
+  }
+
+  overview(): AdminOverview {
+    const online = [...this.clients.values()].flatMap((c) => {
+      const room = c.room;
+      const m = room?.members.get(c.id);
+      const p = m ? room?.sim.world.player.get(m.playerId) : undefined;
+      if (!room || !p || c.characterId === null) return [];
+      return [{ characterId: c.characterId, name: p.name, classId: p.classId, level: p.level, account: c.accountName, game: c.instanceId, room: room.name }];
+    });
+    return {
+      build: SERVER_BUILD,
+      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+      memoryMb: Math.round(process.memoryUsage().rss / 1048576),
+      online,
+      games: [...this.instances.values()].map((i) => ({ id: i.id, host: i.host, players: this.membersOf(i).length, rooms: i.rooms.size })),
+      rooms: [...this.rooms.values()].map((r) => ({ id: r.id, name: r.name, players: r.members.size, monsters: r.sim.world.enemy.size })),
+    };
+  }
+
+  // -------------------------------------------------------------------------------------------
 
   private newInstance(host: string, seed: number | null = null): Instance {
     // Random seeds only need to differ between instances; a mixed counter keeps layouts varied.
@@ -463,6 +539,7 @@ export class RoomManager {
       if (other !== client && other.accountId === account.id) this.endSession(other, 'Logged in from another window');
     }
     client.accountId = account.id;
+    client.accountName = account.username;
     client.characterId = character.id;
     // Everyone starts in a game of their own, like D2; friends join it from the menu.
     const inst = this.newInstance(character.name);
@@ -471,6 +548,7 @@ export class RoomManager {
     room.add(client, character.classId, character.name, character.save ?? undefined);
     // A brand new character gets its starter kit on first entry; store it right away.
     if (!character.save) this.persist(client, room, room.exportMember(client));
+    if (this.current.motd) this.system(client, this.current.motd);
   }
 
   private loadSave(client: Client): PlayerSave | null {

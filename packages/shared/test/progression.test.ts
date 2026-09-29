@@ -46,6 +46,17 @@ describe('progression', () => {
     expect(sim.world.player.get(far)?.xp).toBe(0);
   });
 
+  it('multiplies kill XP by the server XP rate', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    sim.rates = { xp: 3, loot: 1 };
+    const a = sim.addPlayer('a', 'mage');
+    const pos = sim.world.position.get(a);
+    if (!pos) throw new Error('no pos');
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1e9, a, []);
+    expect(sim.world.player.get(a)?.xp).toBeCloseTo(monsterXp({ level: 1, rare: false, boss: false }) * 3);
+  });
+
   it('monsters far below your level are worth almost nothing', () => {
     const sim = new Simulation(3, { kind: 'flat' });
     const pid = sim.addPlayer('c', 'mage');

@@ -1,0 +1,228 @@
+/* Admin page. Built on the game's tokens (styles.css) so it feels like the same product. */
+body {
+  overflow: auto;
+}
+.adm {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.adm-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #3a2f20;
+  background: #0d0b09;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.adm-header h1,
+.adm-gate h1 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 20px;
+  margin: 0;
+}
+.adm-header nav {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+.adm-header a,
+.adm-gate a {
+  color: var(--gold);
+}
+.adm button {
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid #3a2f20;
+  background: #1a1611;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.adm button.on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.adm button.primary {
+  background: linear-gradient(180deg, #7a5a24, #4a3514);
+  border-color: var(--gold);
+  color: #fff3d6;
+}
+.adm button.danger {
+  border-color: #7a2a20;
+  color: var(--bad);
+}
+.adm button.small {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.adm button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.adm-main {
+  padding: 20px;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+.adm-main h2 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 15px;
+  margin: 22px 0 8px;
+}
+.adm-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.adm-card {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid #3a2f20;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1a1611, #110e0b);
+}
+.adm-card b {
+  font-size: 20px;
+  color: var(--text);
+}
+.adm-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mono {
+  font-family: ui-monospace, monospace;
+}
+.adm-announce,
+.adm-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+}
+.adm input,
+.adm textarea {
+  padding: 7px 9px;
+  background: #15120e;
+  border: 1px solid #4a3b24;
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+}
+.adm-announce input,
+.adm-toolbar input {
+  flex: 1;
+}
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.adm-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  border-bottom: 1px solid #3a2f20;
+}
+.adm-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid #221c14;
+}
+.adm-table tbody tr:hover {
+  background: rgba(217, 181, 106, 0.05);
+}
+.adm-table tr.open {
+  background: rgba(217, 181, 106, 0.08);
+}
+.adm-table tbody tr {
+  cursor: default;
+}
+.adm-sub > td {
+  background: #0f0c09;
+  padding: 8px 16px 12px;
+}
+.adm-table.inner th,
+.adm-table.inner td {
+  padding: 4px 8px;
+}
+.badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.badge.gold {
+  border: 1px solid var(--gold);
+  color: var(--gold);
+}
+.badge.red {
+  border: 1px solid var(--bad);
+  color: var(--bad);
+}
+.adm-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 820px) {
+  .adm-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.adm-settings {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+}
+.adm-field {
+  display: grid;
+  grid-template-columns: 1fr 90px;
+  gap: 4px 12px;
+  align-items: center;
+}
+.adm-field span {
+  grid-column: 1 / -1;
+}
+.adm-field small {
+  grid-column: 1 / -1;
+}
+.adm-field.wide {
+  grid-template-columns: 1fr;
+}
+.adm-check {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.adm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.adm-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  background: rgba(10, 8, 6, 0.95);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+}
+.adm-gate {
+  max-width: 480px;
+  margin: 15vh auto;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+}

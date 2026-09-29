@@ -17,6 +17,8 @@ export class Client {
   lastZoneRoomId: string | null = null;
   /** Set once the client joins with a valid session; everything before that is ignored. */
   accountId: number | null = null;
+  /** For the admin overview. */
+  accountName = '';
   characterId: number | null = null;
   messageCount = 0;
   /** Recent chat send times, for the chat rate limit (separate from the general message limit). */

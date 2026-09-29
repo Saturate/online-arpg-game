@@ -89,6 +89,17 @@ export class Room {
     return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
+  /** Undoes what dev commands left running, once an admin turns dev tools off. */
+  clearDevEffects(): void {
+    this.timeScale = 1;
+    for (const p of this.sim.world.player.values()) p.god = false;
+  }
+
+  /** Resends the welcome to everyone, after a setting it carries (like dev tools) changes. */
+  rewelcome(): void {
+    for (const m of this.members.values()) this.welcome(m);
+  }
+
   /** Removes the client's player and returns their character for the next room. */
   remove(client: Client): PlayerSave | null {
     const m = this.members.get(client.id);

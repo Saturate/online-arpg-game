@@ -65,6 +65,8 @@ export class Simulation {
   tick = 0;
   wave = 0;
   waveTimer: number = WAVES.firstWaveDelaySeconds;
+  /** Server-wide rates from the admin settings; the room manager keeps them current. */
+  rates = { xp: 1, loot: 1 };
   /** A dungeon's boss has died. Set once; the server announces it. */
   cleared = false;
   /** Filled by the portal system; the server drains it and moves players between rooms. */

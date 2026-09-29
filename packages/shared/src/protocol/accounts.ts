@@ -1,4 +1,5 @@
 import { isClassId, type ClassId } from '../data/classes.js';
+import { cleanChat } from './validate.js';
 
 /** Account and character management runs over plain HTTP (see apps/server/src/http.ts); only play uses the socket. */
 
@@ -41,6 +42,8 @@ export interface SessionResponse {
 export interface CharactersResponse {
   username: string;
   characters: CharacterSummary[];
+  /** The account may open the admin page. */
+  admin: boolean;
 }
 
 export interface ApiError {
@@ -72,4 +75,81 @@ export function parseNewCharacter(value: unknown): NewCharacter | string {
 /** Tokens are 32 random bytes in base64url, so anything else is rejected before touching the database. */
 export function isSessionToken(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Admin API. Only accounts named in the server's ADMIN_USERS may call these.
+
+/** Live-tunable server settings. Persisted, so they survive restarts and deploys. */
+export interface ServerSettings {
+  /** Multiplier on all kill XP. */
+  xpRate: number;
+  /** Multiplier on how often monsters drop and how many items rares and bosses drop. */
+  lootRate: number;
+  /** Shown to everyone as they enter the world; empty for none. */
+  motd: string;
+  registrationOpen: boolean;
+  /** The F3 encounter sandbox for every player. */
+  devTools: boolean;
+}
+
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = { xpRate: 1, lootRate: 1, motd: '', registrationOpen: true, devTools: false };
+
+/** motdMax matches CHAT_MAX_LENGTH, where cleanChat would cut it anyway. */
+export const SETTINGS_LIMITS = { rateMin: 0, rateMax: 20, motdMax: 200 } as const;
+
+/** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
+export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | string {
+  if (!isRecord(value)) return 'Expected a JSON object';
+  const out: Partial<ServerSettings> = {};
+  for (const key of ['xpRate', 'lootRate'] as const) {
+    const v = value[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < SETTINGS_LIMITS.rateMin || v > SETTINGS_LIMITS.rateMax) return `${key} must be between ${SETTINGS_LIMITS.rateMin} and ${SETTINGS_LIMITS.rateMax}`;
+    out[key] = v;
+  }
+  if (value.motd !== undefined) {
+    if (typeof value.motd !== 'string' || value.motd.length > SETTINGS_LIMITS.motdMax) return `motd must be text up to ${SETTINGS_LIMITS.motdMax} characters`;
+    // Sent as a system chat line, so it gets the same cleaning as chat.
+    out.motd = cleanChat(value.motd) ?? '';
+  }
+  for (const key of ['registrationOpen', 'devTools'] as const) {
+    const v = value[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'boolean') return `${key} must be true or false`;
+    out[key] = v;
+  }
+  return out;
+}
+
+export interface AdminOnlinePlayer {
+  characterId: number;
+  name: string;
+  classId: ClassId;
+  level: number;
+  account: string;
+  game: string | null;
+  room: string;
+}
+
+export interface AdminOverview {
+  build: string;
+  uptimeSeconds: number;
+  memoryMb: number;
+  online: AdminOnlinePlayer[];
+  games: { id: string; host: string; players: number; rooms: number }[];
+  rooms: { id: string; name: string; players: number; monsters: number }[];
+}
+
+export interface AdminCharacter extends CharacterSummary {
+  level: number;
+}
+
+export interface AdminAccount {
+  id: number;
+  username: string;
+  createdAt: number;
+  banned: boolean;
+  admin: boolean;
+  characters: AdminCharacter[];
 }
