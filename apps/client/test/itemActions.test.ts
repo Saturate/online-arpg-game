@@ -66,6 +66,17 @@ describe('item actions', () => {
     expect(parseDrag('not json')).toBeNull();
     expect(parseDrag(JSON.stringify({ uid: 1, from: { at: 'gear', slot: 'tail' } }))).toBeNull();
     expect(parseDrag(JSON.stringify({ uid: 1, from: { at: 'sigil', slot: 9 } }))).toBeNull();
-    expect(parseDrag(JSON.stringify({ uid: 1, from: { at: 'bag' } }))).toEqual({ uid: 1, from: { at: 'bag' } });
+    expect(parseDrag(JSON.stringify({ uid: 1, from: { at: 'bag' } }))).toEqual({ uid: 1, from: { at: 'bag' }, grab: { x: 0, y: 0 } });
+  });
+});
+
+describe('grid drops', () => {
+  it('keeps the grip: the cell you grabbed lands on the cell you drop on', () => {
+    const { sim, inv } = setup();
+    const ring = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1, { category: 'ring' });
+    const drag = { uid: ring.uid, from: { at: 'bag' as const, x: 1, y: 1 }, grab: { x: 1, y: 2 } };
+    expect(dropAction(inv(), ring, drag, { at: 'stash', x: 5, y: 4 }, 'mage')).toEqual({ t: 'moveItem', uid: ring.uid, to: 'stash', x: 4, y: 2 });
+    // A grip that would put the corner off the grid is refused rather than clamped.
+    expect(dropAction(inv(), ring, drag, { at: 'bag', x: 0, y: 0 }, 'mage')).toBeNull();
   });
 });

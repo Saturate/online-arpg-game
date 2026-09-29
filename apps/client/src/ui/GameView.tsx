@@ -11,8 +11,9 @@ import { EscMenu, PartyInvitePrompt } from './EscMenu.js';
 import { SettingsPanel } from './SettingsPanel.js';
 import { useSettings } from './settings.js';
 import { useUi } from './store.js';
+import { DRAG_TYPE, parseDrag } from './itemActions.js';
 import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.js';
-import { Inventory, ItemTooltip } from './Inventory.js';
+import { Inventory, ItemTooltip, requestDrop, StashWindow } from './Inventory.js';
 import { SigilEditor } from './SigilEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { WaypointPanel } from './WaypointPanel.js';
@@ -42,7 +43,20 @@ export function GameView({ token, character, mode }: { token: string; character:
 
   return (
     <div className="game">
-      <div className="canvas-host" ref={hostRef} />
+      <div
+        className="canvas-host"
+        ref={hostRef}
+        // Dragging an item out of the bag onto the world drops it on the ground, D2 style.
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes(DRAG_TYPE)) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const drag = parseDrag(e.dataTransfer.getData(DRAG_TYPE));
+          if (drag?.from.at === 'bag') requestDrop(drag.uid);
+          else if (drag) useUi.getState().notify('Only bag items can be dropped; take it off or out of the stash first');
+        }}
+      />
       {/* Darkened corners pull the eye to the hero, like D2's light radius. Under the damage numbers. */}
       <div className="vignette" aria-hidden="true" />
       <div className="fx-layer" ref={fxRef} aria-hidden="true" />
@@ -60,6 +74,7 @@ export function GameView({ token, character, mode }: { token: string; character:
         <TargetFrame />
         <Hud />
         <Inventory />
+        <StashWindow />
         <CharacterPanel />
         <SigilEditor />
         <DebugOverlay />

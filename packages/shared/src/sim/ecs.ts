@@ -67,7 +67,10 @@ export interface PlayerComp {
   /** Server-only data for the dash spell in flight; the movement part lives in `dash`. */
   dashSpell: { inst: SpellInst; hitIds: Set<EntityId>; hitFired: boolean } | null;
   items: Map<ItemUid, Item>;
+  /** Bag grid (BAG), one entry per cell; see items/grid.ts. */
   inventory: (ItemUid | null)[];
+  /** The account's shared stash grid (STASH), loaded with the character and saved per account. */
+  stash: (ItemUid | null)[];
   sigils: (EquippedSigil | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;

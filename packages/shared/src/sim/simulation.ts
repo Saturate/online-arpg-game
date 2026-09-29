@@ -5,6 +5,7 @@ import { STANCES, type Stance } from '../data/minions.js';
 import type { GearSlot } from '../data/gear.js';
 import type { RuneId } from '../data/runes.js';
 import type { Item, ItemUid } from '../items/items.js';
+import { BAG, emptyGrid, STASH } from '../items/grid.js';
 import { BUTTON, SKILL_BUTTONS, type GameEvent, type InputFrame } from '../protocol/messages.js';
 import type { GameMap } from '../world/gamemap.js';
 import { loadMap } from '../world/maps.js';
@@ -34,6 +35,8 @@ export interface PlayerSave {
   name: string;
   items: Item[];
   inventory: (ItemUid | null)[];
+  /** Account stash. The server stores it per account, apart from the character. */
+  stash: (ItemUid | null)[];
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
@@ -127,7 +130,8 @@ export class Simulation {
       dash: null,
       dashSpell: null,
       items: new Map(),
-      inventory: new Array<ItemUid | null>(inv.INVENTORY_SIZE).fill(null),
+      inventory: emptyGrid(BAG),
+      stash: emptyGrid(STASH),
       sigils: [null, null, null, null],
       warband: [null, null, null, null],
       gear: { weapon: null, helmet: null, body: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
@@ -169,6 +173,7 @@ export class Simulation {
       name: p.name,
       items: [...p.items.values()],
       inventory: [...p.inventory],
+      stash: [...p.stash],
       sigils: p.sigils.map((s) => s?.uid ?? null),
       warband: [...p.warband],
       gear: { ...p.gear },
@@ -286,6 +291,10 @@ export class Simulation {
 
   discard(id: EntityId, uid: ItemUid): string | null {
     return inv.discard(this, id, uid);
+  }
+
+  moveItem(id: EntityId, uid: ItemUid, to: 'bag' | 'stash', x: number, y: number): string | null {
+    return inv.moveItem(this, id, uid, to, x, y);
   }
 
   cycleStance(id: EntityId): void {

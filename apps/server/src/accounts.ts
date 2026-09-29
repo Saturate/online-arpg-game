@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type PlayerSave } from '@rune/shared';
+import { ACCOUNT_RULES, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, type AdminCharacter, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -54,6 +54,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Same spirit as isPlayerSave: the server wrote these, so this catches old or damaged rows, not attacks. */
+function isStoredItem(v: unknown): v is Item {
+  return isRecord(v) && typeof v.uid === 'number' && (v.kind === 'gear' || v.kind === 'sigil' || v.kind === 'vessel') && typeof v.name === 'string' && typeof v.tier === 'string';
+}
+
 /**
  * Saves are written only by this server from `Simulation.exportPlayer`, so a shape check is enough:
  * it catches a save from an older build, not a hostile one.
@@ -82,8 +87,11 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     // Saves from before levels existed start at level 1.
     const level: unknown = Reflect.get(v, 'level');
     const xp: unknown = Reflect.get(v, 'xp');
+    // Saves from before the stash have none; the account's stash is loaded separately anyway.
+    const stash: unknown = Reflect.get(v, 'stash');
     return {
       ...v,
+      stash: Array.isArray(stash) ? stash.map((c: unknown) => (typeof c === 'number' ? c : null)) : [],
       waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
@@ -133,6 +141,7 @@ export class AccountStore {
     const accountCols = this.db.prepare('PRAGMA table_info(accounts)').all().map((c) => str(row(c)?.name));
     if (!accountCols.includes('banned')) this.db.exec('ALTER TABLE accounts ADD COLUMN banned INTEGER NOT NULL DEFAULT 0');
     if (!accountCols.includes('role')) this.db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
+    if (!accountCols.includes('stash_json')) this.db.exec('ALTER TABLE accounts ADD COLUMN stash_json TEXT');
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   }
 
@@ -301,6 +310,37 @@ export class AccountStore {
     const saveUnreadable = typeof json === 'string' && !save;
     if (saveUnreadable) console.error(`character ${characterId} has an unreadable save; it is kept as is and the character cannot join`);
     return { id: num(r.id), accountId: num(r.account_id), name: str(r.name), classId, createdAt: num(r.created_at), playedAt: num(r.played_at), save, saveUnreadable };
+  }
+
+  /**
+   * The account's shared stash; null when it has never been saved. 'unreadable' when the row is
+   * damaged or holds an item that fails the shape check: the caller must not save over it.
+   */
+  loadStash(accountId: number): StashSave | null | 'unreadable' {
+    const raw = row(this.db.prepare('SELECT stash_json FROM accounts WHERE id = ?').get(accountId))?.stash_json;
+    if (typeof raw !== 'string') return null;
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (!isRecord(v) || !Array.isArray(v.items) || !Array.isArray(v.cells)) return 'unreadable';
+      const items = v.items.filter(isStoredItem);
+      if (items.length !== v.items.length) return 'unreadable';
+      const cells = v.cells.map((c: unknown) => (typeof c === 'number' ? c : null));
+      return { items, cells };
+    } catch {
+      return 'unreadable';
+    }
+  }
+
+  saveCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave): void {
+    this.db.exec('BEGIN');
+    try {
+      this.saveCharacter(characterId, save);
+      this.db.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run(JSON.stringify(stash), accountId);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   saveCharacter(characterId: number, save: PlayerSave): void {

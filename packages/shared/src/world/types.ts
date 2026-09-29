@@ -106,6 +106,8 @@ export interface WorldMap {
   lamps?: Vec2[];
   /** Visual-only props (barrels, graves, bones). No collision, so they never affect gameplay. */
   decor: Decor[];
+  /** Where the stash chest stands; only maps with a town have one. */
+  stash?: Vec2;
 }
 
 export interface Decor {

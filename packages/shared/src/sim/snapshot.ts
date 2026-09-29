@@ -209,6 +209,7 @@ export function inventoryMessage(sim: Simulation, pid: EntityId): InventoryMessa
     t: 'inventory',
     items: [...p.items.values()],
     inventory: [...p.inventory],
+    stash: [...p.stash],
     sigils: p.sigils.map((s) => s?.uid ?? null),
     warband: [...p.warband],
     gear: { ...p.gear },

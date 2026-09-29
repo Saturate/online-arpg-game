@@ -1,6 +1,7 @@
 import {
   BUTTON,
   SKILL_BUTTONS,
+  STASH_REACH,
   CLASSES,
   distSq,
   loadMap,
@@ -43,6 +44,7 @@ import { InterpolationBuffer } from './interpolation.js';
 import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
+import { clearItemInteractions } from '../ui/Inventory.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
@@ -281,6 +283,7 @@ export class Game {
   private enterRoom(id: string, desc: MapDescriptor): void {
     this.teardownRoom();
     useUi.setState({ staging: null });
+    clearItemInteractions();
     const { def, game } = loadMap(desc);
     useUi.setState({
       roomPortals: def.portals.map((p) => {
@@ -540,6 +543,10 @@ export class Game {
     // Playback has no input: the recorded snapshots move the player, so prediction just follows them.
     if (!room || this.paused || this.playerId === null || !this.latest || this.replay) return;
     const origin = room.predictor.position;
+    // Walking up to the stash opens it next to the bag, like D2; the server checks the same reach.
+    const stash = room.def.stash;
+    const atStash = !!stash && Math.hypot(stash.x - origin.x, stash.y - origin.y) <= STASH_REACH - 10;
+    if (atStash !== useUi.getState().stashOpen) useUi.setState(atStash ? { stashOpen: true, inventoryOpen: true } : { stashOpen: false });
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);

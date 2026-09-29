@@ -1,4 +1,8 @@
 import { INSTANCE_CAPACITY, isServerMessage, type ServerMessage } from '@rune/shared';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import type { GameSocket } from '../src/client.js';
@@ -122,5 +126,26 @@ describe('staff teleport', () => {
 
     other.emit({ t: 'chat', text: '/goto Hero0' });
     expect(other.sent.some((m) => m.t === 'chat' && m.text.includes('Unknown command /goto'))).toBe(true);
+  });
+});
+
+describe('stash safety', () => {
+  it('refuses the join and keeps the row when the stash cannot be read', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rune-stash-')), 'rune.db');
+    const store = new AccountStore(file);
+    const acc = await store.register('stashy', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const ch = store.createCharacter(acc.id, 'Hoarder', 'warrior');
+    if (typeof ch === 'string') throw new Error(ch);
+    const raw = new DatabaseSync(file);
+    raw.prepare("UPDATE accounts SET stash_json = '{broken' WHERE id = ?").run(acc.id);
+    const rooms = new RoomManager(1, store);
+    const socket = new FakeSocket();
+    rooms.connect(socket);
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id, mode: 'world' });
+    expect(socket.sent.some((m) => m.t === 'sessionEnded' && m.reason.includes('stash could not be loaded'))).toBe(true);
+    const row = raw.prepare('SELECT stash_json FROM accounts WHERE id = ?').get(acc.id);
+    expect(row).toMatchObject({ stash_json: '{broken' });
+    raw.close();
   });
 });

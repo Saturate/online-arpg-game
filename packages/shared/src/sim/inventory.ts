@@ -19,6 +19,7 @@ import {
   type SigilItem,
 } from '../items/items.js';
 import { rollDrops } from '../items/drops.js';
+import { anchorOf, BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
 import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
 import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
@@ -27,7 +28,8 @@ import { despawnMinion } from './minions.js';
 import type { PlayerSave, Simulation } from './simulation.js';
 import { computeStats } from './stats.js';
 
-export const INVENTORY_SIZE = LOOT.inventorySize;
+/** How close to the stash chest a player must stand to use it; like waypoints, checked on the server. */
+export const STASH_REACH = 150;
 
 
 export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
@@ -42,21 +44,50 @@ function changed(p: PlayerComp): void {
   p.inventoryVersion++;
 }
 
-function freeSlot(p: PlayerComp): number {
-  return p.inventory.indexOf(null);
+function inBag(p: PlayerComp, uid: ItemUid): boolean {
+  return p.inventory.includes(uid);
 }
 
-function inventoryIndex(p: PlayerComp, uid: ItemUid): number {
-  return p.inventory.indexOf(uid);
+/** Puts an item into the bag, preferring `at` (where the item it replaces was); false when it does not fit. */
+function stow(p: PlayerComp, uid: ItemUid, at: { x: number; y: number } | null = null): boolean {
+  const item = p.items.get(uid);
+  if (!item) return false;
+  const size = itemSize(item);
+  const spot = at && canPlace(p.inventory, BAG, size, at.x, at.y) ? at : findSpot(p.inventory, BAG, size);
+  if (!spot) return false;
+  place(p.inventory, BAG, uid, size, spot.x, spot.y);
+  return true;
+}
+
+export function fitsInBag(p: PlayerComp, item: Item): boolean {
+  return findSpot(p.inventory, BAG, itemSize(item)) !== null;
 }
 
 export function addItem(p: PlayerComp, item: Item): boolean {
-  const slot = freeSlot(p);
-  if (slot < 0) return false;
+  if (!fitsInBag(p, item)) return false;
   p.items.set(item.uid, item);
-  p.inventory[slot] = item.uid;
+  stow(p, item.uid);
   changed(p);
   return true;
+}
+
+/**
+ * Lays saved items back into a grid. Saves from before grids (a plain list of slots) and anything
+ * that no longer fits its old cell are packed in fresh. What fits nowhere is left out of the grid
+ * and so becomes pending (see pendingItems), which keeps it with the character.
+ */
+function layOut(saved: readonly (ItemUid | null)[], size: GridSize, items: Map<ItemUid, Item>): (ItemUid | null)[] {
+  const cells = emptyGrid(size);
+  const isGrid = saved.length === size.w * size.h;
+  const order = isGrid ? placements(saved, size) : saved.flatMap((uid) => (uid === null ? [] : [{ uid, x: -1, y: -1 }]));
+  for (const { uid, x, y } of order) {
+    const item = items.get(uid);
+    if (!item) continue;
+    const s = itemSize(item);
+    const spot = isGrid && canPlace(cells, size, s, x, y) ? { x, y } : findSpot(cells, size, s);
+    if (spot) place(cells, size, uid, s, spot.x, spot.y);
+  }
+  return cells;
 }
 
 /** A new character gets their class's four skills equipped, plus a blank test sigil. */
@@ -107,7 +138,8 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
     p.items.set(uid, { ...item, uid });
   }
   const re = (u: ItemUid | null): ItemUid | null => (u === null ? null : (remap.get(u) ?? null));
-  p.inventory = save.inventory.map(re);
+  p.inventory = layOut(save.inventory.map(re), BAG, p.items);
+  p.stash = layOut(save.stash.map(re), STASH, p.items);
   p.warband = save.warband.map(re);
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
   p.stance = save.stance;
@@ -118,6 +150,10 @@ export function restoreSave(sim: Simulation, pid: EntityId, save: PlayerSave): v
     const item = p.items.get(re(u) ?? -1);
     p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(p, item) : null;
   });
+  // Last, once every slot is filled: what did not fit (an old 20-slot bag of big items), plus
+  // anything left over from before, is retried in the stash. What still does not fit stays
+  // pending: kept with the character and retried on every load, never dropped.
+  placePending(p);
   changed(p);
 }
 
@@ -152,9 +188,8 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, runes: Ru
 export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: number): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
-  const invIndex = inventoryIndex(p, uid);
   const item = p.items.get(uid);
-  if (invIndex < 0 || !item || item.kind !== 'sigil') return 'That sigil is not in your inventory';
+  if (!inBag(p, uid) || !item || item.kind !== 'sigil') return 'That sigil is not in your inventory';
   if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
 
   const previous = p.sigils[slot] ?? null;
@@ -163,7 +198,13 @@ export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: n
     p.sigils[slot] = previous;
     return 'Not enough spirit to equip that';
   }
-  p.inventory[invIndex] = previous ? previous.uid : null;
+  const at = anchorOf(p.inventory, BAG, uid);
+  removeFrom(p.inventory, uid);
+  if (previous && !stow(p, previous.uid, at)) {
+    stow(p, uid, at);
+    p.sigils[slot] = previous;
+    return 'No room in your bag for the swap';
+  }
   p.links[slot] = null;
   const eq = p.sigils[slot];
   if (eq?.compiled.ok && eq.compiled.program.form === 'link') acquireLink(sim, pid, slot);
@@ -176,9 +217,7 @@ export function unequipSigil(sim: Simulation, pid: EntityId, slot: number): stri
   if (!p) return 'No player';
   const eq = p.sigils[slot];
   if (!eq) return 'Slot is empty';
-  const free = freeSlot(p);
-  if (free < 0) return 'Inventory is full';
-  p.inventory[free] = eq.uid;
+  if (!stow(p, eq.uid)) return 'Inventory is full';
   p.sigils[slot] = null;
   p.links[slot] = null;
   changed(p);
@@ -189,9 +228,8 @@ export function equipVessel(sim: Simulation, pid: EntityId, uid: ItemUid, slot: 
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
   if (p.classId !== 'binder') return 'Only Binders can bind vessels';
-  const invIndex = inventoryIndex(p, uid);
   const item = p.items.get(uid);
-  if (invIndex < 0 || !item || item.kind !== 'vessel') return 'That vessel is not in your inventory';
+  if (!inBag(p, uid) || !item || item.kind !== 'vessel') return 'That vessel is not in your inventory';
   if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
 
   const previous = p.warband[slot] ?? null;
@@ -200,8 +238,14 @@ export function equipVessel(sim: Simulation, pid: EntityId, uid: ItemUid, slot: 
     p.warband[slot] = previous;
     return 'Not enough spirit to bind that vessel';
   }
+  const at = anchorOf(p.inventory, BAG, uid);
+  removeFrom(p.inventory, uid);
+  if (previous !== null && !stow(p, previous, at)) {
+    stow(p, uid, at);
+    p.warband[slot] = previous;
+    return 'No room in your bag for the swap';
+  }
   despawnMinion(sim, pid, slot);
-  p.inventory[invIndex] = previous;
   p.minionRespawn[slot] = 0;
   changed(p);
   return null;
@@ -212,10 +256,8 @@ export function unequipVessel(sim: Simulation, pid: EntityId, slot: number): str
   if (!p) return 'No player';
   const uid = p.warband[slot];
   if (uid === null || uid === undefined) return 'Slot is empty';
-  const free = freeSlot(p);
-  if (free < 0) return 'Inventory is full';
+  if (!stow(p, uid)) return 'Inventory is full';
   despawnMinion(sim, pid, slot);
-  p.inventory[free] = uid;
   p.warband[slot] = null;
   changed(p);
   return null;
@@ -237,9 +279,8 @@ export function refreshStats(sim: Simulation, pid: EntityId): void {
 export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid, target: GearSlot | null = null): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
-  const idx = inventoryIndex(p, uid);
   const item = p.items.get(uid);
-  if (idx < 0 || !item || item.kind !== 'gear') return 'That is not equipment in your inventory';
+  if (!inBag(p, uid) || !item || item.kind !== 'gear') return 'That is not equipment in your inventory';
   if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
   const slots = GEAR_SLOTS.filter((s) => categoryForSlot(s) === item.category);
   if (target !== null && !slots.includes(target)) return 'That does not go there';
@@ -247,12 +288,19 @@ export function equipGear(sim: Simulation, pid: EntityId, uid: ItemUid, target: 
   const slot = target ?? slots.find((s) => p.gear[s] === null) ?? slots[0];
   if (!slot) return 'No slot for that item';
   const previous = p.gear[slot];
+  const at = anchorOf(p.inventory, BAG, uid);
+  const bagBefore = [...p.inventory];
+  removeFrom(p.inventory, uid);
+  // The old piece goes where the new one was if it fits, otherwise anywhere; no room means no swap.
+  if (previous !== null && !stow(p, previous, at)) {
+    p.inventory = bagBefore;
+    return 'No room in your bag for the swap';
+  }
   p.gear[slot] = uid;
-  p.inventory[idx] = previous;
   refreshStats(sim, pid);
   if (spiritReservedFor(p) > spiritMax(p)) {
     p.gear[slot] = previous;
-    p.inventory[idx] = uid;
+    p.inventory = bagBefore;
     refreshStats(sim, pid);
     return 'Removing that would leave you without enough spirit';
   }
@@ -265,8 +313,8 @@ export function unequipGear(sim: Simulation, pid: EntityId, slot: GearSlot): str
   if (!p) return 'No player';
   const uid = p.gear[slot];
   if (uid === null) return 'Slot is empty';
-  const free = freeSlot(p);
-  if (free < 0) return 'Inventory is full';
+  const item = p.items.get(uid);
+  if (!item || !fitsInBag(p, item)) return 'Inventory is full';
   p.gear[slot] = null;
   refreshStats(sim, pid);
   if (spiritReservedFor(p) > spiritMax(p)) {
@@ -274,7 +322,7 @@ export function unequipGear(sim: Simulation, pid: EntityId, slot: GearSlot): str
     refreshStats(sim, pid);
     return 'Removing that would leave you without enough spirit';
   }
-  p.inventory[free] = uid;
+  stow(p, uid);
   changed(p);
   return null;
 }
@@ -300,12 +348,20 @@ export function compareForSort(a: Item, b: Item): number {
 export function sortInventory(sim: Simulation, pid: EntityId): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
-  const items = p.inventory.flatMap((uid) => {
-    const item = uid === null ? undefined : p.items.get(uid);
+  const items = placements(p.inventory, BAG).flatMap(({ uid }) => {
+    const item = p.items.get(uid);
     return item ? [item] : [];
   });
   items.sort(compareForSort);
-  p.inventory = p.inventory.map((_, i) => items[i]?.uid ?? null);
+  const cells = emptyGrid(BAG);
+  for (const item of items) {
+    const s = itemSize(item);
+    const spot = findSpot(cells, BAG, s);
+    // Sorting packs at least as tightly as the bag was, but never lose an item if it somehow does not.
+    if (!spot) return 'Could not sort the bag';
+    place(cells, BAG, item.uid, s, spot.x, spot.y);
+  }
+  p.inventory = cells;
   changed(p);
   return null;
 }
@@ -313,11 +369,10 @@ export function sortInventory(sim: Simulation, pid: EntityId): string | null {
 export function discard(sim: Simulation, pid: EntityId, uid: ItemUid): string | null {
   const p = sim.world.player.get(pid);
   if (!p) return 'No player';
-  const idx = inventoryIndex(p, uid);
   const item = p.items.get(uid);
   const pos = sim.world.position.get(pid);
-  if (idx < 0 || !item || !pos) return 'Only unequipped items can be dropped';
-  p.inventory[idx] = null;
+  if (!inBag(p, uid) || !item || !pos) return 'Only unequipped items can be dropped';
+  removeFrom(p.inventory, uid);
   p.items.delete(uid);
   spawnBag(sim, pos.x, pos.y, [item], LOOT.bagRadius, pid);
   changed(p);
@@ -399,11 +454,10 @@ export function updateLoot(sim: Simulation, dt: number): void {
         continue;
       }
       if (d2 > reach * reach) continue;
-      let taken = 0;
-      while (bag.items.length > 0 && freeSlot(p) >= 0) {
-        const item = bag.items.shift();
-        if (item && addItem(p, item)) taken++;
-      }
+      // Whatever fits is taken; a big item that does not fit stays behind without blocking small ones.
+      const before = bag.items.length;
+      bag.items = bag.items.filter((item) => !addItem(p, item));
+      const taken = before - bag.items.length;
       if (taken > 0) sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: taken }, pos.x, pos.y);
       if (bag.items.length === 0) {
         w.destroy(id);
@@ -413,3 +467,91 @@ export function updateLoot(sim: Simulation, dt: number): void {
   }
 }
 
+
+export function nearStash(sim: Simulation, pid: EntityId): boolean {
+  const at = sim.mapDef.stash;
+  const pos = sim.world.position.get(pid);
+  return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= STASH_REACH * STASH_REACH;
+}
+
+/**
+ * Moves an item within or between the bag and the stash, to the given top-left cell. The stash can
+ * only be touched standing at its chest. The target cells must be free (the item itself aside).
+ */
+export function moveItem(sim: Simulation, pid: EntityId, uid: ItemUid, to: 'bag' | 'stash', x: number, y: number): string | null {
+  const p = sim.world.player.get(pid);
+  const item = p?.items.get(uid);
+  if (!p || !item) return 'No such item';
+  const from = p.inventory.includes(uid) ? 'bag' : p.stash.includes(uid) ? 'stash' : null;
+  if (!from) return 'Take it off first';
+  if ((from === 'stash' || to === 'stash') && !nearStash(sim, pid)) return 'Stand at the stash to use it';
+  const size = itemSize(item);
+  const target = to === 'bag' ? p.inventory : p.stash;
+  const dims = to === 'bag' ? BAG : STASH;
+  if (!canPlace(target, dims, size, x, y, from === to ? uid : null)) return 'No room there';
+  removeFrom(from === 'bag' ? p.inventory : p.stash, uid);
+  place(target, dims, uid, size, x, y);
+  changed(p);
+  return null;
+}
+
+/** Items the character owns that sit in no grid and no slot, waiting for room. */
+export function pendingItems(p: PlayerComp): ItemUid[] {
+  const placed = new Set<ItemUid | null>([...p.inventory, ...p.stash, ...p.warband, ...Object.values(p.gear), ...p.sigils.map((s) => s?.uid ?? null)]);
+  return [...p.items.keys()].filter((uid) => !placed.has(uid));
+}
+
+/** Lays pending items into the stash, then the bag, as far as there is room. */
+function placePending(p: PlayerComp): void {
+  for (const uid of pendingItems(p)) {
+    const item = p.items.get(uid);
+    if (!item) continue;
+    const s = itemSize(item);
+    const inStash = findSpot(p.stash, STASH, s);
+    if (inStash) place(p.stash, STASH, uid, s, inStash.x, inStash.y);
+    else stow(p, uid);
+  }
+}
+
+/** The account stash as stored, apart from any character. */
+export interface StashSave {
+  items: Item[];
+  cells: (ItemUid | null)[];
+}
+
+/** Splits the stash off a character save, so it can be stored once per account. */
+export function splitStash(save: PlayerSave): { character: PlayerSave; stash: StashSave } {
+  const inStash = new Set(save.stash.filter((u): u is ItemUid => u !== null));
+  return {
+    character: { ...save, items: save.items.filter((i) => !inStash.has(i.uid)), stash: emptyGrid(STASH) },
+    stash: { items: save.items.filter((i) => inStash.has(i.uid)), cells: [...save.stash] },
+  };
+}
+
+/** Loads the account stash into a character that just joined. Uids are reissued for this room. */
+export function restoreStash(sim: Simulation, pid: EntityId, stash: StashSave): void {
+  const p = sim.world.player.get(pid);
+  if (!p) return;
+  const remap = new Map<ItemUid, ItemUid>();
+  for (const item of stash.items) {
+    const uid = sim.newItemUid();
+    remap.set(item.uid, uid);
+    p.items.set(uid, { ...item, uid });
+  }
+  // The account's own items keep their cells, so whatever the character spilled in from an old bag
+  // is taken out first and laid in around them afterwards.
+  p.stash = emptyGrid(STASH);
+  const cells = stash.cells.length === STASH.w * STASH.h ? stash.cells : emptyGrid(STASH);
+  for (const { uid, x, y } of placements(cells, STASH)) {
+    const mine = remap.get(uid);
+    const item = mine === undefined ? undefined : p.items.get(mine);
+    if (!item || mine === undefined) continue;
+    const s = itemSize(item);
+    const spot = canPlace(p.stash, STASH, s, x, y) ? { x, y } : findSpot(p.stash, STASH, s);
+    if (spot) place(p.stash, STASH, mine, s, spot.x, spot.y);
+  }
+  // Account items that lost their cell, then the character's spill, go wherever there is room;
+  // anything left over stays pending with the character rather than vanishing.
+  placePending(p);
+  changed(p);
+}

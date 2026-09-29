@@ -144,6 +144,14 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     if (p.kind === 'oak') map.oaks.push({ x: p.x, y: p.y });
   }
   map.decor = layout.decor.map((d) => ({ ...d }));
+  // The chest nearest the spawn is the stash; a town built without one gets one beside the spawn.
+  const chests = layout.props.filter((p) => p.kind === 'chest').sort((a, b) => Math.hypot(a.x - layout.spawn.x, a.y - layout.spawn.y) - Math.hypot(b.x - layout.spawn.x, b.y - layout.spawn.y));
+  const chest = chests[0];
+  if (chest) map.stash = { x: chest.x, y: chest.y };
+  else {
+    map.stash = { x: layout.spawn.x - 150, y: layout.spawn.y + 70 };
+    map.obstacles.push({ kind: 'chest', shape: PROP_DEFS.chest.shape(prop('chest', map.stash.x, map.stash.y)), blocksMove: true, blocksShots: false, visual: 30 });
+  }
   for (const portal of layout.portals) map.portals.push({ x: portal.x, y: portal.y, r: portal.target === 'wilds' ? 70 : 60, target: portal.target, label: PORTAL_LABELS[portal.target] });
   return map;
 }

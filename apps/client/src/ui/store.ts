@@ -115,6 +115,8 @@ interface UiState {
 
   inventory: InventoryMessage | null;
   inventoryOpen: boolean;
+  /** Standing at the stash chest: the stash panel shows and right-click moves items across. */
+  stashOpen: boolean;
   characterOpen: boolean;
   devOpen: boolean;
   devTools: boolean;
@@ -218,6 +220,7 @@ export const useUi = create<UiState>((set, get) => ({
   party: [],
   inventory: null,
   inventoryOpen: false,
+  stashOpen: false,
   characterOpen: false,
   devOpen: false,
   devTools: false,

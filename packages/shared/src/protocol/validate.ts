@@ -111,6 +111,10 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isSlot(value.slot) ? { t: 'unequipVessel', slot: value.slot } : null;
     case 'sortInventory':
       return { t: 'sortInventory' };
+    case 'moveItem':
+      return isNonNegativeInt(value.uid) && (value.to === 'bag' || value.to === 'stash') && isNonNegativeInt(value.x) && isNonNegativeInt(value.y) && value.x < 64 && value.y < 64
+        ? { t: 'moveItem', uid: value.uid, to: value.to, x: value.x, y: value.y }
+        : null;
     case 'discard':
       return isNonNegativeInt(value.uid) ? { t: 'discard', uid: value.uid } : null;
     case 'cycleStance':

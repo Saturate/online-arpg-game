@@ -1,6 +1,10 @@
 import {
+  BAG,
   categoryForSlot,
+  findSpot,
   GEAR_SLOTS,
+  itemSize,
+  STASH,
   gearStats,
   STAT_IDS,
   type ClassId,
@@ -13,12 +17,22 @@ import {
   type StatId,
 } from '@rune/shared';
 
-/** Where an item currently sits. Drags carry this so a drop knows whether to equip, swap or take off. */
-export type ItemPlace = { at: 'bag' } | { at: 'sigil'; slot: number } | { at: 'warband'; slot: number } | { at: 'gear'; slot: GearSlot };
+/**
+ * Where an item currently sits, or where it is dropped. Bag and stash places carry a cell when it
+ * matters (a drop target, or the item's own corner); a bare bag place means "anywhere in the bag".
+ */
+export type ItemPlace =
+  | { at: 'bag'; x?: number; y?: number }
+  | { at: 'stash'; x: number; y: number }
+  | { at: 'sigil'; slot: number }
+  | { at: 'warband'; slot: number }
+  | { at: 'gear'; slot: GearSlot };
 
 export interface DragPayload {
   uid: ItemUid;
   from: ItemPlace;
+  /** The cell of the item under the pointer when the drag began, so the drop keeps that grip. */
+  grab: { x: number; y: number };
 }
 
 export const DRAG_TYPE = 'application/x-rune-item';
@@ -31,9 +45,14 @@ function isGearSlot(v: unknown): v is GearSlot {
   return typeof v === 'string' && GEAR_SLOTS.some((s) => s === v);
 }
 
+function cell(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 64;
+}
+
 function parsePlace(v: unknown): ItemPlace | null {
   if (!isRecord(v)) return null;
-  if (v.at === 'bag') return { at: 'bag' };
+  if (v.at === 'bag') return cell(v.x) && cell(v.y) ? { at: 'bag', x: v.x, y: v.y } : { at: 'bag' };
+  if (v.at === 'stash' && cell(v.x) && cell(v.y)) return { at: 'stash', x: v.x, y: v.y };
   if ((v.at === 'sigil' || v.at === 'warband') && typeof v.slot === 'number' && Number.isInteger(v.slot) && v.slot >= 0 && v.slot < 4) return { at: v.at, slot: v.slot };
   if (v.at === 'gear' && isGearSlot(v.slot)) return { at: 'gear', slot: v.slot };
   return null;
@@ -45,7 +64,8 @@ export function parseDrag(raw: string): DragPayload | null {
     const v: unknown = JSON.parse(raw);
     if (!isRecord(v) || typeof v.uid !== 'number') return null;
     const from = parsePlace(v.from);
-    return from ? { uid: v.uid, from } : null;
+    const grab = isRecord(v.grab) && cell(v.grab.x) && cell(v.grab.y) ? { x: v.grab.x, y: v.grab.y } : { x: 0, y: 0 };
+    return from ? { uid: v.uid, from, grab } : null;
   } catch {
     return null;
   }
@@ -60,8 +80,16 @@ function firstEmpty(slots: readonly (ItemUid | null)[]): number | null {
  * Right-click behaviour, D2 style: equipped things come off, bag things go on. Sigils and vessels
  * only take a free slot: replacing a skill by accident is worse than having to drag.
  */
-export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId): ClientMessage | null {
+export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false): ClientMessage | null {
+  // At the stash, right-click moves things across instead, like D2's ctrl-click.
+  if (stashOpen && (place.at === 'bag' || place.at === 'stash')) {
+    const to = place.at === 'bag' ? 'stash' : 'bag';
+    const spot = findSpot(to === 'bag' ? inv.inventory : inv.stash, to === 'bag' ? BAG : STASH, itemSize(item));
+    return spot ? { t: 'moveItem', uid: item.uid, to, x: spot.x, y: spot.y } : null;
+  }
   switch (place.at) {
+    case 'stash':
+      return null;
     case 'sigil':
       return { t: 'unequipSigil', slot: place.slot };
     case 'warband':
@@ -81,8 +109,13 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
-  if (target.at === 'bag') {
-    return drag.from.at === 'bag' ? null : quickAction(inv, item, drag.from, classId);
+  const fromGrid = drag.from.at === 'bag' || drag.from.at === 'stash';
+  if (target.at === 'bag' || target.at === 'stash') {
+    if (!fromGrid) return target.at === 'bag' ? quickAction(inv, item, drag.from, classId) : null;
+    if (target.x === undefined || target.y === undefined) return null;
+    const x = target.x - drag.grab.x;
+    const y = target.y - drag.grab.y;
+    return x >= 0 && y >= 0 ? { t: 'moveItem', uid: item.uid, to: target.at, x, y } : null;
   }
   // Moving between two equipped slots is not supported by the server; take it off first.
   if (drag.from.at !== 'bag') return null;

@@ -59,6 +59,8 @@ export type ClientMessage =
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
+  /** Move a bag or stash item so its top-left corner lands on cell (x, y) of the target grid. */
+  | { t: 'moveItem'; uid: ItemUid; to: 'bag' | 'stash'; x: number; y: number }
   | { t: 'sortInventory' }
   | { t: 'cycleStance' }
   /** Dungeon antechamber ready check. */
@@ -223,7 +225,10 @@ export interface PartyInfo {
 export interface InventoryMessage {
   t: 'inventory';
   items: Item[];
+  /** Bag grid cells (BAG); see items/grid.ts. */
   inventory: (ItemUid | null)[];
+  /** Account stash grid cells (STASH). */
+  stash: (ItemUid | null)[];
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;

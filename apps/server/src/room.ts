@@ -1,5 +1,8 @@
 import {
   applyDev,
+  pendingItems,
+  restoreStash,
+  type StashSave,
   can,
   inventoryMessage,
   mapKey,
@@ -94,6 +97,18 @@ export class Room {
     if (m) applyDev(this.sim, m.playerId, { c: 'teleport', x, y });
   }
 
+  /** Items waiting for room in the bag or stash; see pendingItems. */
+  pendingCount(client: Client): number {
+    const m = this.members.get(client.id);
+    const p = m ? this.sim.world.player.get(m.playerId) : undefined;
+    return p ? pendingItems(p).length : 0;
+  }
+
+  loadStash(client: Client, stash: StashSave): void {
+    const m = this.members.get(client.id);
+    if (m) restoreStash(this.sim, m.playerId, stash);
+  }
+
   /** After a role change: the welcome carries the dev and editor flags, so it is resent. */
   refreshMember(client: Client): void {
     const m = this.members.get(client.id);
@@ -153,6 +168,9 @@ export class Room {
         break;
       case 'discard':
         error = this.sim.discard(pid, msg.uid);
+        break;
+      case 'moveItem':
+        error = this.sim.moveItem(pid, msg.uid, msg.to, msg.x, msg.y);
         break;
       case 'cycleStance':
         this.sim.cycleStance(pid);

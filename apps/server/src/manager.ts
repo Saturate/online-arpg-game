@@ -6,6 +6,7 @@ import {
   parseClientMessage,
   SETTINGS_LIMITS,
   SIM,
+  splitStash,
   WILDS,
   ZONE_IDS,
   zoneArrival,
@@ -348,7 +349,7 @@ export class RoomManager implements AdminHooks {
     socket.on('message', (data, isBinary) => this.onMessage(client, data, isBinary));
     socket.on('close', () => {
       const room = client.room;
-      if (room) this.persist(client, room, room.remove(client));
+      if (room) this.persist(client, room.remove(client));
       this.clients.delete(client.id);
       const inst = this.instanceOf(client);
       if (inst) this.sendWorldToAll(inst);
@@ -743,7 +744,7 @@ export class RoomManager implements AdminHooks {
     if (!from || from === to) return;
     const carried = from.remove(client);
     if (!carried) return;
-    this.persist(client, from, carried);
+    this.persist(client, carried);
     if (to.desc.kind === 'zone') client.lastZoneRoomId = to.id;
     to.add(client, carried.classId, carried.name, carried, at);
   }
@@ -780,31 +781,44 @@ export class RoomManager implements AdminHooks {
     const inst = partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance();
     client.instanceId = inst.id;
     const room = mode === 'arena' ? this.arena : this.zoneRoom(inst, HOME_ZONE);
+    const stash = this.store.loadStash(account.id);
+    if (stash === 'unreadable') {
+      // Joining would save an empty stash over it; leave the row alone for a human to look at.
+      console.error(`account ${account.id} has an unreadable stash; the join is refused and the row kept`);
+      this.endSession(client, 'Your stash could not be loaded. Nothing was lost; ask the server owner to look at it.');
+      return;
+    }
     room.add(client, character.classId, character.name, character.save ?? undefined);
+    if (stash) room.loadStash(client, stash);
+    const waiting = room.pendingCount(client);
+    if (waiting > 0) this.system(client, `${waiting} item${waiting === 1 ? '' : 's'} did not fit in your bag or stash. Make room in the stash and log in again to get them back.`);
     // A brand new character gets its starter kit on first entry; store it right away.
-    if (!character.save) this.persist(client, room, room.exportMember(client));
+    if (!character.save) this.persist(client, room.exportMember(client));
     if (this.current.motd) this.system(client, this.current.motd);
     this.sendWorldToAll(inst);
     if (party) this.sendParty(party);
   }
 
 
-  private persist(client: Client, room: Room, save: PlayerSave | null): void {
+  private persist(client: Client, save: PlayerSave | null): void {
     // The Arena is saved too, free sigil inscriptions included: the owner chose to keep them for now.
-    if (!save || client.characterId === null) return;
-    this.store.saveCharacter(client.characterId, save);
+    if (!save || client.characterId === null || client.accountId === null) return;
+    // The stash belongs to the account, so every character sees the same one. Both rows are written
+    // together, or an item moved between bag and stash could land in neither.
+    const { character, stash } = splitStash(save);
+    this.store.saveCharacterAndStash(client.characterId, character, client.accountId, stash);
   }
 
   saveAll(): void {
     for (const room of this.rooms.values()) {
-      for (const m of room.members.values()) this.persist(m.client, room, room.exportMember(m.client));
+      for (const m of room.members.values()) this.persist(m.client, room.exportMember(m.client));
     }
   }
 
   /** Saves, removes and disconnects. Used for duplicate logins and deleted characters. */
   endSession(client: Client, reason: string): void {
     const room = client.room;
-    if (room) this.persist(client, room, room.remove(client));
+    if (room) this.persist(client, room.remove(client));
     client.characterId = null;
     client.accountId = null;
     client.send({ t: 'sessionEnded', reason });

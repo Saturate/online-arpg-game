@@ -258,9 +258,6 @@
 }
 .inv-bag {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(5, 52px);
-  gap: 5px;
   margin-top: 8px;
   padding: 8px;
   border-radius: 6px;
@@ -530,4 +527,29 @@
     max-height: calc(100% - 180px);
     overflow: auto;
   }
+}
+
+/* Bag and stash grids: one 30px cell per unit, items span their footprint. */
+.inv-grid {
+  display: grid;
+  gap: 1px;
+}
+.inv-cell.grid-free,
+.inv-cell.grid-item {
+  width: auto;
+  height: auto;
+  border-radius: 3px;
+}
+.inv-cell.grid-free {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: #1d1811;
+  box-shadow: none;
+}
+.inv-cell.grid-item {
+  background: radial-gradient(circle at 50% 38%, #221b13, #0d0a07 80%);
+  border-color: color-mix(in srgb, var(--tier) 45%, #2e261b);
+}
+.stash-window {
+  right: auto;
+  left: 12px;
 }
