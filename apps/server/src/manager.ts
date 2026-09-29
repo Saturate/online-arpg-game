@@ -168,7 +168,7 @@ export class RoomManager implements AdminHooks {
     const room = target.room;
     const at = room?.playerState(target);
     if (!room || !at) return 'That player is between rooms, try again';
-    if (room === this.arena || isSandbox(room)) return 'That player is in the Arena';
+    if (room === this.arena) return 'That player is in the Arena';
     const beside = { x: at.x + 40, y: at.y };
     if (staff.room === room) room.placeMember(staff, beside.x, beside.y);
     else {
@@ -744,11 +744,8 @@ export class RoomManager implements AdminHooks {
     const carried = from.remove(client);
     if (!carried) return;
     this.persist(client, from, carried);
-    // Leaving the sandbox restores the stored character, so free rune editing never leaks into the world.
-    const stored = isSandbox(from) && !isSandbox(to) ? this.loadSave(client) : null;
-    const save = stored ?? carried;
     if (to.desc.kind === 'zone') client.lastZoneRoomId = to.id;
-    to.add(client, save.classId, save.name, save, at);
+    to.add(client, carried.classId, carried.name, carried, at);
   }
 
   private join(client: Client, token: string, characterId: number, mode: 'world' | 'arena'): void {
@@ -791,13 +788,10 @@ export class RoomManager implements AdminHooks {
     if (party) this.sendParty(party);
   }
 
-  private loadSave(client: Client): PlayerSave | null {
-    if (client.accountId === null || client.characterId === null) return null;
-    return this.store.loadCharacter(client.accountId, client.characterId)?.save ?? null;
-  }
 
   private persist(client: Client, room: Room, save: PlayerSave | null): void {
-    if (!save || client.characterId === null || isSandbox(room)) return;
+    // The Arena is saved too, free sigil inscriptions included: the owner chose to keep them for now.
+    if (!save || client.characterId === null) return;
     this.store.saveCharacter(client.characterId, save);
   }
 
@@ -820,9 +814,4 @@ export class RoomManager implements AdminHooks {
   endCharacterSession(characterId: number): void {
     for (const c of this.clients.values()) if (c.characterId === characterId) this.endSession(c, 'That character was deleted');
   }
-}
-
-/** Rooms with free rune editing. Nothing done there is saved. */
-function isSandbox(room: Room): boolean {
-  return room.sim.editorAllowed;
 }

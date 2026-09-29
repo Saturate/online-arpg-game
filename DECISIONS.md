@@ -138,7 +138,7 @@ Libraries (miniplex, bitECS) were considered and not chosen. The spec asks for a
 - **Characters:** 12 per account, with names unique server-wide (case-insensitive). Every query is scoped by account id.
 - **One character online per account:** a second login ends the first session after saving it, which stops item duplication across two windows.
 - **Save points:** first entry, every room change, disconnect, a 30 s autosave, and shutdown.
-- **Arena is a sandbox:** nothing is saved from rooms with free rune editing. Walking from one back into the world reloads the stored character, so sandbox edits never leak into it. Dev tool commands (give item and so on) outside the arena are saved, which is fine for a dev server.
+- **Arena progress is saved:** it used to be a throwaway sandbox, which cost players their levels without warning. It is saved like the world now, free sigil inscriptions included; that makes inscribing a real feature for now rather than a test bench. Revisit if runes should cost something.
 - **Not built yet:** TLS (passwords travel in the clear over plain http/ws until the deploy terminates TLS), password reset, account deletion, save versioning and migration (an unreadable save starts the character fresh and logs a warning), and trusting `X-Forwarded-For` behind a proxy.
 
 ## Dungeons and the antechamber

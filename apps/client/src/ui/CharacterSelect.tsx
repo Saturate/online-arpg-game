@@ -218,7 +218,7 @@ export function CharacterSelect() {
             </button>
             <button type="button" role="radio" aria-checked={mode === 'arena'} className={mode === 'arena' ? 'on' : ''} onClick={() => setMode('arena')}>
               <strong>Arena</strong>
-              <span>Waves and free sigil editing. Nothing here is saved.</span>
+              <span>Waves and free sigil editing. Progress is saved.</span>
             </button>
           </div>
           <div className="row-actions">
