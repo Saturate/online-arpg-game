@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ASSETS, type AssetCategory } from '../render/assets.js';
-import { animate } from '../render/models.js';
 import { AssetViewer } from './assetViewer.js';
-import { BUILTIN_MODELS, buildBuiltin, exportBuiltin } from './builtinModels.js';
+import { BUILTIN_MODELS, bakeClips, buildBuiltin, exportBuiltin } from './builtinModels.js';
 
 /** `built-in` is the monsters models.ts builds in code; the rest are model files in the registry. */
 type Category = AssetCategory | 'built-in';
@@ -29,12 +28,9 @@ export function AssetsTab() {
       const m = BUILTIN_MODELS.find((b) => b.id === selected) ?? BUILTIN_MODELS[0];
       if (!m) return;
       const rig = buildBuiltin(m);
-      let t = 0;
-      v.showObject(rig.root, (dt) => {
-        t += dt;
-        animate(rig, t, dt, 0, 0, 1);
-      });
-      setClips([]);
+      const baked = bakeClips(rig, m);
+      v.showObject(rig.root, baked);
+      setClips(baked.map((c) => c.name));
       setStatus('');
       return;
     }
@@ -67,7 +63,7 @@ export function AssetsTab() {
         </div>
         {builtin ? (
           <>
-            <p className="muted small">Built in code (models.ts), not from a file. Export saves a .glb in metres for Blender; the walk and attack motion lives in code and is not included.</p>
+            <p className="muted small">Built in code (models.ts), not from a file. Export saves a .glb in metres for Blender, with Idle, Walk and Attack baked from the game's code.</p>
             {shownBuiltin && (
               <button
                 type="button"

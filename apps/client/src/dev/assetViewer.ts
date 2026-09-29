@@ -20,6 +20,7 @@ import {
   Box3,
   Vector3,
   type AnimationAction,
+  type AnimationClip,
   type Object3D,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -40,11 +41,9 @@ export class AssetViewer {
   private readonly timer = new Timer();
   private readonly mixers: AnimationMixer[] = [];
   private placed: Object3D[] = [];
-  private current: { inst: AssetInstance; mixer: AnimationMixer; action: AnimationAction | null } | null = null;
+  private current: { clips: AnimationClip[]; mixer: AnimationMixer; action: AnimationAction | null } | null = null;
   private raf = 0;
   private disposed = false;
-  /** Per-frame hook for procedural rigs, which animate in code instead of through a mixer. */
-  private onFrame: ((dt: number) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -78,7 +77,6 @@ export class AssetViewer {
       this.timer.update();
       const dt = this.timer.getDelta();
       for (const m of this.mixers) m.update(dt);
-      this.onFrame?.(dt);
       this.controls.update();
       this.resize();
       this.renderer.render(this.scene, this.camera);
@@ -102,7 +100,6 @@ export class AssetViewer {
     this.placed = [];
     this.mixers.length = 0;
     this.current = null;
-    this.onFrame = null;
   }
 
   private scaleRef(x: number, z: number): void {
@@ -155,7 +152,7 @@ export class AssetViewer {
     this.scaleRef(-def.height * 0.6 - 30, 0);
     const mixer = new AnimationMixer(inst.root);
     this.mixers.push(mixer);
-    this.current = { inst, mixer, action: null };
+    this.current = { clips: inst.clips, mixer, action: null };
     this.playRole(inst, 'idle', mixer);
     const d = Math.max(90, def.height * 2.4);
     this.controls.target.set(0, def.height * 0.45, 0);
@@ -163,14 +160,17 @@ export class AssetViewer {
     return inst.clips.map((c) => c.name);
   }
 
-  /** An already built object (a procedural rig), shown like a single asset. */
-  showObject(root: Object3D, onFrame: (dt: number) => void): void {
+  /** An already built object (a procedural rig) with its baked clips, shown like a single asset. */
+  showObject(root: Object3D, clips: AnimationClip[]): void {
     this.clear();
     this.scene.add(root);
     this.placed.push(root);
     const height = new Box3().setFromObject(root).getSize(new Vector3()).y;
     this.scaleRef(-Math.max(40, height) * 0.6 - 30, 0);
-    this.onFrame = onFrame;
+    const mixer = new AnimationMixer(root);
+    this.mixers.push(mixer);
+    this.current = { clips, mixer, action: null };
+    if (clips[0]) this.play(clips[0].name, false);
     const d = Math.max(90, height * 2.4);
     this.controls.target.set(0, height * 0.45, 0);
     this.camera.position.set(d * 0.7, height * 0.9 + 20, d);
@@ -179,7 +179,7 @@ export class AssetViewer {
   play(clipName: string, once: boolean): void {
     const cur = this.current;
     if (!cur) return;
-    const clip = cur.inst.clips.find((c) => c.name === clipName);
+    const clip = cur.clips.find((c) => c.name === clipName);
     if (!clip) return;
     cur.action?.fadeOut(0.15);
     const action = cur.mixer.clipAction(clip);
