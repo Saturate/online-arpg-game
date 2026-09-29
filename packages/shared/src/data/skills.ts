@@ -26,11 +26,11 @@ export const SKILLS: readonly SkillDef[] = [
     description: 'Explodes on impact and leaves the ground burning.',
     classId: 'mage',
     runes: ['bolt', 'fire', 'onhit', 'nova', 'timer', 'zone', 'linger'],
-    tuning: { speed: 0.85, damage: 1.3 },
-    // Priced by Force, not damage: root tuning only scales the bolt, and the burning zones that
-    // stack under a pack are where the damage is. At 20 it did ~1030 DPS into 6 dummies against
-    // ~680 for the next best skill; at 30 it is Force-limited to ~730.
-    heat: 30,
+    tuning: { speed: 0.85, damage: 2 },
+    // Its burning zones no longer stack (one tick per caster per kind), which took it from ~1000 to
+    // ~270 DPS into 6 dummies. Zone damage went up for everyone; the rest is Force and bolt damage,
+    // aiming near Frozen Orb (~400).
+    heat: 24,
   },
   {
     id: 'frozen_orb',

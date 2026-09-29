@@ -560,8 +560,45 @@ export function updateNovas(sim: Simulation, dt: number): void {
   }
 }
 
+/**
+ * When each target may next be hit by each caster's zones of one kind. Overlapping zones used to all
+ * tick on the same target, so splitting into zones multiplied damage; now a target takes one tick
+ * per caster, per kind, per tick interval, however many of those zones it stands in. Different
+ * casters still stack, so parties are rewarded for layering ground effects.
+ */
+const zoneLockouts = new WeakMap<Simulation, Map<EntityId, Map<string, number>>>();
+
+function zoneKind(inst: SpellInst): string {
+  const n = inst.node;
+  return `${inst.casterId}|${[...n.elements].sort().join('+')}|${[...n.effects].sort().join('+')}`;
+}
+
+/** True when the zone may tick this target now, and records the tick if so. */
+function takeZoneTick(sim: Simulation, targetId: EntityId, kind: string, interval: number): boolean {
+  let byTarget = zoneLockouts.get(sim);
+  if (!byTarget) {
+    byTarget = new Map();
+    zoneLockouts.set(sim, byTarget);
+  }
+  const now = sim.tick * SIM.dt;
+  const kinds = byTarget.get(targetId) ?? new Map<string, number>();
+  if ((kinds.get(kind) ?? -Infinity) > now) return false;
+  // Half a tick short of the interval, so a zone ticking on schedule is never refused by rounding.
+  kinds.set(kind, now + interval - SIM.dt / 2);
+  byTarget.set(targetId, kinds);
+  return true;
+}
+
+/** Drops lockouts for targets that are gone, so the map does not grow for the life of the room. */
+function pruneZoneLockouts(sim: Simulation): void {
+  const byTarget = zoneLockouts.get(sim);
+  if (!byTarget || sim.tick % SIM.tickRate !== 0) return;
+  for (const id of byTarget.keys()) if (!sim.world.isAlive(id)) byTarget.delete(id);
+}
+
 export function updateZones(sim: Simulation, dt: number): void {
   const w = sim.world;
+  pruneZoneLockouts(sim);
   for (const [id, zone] of w.zone) {
     const pos = w.position.get(id);
     const radius = w.radius.get(id) ?? 0;
@@ -576,6 +613,7 @@ export function updateZones(sim: Simulation, dt: number): void {
         if (!tpos) continue;
         const reach = radius + (w.radius.get(tid) ?? 0);
         if (distSq(pos.x, pos.y, tpos.x, tpos.y) > reach * reach) continue;
+        if (!takeZoneTick(sim, tid, zoneKind(inst), zone.tickInterval)) continue;
         applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
     }

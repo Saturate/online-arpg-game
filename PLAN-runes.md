@@ -65,7 +65,7 @@ Today every zone ticks on its own (`sim/spells.ts` `updateZones`), so overlappin
 - **Different casters still stack**, so party play pays off. Heal and ward zones follow the same rules.
 - **Later, with the combo codex:** different kinds combine, such as fire on cold ground making steam.
 
-Fireball needs retuning once its zones stop stacking. This change does not depend on the rework and can ship on its own before it.
+**Shipped ahead of the rework as the lockout rule only** (no geometric merging): one tick per target, per caster, per kind, per interval. Zone damage went from 6 to 14 per tick and Fireball was retuned; see DECISIONS.md. The Stack rune will raise that one tick to its limit.
 
 ## Sigils are wands
 
