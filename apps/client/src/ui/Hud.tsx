@@ -215,6 +215,7 @@ export function Hud() {
   const respawnIn = useUi((s) => s.respawnIn);
   const roomName = useUi((s) => s.roomName);
   const arena = useUi((s) => s.arena);
+  const scoreScreen = useUi((s) => s.arenaResult !== null);
   const lowLife = maxLife > 0 && life / maxLife < 0.3;
   return (
     <>
@@ -234,7 +235,7 @@ export function Hud() {
         <PanelButtons />
         <Orb label={HEAT.displayName} value={heat} max={Math.round(heatMax)} kind="force" danger={heat > heatMax} />
       </div>
-      {respawnIn !== null && (
+      {respawnIn !== null && !(arena && scoreScreen) && (
         <div className="death">
           <h2>You have fallen</h2>
           {/* One life in the Arena: the fallen watch the rest of the party until the run ends. */}

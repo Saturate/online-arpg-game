@@ -1,6 +1,6 @@
 # Plan: the Arena as a zone
 
-Status: approved by the owner (2026-09-29), being built.
+Status: approved by the owner (2026-09-29) and built; see DECISIONS.md, "The Arena", for the rules as built.
 
 ## Rules
 

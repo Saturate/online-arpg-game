@@ -359,7 +359,7 @@ function reachable(gm: GameMap, x: number, y: number): Set<number> {
 }
 
 function flatMap(): WorldMap {
-  return emptyMap({ name: 'Flat', theme: 'flat', width: 2800, height: 2000, spawn: { x: 1400, y: 1000 }, waves: true, safe: false, groundTint: 0x606060 });
+  return emptyMap({ name: 'Sandbox', theme: 'flat', width: 2800, height: 2000, spawn: { x: 1400, y: 1000 }, waves: true, safe: false, groundTint: 0x606060 });
 }
 
 function buildMap(desc: MapDescriptor): WorldMap {

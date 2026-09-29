@@ -18,6 +18,7 @@ export function DevPanel() {
   const open = useUi((s) => s.devOpen);
   const portals = useUi((s) => s.roomPortals);
   const allowed = useUi((s) => s.devTools);
+  const inArenaRun = useUi((s) => s.arena !== null);
   const [enemy, setEnemy] = useState<EnemyTypeId>('chaser');
   const [count, setCount] = useState(5);
   const [level, setLevel] = useState(1);
@@ -48,7 +49,7 @@ export function DevPanel() {
         <header>
           <h2>Encounter sandbox</h2>
         </header>
-        <p className="muted">Dev tools need the builder role. The server owner hands out roles on the admin page.</p>
+        <p className="muted">{inArenaRun ? 'Dev tools are off in Arena runs, which are scored.' : 'Dev tools need the builder role. The server owner hands out roles on the admin page.'}</p>
       </section>
     );
   }
