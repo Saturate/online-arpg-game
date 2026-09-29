@@ -161,3 +161,13 @@ describe('starter monsters', () => {
     }
   });
 });
+
+describe('bosses', () => {
+  it('never regenerate', () => {
+    const { sim, pos } = setup(9);
+    for (let i = 0; i < 40; i++) {
+      const id = spawnEnemy(sim, 'chaser', pos.x + 300, pos.y + i * 5, { rare: true, boss: true, level: 8, aggro: false });
+      expect(sim.world.enemy.get(id)?.affixes.some((a) => a.id === 'regenerating')).toBe(false);
+    }
+  });
+});

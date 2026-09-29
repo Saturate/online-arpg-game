@@ -90,7 +90,9 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   const affixCount = boss ? 3 : sim.rand.world.int(1, 3);
   const rolled = opts.rare || boss ? rollAffixes(sim.rand.world, 'enemy', affixCount, 2) : [];
   // Dropped after rolling rather than excluded from the roll, so the random stream is the same either way.
-  const affixes = opts.level < ENEMY_LEVEL.multishotFromLevel ? rolled.filter((a) => a.id !== 'extra_projectiles') : rolled;
+  // Low levels never get Multishot; bosses never Regenerate, since a long fight on a big life pool
+  // with regen turned into a slog the party could not out-damage.
+  const affixes = rolled.filter((a) => !(a.id === 'extra_projectiles' && opts.level < ENEMY_LEVEL.multishotFromLevel) && !(a.id === 'regenerating' && boss));
   const levelMult = 1 + ENEMY_LEVEL.lifePerLevel * (opts.level - 1);
   const lifeMult =
     (opts.rare || boss ? WAVES.rareLifeMultiplier : 1) * (boss ? ENEMY_LEVEL.bossLifeMultiplier : 1) * levelMult * (1 + affixValue(affixes, 'armored') / 100);
