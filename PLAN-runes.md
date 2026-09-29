@@ -1,6 +1,6 @@
 # Plan: spellcraft and styles
 
-Status: proposal, nothing built. Decisions so far come from the owner; open points are marked **Open**.
+Status: phases 0 to 3 are built (2026-09-29): v2 is the only rune system, with rolled runes, sigils as wands, starter sigils, the new forge editor and the save conversion. What was decided while building is in DECISIONS.md, "Rune rework (v2)". Phase 4 onward is still a plan; open points are marked **Open**.
 
 ## Goals
 
@@ -57,7 +57,7 @@ A rune drops plain or rolled. Plain runes stack 20 to a cell as today. Rolled ru
 
 ## Ground effects merge instead of stacking
 
-Today every zone ticks on its own (`sim/spells.ts` `updateZones`), so overlapping zones all hit the same target, and `Split 6` into zones deals six times the damage. Fireball's damage comes from exactly that (see the comment in `data/skills.ts`). Payload spells make it worse.
+Today every zone ticks on its own (`sim/spells.ts` `updateZones`), so overlapping zones all hit the same target, and `Split 6` into zones deals six times the damage. Fireball's v1 damage came from exactly that. Payload spells make it worse.
 
 - **Same caster, same kind (fire, cold, lightning, heal, ward): merge.** A new zone overlapping one of yours grows the existing one toward the new area and refreshes its duration, capped at **Open** twice its original area. Fewer entities, a spreading pool on screen, never more than one zone's damage.
 - **Safety rule:** a target takes at most one tick per kind, per caster, per tick interval, however many of that caster's zones it stands in.
@@ -151,8 +151,8 @@ Each phase ships on its own and gets the item review before deploy.
    - Spells castable from the Spell Lab against training dummies: an adapter turns a v2 spell tree into what the engine already runs (orb and bolt, nova, zone, dash, infusions, effects, split, triggers and release affixes, pulse). Parts the engine cannot run yet (beam, arrows, link, orbit, homing, charge and the rest) are listed as not castable instead of silently ignored.
    - Spell spawn events: projectiles, novas and zones are sent once when they appear (position, velocity or radius, lifetime), then only their removal; the client moves them itself. Homing and reflected projectiles send corrections.
    - A live cap per player, weighted: a projectile counts 1, a zone or nova 0.35, up to 40; the oldest of that player's spell entities goes first when a cast would pass it.
-2. **Rolled runes:** rune affixes on items, drops, and the forge editor rebuilt around left to right with a live sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts.") and a preview on training dummies.
-3. **Sigils as wands:** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
+2. **Rolled runes (built):** rune affixes on items, drops, and the forge editor rebuilt around left to right with a live sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts.") and a preview on training dummies.
+3. **Sigils as wands (built):** wand-stat affixes, built-in skills converted to rolled runes, save conversion.
 4. **New shapers and Beam:** Link, Orbit, Homing, Bounce, Chain, Charge, and the channelled Beam shape.
 5. **Forge gold cost and the rune trader.**
 6. **Styles:** character creation, weapon shapes and scaling, style runes, style minions, uniques.
@@ -175,4 +175,7 @@ Each phase ships on its own and gets the item review before deploy.
 
 ## Open questions
 
-None for now; new ones go here.
+- **Multishot and Flame Cleave** kept their weak v1 numbers (about 4 and 13 damage per cast, against 100+ for Fireball). Measured proposals, not applied:
+  - Multishot: `bolt[pierce 2, +300% damage] split(5)`: Force 19.2, 430 single target, 1290 into a pack (v1: 115 / 344).
+  - Flame Cleave: `bolt[-50% duration, +60% size, +200% damage] fire split(3)`: 574 / 1149, but Force 22.6 (+40%). At the v1 price, a burning ring instead: `nova[-40% size, +50% damage] fire`: Force 16.7, 650 / 3231.
+- **Repeating payloads** (`every`, Pulse) now cost 60 to 250 Force per cast, since they pay for each release. Fine for phase 7's Force rebalance to revisit.

@@ -8,6 +8,7 @@ pnpm dev          # server (API + websocket) on :8080, client on http://localhos
 pnpm test
 pnpm typecheck
 pnpm town:pull    # copy the live town into apps/server/data/town-layout.json
+pnpm runes:convert-check <db>   # dry-run the v1 to v2 save conversion on a copy of a rune.db
 ```
 
 Live at https://arpg.akj.io. A push to `main` deploys it (GitHub Actions builds the image, Flux rolls it out, the server restarts), so only push when a deploy is wanted. The deployment manifests live in the separate `server` repo under `k3s/apps/arpg/`.
@@ -27,21 +28,35 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 ## Layout
 
 - `packages/shared`: simulation, data, config and protocol. Pure TypeScript with no DOM or Node APIs.
-  - `config/sim.ts`: every tuning number
-  - `data/`: classes, runes, combos, affixes, enemies, minions
-  - `runes/compiler.ts`: rune list to `SpellNode` tree, with heat, spirit, entity cap and dud reasons
-  - `items/items.ts`: the affix engine, item creation and starter kits
+  - `config/sim.ts`: every tuning number; `config/forge.ts` for forge prices and rolled rune drops
+  - `data/`: classes, starter sigils, affixes (gear, sigil and rune), enemies, minions, monster tuning overrides
+  - `runes/v2/`: the rune grammar (`parse.ts`, `rules.ts`), the compiler (`compile.ts`: runes to an engine program with Force, spirit and the entity budget), the sentence and bracket views, rune descriptions
+  - `items/items.ts`: the affix engine, item creation and starter kits; `items/convertV2.ts` converts v1 saves
+  - `sim/program.ts`: the spell program the engine runs
   - `sim/`: the ECS world and systems, with `systems.ts` giving the tick order
 - `apps/server`: `ws` server running one 20 Hz simulation per room, with interest-managed snapshots.
 - `apps/client`: Vite + Three.js for the world (`render/`), React + Zustand for UI panels (`ui/`), and prediction, interpolation and input in `game/`.
 
-## Handoff (2026-09-29, end of session 2)
+## Handoff (2026-09-30, end of session 3)
 
-**Where things stand.** Live at arpg.akj.io through `fbb1097`: the Arena as a zone with scored runs and monthly leaderboards, spells sent once instead of every tick, the weighted live spell cap, the castable Spell Lab, the item-safety fixes (phase 0), Force tuning on the admin page, the zone damage lockout, zone gates, waypoint models, click-to-open stations, WebSocket compression and batched saves. Seven commits after that are **local, reviewed clean, waiting for the owner's go to deploy**: the minion walk/run stutter fix, tooltips closing with their window, sunny days with shared overcast weather (nights kept at their tuned darkness), the Arena entrance building and the underground colosseum pit, dev tools deep links, and faceted Blender exports. 334 tests pass. Live data: 7 characters on 3 accounts; `LANGSOMT` is the owner (via `ADMIN_USERS` in the server repo's `k3s/apps/arpg/deployment.yaml`).
+**Where things stand.** Live at arpg.akj.io is still `fbb1097`. Everything since is local on `main` and not pushed: the 7 reviewed commits from session 2 (minion stutter, tooltips, sunny days, the Arena building and pit, dev deep links, faceted exports), then this session's rune rework and the monster browser. 468 tests pass and typecheck is clean. The repo is now public on GitHub (free Actions minutes); docs-only pushes no longer rebuild the image.
+
+**Built this session.**
+
+- **The rune rework, PLAN-runes.md phases 2 and 3.** v2 is the only rune system, with no switch; rolled runes as items; sigils as wands; the 20 built-in skills rebuilt as starter sigils within 15% of their v1 Force and 10% of their v1 damage (held by `skillParity.test.ts` against `test/fixtures/skill-baseline-v1.json`); the new forge editor (slots left to right, the sentence and bracket view, named errors, a dummy preview, gold per inserted rune, runes from bag and stash); the one-time save conversion. Every rule is in DECISIONS.md, "Rune rework (v2)".
+- **Monster and minion browser** on the admin page: Monsters, Minions and Model check tabs, overrides applied to new spawns without a deploy, export back to `data/*.ts`. See DECISIONS.md, "Monster and minion tuning".
+- **Reviews:** three rounds of fresh-eyes review on items (loss and duplication) and on the compiler, engine and UI, plus a browser QA pass; all findings fixed. A random spell search (8000 spells per seed) now finds nothing above about 2.13x the best starter's damage per Force; a seeded 300-spell version runs in the tests. The melee swing code left from the old basic attack is removed.
+
+**Deploying the rework (owner's go needed).**
+
+1. Take a copy of `/data/rune.db` first; it is the only rollback, since conversion is one-way. For example: `ssh akj@svr.akj.io 'kubectl -n arpg exec deploy/arpg -- node -e "..."'` with `VACUUM INTO`, as done this session, then copy it off the pod.
+2. Run `pnpm runes:convert-check <copy>` on it. On the 2026-09-29 copy: 7 characters, 2 stashes and the 50-item shelf convert; 95 starter sigils, 3 runes to 36 gold, all checks passed. One hand-inscribed sigil ("Wraith Song", a lone Cold rune) fizzles, as it did in v1.
+3. Push `main` (the push skill runs the gates and a review loop). The server converts each character on its first join after the deploy and logs it.
+4. Check the pod log for conversion lines and any "unreadable" character. To roll back: restore the copy and redeploy the previous image.
 
 **Working rules that carry over.**
 
-- Don't push to `main` without the owner's go: every push deploys and restarts the live server. Use the push skill (gates, then a fresh-eyes review loop until clean).
+- Don't push to `main` without the owner's go: every push deploys and restarts the live server.
 - Do most implementation in subagents with a precise brief and file ownership; keep the main session for planning, verification and review. Agents in the same checkout stage only their own files.
 - Commit unsigned (`git -c commit.gpgsign=false`) while 1Password is locked; SSH to `svr.akj.io` also needs 1Password approval. A local hook blocks `Claude-Session:` lines in commits.
 - Keep the look dark and gritty (D2 Act 1, PoE). Nights must stay playable.
@@ -49,27 +64,29 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 **Next, in the owner's order.**
 
-1. **Deploy** the 7 local commits once the owner says so.
-2. **The rune rework**, phases 2 and 3 of PLAN-runes.md, approved: the v2 grammar as the real compiler behind a switch, rolled runes as items, sigils as wands, the built-in skills rebuilt as pre-rolled starter sigils, the new forge editor (left-to-right slots, the Spell Lab's sentence and bracket view, a preview, gold per inserted rune, and runes drawn from the account stash as well as the bag: bag first, refunds to the bag or pending), save conversion tested on a copy of the live saves, and a balance pass with the Spell Studio harness. All owner decisions are in PLAN-runes.md, "Decisions". The current forge UI is poor (shows built-in skills as "Unstable", lists every rune at count 0, no description); the rework replaces it.
-3. **Monster browser** on the admin page: every monster type with its model and animations, editable life, speed, size, damage, XP and ability numbers, stored in the database and applied to new spawns without a deploy, with reset and an export back to `data/enemies.ts`. Plan agreed in chat, not built.
-4. **Loot piles** (parked until after the rework, since both touch item code): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all.
+1. **Deploy** everything above once the owner says so.
+2. **Loot piles** (parked until after the rework): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all.
+3. **Phase 4 of PLAN-runes.md:** Link, Orbit, Homing, Bounce, Chain, Charge and the channelled Beam.
 
-**Open ideas and small items.**
+**Open items.**
 
-- Town editor only edits the town; zones and dungeons are generated. Hand-placed set pieces on generated zones were proposed, not decided.
-- Minion abilities with cooldowns and vessel ability affixes, the channelled Beam and the Charge rune, and vessels with a rolled casting sigil are in PLAN-runes.md.
-- Skill tooltips show base Force cost, not the admin's cost multiplier.
-- Replays started mid-room miss spells that were already alive.
-- Unbound legacy items already in account stashes stay there (old data only).
-- Owner chores: rotate the Steam API key and the GHCR pull token that were pasted in chat.
-- CI: a docs-only push still rebuilds and restarts the server; `paths-ignore` for `*.md` in `.github/workflows/image.yml` would stop that.
+- Multishot and Flame Cleave kept their weak v1 numbers; measured buffs are in PLAN-runes.md, "Open questions".
+- Repeating payloads now cost 60 to 250 Force per cast, which players who built them will read as a nerf.
+- Fireball and Leap Slam sit near the top of the 15% Force band (+13%); a retune should keep them inside it.
+- A once-off payload at its base price can still reach about 2.1x the best starter's damage per Force.
+- The "first rune is free" sigil roll is now only worth about 5% of a cast (anything stronger broke the Force budget). Decide whether to keep it, drop it from the rolls or replace it.
+- The monster browser cannot edit traits (enrage, burrow, curse) or non-number ability fields.
+- Your brother's monster models: the Model check tab checks a `.glb`; the dog needs facing, colours, loops and hit/death clips first.
+- If the SQLite write in a trade throws after a buy and a later save succeeds, the item can exist twice after a restart (older than the rework).
+- Replays started mid-room miss spells that were already alive. Skill tooltips show base Force, not the admin's cost multiplier.
+- Owner chores: rotate the Steam API key and the GHCR pull token that were pasted in chat. The GHCR package could go public too, which would make the pull token unnecessary.
 
 **Infrastructure.**
 
 - **Traffic:** Cloudflare (proxied DNS, WebSockets on), then the Cilium Gateway (`https-akj`), then the Coraza WAF (nginx), then the `arpg` service. The WAF config and its ReferenceGrant entry for `arpg` live in the server repo's `coraza-waf.yaml`.
 - **Manifests:** in the server repo under `k3s/apps/arpg/` (namespace, PVC `arpg-data` mounted at `/data`, deployment, service, httproute, network policy, image policy). The deployment uses the Recreate strategy, since one pod owns the SQLite file.
 - **Images:** built by `.github/workflows/image.yml` as `ghcr.io/saturate/online-arpg-game:main-<sha>-<ts>`. Flux image automation commits the new tag to the server repo and rolls it out. Pulls use the `ghcr-pull` secret.
-- **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf and settings. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
+- **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf, settings and monster tuning overrides. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
 - **Checking live state:** use `kubectl -n arpg ...` over `ssh akj@svr.akj.io`. To read the database, run node with `node:sqlite` inside the pod (`kubectl -n arpg exec deploy/arpg -- node -e ...`).
 
-**Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in `DECISIONS.md`.
+**Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts` and `config/forge.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. The rune grammar and compiler are in `packages/shared/src/runes/v2/`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in `DECISIONS.md`.
