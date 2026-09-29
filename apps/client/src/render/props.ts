@@ -31,6 +31,7 @@ import {
 import { COLORS } from './config.js';
 import { mat } from './models.js';
 import { withOccluderFade } from './occluderFade.js';
+import { lampLevel } from './daylight.js';
 import { PropBatch } from './propBatch.js';
 import { treeGeometry, type TreeKind } from './trees.js';
 
@@ -803,7 +804,7 @@ function lamp(x: number, y: number): { group: Group; update: (t: number) => void
   light.position.y = 64;
   g.add(light);
   g.position.set(x, 0, y);
-  return { group: g, update: (t) => (light.intensity = 3 + Math.sin(t * 7 + x) * 0.2) };
+  return { group: g, update: (t) => (light.intensity = (3 + Math.sin(t * 7 + x) * 0.2) * lampLevel.value) };
 }
 
 function addArenaWalls(group: Group, width: number, height: number): void {

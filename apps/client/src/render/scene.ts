@@ -21,6 +21,7 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
+import { lampLevel, nightFactor } from './daylight.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
@@ -35,6 +36,8 @@ export interface GroundBasis {
 
 // Before any material compiles; see grit.ts.
 applyGrit();
+
+const MOONLIGHT = new Color(0x7488c8);
 
 interface Lighting {
   sky: number;
@@ -68,6 +71,13 @@ export class WorldScene {
   readonly basis: GroundBasis;
   private readonly sun: DirectionalLight;
   private readonly playerLight: PointLight;
+  private readonly hemi: HemisphereLight;
+  private readonly ambient: AmbientLight;
+  /** The theme's daytime lighting; night is blended from it outdoors. */
+  private readonly base: Lighting;
+  private readonly outdoors: boolean;
+  private readonly sunDay = new Color();
+  private lastNight = -1;
   private readonly offset: Vector3;
   private readonly raycaster = new Raycaster();
   private readonly ground = new Plane(new Vector3(0, 1, 0), 0);
@@ -84,6 +94,9 @@ export class WorldScene {
     def: WorldMap,
   ) {
     const light = LIGHTING[def.theme];
+    this.base = light;
+    this.outdoors = def.theme === 'town' || def.theme === 'wilds' || def.theme === 'arena';
+    this.sunDay.setHex(light.sunColor);
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = SRGBColorSpace;
@@ -105,8 +118,9 @@ export class WorldScene {
     const up = { x: -Math.sin(yaw), y: -Math.cos(yaw) };
     this.basis = { up, right: { x: -up.y, y: up.x } };
 
-    this.scene.add(new HemisphereLight(light.sky, light.groundLight, light.hemi));
-    this.scene.add(new AmbientLight(0x505060, light.ambient));
+    this.hemi = new HemisphereLight(light.sky, light.groundLight, light.hemi);
+    this.ambient = new AmbientLight(0x505060, light.ambient);
+    this.scene.add(this.hemi, this.ambient);
     this.sun = new DirectionalLight(light.sunColor, light.sun);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -156,8 +170,33 @@ export class WorldScene {
     this.sun.position.set(x - 400, 900, y + 250);
     this.sun.target.position.set(x, 0, y);
     this.playerLight.position.set(x, 120, y);
+    this.applyDaylight();
     fadeUniforms.uFadeCenter.value.set(x, 0, y);
     this.world.update(this.time, x, y);
+  }
+
+  /**
+   * Outdoors the light follows the time of day: at night the sun turns to faint blue moonlight,
+   * the sky dims, and lamps and the hero's own light carry the scene, D2 style. Underground is
+   * lit by torches either way.
+   */
+  private applyDaylight(): void {
+    const night = this.outdoors ? nightFactor() : 0;
+    lampLevel.value = 1 + night * 1.4;
+    // The light only changes over minutes; skipping unchanged frames saves the uniform churn.
+    if (Math.abs(night - this.lastNight) < 0.002) return;
+    this.lastNight = night;
+    const b = this.base;
+    const mix = (day: number, dark: number) => day + (dark - day) * night;
+    // Dark enough to feel like night, never so dark the ground stops reading.
+    this.hemi.intensity = mix(b.hemi, b.hemi * 0.55);
+    this.ambient.intensity = mix(b.ambient, b.ambient * 0.8);
+    this.sun.intensity = mix(b.sun, b.sun * 0.45);
+    this.sun.color.copy(this.sunDay).lerp(MOONLIGHT, night);
+    // The hero's light becomes the D2 light radius: brighter and slower to fall off.
+    this.playerLight.intensity = mix(b.playerLight, b.playerLight * 3);
+    this.playerLight.distance = mix(520, 700);
+    this.playerLight.decay = mix(b.playerDecay ?? 1.4, 0.9);
   }
 
   /** Replaces the static world geometry, for the town editor's live preview. */
