@@ -14,7 +14,7 @@ import { useUi } from './store.js';
 import { DRAG_TYPE, parseDrag } from './itemActions.js';
 import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.js';
 import { Inventory, ItemTooltip, requestDrop, StashWindow, TraderWindow } from './Inventory.js';
-import { SigilEditor } from './SigilEditor.js';
+import { ForgeEditor } from './ForgeEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
 import { WaypointPanel } from './WaypointPanel.js';
@@ -78,7 +78,7 @@ export function GameView({ token, character }: { token: string; character: Chara
         <StashWindow />
         <TraderWindow />
         <CharacterPanel />
-        <SigilEditor />
+        <ForgeEditor />
         <DebugOverlay />
         <EscMenu />
         <PartyInvitePrompt />

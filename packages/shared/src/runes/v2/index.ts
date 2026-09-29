@@ -7,3 +7,4 @@ export * from './sentence.js';
 export * from './examples.js';
 export * from './text.js';
 export * from './compile.js';
+export * from './descriptions.js';

@@ -150,7 +150,9 @@ export function ItemTooltip() {
       <SpiritPreview item={item} place={place} />
       {place?.at === 'bag' && <Comparison item={item} />}
       <footer className="tt-hint">
-        {place?.at === 'trader'
+        {place?.at === 'forge'
+          ? place.hint
+          : place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`
           : place?.at === 'bag' && useUi.getState().traderOpen
             ? isBound(item)
@@ -161,7 +163,9 @@ export function ItemTooltip() {
           : place?.at === 'bag'
             ? useUi.getState().stashOpen
               ? 'Right-click to stash · Drag to move or equip'
-              : 'Right-click to equip · Drag onto a slot · Shift+right-click to drop'
+              : item.kind === 'rune'
+                ? 'Inscribe it at the forge · Drag to move · Shift+right-click to drop'
+                : 'Right-click to equip · Drag onto a slot · Shift+right-click to drop'
             : 'Right-click to take off · Drag to the bag'}
       </footer>
     </div>
@@ -563,7 +567,8 @@ function DropConfirm() {
 }
 
 export function Inventory() {
-  const open = useUi((s) => s.inventoryOpen);
+  // The forge lists the bag's runes and sigils itself and needs the width, so the bag steps aside.
+  const open = useUi((s) => s.inventoryOpen && !s.editorOpen);
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const openEditor = useUi((s) => s.openEditor);

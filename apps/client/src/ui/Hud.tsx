@@ -1,4 +1,4 @@
-import { AFFIXES, CLASSES, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, starterSigilById, toRuneInstance, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, MINION_DEFS, starterSigilById, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
 import { useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -25,6 +25,22 @@ function Orb({ label, value, max, kind, danger }: { label: string; value: number
   );
 }
 
+/** What a skill does and costs, above its slot: the spell sentence and its Force or spirit. */
+function SkillPop({ name, description, result }: { name: string; description: string | null; result: SigilCompile | null }) {
+  return (
+    <div className="skill-pop panel" role="tooltip">
+      <h4>{name}</h4>
+      {description && <p className="muted">{description}</p>}
+      {result?.ok && <p className="skill-pop-sentence">{describeTree(result.tree)}</p>}
+      {result?.ok && (
+        <p className="skill-pop-cost">{result.persistent ? `Reserves ${result.spirit} spirit while equipped` : `${Math.round(result.force)} ${HEAT.displayName} per cast`}</p>
+      )}
+      {result && !result.ok && <p className="skill-pop-bad">Fizzles: {result.errors[0]?.message ?? 'the runes do not make a spell'}</p>}
+      <p className="skill-pop-hint">Left or right click puts it on that mouse button</p>
+    </div>
+  );
+}
+
 /** Drag type for reordering the skill bar; kept apart from item drags so the two never mix. */
 const SKILL_DRAG = 'application/x-rune-skill-slot';
 
@@ -43,8 +59,9 @@ function SkillSlot({ slot }: { slot: number }) {
   const result = sigil && classId ? compileFor(sigil, classId) : null;
   const persistent = result?.ok === true && result.persistent;
   const skill = starterSigilById(sigil?.starter);
-  const name = skill?.name ?? (sigil?.slots.length ? 'Custom skill' : 'Empty');
-  const cost = !result ? '' : !result.ok ? 'unstable' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
+  const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
+  const [hovered, setHovered] = useState(false);
+  const cost = !result ? '' : !result.ok ? 'fizzles' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
   const cd = persistent ? 0 : Math.min(1, castCooldown / HEAT.castCooldownSeconds);
   const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
 
@@ -76,8 +93,11 @@ function SkillSlot({ slot }: { slot: number }) {
         const from = Number(e.dataTransfer.getData(SKILL_DRAG));
         if (Number.isInteger(from) && from >= 0 && from < 4) swapSkills(from, slot);
       }}
-      title={`${skill ? `${skill.name}: ${skill.description}` : name}. Left-click or right-click to put it on that mouse button.`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      aria-label={`${name}${skill ? `: ${skill.description}` : ''}`}
     >
+      {hovered && sigil && <SkillPop name={name} description={skill?.description ?? null} result={sigil.slots.length > 0 ? result : null} />}
       {sigil && sigil.slots.length > 0 ? <SkillIcon runes={sigil.slots.map(toRuneInstance)} size={56} /> : <div className="skill-blank" />}
       {cd > 0 && <div className="skill-cd" style={sweep} />}
       <kbd className="skill-key">{keyLabel(binding)}</kbd>

@@ -142,6 +142,10 @@ interface UiState {
   xpNext: number;
   editorOpen: boolean;
   editorUid: ItemUid | null;
+  /** An inscribe was sent and neither its refusal nor the new inventory has come back yet. */
+  inscribing: boolean;
+  /** The server's reason for refusing the last inscribe, shown in the forge until the next try. */
+  forgeError: string | null;
 
   debugVisible: boolean;
   debug: DebugStats;
@@ -253,6 +257,8 @@ export const useUi = create<UiState>((set, get) => ({
   xpNext: 1,
   editorOpen: false,
   editorUid: null,
+  inscribing: false,
+  forgeError: null,
   debugVisible: false,
   debug: {
     tick: 0,
@@ -320,6 +326,9 @@ export const useUi = create<UiState>((set, get) => ({
   },
   openEditor: (uid) => set({ editorOpen: true, editorUid: uid }),
   notify: (text) => {
+    // The server answers a refused command with a notice and nothing else, so while an inscribe is
+    // in flight the next notice is its refusal.
+    if (get().inscribing) set({ inscribing: false, forgeError: text });
     const id = noticeId++;
     set((s) => ({ notices: [...s.notices, { id, text }].slice(-4) }));
     setTimeout(() => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })), 3500);

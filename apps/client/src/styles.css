@@ -492,7 +492,7 @@ kbd {
   cursor: pointer;
   color: var(--muted);
 }
-.panel button:not(.close):not(.cell):not(.inv-cell):not(.sigil-list button) {
+.panel button:not(.close):not(.cell):not(.inv-cell):not(.bare) {
   background: #1f1a13;
   border: 1px solid #4a3b24;
   border-radius: 4px;
@@ -596,65 +596,6 @@ kbd {
   margin: 4px 0;
 }
 
-.editor {
-  left: 12px;
-  width: min(640px, calc(100% - 240px));
-}
-.editor-body {
-  display: grid;
-  grid-template-columns: 170px 1fr;
-  gap: 12px;
-}
-.sigil-list {
-  display: grid;
-  gap: 3px;
-  align-content: start;
-}
-.sigil-list button {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 6px;
-  text-align: left;
-  cursor: pointer;
-  font-size: 12px;
-}
-.sigil-list button.active {
-  border-color: var(--panel-edge);
-  background: #1f1a13;
-}
-.workbench h3 {
-  font-size: 15px;
-  text-transform: none;
-  margin: 0 0 8px;
-}
-.slots {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.slot {
-  width: 78px;
-  height: 34px;
-  border: 1px dashed #5a4a30;
-  border-radius: 5px;
-  display: grid;
-  place-items: center;
-  background: #0e0c09;
-}
-.slot.filled {
-  border-style: solid;
-}
-.verdict {
-  margin: 10px 0 4px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-size: 14px;
-}
-.verdict .cost {
-  font-size: 14px;
-}
 .editor-actions {
   display: flex;
   gap: 6px;
@@ -668,19 +609,6 @@ kbd {
   border-radius: 4px;
   padding: 4px;
 }
-.palette {
-  border-top: 1px solid #3a2f20;
-  padding-top: 8px;
-  display: grid;
-  gap: 8px;
-}
-.palette-group h4 {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
 .debug {
   position: absolute;
   bottom: 170px;
@@ -719,14 +647,10 @@ kbd {
   .party {
     display: none;
   }
-  .inventory,
-  .editor {
+  .inventory {
     left: 8px;
     right: 8px;
     width: auto;
-  }
-  .editor-body {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -755,9 +679,6 @@ kbd {
   font: 700 12px Cinzel, serif;
   color: var(--gold);
   text-align: center;
-}
-.editor {
-  left: 230px;
 }
 
 /* Floating labels */
@@ -2177,4 +2098,45 @@ kbd {
 }
 .fx-label.loot.gold {
   pointer-events: none;
+}
+
+/* Skill bar tooltip: what the spell does and what it costs. */
+.skill-pop {
+  position: absolute;
+  top: auto;
+  max-height: none;
+  overflow: visible;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  padding: 8px 10px;
+  z-index: 20;
+  pointer-events: none;
+  text-align: left;
+  cursor: default;
+}
+.skill-pop h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--gold);
+}
+.skill-pop p {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.skill-pop-sentence {
+  color: #e8dcc0;
+}
+.skill-pop-cost {
+  color: var(--heat);
+  font-weight: 600;
+}
+.skill-pop-bad {
+  color: #f0a090;
+}
+.skill-pop-hint {
+  color: #7a6d58;
+  font-size: 11px !important;
 }

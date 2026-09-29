@@ -168,7 +168,7 @@ export function DevPanel() {
         </label>
       </div>
       <div className="actions">
-        {(['gear', 'sigil', 'vessel'] as const).map((item) => (
+        {(['gear', 'sigil', 'vessel', 'rune'] as const).map((item) => (
           <button key={item} type="button" onClick={() => dev({ c: 'give', item, tier, level, category: category === 'any' ? null : category })}>
             {item}
           </button>

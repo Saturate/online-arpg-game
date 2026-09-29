@@ -1,15 +1,21 @@
 import type { CSSProperties } from 'react';
 import {
   HEAT,
+  bracketTree,
   describeTree,
   formatAffix,
+  isCastableRune,
   MINION_DEFS,
   gearBase,
   levelRequirement,
+  runeAffixDescription,
   runeColor,
+  runeDescription,
   runeKind,
   runeName,
+  RUNE_STACK,
   sigilCapacity,
+  sigilCastDelay,
   starterSigilById,
   STAT_IDS,
   STAT_LABELS,
@@ -46,19 +52,22 @@ export function tierColor(item: Item): string {
   return cssColor(TIER_COLORS[item.tier]);
 }
 
-/** Stability wording only. The reason for a dud is deliberately hidden outside the debug overlay. */
+/** Force per cast or spirit held; a spell that breaks a rule says which one. */
 export function CostLine({ result }: { result: SigilCompile }) {
   if (!result.ok) {
     return (
       <span className="cost unstable">
-        Unstable <em>{Math.round(result.force * HEAT.dudHeatFraction)} {HEAT.displayName} on fizzle</em>
+        Fizzles: {result.errors[0]?.message ?? 'the runes do not make a spell'}{' '}
+        <em>
+          ({Math.round(result.force * HEAT.dudHeatFraction)} {HEAT.displayName} lost per try)
+        </em>
       </span>
     );
   }
-  if (result.persistent) return <span className="cost stable">Persistent, reserves {result.spirit} spirit</span>;
+  if (result.persistent) return <span className="cost stable">Held while equipped, reserves {result.spirit} spirit</span>;
   return (
     <span className="cost stable">
-      {Math.round(result.force)} {HEAT.displayName}
+      {Math.round(result.force)} {HEAT.displayName} per cast
     </span>
   );
 }
@@ -132,18 +141,40 @@ export function ItemDetails({ item, classId }: { item: Item; classId: ClassId })
   return <SigilDetails item={item} classId={classId} />;
 }
 
-function RuneDetails({ item }: { item: Extract<Item, { kind: 'rune' }> }) {
-  const kind = runeKind(item.rune);
+/** Rolled lines with what each one means, since rune affixes are new to most players. */
+function RuneAffixLines({ item }: { item: RuneItem }) {
+  return (
+    <ul className="affixes tt-sec">
+      {item.affixes.map((a, i) => {
+        const why = runeAffixDescription(a.id);
+        return (
+          <li key={i}>
+            {formatAffix(a)} <span className={`tier t${a.tier + 1}`}>T{a.tier + 1}</span>
+            {why && <small className="affix-why">{why}</small>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+const KIND_NAMES = { shape: 'Shape', infusion: 'Infusion', shaper: 'Shaper', effect: 'Effect', trigger: 'Trigger', modifier: 'Modifier' } as const;
+
+function RuneDetails({ item }: { item: RuneItem }) {
   const rolled = item.affixes.length > 0;
   return (
-    <div className="tt-body">
-      <h4 style={{ color: tierColor(item) }}>{item.name}</h4>
-      <p className="muted">
-        {kind[0]?.toUpperCase()}
-        {kind.slice(1)} rune · {rolled ? 'rolled' : `${item.count} in this stack`}
-      </p>
-      {rolled && <Affixes item={item} />}
-      <p>Inscribe it into a sigil at the forge in town. Runes taken back out return to your bag exactly as they went in.</p>
+    <div className="item-details">
+      <Head item={item} sub={`${KIND_NAMES[runeKind(item.rune)]} rune${rolled ? ', rolled' : ''}`} />
+      <p className="tt-sec tt-lore">{runeDescription(item.rune)}</p>
+      {rolled && <RuneAffixLines item={item} />}
+      <section className="tt-sec">
+        <p className="muted">
+          {rolled ? 'Rolled runes are single and never stack.' : item.count > 1 ? `${item.count} in this stack, up to ${RUNE_STACK}.` : `Plain runes stack up to ${RUNE_STACK}.`}
+        </p>
+        {item.bound && <p className="requirement">Bound: cannot be sold, dropped or stashed</p>}
+        {!isCastableRune(item.rune) && <p className="requirement unmet">Not in the game yet: no sigil can cast it</p>}
+      </section>
+      <p className="tt-foot">Inscribed at the forge in town · Item level {item.ilvl}</p>
     </div>
   );
 }
@@ -172,24 +203,30 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
   const skill = starterSigilById(item.starter);
+  const sub = item.corrupted ? 'Corrupted Sigil' : skill ? 'Starter Sigil' : 'Sigil';
   return (
     <div className="item-details">
-      <Head item={item} sub={item.corrupted ? 'Corrupted Sigil' : 'Sigil'} />
+      <Head item={item} sub={sub} />
       {skill && (
         <p className="skill-line tt-sec">
           <strong>{skill.name}</strong>: {skill.description}
         </p>
       )}
-      {!skill && <p className="tt-sec muted">{sigilCapacity(item)} rune slots</p>}
+      <p className="tt-sec tt-wand">
+        {sigilCapacity(item)} rune slots · {sigilCastDelay(item).toFixed(2)} s between casts
+      </p>
       {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />
       <div className="rune-row">
-        {item.slots.length === 0 ? <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span> : item.slots.map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)}
+        {item.slots.length === 0 ? (
+          <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span>
+        ) : (
+          item.slots.map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)
+        )}
       </div>
+      {item.slots.length > 0 && result.ok && <p className="tt-sec tt-sentence">{describeTree(result.tree)}</p>}
       {item.slots.length > 0 && <CostLine result={result} />}
-      {debug && item.slots.length > 0 && (
-        <p className="debug-line">{result.ok ? describeTree(result.tree) : result.errors.map((e) => e.message).join(' ')}</p>
-      )}
+      {debug && item.slots.length > 0 && result.ok && <p className="debug-line">{bracketTree(result.tree)}</p>}
       <Requirements item={item} />
       <p className="tt-foot">Item level {item.ilvl}</p>
     </div>

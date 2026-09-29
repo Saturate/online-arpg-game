@@ -28,7 +28,9 @@ export type ItemPlace =
   | { at: 'warband'; slot: number }
   | { at: 'gear'; slot: GearSlot }
   /** On the trader's shelf: only for tooltips, never dragged or dropped. */
-  | { at: 'trader'; price: number };
+  | { at: 'trader'; price: number }
+  /** In the forge editor's slots or pool: only for tooltips, with the hint to show under it. */
+  | { at: 'forge'; hint: string };
 
 export interface DragPayload {
   uid: ItemUid;
@@ -94,6 +96,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
   switch (place.at) {
     case 'stash':
     case 'trader':
+    case 'forge':
       return null;
     case 'sigil':
       return { t: 'unequipSigil', slot: place.slot };
@@ -115,7 +118,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
   const fromGrid = drag.from.at === 'bag' || drag.from.at === 'stash';
-  if (target.at === 'trader' || drag.from.at === 'trader') return null;
+  if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge') return null;
   if (target.at === 'bag' || target.at === 'stash') {
     if (!fromGrid) return target.at === 'bag' ? quickAction(inv, item, drag.from, classId) : null;
     if (target.x === undefined || target.y === undefined) return null;
