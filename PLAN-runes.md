@@ -51,6 +51,17 @@ A rune drops plain or rolled. Plain runes stack 20 to a cell as today. Rolled ru
 - **Linked balls:** `Orb`, `Lightning`, `Split 3`, `Link`. Three orbs fan out with lightning between them. Swap Link for Orbit plus Link and they circle you as a shield.
 - **Endgame:** `Orb [on expire]`, `Fire`, `Split 6`, `Orb [on hit, homing]`, `Nova`, `Zone [long]`. A fireball bursts into six homing embers, each exploding and leaving burning ground.
 
+## Ground effects merge instead of stacking
+
+Today every zone ticks on its own (`sim/spells.ts` `updateZones`), so overlapping zones all hit the same target, and `Split 6` into zones deals six times the damage. Fireball's damage comes from exactly that (see the comment in `data/skills.ts`). Payload spells make it worse.
+
+- **Same caster, same kind (fire, cold, lightning, heal, ward): merge.** A new zone overlapping one of yours grows the existing one toward the new area and refreshes its duration, capped at **Open** twice its original area. Fewer entities, a spreading pool on screen, never more than one zone's damage.
+- **Safety rule:** a target takes at most one tick per kind, per caster, per tick interval, however many of that caster's zones it stands in.
+- **Different casters still stack**, so party play pays off. Heal and ward zones follow the same rules.
+- **Later, with the combo codex:** different kinds combine, such as fire on cold ground making steam.
+
+Fireball needs retuning once its zones stop stacking. This change does not depend on the rework and can ship on its own before it.
+
 ## Sigils are wands
 
 A sigil's affixes are its wand stats:
