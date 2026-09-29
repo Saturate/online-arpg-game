@@ -56,4 +56,12 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **CI:** a docs-only push still rebuilds and restarts the server; a `paths-ignore` for `*.md` in `.github/workflows/image.yml` would stop that.
 - **Owner chores:** rotate the Steam API key and the GHCR pull token that were pasted in chat, and decide on the overhead Postgres password rotation (restarting it also upgrades that image).
 
+**Infrastructure.**
+
+- **Traffic:** Cloudflare (proxied DNS, WebSockets on), then the Cilium Gateway (`https-akj`), then the Coraza WAF (nginx), then the `arpg` service. The WAF config and its ReferenceGrant entry for `arpg` live in the server repo's `coraza-waf.yaml`.
+- **Manifests:** in the server repo under `k3s/apps/arpg/` (namespace, PVC `arpg-data` mounted at `/data`, deployment, service, httproute, network policy, image policy). The deployment uses the Recreate strategy, since one pod owns the SQLite file.
+- **Images:** built by `.github/workflows/image.yml` as `ghcr.io/saturate/online-arpg-game:main-<sha>-<ts>`. Flux image automation commits the new tag to the server repo and rolls it out. Pulls use the `ghcr-pull` secret.
+- **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf and settings. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
+- **Checking live state:** use `kubectl -n arpg ...` over `ssh akj@svr.akj.io`. To read the database, run node with `node:sqlite` inside the pod (`kubectl -n arpg exec deploy/arpg -- node -e ...`).
+
 **Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in `DECISIONS.md`.
