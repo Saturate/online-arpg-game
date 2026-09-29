@@ -203,22 +203,31 @@ describe('spirit, auras and links', () => {
 });
 
 describe('items and loot', () => {
-  it('rare enemies always drop a bag that the player picks up by walking over it', () => {
+  it('rare enemies drop items to click up and gold to walk over', () => {
     const sim = new Simulation(11);
     const id = sim.addPlayer('c1', 'warrior');
+    const p = sim.world.player.get(id)!;
     const pos = sim.world.position.get(id)!;
     const rare = sim.spawnEnemy('chaser', pos.x + 60, pos.y, true);
     sim.world.health.get(rare)!.life = 1;
     // Flame Cleave, the warrior's third starter skill, swings in front.
     sim.applyInput(id, frame(0, { buttons: SKILL_BUTTONS[2] }));
     sim.step();
-    expect(sim.world.loot.size).toBe(1);
-    const before = sim.world.player.get(id)!.inventory.filter((x) => x !== null).length;
-    const bag = [...sim.world.loot.keys()][0]!;
-    sim.world.position.set(bag, { x: pos.x, y: pos.y });
+    const bags = [...sim.world.loot.entries()];
+    const itemBag = bags.find(([, b]) => b.items.length > 0);
+    const goldPile = bags.find(([, b]) => b.gold > 0);
+    expect(itemBag).toBeDefined();
+    expect(goldPile).toBeDefined();
+    for (const [lid] of bags) sim.world.position.set(lid, { x: pos.x, y: pos.y });
+    const itemsBefore = p.items.size;
     sim.step();
+    // Walking over takes the gold but leaves the items for a click.
+    expect(p.gold).toBeGreaterThan(0);
+    expect(p.items.size).toBe(itemsBefore);
+    expect(sim.pickup(id, itemBag![0])).toBeNull();
+    expect(p.items.size).toBeGreaterThan(itemsBefore);
+    sim.world.flushDestroyed();
     expect(sim.world.loot.size).toBe(0);
-    expect(sim.world.player.get(id)!.inventory.filter((x) => x !== null).length).toBeGreaterThan(before);
   });
 
   it('a rare sigil can hold a 5-rune skill and cast it', () => {

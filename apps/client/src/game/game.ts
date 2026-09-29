@@ -6,6 +6,7 @@ import {
   distSq,
   loadMap,
   NET,
+  LOOT,
   SIM,
   type CharacterSummary,
   type ClientMessage,
@@ -135,6 +136,13 @@ export class Game {
   private swings: CosmeticSwing[] = [];
   private seenOwnProjectiles = new Set<EntityId>();
   private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
+  /** Item bags on screen, for clicking them up. Gold needs no click, so it is not listed. */
+  private renderedLoot: { id: EntityId; x: number; y: number; r: number }[] = [];
+  /** A bag the player clicked: walk to it, then pick it up. */
+  private pickupTarget: EntityId | null = null;
+  /** The left button went down on loot, so this press picks up instead of casting or walking. */
+  private leftOnLoot = false;
+  private pickPresses = 0;
   /** Keeps the target frame up briefly after the cursor slips off, so it does not flicker in a fight. */
   private targetHeldUntil = 0;
   private hoverEnemyId: EntityId | null = null;
@@ -573,7 +581,18 @@ export class Game {
     if (room.input.rightDown && room.input.overCanvas) sampled.buttons |= rightBit;
     if (useSettings.getState().options.controls === 'keyboard' && room.input.leftDown && room.input.overCanvas) sampled.buttons |= leftBit;
     const now = performance.now();
-    if (useSettings.getState().options.controls === 'click') this.applyClickScheme(room, sampled, origin, aimPoint, now);
+    // D2 style: items stay on the ground until clicked. A press on a bag starts a pickup instead of a cast.
+    const input = room.input;
+    if (input.leftPresses !== this.pickPresses) {
+      this.pickPresses = input.leftPresses;
+      const hit = input.overCanvas && aimPoint ? this.renderedLoot.find((l) => Math.hypot(l.x - aimPoint.x, l.y - aimPoint.y) <= l.r + 26) : undefined;
+      this.leftOnLoot = hit !== undefined;
+      if (hit) this.pickupTarget = hit.id;
+    }
+    if (!input.leftDown) this.leftOnLoot = false;
+    if (this.leftOnLoot) sampled.buttons &= ~leftBit;
+    if (this.pickupTarget !== null) this.walkToPickup(room, sampled, origin, now);
+    else if (useSettings.getState().options.controls === 'click' && !this.leftOnLoot) this.applyClickScheme(room, sampled, origin, aimPoint, now);
     const pad = this.pad.poll(now);
     // The pad only takes over while it is in use, so a controller left plugged in does not fight the mouse.
     if (pad && now - this.pad.lastActive < 3000) this.applyPad(room, sampled, pad);
@@ -625,6 +644,31 @@ export class Game {
       room.mover.moveTo(origin, aimPoint, now);
     }
     sampled.moveDir = room.mover.direction(origin);
+  }
+
+  /** Walks to the clicked bag and picks it up on arrival; movement keys or the bag vanishing cancel it. */
+  private walkToPickup(room: RoomView, sampled: SampledInput, origin: Vec2, now: number): void {
+    const bag = this.renderedLoot.find((l) => l.id === this.pickupTarget);
+    const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
+    if (!bag || keysMoving) {
+      this.pickupTarget = null;
+      room.mover.stop();
+      return;
+    }
+    // A little inside the server's reach, so latency cannot put the request just out of range.
+    if (Math.hypot(bag.x - origin.x, bag.y - origin.y) <= bag.r + SIM.playerRadius + LOOT.pickupReach - 12) {
+      this.send({ t: 'pickup', id: bag.id });
+      this.pickupTarget = null;
+      room.mover.stop();
+      return;
+    }
+    room.mover.moveTo(origin, bag, now);
+    sampled.moveDir = room.mover.direction(origin);
+  }
+
+  /** A click on a loot label: same as clicking the bag. */
+  private pickUpFromLabel(id: EntityId): void {
+    this.pickupTarget = id;
   }
 
   private applyPad(room: RoomView, sampled: SampledInput, pad: PadState): void {
@@ -748,6 +792,7 @@ export class Game {
     const pairedIds = new Set<EntityId>();
     for (const b of this.bolts) if (b.serverId !== null) pairedIds.add(b.serverId);
     this.renderedEnemies = [];
+    this.renderedLoot = [];
     const trail = dt > 0 && this.frameNo % FX.trailEveryFrames === 0;
     const showAllLoot = room.input.showLootDown;
 
@@ -768,11 +813,14 @@ export class Game {
           if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
         }
         if (to.k === 'loot') {
-          // D2 style: good drops are always labelled, everything shows while Alt is held.
+          if (to.count > 0) this.renderedLoot.push({ id, x, y, r });
+          // D2 style: good drops are always labelled, everything shows while Alt is held. Labels are
+          // clickable, the easy way to pick a drop out of a pile.
           to.names.forEach((n, i) => {
             if (!showAllLoot && n.tier !== 'rare' && n.tier !== 'relic') return;
-            labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot' });
+            labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id) });
           });
+          if (to.gold > 0) labels.push({ key: `g${id}`, x, y, text: `${to.gold} gold`, color: '#e8c860', height: 34, className: 'fx-label loot gold' });
         }
         if (to.k === 'projectile' && trail) {
           const color = to.team === 'enemies' ? COLORS.enemyBullet : to.el ? ELEMENT_COLORS[to.el] : COLORS.playerProjectile;

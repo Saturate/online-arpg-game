@@ -411,21 +411,25 @@ export class EntityRenderer {
 
   /** Swaps the placeholder bag for the KayKit sack, with coins spilling out for the good stuff. */
   private upgradeLoot(view: View, s: Extract<EntitySnap, { k: 'loot' }>): void {
-    const sack = assetById('sack');
-    const coins = s.tier === 'rare' || s.tier === 'relic' ? assetById('dungeon_coin_stack') : undefined;
-    if (!sack || !view.body) return;
+    // A gold pile is just coins; an item bag is the sack, with coins spilling out for the good stuff.
+    const onlyGold = s.count === 0 && s.gold > 0;
+    const sack = onlyGold ? undefined : assetById('sack');
+    const coins = onlyGold || s.tier === 'rare' || s.tier === 'relic' ? assetById('dungeon_coin_stack') : undefined;
+    if (!view.body || (!sack && !coins)) return;
     const body = view.body;
-    Promise.all([instantiate(sack), coins ? instantiate(coins) : Promise.resolve(null)])
+    Promise.all([sack ? instantiate(sack) : Promise.resolve(null), coins ? instantiate(coins) : Promise.resolve(null)])
       .then(([bag, pile]) => {
         if (view.disposed) return;
         for (const o of [...body.children]) if (o.name === 'placeholder') o.visible = false;
-        // Fit by footprint, not height: the sack is a low, wide model and scaling by height made it a rug.
-        fitFootprint(bag.root, s.r * 1.9);
-        bag.root.rotation.y = view.bob;
-        body.add(bag.root);
+        if (bag) {
+          // Fit by footprint, not height: the sack is a low, wide model and scaling by height made it a rug.
+          fitFootprint(bag.root, s.r * 1.9);
+          bag.root.rotation.y = view.bob;
+          body.add(bag.root);
+        }
         if (pile) {
-          fitFootprint(pile.root, s.r * 0.9);
-          pile.root.position.set(s.r * 0.9, 0, s.r * 0.4);
+          fitFootprint(pile.root, s.r * (onlyGold ? 1.4 : 0.9));
+          if (bag) pile.root.position.set(s.r * 0.9, 0, s.r * 0.4);
           body.add(pile.root);
         }
       })

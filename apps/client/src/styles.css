@@ -792,6 +792,9 @@ kbd {
 
 /* Floating labels */
 .fx-label.loot {
+  /* Clickable to pick up, though the layer they sit on lets the mouse through. */
+  pointer-events: auto;
+  cursor: pointer;
   font: 600 12px Inter, sans-serif;
   padding: 1px 6px;
   background: rgba(0, 0, 0, 0.7);
@@ -2087,4 +2090,7 @@ kbd {
 }
 .guest-banner p {
   margin: 0 0 8px;
+}
+.fx-label.loot.gold {
+  pointer-events: none;
 }

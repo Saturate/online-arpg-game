@@ -133,6 +133,12 @@ export const LOOT = {
   gearShareOfDrops: 0.5,
   vesselShareOfDrops: 0.15,
   rareDropCount: { min: 1, max: 2 },
+  /** Chance a normal monster drops gold; rares and bosses always do. */
+  goldChance: 0.35,
+  /** Gold per monster level, rolled between these, then times 4 for rares and 15 for bosses. */
+  goldPerLevel: { min: 2, max: 6 },
+  /** Slack on top of the bag and player radii for a click pickup, so it is not pixel-precise. */
+  pickupReach: 50,
   corruptChance: 0.08,
   corruptMisfireMultiplier: 1.5,
   inventorySize: 20,

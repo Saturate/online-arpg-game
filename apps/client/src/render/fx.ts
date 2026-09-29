@@ -248,7 +248,7 @@ export class Effects {
   }
 
   /** Floating labels (player names, loot names). Called every frame with the current set. */
-  syncLabels(entries: readonly { key: string; x: number; y: number; text: string; color: string; height: number; className: string }[]): void {
+  syncLabels(entries: readonly { key: string; x: number; y: number; text: string; color: string; height: number; className: string; onClick?: () => void }[]): void {
     const seen = new Set<string>();
     for (const e of entries) {
       seen.add(e.key);
@@ -261,6 +261,7 @@ export class Effects {
       if (el.className !== e.className) el.className = e.className;
       if (el.textContent !== e.text) el.textContent = e.text;
       if (el.style.color !== e.color) el.style.color = e.color;
+      el.onclick = e.onClick ?? null;
       const p = this.world.project(e.x, e.y, e.height);
       el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
     }

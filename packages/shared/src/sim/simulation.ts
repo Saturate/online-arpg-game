@@ -296,6 +296,10 @@ export class Simulation {
     return inv.discard(this, id, uid);
   }
 
+  pickup(id: EntityId, lootId: EntityId): string | null {
+    return inv.pickupLoot(this, id, lootId);
+  }
+
   moveItem(id: EntityId, uid: ItemUid, to: 'bag' | 'stash', x: number, y: number): string | null {
     return inv.moveItem(this, id, uid, to, x, y);
   }

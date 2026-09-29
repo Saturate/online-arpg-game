@@ -185,6 +185,9 @@ export class Room {
       case 'discard':
         error = this.sim.discard(pid, msg.uid);
         break;
+      case 'pickup':
+        error = this.sim.pickup(pid, msg.id);
+        break;
       case 'moveItem':
         error = this.sim.moveItem(pid, msg.uid, msg.to, msg.x, msg.y);
         break;

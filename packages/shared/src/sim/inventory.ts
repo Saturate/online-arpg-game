@@ -422,7 +422,35 @@ export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], r
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, radius);
-  w.loot.set(id, { items, lifetime: LOOT.bagLifetimeSeconds, ignoreFor });
+  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, ignoreFor });
+}
+
+export function spawnGold(sim: Simulation, x: number, y: number, amount: number): void {
+  if (amount <= 0) return;
+  const w = sim.world;
+  const spot = freeBagSpot(sim, x, y, LOOT.bagRadius);
+  const id = w.create('loot');
+  w.position.set(id, spot);
+  w.radius.set(id, LOOT.bagRadius);
+  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, ignoreFor: null });
+}
+
+/** A click on a ground bag: takes what fits if the player is close enough. Returns why not, or null. */
+export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): string | null {
+  const w = sim.world;
+  const p = w.player.get(pid);
+  const bag = w.loot.get(lootId);
+  const pos = w.position.get(pid);
+  const at = w.position.get(lootId);
+  if (!p || !bag || !pos || !at || p.respawnIn !== null) return null;
+  const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach;
+  if (distSq(pos.x, pos.y, at.x, at.y) > reach * reach) return 'Too far away';
+  const before = bag.items.length;
+  bag.items = bag.items.filter((item) => !addItem(p, item));
+  const taken = before - bag.items.length;
+  if (taken > 0) sim.emit({ e: 'pickup', id: pid, x: at.x, y: at.y, count: taken }, at.x, at.y);
+  if (bag.items.length === 0 && bag.gold === 0) w.destroy(lootId);
+  return bag.items.length > 0 ? 'No room in your bag' : null;
 }
 
 export function dropLoot(sim: Simulation, enemyId: EntityId): void {
@@ -433,6 +461,10 @@ export function dropLoot(sim: Simulation, enemyId: EntityId): void {
   if (!e || !pos || e.summonerId !== null) return;
   const items = rollDrops(sim.rand.loot, () => sim.newItemUid(), { level: e.level, rare: e.rare, boss: e.boss }, undefined, sim.rates.loot);
   if (items.length > 0) spawnBag(sim, pos.x, pos.y, items, LOOT.bagRadius * (e.rare ? WAVES.rareScale : 1), null);
+  if (e.rare || e.boss || sim.rand.loot.next() < LOOT.goldChance * sim.rates.loot) {
+    const per = sim.rand.loot.range(LOOT.goldPerLevel.min, LOOT.goldPerLevel.max);
+    spawnGold(sim, pos.x + 18, pos.y + 12, Math.round(per * e.level * (e.boss ? 15 : e.rare ? 4 : 1)));
+  }
 }
 
 export function bestTier(items: readonly Item[]): (typeof ITEM_TIERS)[number] {
@@ -441,7 +473,7 @@ export function bestTier(items: readonly Item[]): (typeof ITEM_TIERS)[number] {
   return ITEM_TIERS[best] ?? 'common';
 }
 
-/** Walking over a bag picks up as many items as fit. */
+/** Walking over gold picks it up; items wait for a click (pickupLoot), D2 style. */
 export function updateLoot(sim: Simulation, dt: number): void {
   const w = sim.world;
   for (const [id, bag] of w.loot) {
@@ -462,12 +494,11 @@ export function updateLoot(sim: Simulation, dt: number): void {
         if (d2 > (reach + 40) ** 2) bag.ignoreFor = null;
         continue;
       }
-      if (d2 > reach * reach) continue;
-      // Whatever fits is taken; a big item that does not fit stays behind without blocking small ones.
-      const before = bag.items.length;
-      bag.items = bag.items.filter((item) => !addItem(p, item));
-      const taken = before - bag.items.length;
-      if (taken > 0) sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: taken }, pos.x, pos.y);
+      if (d2 > reach * reach || bag.gold === 0) continue;
+      p.gold += bag.gold;
+      bag.gold = 0;
+      changed(p);
+      sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: 0 }, pos.x, pos.y);
       if (bag.items.length === 0) {
         w.destroy(id);
         break;

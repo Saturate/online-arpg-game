@@ -119,6 +119,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isNonNegativeInt(value.uid) ? { t: 'sell', uid: value.uid } : null;
     case 'buy':
       return isNonNegativeInt(value.id) ? { t: 'buy', id: value.id } : null;
+    case 'pickup':
+      return isNonNegativeInt(value.id) ? { t: 'pickup', id: value.id } : null;
     case 'moveItem':
       return isNonNegativeInt(value.uid) && (value.to === 'bag' || value.to === 'stash') && isNonNegativeInt(value.x) && isNonNegativeInt(value.y) && value.x < 64 && value.y < 64
         ? { t: 'moveItem', uid: value.uid, to: value.to, x: value.x, y: value.y }

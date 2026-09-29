@@ -16,7 +16,7 @@ import {
   STASH,
   type Item,
 } from '../src/index.js';
-import { addItem, updateLoot, spawnBag } from '../src/sim/inventory.js';
+import { addItem, spawnBag } from '../src/sim/inventory.js';
 
 function setup(desc: ConstructorParameters<typeof Simulation>[1] = { kind: 'flat' }) {
   const sim = new Simulation(5, desc);
@@ -53,7 +53,9 @@ describe('item grid', () => {
     const pos = sim.world.position.get(pid);
     if (!pos) throw new Error('no pos');
     spawnBag(sim, pos.x, pos.y, [armour, ring], 20, null);
-    updateLoot(sim, 0.05);
+    const bagId = [...sim.world.loot.keys()][0];
+    if (bagId === undefined) throw new Error('no bag');
+    expect(sim.pickup(pid, bagId)).toBe('No room in your bag');
     expect(p.inventory.includes(ring.uid)).toBe(true);
     expect(p.items.has(armour.uid)).toBe(false);
     expect([...sim.world.loot.values()].some((b) => b.items.includes(armour))).toBe(true);

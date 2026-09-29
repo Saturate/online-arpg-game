@@ -62,6 +62,8 @@ export type ClientMessage =
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
+  /** Pick up the items in a ground bag; the server checks reach and bag room. */
+  | { t: 'pickup'; id: EntityId }
   /** Standing at the trader: send the shared stock. */
   | { t: 'traderList' }
   | { t: 'sell'; uid: ItemUid }
@@ -153,7 +155,7 @@ export type EntitySnap =
   | (EntitySnapBase & { k: 'swing'; a: number; arc: number; owner: EntityId })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
-  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier }[] });
+  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier }[]; gold: number });
 
 export type GameEvent =
   | { e: 'dmg'; id: EntityId; amt: number; x: number; y: number; el: ElementId | null }

@@ -212,6 +212,8 @@ export interface ZoneComp {
 
 export interface LootComp {
   items: Item[];
+  /** Gold on the ground; picked up by walking over it, unlike items which need a click. */
+  gold: number;
   lifetime: number;
   /** A dropped item is not picked back up by the same player until they walk away. */
   ignoreFor: EntityId | null;
