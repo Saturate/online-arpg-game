@@ -1,4 +1,7 @@
-import { isBound, type Item, type ItemTier } from './items.js';
+import { FORGE } from '../config/forge.js';
+import { isBound, type Item, type ItemTier, type RuneItem } from './items.js';
+
+export { FORGE } from '../config/forge.js';
 
 /**
  * Trader prices. Selling pays a little, buying costs three times as much, so the trader is a way
@@ -15,13 +18,35 @@ export const TRADER = {
   reach: 170,
 } as const;
 
+function baseValue(item: Item): number {
+  return Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
+}
+
+/** One rune of this item, bound or not: plain runes by tier, rolled ones plus each affix by its tier. */
+function runeValue(rune: RuneItem): number {
+  let v = baseValue(rune);
+  for (const a of rune.affixes) v += FORGE.runeAffixValue[a.tier] ?? FORGE.runeAffixValue[FORGE.runeAffixValue.length - 1] ?? 0;
+  return v;
+}
+
 export function sellPrice(item: Item): number {
   if (isBound(item)) return 0;
-  const each = Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
   // A rune stack is worth its count; priced as one, a stack of 20 sold for 5% of its value.
-  return item.kind === 'rune' ? each * item.count : each;
+  if (item.kind === 'rune') return runeValue(item) * item.count;
+  // A sigil is worth its runes on top of itself, which is what the forge charged to put them in.
+  // Bound runes add nothing: such a sigil cannot be sold anyway (holdsBoundRunes).
+  if (item.kind === 'sigil') return item.slots.reduce((sum, r) => sum + sellPrice(r), baseValue(item));
+  return baseValue(item);
 }
 
 export function buyPrice(item: Item): number {
   return sellPrice(item) * TRADER.buyMultiplier;
+}
+
+/**
+ * Gold the forge charges to insert one of this rune, bound or not, from its one-rune value times
+ * FORGE.insertPriceFactor. Bound runes cost the same as unbound ones: the forge's work is the same.
+ */
+export function forgeInsertPrice(rune: RuneItem): number {
+  return Math.max(0, Math.round(runeValue(rune) * FORGE.insertPriceFactor));
 }

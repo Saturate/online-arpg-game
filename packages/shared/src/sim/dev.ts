@@ -1,6 +1,7 @@
 import { ENEMY_TYPE_IDS, type EnemyTypeId } from '../data/enemies.js';
 import { GEAR_SLOTS, categoryForSlot, type GearCategory } from '../data/gear.js';
-import { ITEM_TIERS, createGear, createVessel, type ItemTier } from '../items/items.js';
+import { ITEM_TIERS, ROLLABLE_RUNES, createGear, createRolledRune, createVessel, type ItemTier } from '../items/items.js';
+import type { RuneId } from '../runes/v2/runes.js';
 import { dropSigil } from '../items/drops.js';
 import type { EntityId } from './ecs.js';
 import { spawnEnemy } from './enemies.js';
@@ -14,7 +15,8 @@ export type DevCommand =
   | { c: 'killAll' }
   | { c: 'clearLoot' }
   | { c: 'heal' }
-  | { c: 'give'; item: 'sigil' | 'vessel' | 'gear'; tier: ItemTier; level: number; category: GearCategory | null }
+  /** `rune` picks a rolled rune's rune (any rollable one when missing); ignored for other items. */
+  | { c: 'give'; item: 'sigil' | 'vessel' | 'gear' | 'rune'; tier: ItemTier; level: number; category: GearCategory | null; rune?: RuneId }
   | { c: 'teleport'; x: number; y: number }
   | { c: 'timeScale'; scale: number };
 
@@ -51,10 +53,12 @@ export function parseDevCommand(v: unknown): DevCommand | null {
     case 'give': {
       const tier = ITEM_TIERS.find((t) => t === v.tier);
       const level = num(v.level, 1, 30);
-      const item = v.item === 'sigil' || v.item === 'vessel' || v.item === 'gear' ? v.item : null;
+      const item = v.item === 'sigil' || v.item === 'vessel' || v.item === 'gear' || v.item === 'rune' ? v.item : null;
       const category = CATEGORIES.find((c) => c === v.category) ?? null;
       if (!tier || level === null || !item) return null;
-      return { c: 'give', item, tier, level: Math.floor(level), category };
+      const rune = ROLLABLE_RUNES.find((r) => r === v.rune);
+      if (v.rune !== undefined && v.rune !== null && !rune) return null;
+      return { c: 'give', item, tier, level: Math.floor(level), category, ...(rune ? { rune } : {}) };
     }
     case 'teleport': {
       const x = num(v.x, 0, 100_000);
@@ -108,7 +112,9 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
           ? createGear(sim.newItemUid(), rng, cmd.tier, cmd.level, cmd.category ? { category: cmd.category } : {})
           : cmd.item === 'vessel'
             ? createVessel(sim.newItemUid(), rng, cmd.tier, undefined, cmd.level)
-            : dropSigil(rng, () => sim.newItemUid(), cmd.tier, cmd.level);
+            : cmd.item === 'rune'
+              ? createRolledRune(sim.newItemUid(), rng, cmd.tier, cmd.level, cmd.rune)
+              : dropSigil(rng, () => sim.newItemUid(), cmd.tier, cmd.level);
       // Bound, so dev items can be tried but never sold, stashed or handed on; runes in a sigil too.
       item.bound = true;
       if (item.kind === 'sigil') for (const r of item.slots) r.bound = true;

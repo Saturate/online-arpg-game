@@ -4,6 +4,7 @@ import { categoryForSlot, GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 import { convertCharacterSave, convertStash } from '../items/convertV2.js';
 import {
   createGear,
+  createRune,
   createVessel,
   holdsBoundRunes,
   isBound,
@@ -11,6 +12,7 @@ import {
   ITEM_TIERS,
   reissueUids,
   RUNE_STACK,
+  sigilCapacity,
   sigilCastDelay,
   sigilMisfireMultiplier,
   STARTER_VESSELS,
@@ -20,10 +22,10 @@ import {
   type SigilItem,
 } from '../items/items.js';
 import { compileSigilItem } from '../runes/v2/compile.js';
-import type { RuneId } from '../runes/v2/runes.js';
+import { isCastableRune, RUNE_IDS, runeName, type RuneId } from '../runes/v2/runes.js';
 import type { RuneRef } from '../protocol/messages.js';
 import { rollDrops } from '../items/drops.js';
-import { sellPrice, TRADER } from '../items/prices.js';
+import { forgeInsertPrice, sellPrice, TRADER } from '../items/prices.js';
 import { anchorOf, BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
 import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
@@ -243,12 +245,146 @@ export function nearForge(sim: Simulation, pid: EntityId): boolean {
   return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= FORGE_REACH * FORGE_REACH;
 }
 
+/** Where a rune the forge takes lives: a grid it covers cells of. */
+type RuneSource = 'bag' | 'stash';
+
+function runeSource(p: PlayerComp, uid: ItemUid): RuneSource | null {
+  return p.inventory.includes(uid) ? 'bag' : p.stash.includes(uid) ? 'stash' : null;
+}
+
+/** Plain stacks of a rune the forge may spend: the bag's first, bound ones first within each grid. */
+function plainStacks(p: PlayerComp, rune: RuneId): { stack: RuneItem; from: RuneSource }[] {
+  const out: { stack: RuneItem; from: RuneSource }[] = [];
+  for (const [from, cells] of [['bag', p.inventory], ['stash', p.stash]] as const) {
+    const here: RuneItem[] = [];
+    for (const uid of new Set(cells)) {
+      const it = uid === null ? undefined : p.items.get(uid);
+      if (it?.kind === 'rune' && isPlainRune(it) && it.rune === rune && it.count > 0) here.push(it);
+    }
+    here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+    for (const stack of here) out.push({ stack, from });
+  }
+  return out;
+}
+
+/** One rune for a sigil slot, split off a plain stack: same rune, tier and binding, count 1. */
+function oneOf(uid: ItemUid, stack: RuneItem): RuneItem {
+  const one: RuneItem = { uid, kind: 'rune', tier: stack.tier, name: stack.name, ilvl: stack.ilvl, rune: stack.rune, count: 1, affixes: [] };
+  if (stack.bound === true) one.bound = true;
+  return one;
+}
+
 /**
- * Sets a sigil's runes from the forge. Refused while the forge is rebuilt around rune items, so
- * nothing moves through a half-built path.
+ * Sets a sigil's runes, left to right (see RuneRef). Everything is checked before anything moves:
+ * the sigil, the forge, capacity, every rune named, gold and spirit. Then runes leave the bag and the
+ * stash, the slots are set, gold is paid, and every slot not kept goes back to the bag, or pending
+ * when the bag is full; never the stash (it is the account's, and a bound rune must not reach it).
+ *
+ * `free` is the builders' test bench: plain runes are made on the spot, bound, and nothing costs
+ * gold. Bound plain runes taken out of it are not handed back, since the bench would otherwise be a
+ * free supply; unbound runes and rolled ones (the bench never makes those) come back as usual.
  */
-export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, slots: readonly RuneRef[], free = false): string | null {
-  return 'The forge is being rebuilt';
+export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: readonly RuneRef[], free = false): string | null {
+  const p = sim.world.player.get(pid);
+  if (!p) return 'No player';
+  const item = p.items.get(uid);
+  if (!item || item.kind !== 'sigil') return 'Not a sigil you own';
+  const slot = p.sigils.findIndex((s) => s?.uid === uid);
+  // Only a sigil the character carries: one in the shared stash could carry bound runes to another.
+  if (!inBag(p, uid) && slot < 0) return p.stash.includes(uid) ? 'Take the sigil out of the stash first' : 'That sigil is not in your bag';
+  // The validator refuses these too; checked again because nothing else stops one rune filling two slots.
+  const keptIdx = new Set<number>();
+  const rolledUids = new Set<ItemUid>();
+  for (const r of refs) {
+    if (r.from === 'keep') {
+      if (keptIdx.has(r.index)) return 'A rune can only fill one slot';
+      keptIdx.add(r.index);
+    } else if (r.from === 'rolled') {
+      if (rolledUids.has(r.uid)) return 'A rune can only fill one slot';
+      rolledUids.add(r.uid);
+    }
+  }
+  // Saving an unchanged sigil costs nothing and touches nothing, wherever the player stands.
+  if (refs.length === item.slots.length && refs.every((r, i) => r.from === 'keep' && r.index === i)) return null;
+  if (!free && !nearForge(sim, pid)) return 'Sigils are inscribed at the forge in town';
+  if (refs.length > sigilCapacity(item)) return 'Too many runes for this sigil';
+
+  // Plan: nothing below changes the character until every check has passed.
+  const spend = new Map<ItemUid, number>();
+  const taken: { uid: ItemUid; from: RuneSource }[] = [];
+  const slots: RuneItem[] = [];
+  let cost = 0;
+  for (const r of refs) {
+    if (r.from === 'keep') {
+      const kept = item.slots[r.index];
+      if (!kept) return 'That slot is empty';
+      slots.push(kept);
+      continue;
+    }
+    if (r.from === 'plain') {
+      if (!isCastableRune(r.rune)) return `The ${runeName(r.rune)} Rune is not in the game yet`;
+      if (free) {
+        const made = createRune(sim.newItemUid(), r.rune, 1);
+        made.bound = true;
+        slots.push(made);
+        continue;
+      }
+      const source = plainStacks(p, r.rune).find(({ stack }) => stack.count > (spend.get(stack.uid) ?? 0));
+      if (!source) return `You need a ${runeName(r.rune)} Rune`;
+      spend.set(source.stack.uid, (spend.get(source.stack.uid) ?? 0) + 1);
+      const one = oneOf(sim.newItemUid(), source.stack);
+      cost += forgeInsertPrice(one);
+      slots.push(one);
+      continue;
+    }
+    const rune = p.items.get(r.uid);
+    const from = runeSource(p, r.uid);
+    if (rune?.kind !== 'rune' || from === null) return 'That rune is not in your bag or stash';
+    if (isPlainRune(rune)) return 'That rune is not a rolled one';
+    // Rolled runes never stack; one with a count would lose the rest in a single slot.
+    if (rune.count !== 1) return 'That rune cannot be inscribed';
+    if (!isCastableRune(rune.rune)) return `The ${runeName(rune.rune)} Rune is not in the game yet`;
+    if (!free) cost += forgeInsertPrice(rune);
+    taken.push({ uid: r.uid, from });
+    slots.push(rune);
+  }
+  if (!free && p.gold < cost) return `That costs ${cost} gold`;
+  const refunds = item.slots.filter((_, i) => !keptIdx.has(i)).filter((r) => !free || !r.bound || !isPlainRune(r));
+
+  if (slot >= 0) {
+    const previous = p.sigils[slot] ?? null;
+    p.sigils[slot] = compileSigil(p, { ...item, slots });
+    if (spiritReservedFor(p) > spiritMax(p)) {
+      p.sigils[slot] = previous;
+      return 'Not enough spirit for that persistent skill';
+    }
+  }
+
+  // Apply. Runes leave their grids first, so a refund can use the cells they free.
+  for (const [stackUid, n] of spend) {
+    const stack = p.items.get(stackUid);
+    if (stack?.kind !== 'rune') continue;
+    stack.count -= n;
+    if (stack.count <= 0) {
+      removeFrom(p.inventory, stackUid);
+      removeFrom(p.stash, stackUid);
+      p.items.delete(stackUid);
+    }
+  }
+  for (const t of taken) {
+    removeFrom(t.from === 'bag' ? p.inventory : p.stash, t.uid);
+    p.items.delete(t.uid);
+  }
+  item.slots = slots;
+  if (!free) p.gold -= cost;
+  for (const r of refunds) addOrPend(p, r);
+  if (slot >= 0) {
+    p.links[slot] = null;
+    const eq = p.sigils[slot];
+    if (eq?.compiled.ok && eq.compiled.program.form === 'bond') acquireLink(sim, pid, slot);
+  }
+  changed(p);
+  return null;
 }
 
 export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: number): string | null {
@@ -396,13 +532,22 @@ export function unequipGear(sim: Simulation, pid: EntityId, slot: GearSlot): str
 const KIND_ORDER: Readonly<Record<Item['kind'], number>> = { gear: 0, sigil: 1, vessel: 2, rune: 3 };
 const CATEGORY_ORDER = ['weapon', 'helmet', 'body', 'gloves', 'boots', 'belt', 'amulet', 'ring'];
 
-/** Bag order after sorting: gear by slot, then sigils, then vessels; best tier and item level first. */
+/**
+ * Bag order after sorting: gear by slot, then sigils, then vessels, then runes grouped by rune with
+ * rolled ones ahead of plain stacks; best tier and item level first.
+ */
 export function compareForSort(a: Item, b: Item): number {
   const kind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
   if (kind !== 0) return kind;
   if (a.kind === 'gear' && b.kind === 'gear') {
     const cat = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category);
     if (cat !== 0) return cat;
+  }
+  if (a.kind === 'rune' && b.kind === 'rune') {
+    const rune = RUNE_IDS.indexOf(a.rune) - RUNE_IDS.indexOf(b.rune);
+    if (rune !== 0) return rune;
+    const rolled = Number(isPlainRune(a)) - Number(isPlainRune(b));
+    if (rolled !== 0) return rolled;
   }
   const tier = ITEM_TIERS.indexOf(b.tier) - ITEM_TIERS.indexOf(a.tier);
   if (tier !== 0) return tier;

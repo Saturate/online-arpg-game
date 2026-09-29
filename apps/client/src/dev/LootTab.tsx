@@ -1,9 +1,10 @@
-import { AFFIXES, CLASS_IDS, CLASSES, DEFAULT_DROP_TUNING, DROP_TIER_WEIGHTS, BOSS_DROPS, ITEM_TIERS, LOOT, type ClassId, type Item } from '@rune/shared';
+import { AFFIXES, CLASS_IDS, CLASSES, DEFAULT_DROP_TUNING, DROP_TIER_WEIGHTS, BOSS_DROPS, FORGE, ITEM_TIERS, LOOT, type ClassId, type Item } from '@rune/shared';
 import { useEffect, useRef, useState } from 'react';
 import { cssColor, TIER_COLORS } from '../render/config.js';
 import { ItemDetails } from '../ui/parts.js';
 import { LootAccumulator, type LootReport, type LootSetup } from './loot/lootStats.js';
 
+const DEFAULT_ROLLED = DEFAULT_DROP_TUNING.rolledRuneShare ?? FORGE.rolledRuneShare;
 const KILL_PRESETS = [1_000, 10_000, 100_000] as const;
 /** Kills per chunk: small enough that a boss run (4 items per kill) still yields to the browser every frame or two. */
 const CHUNK = 2_000;
@@ -66,6 +67,7 @@ export function LootTab() {
   const [dropChance, setDropChance] = useState(DEFAULT_DROP_TUNING.normalDropChance);
   const [gearShare, setGearShare] = useState(DEFAULT_DROP_TUNING.gearShare);
   const [vesselShare, setVesselShare] = useState(DEFAULT_DROP_TUNING.vesselShare);
+  const [rolledShare, setRolledShare] = useState(DEFAULT_ROLLED);
   const [report, setReport] = useState<LootReport | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [ms, setMs] = useState(0);
@@ -78,7 +80,7 @@ export function LootTab() {
       seed,
       source: { level, rare: rare || boss, boss },
       kills,
-      tuning: { normalDropChance: dropChance, gearShare, vesselShare: Math.min(vesselShare, 1 - gearShare), runeShare: DEFAULT_DROP_TUNING.runeShare },
+      tuning: { normalDropChance: dropChance, gearShare, vesselShare: Math.min(vesselShare, 1 - gearShare), runeShare: DEFAULT_DROP_TUNING.runeShare, rolledRuneShare: rolledShare },
       classId,
     };
     const acc = new LootAccumulator(setup);
@@ -114,8 +116,13 @@ export function LootTab() {
     setDropChance(DEFAULT_DROP_TUNING.normalDropChance);
     setGearShare(DEFAULT_DROP_TUNING.gearShare);
     setVesselShare(DEFAULT_DROP_TUNING.vesselShare);
+    setRolledShare(DEFAULT_ROLLED);
   };
-  const tuned = dropChance !== DEFAULT_DROP_TUNING.normalDropChance || gearShare !== DEFAULT_DROP_TUNING.gearShare || vesselShare !== DEFAULT_DROP_TUNING.vesselShare;
+  const tuned =
+    dropChance !== DEFAULT_DROP_TUNING.normalDropChance ||
+    gearShare !== DEFAULT_DROP_TUNING.gearShare ||
+    vesselShare !== DEFAULT_DROP_TUNING.vesselShare ||
+    rolledShare !== DEFAULT_ROLLED;
   const weights = boss ? DROP_TIER_WEIGHTS.boss : rare ? DROP_TIER_WEIGHTS.rare : DROP_TIER_WEIGHTS.normal;
   const maxAffixTier = report ? Math.max(0, ...report.affixes.map((a) => a.tiers.length)) : 0;
 
@@ -161,6 +168,7 @@ export function LootTab() {
             Sigil share
             <input type="number" value={Math.max(0, 1 - gearShare - vesselShare).toFixed(2)} readOnly />
           </label>
+          <NumberField label="Rolled share of runes" value={rolledShare} onChange={setRolledShare} min={0} max={1} step={0.05} />
         </div>
         {tuned && (
           <button type="button" className="wide" onClick={resetTuning}>
@@ -168,7 +176,7 @@ export function LootTab() {
           </button>
         )}
         <p className="muted small">
-          Live config: drop chance {LOOT.normalDropChance}, rare drops {LOOT.rareDropCount.min} to {LOOT.rareDropCount.max}, boss {BOSS_DROPS}, corrupt {LOOT.corruptChance}.
+          Live config: drop chance {LOOT.normalDropChance}, runes {LOOT.runeShareOfDrops} of drops ({FORGE.rolledRuneShare} of them rolled), rare drops {LOOT.rareDropCount.min} to {LOOT.rareDropCount.max}, boss {BOSS_DROPS}, corrupt {LOOT.corruptChance}.
           Tier weights here: {ITEM_TIERS.map((t) => `${t} ${weights[t]}`).join(', ')}.
         </p>
         <button type="button" className="wide on" onClick={run}>
@@ -211,7 +219,7 @@ export function LootTab() {
                 <h3>Tier</h3>
                 <Bars rows={ITEM_TIERS.map((t) => ({ label: t, count: report.tiers[t], color: cssColor(TIER_COLORS[t]) }))} total={report.drops} />
                 <h3>Kind</h3>
-                <Bars rows={(['gear', 'sigil', 'vessel'] as const).map((k) => ({ label: k, count: report.kinds[k] }))} total={report.drops} />
+                <Bars rows={(['gear', 'sigil', 'vessel', 'rune'] as const).map((k) => ({ label: k, count: report.kinds[k] }))} total={report.drops} />
                 <h3>Affixes per item</h3>
                 <Bars rows={report.affixCounts.map((c, i) => ({ label: `${i} affix${i === 1 ? '' : 'es'}`, count: c }))} total={report.drops} />
               </div>

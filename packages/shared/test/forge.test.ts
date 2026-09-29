@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { createRune, createSigil, createVessel, dayPhaseAt, hourOfPhase, phaseOfHour, ownedRunes, rollDrops, Rng, RUNE_STACK, Simulation, DEFAULT_DROP_TUNING } from '../src/index.js';
+import {
+  AFFIXES,
+  createRolledRune,
+  createRune,
+  createSigil,
+  createVessel,
+  dayPhaseAt,
+  DEFAULT_DROP_TUNING,
+  forgeInsertPrice,
+  hourOfPhase,
+  isCastableRune,
+  ownedRunes,
+  phaseOfHour,
+  rollDrops,
+  Rng,
+  RUNE_STACK,
+  runeMayCarry,
+  sellItem,
+  Simulation,
+} from '../src/index.js';
 import { addItem } from '../src/sim/inventory.js';
+import { applyDev, parseDevCommand } from '../src/sim/dev.js';
 
 function atForge() {
   const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
@@ -36,19 +56,156 @@ describe('runes', () => {
 });
 
 describe('forge', () => {
-  it('refuses every change while it is rebuilt, and moves nothing', () => {
+  it('spends plain runes from the bag, then the stash, and gives back the ones taken out', () => {
     const { sim, pid, p, blank } = atForge();
+    p.gold = 1000;
     addItem(p, createRune(sim.newItemUid(), 'bolt', 1));
-    const before = JSON.stringify([...p.items.values()]);
-    expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'bolt' }])).toBe('The forge is being rebuilt');
-    expect(JSON.stringify([...p.items.values()])).toBe(before);
+    const stashed = createRune(sim.newItemUid(), 'bolt', 3);
+    p.items.set(stashed.uid, stashed);
+    p.stash[0] = stashed.uid;
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'bolt' }, { from: 'plain', rune: 'bolt' }])).toBeNull();
+    expect(blank.slots.map((r) => r.rune)).toEqual(['bolt', 'bolt']);
+    expect(ownedRunes(p).get('bolt') ?? 0).toBe(0);
+    expect(stashed.count).toBe(2);
+    expect(p.gold).toBe(1000 - 2 * forgeInsertPrice(createRune(0, 'bolt')));
+    // Taking one out is free and it lands in the bag, not back in the stash.
+    const gold = p.gold;
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'keep', index: 1 }])).toBeNull();
+    expect(p.gold).toBe(gold);
+    expect(ownedRunes(p).get('bolt')).toBe(1);
+    expect(stashed.count).toBe(2);
   });
 
-  // The v2 forge (agent D) replaces these v1 cases.
-  it.todo('spends plain runes from the bag, then the stash, and gives back the ones taken out');
-  it.todo('refuses runes you do not have, and anywhere but the forge');
-  it.todo('lets builders use the free bench only on test maps');
-  it.todo('hands back bound runes from a starter sigil, which cannot be sold');
+  it('refuses runes you do not have, and anywhere but the forge', () => {
+    const { sim, pid, p, pos, blank } = atForge();
+    p.gold = 1000;
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'fire' }])).toBe('You need a Fire Rune');
+    addItem(p, createRune(sim.newItemUid(), 'fire', 1));
+    pos.x += 2000;
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'fire' }])).toBe('Sigils are inscribed at the forge in town');
+    expect(blank.slots).toEqual([]);
+  });
+
+  it('lets builders use the free bench only on test maps', () => {
+    const { sim, pid, pos, blank } = atForge();
+    pos.x += 2000;
+    // A zone room has no bench, so dev rights do not help away from the forge.
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'bolt' }], true)).toBe('Sigils are inscribed at the forge in town');
+    const flat = new Simulation(5);
+    const fid = flat.addPlayer('b', 'mage');
+    const fp = flat.world.player.get(fid);
+    if (!fp) throw new Error('setup');
+    const s = createSigil(flat.newItemUid(), flat.rand.loot, 'magic');
+    addItem(fp, s);
+    expect(flat.inscribe(fid, s.uid, [{ from: 'plain', rune: 'bolt' }])).toBe('Sigils are inscribed at the forge in town');
+    expect(flat.inscribe(fid, s.uid, [{ from: 'plain', rune: 'bolt' }, { from: 'plain', rune: 'fire' }], true)).toBeNull();
+    expect(s.slots.every((r) => r.bound === true)).toBe(true);
+    expect(fp.gold).toBe(0);
+  });
+
+  it('hands back bound runes from a starter sigil, which cannot be sold', () => {
+    const { sim, pid, p, pos } = atForge();
+    const eq = p.sigils[0];
+    const starter = eq ? p.items.get(eq.uid) : undefined;
+    if (starter?.kind !== 'sigil') throw new Error('no starter sigil');
+    const first = starter.slots[0];
+    if (!first) throw new Error('empty starter');
+    expect(sim.inscribe(pid, starter.uid, starter.slots.slice(1).map((_, i) => ({ from: 'keep', index: i + 1 })))).toBeNull();
+    const back = p.items.get(first.uid) ?? [...p.items.values()].find((i) => i.kind === 'rune' && i.rune === first.rune && i.bound === true);
+    expect(back?.kind).toBe('rune');
+    expect(back?.bound).toBe(true);
+    const trader = sim.mapDef.trader;
+    if (!trader || !back) throw new Error('no trader');
+    pos.x = trader.x + 50;
+    pos.y = trader.y;
+    expect(sellItem(sim, pid, back.uid)).toBe('Bound items cannot be sold');
+  });
+
+  it('puts a rolled rune in whole, and takes it out with the same uid and rolls', () => {
+    const { sim, pid, p, blank } = atForge();
+    p.gold = 1000;
+    const rolled = createRolledRune(sim.newItemUid(), sim.rand.loot, 'rare', 6, 'orb');
+    addItem(p, rolled);
+    const rolls = JSON.stringify(rolled.affixes);
+    expect(sim.inscribe(pid, blank.uid, [{ from: 'rolled', uid: rolled.uid }])).toBeNull();
+    expect(p.items.has(rolled.uid)).toBe(false);
+    expect(p.gold).toBe(1000 - forgeInsertPrice(rolled));
+    expect(sim.inscribe(pid, blank.uid, [])).toBeNull();
+    const back = p.items.get(rolled.uid);
+    expect(back?.kind === 'rune' && JSON.stringify(back.affixes)).toBe(rolls);
+    expect(p.inventory.includes(rolled.uid)).toBe(true);
+  });
+
+  it('saving an unchanged sigil costs nothing, even away from the forge', () => {
+    const { sim, pid, p, pos } = atForge();
+    const eq = p.sigils[0];
+    const starter = eq ? p.items.get(eq.uid) : undefined;
+    if (starter?.kind !== 'sigil') throw new Error('no starter sigil');
+    pos.x += 2000;
+    const before = JSON.stringify(starter);
+    expect(sim.inscribe(pid, starter.uid, starter.slots.map((_, i) => ({ from: 'keep', index: i })))).toBeNull();
+    expect(JSON.stringify(starter)).toBe(before);
+    expect(p.sigils[0]).toBe(eq);
+  });
+});
+
+describe('rolled rune drops', () => {
+  it('are about a fifth of rune drops, castable, and carry only affixes their rune may', () => {
+    let uid = 1;
+    const rng = new Rng(11);
+    let plain = 0;
+    let rolled = 0;
+    for (let i = 0; i < 3000; i++) {
+      for (const item of rollDrops(rng, () => uid++, { level: 6, rare: true, boss: false })) {
+        if (item.kind !== 'rune') continue;
+        expect(isCastableRune(item.rune)).toBe(true);
+        if (item.affixes.length === 0) {
+          plain++;
+          continue;
+        }
+        rolled++;
+        expect(item.count).toBe(1);
+        for (const a of item.affixes) expect(runeMayCarry(item.rune, a.id), `${item.rune} ${a.id}`).toBe(true);
+        expect(new Set(item.affixes.map((a) => AFFIXES[a.id].group)).size).toBe(item.affixes.length);
+      }
+    }
+    expect(rolled / (plain + rolled)).toBeGreaterThan(0.15);
+    expect(rolled / (plain + rolled)).toBeLessThan(0.25);
+  });
+
+  it('roll higher affix tiers from deeper monsters, like gear', () => {
+    const rng = new Rng(4);
+    const maxTier = (ilvl: number): number => {
+      let best = 0;
+      for (let i = 0; i < 400; i++) for (const a of createRolledRune(i, rng, 'relic', ilvl).affixes) best = Math.max(best, a.tier);
+      return best;
+    };
+    expect(maxTier(1)).toBe(0);
+    expect(maxTier(8)).toBe(2);
+  });
+
+  it('can be given with the dev tools, bound like every dev item', () => {
+    const sim = new Simulation(2);
+    const pid = sim.addPlayer('b', 'mage');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('setup');
+    const cmd = parseDevCommand({ c: 'give', item: 'rune', tier: 'rare', level: 6, category: null, rune: 'bolt' });
+    if (!cmd) throw new Error('refused');
+    applyDev(sim, pid, cmd);
+    const given = [...p.items.values()].find((i) => i.kind === 'rune' && i.affixes.length > 0);
+    expect(given?.kind === 'rune' && given.rune).toBe('bolt');
+    expect(given?.bound).toBe(true);
+    expect(parseDevCommand({ c: 'give', item: 'rune', tier: 'rare', level: 6, category: null, rune: 'beam' })).toBeNull();
+  });
+
+  it('never stack, while plain runes stack to 20', () => {
+    const { sim, p } = atForge();
+    addItem(p, createRolledRune(sim.newItemUid(), sim.rand.loot, 'magic', 3, 'bolt'));
+    addItem(p, createRolledRune(sim.newItemUid(), sim.rand.loot, 'magic', 3, 'bolt'));
+    const rolled = [...p.items.values()].filter((i) => i.kind === 'rune' && i.affixes.length > 0);
+    expect(rolled.length).toBe(2);
+    expect(rolled.every((r) => r.kind === 'rune' && r.count === 1)).toBe(true);
+  });
 });
 
 describe('warband size', () => {

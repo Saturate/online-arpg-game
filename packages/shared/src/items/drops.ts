@@ -1,7 +1,8 @@
+import { FORGE } from '../config/forge.js';
 import { LOOT } from '../config/sim.js';
 import type { Rng } from '../sim/rng.js';
 import { STARTER_SIGILS, createStarterSigil } from '../data/starterSigils.js';
-import { createGear, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
+import { createGear, createRolledRune, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
 
 /**
  * The monster drop roll without the Simulation around it. The game's `dropLoot` and the loot
@@ -32,6 +33,8 @@ export interface DropTuning {
   gearShare: number;
   vesselShare: number;
   runeShare: number;
+  /** Share of rune drops that are rolled; FORGE.rolledRuneShare when left out. */
+  rolledRuneShare?: number;
 }
 
 export const DEFAULT_DROP_TUNING: DropTuning = {
@@ -39,6 +42,7 @@ export const DEFAULT_DROP_TUNING: DropTuning = {
   gearShare: LOOT.gearShareOfDrops,
   vesselShare: LOOT.vesselShareOfDrops,
   runeShare: LOOT.runeShareOfDrops,
+  rolledRuneShare: FORGE.rolledRuneShare,
 };
 
 /**
@@ -61,9 +65,11 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
   for (let i = 0; i < count; i++) {
     const tier = rollTier(rng, weights);
     const roll = rng.next();
-    // Runes first, then the rest split as before; a rune's rarity comes from the rune, not the drop tier.
+    // Runes first, then the rest split as before. A plain rune's rarity comes from the rune; a rolled
+    // one takes its affix count from the drop tier and its affix tiers from the monster level.
     if (roll < tuning.runeShare) {
-      items.push(createRune(newUid(), rollRune(rng)));
+      const rolled = rng.next() < (tuning.rolledRuneShare ?? FORGE.rolledRuneShare);
+      items.push(rolled ? createRolledRune(newUid(), rng, tier, src.level) : createRune(newUid(), rollRune(rng)));
       continue;
     }
     const rest = (roll - tuning.runeShare) / (1 - tuning.runeShare);

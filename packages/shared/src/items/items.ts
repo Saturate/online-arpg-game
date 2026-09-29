@@ -4,7 +4,8 @@ import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { starterSigilById } from '../data/starterSigils.js';
-import { CASTABLE_RUNES, runeKind, runeName, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
+import { FORGE } from '../config/forge.js';
+import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
@@ -115,10 +116,50 @@ export function isPlainRune(item: RuneItem): boolean {
   return item.affixes.length === 0;
 }
 
+const RUNE_WEIGHT = { common: 6, magic: 3, rare: 1, relic: 0 } as const;
+
 /** A random rune the engine can run, weighted toward the common ones. */
 export function rollRune(rng: Rng): RuneId {
-  const weight = { common: 6, magic: 3, rare: 1, relic: 0 } as const;
-  return weightedPick(rng, CASTABLE_RUNES.map((id) => ({ item: id, weight: weight[runeTier(id)] }))) ?? 'bolt';
+  return weightedPick(rng, CASTABLE_RUNES.map((id) => ({ item: id, weight: RUNE_WEIGHT[runeTier(id)] }))) ?? 'bolt';
+}
+
+/** The grammar key each rune affix sets; affixesFor(rune) must list it for the rune to carry it. */
+const RUNE_AFFIX_KEY: Partial<Record<AffixId, AffixKey>> = {
+  release_onhit: 'release',
+  release_onexpire: 'release',
+  release_after: 'release',
+  release_every: 'release',
+  release_onland: 'release',
+  rune_speed: 'speed',
+  rune_size: 'size',
+  rune_duration: 'duration',
+  rune_damage: 'damage',
+  rune_pierce: 'pierce',
+  split_count: 'count',
+};
+
+/** Whether `rune` may roll this affix: the affix lists the rune and the grammar reads its key there. */
+export function runeMayCarry(rune: RuneId, id: AffixId): boolean {
+  const def = AFFIXES[id];
+  const key = RUNE_AFFIX_KEY[id];
+  return def.targets.includes('rune') && key !== undefined && (def.runes?.includes(rune) ?? false) && affixesFor(rune).includes(key);
+}
+
+/** Castable runes that have at least one affix they may roll; only these drop rolled. */
+export const ROLLABLE_RUNES: readonly RuneId[] = CASTABLE_RUNES.filter((r) => AFFIX_IDS.some((id) => runeMayCarry(r, id)));
+
+/**
+ * A rolled rune: a single item with rune affixes, never stacking. Affix count comes from the drop's
+ * tier and the affix tiers from item level, like gear. Its item tier is at least magic, and at least
+ * the rune's own, so a rolled rune always reads as the better find.
+ */
+export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: number, rune?: RuneId): RuneItem {
+  const id = rune ?? weightedPick(rng, ROLLABLE_RUNES.map((r) => ({ item: r, weight: RUNE_WEIGHT[runeTier(r)] }))) ?? 'orb';
+  const n = FORGE.rolledRuneAffixes[tier];
+  const maxAffixTier = Math.min(TIER_ROLLS[tier === 'common' ? 'magic' : tier].maxAffixTier, ilvlAffixTier(ilvl));
+  const affixes = rollAffixes(rng, 'rune', rng.int(n.min, n.max), maxAffixTier, { rune: id, allow: (a) => runeMayCarry(id, a) });
+  const itemTier = ITEM_TIERS[Math.max(ITEM_TIERS.indexOf(tier), ITEM_TIERS.indexOf(runeTier(id)), 1)] ?? 'magic';
+  return { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
 }
 
 /**
@@ -226,8 +267,9 @@ export function sigilMisfireMultiplier(item: SigilItem): number {
  */
 export function reissueUids(item: Item, newUid: () => ItemUid): Item {
   const uid = newUid();
-  if (item.kind === 'sigil') return { ...item, uid, slots: item.slots.map((r) => ({ ...r, uid: newUid(), affixes: [...r.affixes] })) };
-  return { ...item, uid };
+  // Affix arrays are copied too, so the copy shares nothing mutable with the item it came from.
+  if (item.kind === 'sigil') return { ...item, uid, affixes: [...item.affixes], slots: item.slots.map((r) => ({ ...r, uid: newUid(), affixes: [...r.affixes] })) };
+  return { ...item, uid, affixes: [...item.affixes] };
 }
 
 /** Affix tier unlocked by item level: T2 from level 3, T3 from level 5. */
@@ -264,8 +306,14 @@ function roundTo(v: number, decimals: number): number {
  * The generic affix engine. Picks `count` affixes for `target`, weighted per tier, respecting
  * exclusive groups and the prefix/suffix limit.
  */
-export function rollAffixes(rng: Rng, target: AffixTarget, count: number, maxAffixTier: number, filter: { category?: GearCategory; rune?: RuneId } = {}): AffixRoll[] {
-  const { category, rune } = filter;
+export function rollAffixes(
+  rng: Rng,
+  target: AffixTarget,
+  count: number,
+  maxAffixTier: number,
+  filter: { category?: GearCategory; rune?: RuneId; allow?: (id: AffixId) => boolean } = {},
+): AffixRoll[] {
+  const { category, rune, allow } = filter;
   const out: AffixRoll[] = [];
   const usedGroups = new Set<string>();
   const slotCounts = { prefix: 0, suffix: 0 };
@@ -276,6 +324,7 @@ export function rollAffixes(rng: Rng, target: AffixTarget, count: number, maxAff
       if (!def.targets.includes(target) || usedGroups.has(def.group)) continue;
       if (category && def.slots && !def.slots.includes(category)) continue;
       if (def.runes && (rune === undefined || !def.runes.includes(rune))) continue;
+      if (allow && !allow(id)) continue;
       if (slotCounts[def.slot] >= MAX_PER_SLOT) continue;
       def.tiers.forEach((t, tier) => {
         if (tier <= maxAffixTier && t.weight > 0) candidates.push({ item: { id, tier }, weight: t.weight });
