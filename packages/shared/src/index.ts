@@ -15,6 +15,7 @@ export * from './protocol/codec.js';
 export * from './protocol/messages.js';
 export * from './protocol/validate.js';
 export * from './runes/compiler.js';
+export * as grammarV2 from './runes/v2/index.js';
 export * from './sim/auras.js';
 export * from './sim/progression.js';
 export * from './sim/ecs.js';

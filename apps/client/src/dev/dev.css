@@ -478,3 +478,160 @@
 .replay-game[hidden] {
   display: none;
 }
+
+/* Spell Lab (grammar v2 prototype) */
+.lab {
+  display: grid;
+  grid-template-columns: 330px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.lab-side select {
+  width: 100%;
+}
+.lab-note {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+.lab-palette {
+  margin: 6px 0;
+}
+.lab-palette small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.lab-main {
+  padding: 12px 16px;
+  overflow: auto;
+  min-width: 0;
+}
+.lab-main h3 {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 6px;
+  text-transform: uppercase;
+}
+.dev-app textarea.lab-input {
+  width: 100%;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 14px;
+  resize: vertical;
+}
+.lab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+.lab-chips span {
+  padding: 2px 7px;
+  border: 1px solid #4a3b24;
+  border-radius: 3px;
+  background: #16120d;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}
+.lab-chips span b {
+  color: var(--muted);
+  font-weight: normal;
+  margin-right: 5px;
+}
+.lab-chips span.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: #2a1210;
+}
+.lab-verdict {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.lab-verdict.good {
+  color: var(--good);
+  border: 1px solid #3f5a34;
+  background: #121a0f;
+}
+.lab-verdict.bad {
+  color: var(--bad);
+  border: 1px solid #5a2a24;
+  background: #1f0f0d;
+}
+.lab-errors,
+.lab-rules {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.lab-errors li {
+  padding: 5px 8px;
+  border-left: 3px solid var(--bad);
+  background: #1a0f0d;
+}
+.lab-errors code,
+.lab-rules code {
+  color: var(--gold);
+  margin-right: 8px;
+}
+.lab-at {
+  color: var(--bad);
+  margin-right: 8px;
+}
+.lab-rules li {
+  color: var(--muted);
+}
+.lab-sentence {
+  font-size: 15px;
+  margin: 0;
+  color: var(--text);
+}
+.lab-bracket {
+  margin: 0;
+  padding: 8px;
+  background: #0e0c0a;
+  border: 1px solid #2a241a;
+  border-radius: 4px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: var(--gold);
+}
+.lab-tree {
+  list-style: none;
+  margin: 0;
+  padding-left: 14px;
+  border-left: 1px dashed #3a3022;
+}
+.lab-node {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.lab-node small {
+  color: var(--muted);
+}
+.lab-stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 14px;
+  font-size: 12px;
+  margin: 0;
+}
+.lab-stats dt {
+  color: var(--muted);
+}
+.lab-stats dd {
+  margin: 0;
+}
+.lab-stats dd.over {
+  color: var(--bad);
+}

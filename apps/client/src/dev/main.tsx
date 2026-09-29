@@ -4,9 +4,10 @@ import { StaffGate } from '../admin/access.js';
 import { AssetsTab } from './AssetsTab.js';
 import { LootTab } from './LootTab.js';
 import { ReplayTab } from './ReplayTab.js';
+import { SpellLabTab } from './SpellLabTab.js';
 import { SpellStudioTab } from './SpellStudioTab.js';
 
-type Tab = 'assets' | 'studio' | 'loot' | 'replay';
+type Tab = 'assets' | 'studio' | 'lab' | 'loot' | 'replay';
 
 function DevApp() {
   return (
@@ -29,6 +30,9 @@ function DevTools() {
           <button type="button" className={tab === 'studio' ? 'on' : ''} onClick={() => setTab('studio')}>
             Spell Studio
           </button>
+          <button type="button" className={tab === 'lab' ? 'on' : ''} onClick={() => setTab('lab')}>
+            Spell Lab
+          </button>
           <button type="button" className={tab === 'loot' ? 'on' : ''} onClick={() => setTab('loot')}>
             Loot
           </button>
@@ -41,6 +45,7 @@ function DevTools() {
       </header>
       <main className="dev-main">{tab === 'assets' && <AssetsTab />}
         {tab === 'studio' && <SpellStudioTab />}
+        {tab === 'lab' && <SpellLabTab />}
         {tab === 'loot' && <LootTab />}
         {tab === 'replay' && <ReplayTab />}</main>
     </div>
