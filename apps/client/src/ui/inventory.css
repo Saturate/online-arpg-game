@@ -94,6 +94,22 @@
 .inv-cell img.item-model {
   image-rendering: auto;
 }
+/* Newly arrived: a dull ember glow and a corner mark, gone once hovered. */
+.inv-cell.fresh {
+  box-shadow: inset 0 0 12px rgba(196, 110, 40, 0.45), inset 0 0 10px #000;
+}
+.inv-cell.fresh::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c8762e;
+  box-shadow: 0 0 4px rgba(200, 118, 46, 0.8);
+  pointer-events: none;
+}
 .inv-cell.dragging {
   opacity: 0.35;
 }

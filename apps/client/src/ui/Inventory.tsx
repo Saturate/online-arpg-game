@@ -1,4 +1,4 @@
-import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type Item, type ItemUid } from '@rune/shared';
+import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type InventoryMessage, type Item, type ItemUid } from '@rune/shared';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
@@ -27,13 +27,51 @@ export const useHover = create<HoverState>((set) => ({ item: null, place: null, 
  */
 const useDrag = create<{ drag: DragPayload | null }>(() => ({ drag: null }));
 
-/** A rare or relic waiting for a second click before it is dropped on the ground. */
-const usePendingDrop = create<{ uid: ItemUid | null }>(() => ({ uid: null }));
+/** A good item waiting for a yes before it is dropped on the ground or sold to the shared shelf. */
+const usePendingDrop = create<{ uid: ItemUid | null; sell: boolean }>(() => ({ uid: null, sell: false }));
+
+/** Only relics ask before selling; everything else sells on the click, as a trader run is mostly junk. */
+function asksBeforeSelling(item: Item): boolean {
+  return item.tier === 'relic';
+}
+
+/**
+ * Bag items that arrived since the player last looked: picked up, bought or a rune stack that grew.
+ * Hovering one clears its mark. `baseline` is false until the first inventory of a room arrives,
+ * because uids are reissued per room and everything would look new.
+ */
+const useFresh = create<{ uids: ReadonlySet<ItemUid>; baseline: boolean }>(() => ({ uids: new Set(), baseline: false }));
+
+export function noteInventory(prev: InventoryMessage | null, next: InventoryMessage): void {
+  const { uids, baseline } = useFresh.getState();
+  if (!prev || !baseline) {
+    useFresh.setState({ baseline: true });
+    return;
+  }
+  const before = new Map(prev.items.map((i) => [i.uid, i]));
+  const inBag = new Set(next.inventory);
+  const fresh = new Set([...uids].filter((u) => inBag.has(u)));
+  for (const item of next.items) {
+    if (!inBag.has(item.uid)) continue;
+    const old = before.get(item.uid);
+    if (!old || (item.kind === 'rune' && old.kind === 'rune' && item.count > old.count)) fresh.add(item.uid);
+  }
+  useFresh.setState({ uids: fresh });
+}
+
+function unmarkFresh(uid: ItemUid): void {
+  const { uids } = useFresh.getState();
+  if (!uids.has(uid)) return;
+  const next = new Set(uids);
+  next.delete(uid);
+  useFresh.setState({ uids: next });
+}
 
 /** Item uids are reissued per room, so a drag or drop prompt must not survive a room change. */
 export function clearItemInteractions(): void {
   useDrag.setState({ drag: null });
-  usePendingDrop.setState({ uid: null });
+  useFresh.setState({ uids: new Set(), baseline: false });
+  usePendingDrop.setState({ uid: null, sell: false });
 }
 
 /** Drops a bag item on the ground; a rare or relic asks first, however it was dropped. */
@@ -41,7 +79,7 @@ export function requestDrop(uid: ItemUid): void {
   const item = itemByUid(useUi.getState().inventory, uid);
   if (!item) return;
   if (item.tier === 'rare' || item.tier === 'relic') {
-    usePendingDrop.setState({ uid });
+    usePendingDrop.setState({ uid, sell: false });
     return;
   }
   sendCommand({ t: 'discard', uid });
@@ -169,6 +207,7 @@ export function ItemCell({
   const dragged = drag && inv ? itemByUid(inv, drag.uid) : undefined;
   const accepts = drag !== null && dragged !== undefined && inv !== null && classId !== null && dragged.uid !== item?.uid && dropAction(inv, dragged, drag, place, classId) !== null;
   const blocked = item && classId ? unusable(item, level, classId) : null;
+  const fresh = useFresh((f) => item !== undefined && place.at === 'bag' && f.uids.has(item.uid));
 
   const act = (e: MouseEvent) => {
     e.preventDefault();
@@ -177,17 +216,21 @@ export function ItemCell({
     setHover(null, 0, 0);
     if (e.shiftKey && place.at === 'bag') {
       // A good drop needs a second shift+right-click; junk goes straight away.
-      if ((item.tier === 'rare' || item.tier === 'relic') && usePendingDrop.getState().uid !== item.uid) {
-        usePendingDrop.setState({ uid: item.uid });
+      const pending = usePendingDrop.getState();
+      if ((item.tier === 'rare' || item.tier === 'relic') && (pending.uid !== item.uid || pending.sell)) {
+        usePendingDrop.setState({ uid: item.uid, sell: false });
         return;
       }
-      usePendingDrop.setState({ uid: null });
+      usePendingDrop.setState({ uid: null, sell: false });
       sendCommand({ t: 'discard', uid: item.uid });
       return;
     }
     const { stashOpen, traderOpen } = useUi.getState();
-    // A good item asks before it goes to the shared shelf, where anyone can buy it.
-    if (traderOpen && place.at === 'bag' && (item.tier === 'rare' || item.tier === 'relic') && !window.confirm(`Sell ${item.name} for ${sellPrice(item)} gold?`)) return;
+    // A relic asks before it goes to the shared shelf, where anyone can buy it.
+    if (traderOpen && place.at === 'bag' && !isBound(item) && asksBeforeSelling(item)) {
+      usePendingDrop.setState({ uid: item.uid, sell: true });
+      return;
+    }
     const msg = quickAction(inventory, item, place, cls, stashOpen, traderOpen);
     if (msg) sendCommand(msg);
     else if (stashOpen && (place.at === 'bag' || place.at === 'stash')) useUi.getState().notify(`No room in the ${place.at === 'bag' ? 'stash' : 'bag'}`);
@@ -227,6 +270,7 @@ export function ItemCell({
     className,
     item ? `filled tier-${item.tier}` : 'empty',
     selected ? 'selected' : '',
+    fresh ? 'fresh' : '',
     over ? 'drop-over' : '',
     accepts ? 'drop-ok' : '',
     blocked ? 'unusable' : '',
@@ -261,7 +305,11 @@ export function ItemCell({
       }}
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
-      onMouseEnter={(e) => item && setHover(item, e.clientX, e.clientY, place)}
+      onMouseEnter={(e) => {
+        if (!item) return;
+        setHover(item, e.clientX, e.clientY, place);
+        unmarkFresh(item.uid);
+      }}
       onMouseMove={(e) => item && setHover(item, e.clientX, e.clientY, place)}
       onMouseLeave={() => setHover(null, 0, 0)}
       onClick={() => item && onSelect?.()}
@@ -482,24 +530,29 @@ export function StashWindow() {
 
 function DropConfirm() {
   const uid = usePendingDrop((s) => s.uid);
+  const sell = usePendingDrop((s) => s.sell);
   const inv = useUi((s) => s.inventory);
+  const traderOpen = useUi((s) => s.traderOpen);
   const item = itemByUid(inv, uid);
-  if (!item) return null;
+  // Walking away from the trader leaves nothing to sell to.
+  if (!item || (sell && !traderOpen)) return null;
   return (
-    <div className="inv-confirm" role="alertdialog" aria-label="Drop item">
+    <div className="inv-confirm" role="alertdialog" aria-label={sell ? 'Sell item' : 'Drop item'}>
       <p>
-        Drop <strong style={{ color: tierColor(item) }}>{item.name}</strong> on the ground?
+        {sell ? 'Sell ' : 'Drop '}
+        <strong style={{ color: tierColor(item) }}>{item.name}</strong>
+        {sell ? ` for ${sellPrice(item)} gold? Anyone can buy it off the shelf.` : ' on the ground?'}
       </p>
       <div>
         <button
           type="button"
           className="danger"
           onClick={() => {
-            sendCommand({ t: 'discard', uid: item.uid });
-            usePendingDrop.setState({ uid: null });
+            sendCommand(sell ? { t: 'sell', uid: item.uid } : { t: 'discard', uid: item.uid });
+            usePendingDrop.setState({ uid: null, sell: false });
           }}
         >
-          Drop it
+          {sell ? 'Sell it' : 'Drop it'}
         </button>
         <button type="button" onClick={() => usePendingDrop.setState({ uid: null })} autoFocus>
           Keep

@@ -23,6 +23,7 @@ import {
   type TownLayout,
   type Vec2,
   type WorldMap,
+  type ZoneId,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
   HOME_ZONE,
@@ -46,7 +47,7 @@ import { InterpolationBuffer } from './interpolation.js';
 import { Predictor } from './prediction.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
-import { clearItemInteractions } from '../ui/Inventory.js';
+import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
@@ -56,6 +57,39 @@ const BUBBLE_MS = 6000;
 const MAX_CATCHUP_TICKS = 3;
 const DEBUG_PUBLISH_MS = 250;
 const MINIMAP_MS = 100;
+/** The server re-offers the waypoint menu every 3 s while you stand on one; an older offer is stale. */
+const WAYPOINT_OFFER_MS = 3500;
+/** How close to a station's centre a click has to land; the props are about this big on screen. */
+const STATION_PICK = 60;
+
+type Station = { kind: 'stash' | 'forge' | 'trader' } | { kind: 'waypoint'; zone: ZoneId; x: number; y: number; r: number };
+
+function stationPos(def: WorldMap, s: Station): Vec2 | null {
+  return s.kind === 'waypoint' ? s : (def[s.kind] ?? null);
+}
+
+/** Inside the server's reach, less a margin so latency cannot leave a request just out of range. */
+function stationInReach(def: WorldMap, s: Station | Station['kind'], at: Vec2): boolean {
+  const station: Station | null = typeof s === 'string' ? (s === 'waypoint' ? null : { kind: s }) : s;
+  const pos = station ? stationPos(def, station) : null;
+  if (!station || !pos) return false;
+  const d = Math.hypot(pos.x - at.x, pos.y - at.y);
+  if (station.kind === 'waypoint') return d <= station.r * 0.7;
+  const reach = station.kind === 'stash' ? STASH_REACH : station.kind === 'forge' ? FORGE_REACH : TRADER.reach;
+  return d <= reach - 10;
+}
+
+/** The station under a clicked ground point, if any. */
+function stationAt(def: WorldMap, p: Vec2): Station | null {
+  for (const kind of ['stash', 'forge', 'trader'] as const) {
+    const pos = def[kind];
+    if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= STATION_PICK) return { kind };
+  }
+  for (const w of def.portals) {
+    if (w.target === 'waypoint' && w.zone && Math.hypot(w.x - p.x, w.y - p.y) <= w.r + 10) return { kind: 'waypoint', zone: w.zone, x: w.x, y: w.y, r: w.r };
+  }
+  return null;
+}
 
 type PlayerSnap = Extract<EntitySnap, { k: 'player' }>;
 
@@ -141,7 +175,11 @@ export class Game {
   private renderedLoot: { id: EntityId; x: number; y: number; r: number }[] = [];
   /** A bag the player clicked: walk to it, then pick it up. */
   private pickupTarget: EntityId | null = null;
-  /** The left button went down on loot, so this press picks up instead of casting or walking. */
+  /** A town station or waypoint the player clicked: walk to it, then open its window. */
+  private stationTarget: Station | null = null;
+  /** The latest waypoint menu the server offered; it only opens once the waypoint is clicked. */
+  private waypointOffer: { current: ZoneId; unlocked: ZoneId[]; at: number } | null = null;
+  /** The left button went down on loot or a station, so this press interacts instead of casting or walking. */
   private leftOnLoot = false;
   private pickPresses = 0;
   /** Keeps the target frame up briefly after the cursor slips off, so it does not flicker in a fight. */
@@ -454,6 +492,7 @@ export class Game {
         return;
       case 'inventory':
         if (!useUi.getState().inventory) initSkillPicks(msg);
+        noteInventory(useUi.getState().inventory, msg);
         useUi.setState({ inventory: msg });
         return;
       case 'notice':
@@ -475,7 +514,8 @@ export class Game {
         return;
       }
       case 'waypoints':
-        useUi.setState({ waypointMenu: { current: msg.current, unlocked: msg.unlocked } });
+        // Touching a waypoint still activates it on the server; the menu waits for a click, as in D2.
+        this.waypointOffer = { current: msg.current, unlocked: msg.unlocked, at: performance.now() };
         return;
       case 'staging':
         useUi.setState({ staging: msg });
@@ -562,19 +602,11 @@ export class Game {
     // Playback has no input: the recorded snapshots move the player, so prediction just follows them.
     if (!room || this.paused || this.playerId === null || !this.latest || this.replay) return;
     const origin = room.predictor.position;
-    // Walking up to the stash opens it next to the bag, like D2; the server checks the same reach.
-    const stash = room.def.stash;
-    const atStash = !!stash && Math.hypot(stash.x - origin.x, stash.y - origin.y) <= STASH_REACH - 10;
-    if (atStash !== useUi.getState().stashOpen) useUi.setState(atStash ? { stashOpen: true, inventoryOpen: true } : { stashOpen: false });
-    const forge = room.def.forge;
-    const atForge = !!forge && Math.hypot(forge.x - origin.x, forge.y - origin.y) <= FORGE_REACH - 10;
-    if (atForge !== useUi.getState().forgeOpen) useUi.setState(atForge ? { forgeOpen: true, inventoryOpen: true } : { forgeOpen: false, editorOpen: false });
-    const trader = room.def.trader;
-    const atTrader = !!trader && Math.hypot(trader.x - origin.x, trader.y - origin.y) <= TRADER.reach - 10;
-    if (atTrader !== useUi.getState().traderOpen) {
-      useUi.setState(atTrader ? { traderOpen: true, inventoryOpen: true } : { traderOpen: false });
-      if (atTrader) this.send({ t: 'traderList' });
-    }
+    // Stations open on a click (see walkToStation) and close once you walk out of the server's reach.
+    const ui = useUi.getState();
+    if (ui.stashOpen && !stationInReach(room.def, 'stash', origin)) useUi.setState({ stashOpen: false });
+    if (ui.forgeOpen && !stationInReach(room.def, 'forge', origin)) useUi.setState({ forgeOpen: false, editorOpen: false });
+    if (ui.traderOpen && !stationInReach(room.def, 'trader', origin)) useUi.setState({ traderOpen: false });
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
@@ -590,12 +622,17 @@ export class Game {
     if (input.leftPresses !== this.pickPresses) {
       this.pickPresses = input.leftPresses;
       const hit = input.overCanvas && aimPoint ? this.renderedLoot.find((l) => Math.hypot(l.x - aimPoint.x, l.y - aimPoint.y) <= l.r + 26) : undefined;
-      this.leftOnLoot = hit !== undefined;
-      if (hit) this.pickupTarget = hit.id;
+      const station = !hit && input.overCanvas && aimPoint ? stationAt(room.def, aimPoint) : null;
+      this.leftOnLoot = hit !== undefined || station !== null;
+      // Any other press cancels a walk to loot or a station, so a click elsewhere always wins.
+      this.pickupTarget = hit?.id ?? null;
+      this.stationTarget = station;
+      if (station || hit) room.mover.stop();
     }
     if (!input.leftDown) this.leftOnLoot = false;
     if (this.leftOnLoot) sampled.buttons &= ~leftBit;
     if (this.pickupTarget !== null) this.walkToPickup(room, sampled, origin, now);
+    else if (this.stationTarget !== null) this.walkToStation(room, sampled, origin, now);
     else if (useSettings.getState().options.controls === 'click' && !this.leftOnLoot) this.applyClickScheme(room, sampled, origin, aimPoint, now);
     const pad = this.pad.poll(now);
     // The pad only takes over while it is in use, so a controller left plugged in does not fight the mouse.
@@ -667,6 +704,46 @@ export class Game {
       return;
     }
     room.mover.moveTo(origin, bag, now);
+    // No path (behind a river or wall): give up rather than stand frozen waiting for one.
+    if (!room.mover.moving) this.pickupTarget = null;
+    sampled.moveDir = room.mover.direction(origin);
+  }
+
+  /** Walks to the clicked station and opens it on arrival; movement keys cancel it. */
+  private walkToStation(room: RoomView, sampled: SampledInput, origin: Vec2, now: number): void {
+    const station = this.stationTarget;
+    const at = station ? stationPos(room.def, station) : null;
+    const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
+    if (!station || !at || keysMoving) {
+      this.stationTarget = null;
+      room.mover.stop();
+      return;
+    }
+    if (stationInReach(room.def, station, origin)) {
+      if (station.kind === 'waypoint') {
+        // The server re-offers every few seconds while you stand on it; wait for a fresh offer.
+        const offer = this.waypointOffer;
+        if (!offer || offer.current !== station.zone || now - offer.at > WAYPOINT_OFFER_MS) {
+          room.mover.moveTo(origin, at, now);
+          sampled.moveDir = room.mover.direction(origin);
+          return;
+        }
+        useUi.setState({ waypointMenu: { current: offer.current, unlocked: offer.unlocked } });
+      } else if (station.kind === 'stash') useUi.setState({ stashOpen: true, inventoryOpen: true });
+      else if (station.kind === 'forge') {
+        useUi.setState({ forgeOpen: true, inventoryOpen: true });
+        if (!useUi.getState().editorOpen) useUi.getState().toggleEditor();
+      }
+      else {
+        useUi.setState({ traderOpen: true, inventoryOpen: true });
+        this.send({ t: 'traderList' });
+      }
+      this.stationTarget = null;
+      room.mover.stop();
+      return;
+    }
+    room.mover.moveTo(origin, at, now);
+    if (!room.mover.moving) this.stationTarget = null;
     sampled.moveDir = room.mover.direction(origin);
   }
 
