@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertTraderShelf, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertTraderShelf, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -82,11 +82,31 @@ function isPlayerSave(v: unknown, classId: ClassId): v is PlayerSave {
   );
 }
 
+/**
+ * An account stash as loaded. `refundGold` is owed for Linger and Pierce runes a v1 stash held: the
+ * stash has no gold of its own, so the joining character is paid, and it is written together with
+ * the converted stash, so it is paid once.
+ */
+export interface LoadedStash {
+  stash: StashSave;
+  refundGold: number;
+}
+
+/** A v1 row converted on load; logged so the server log shows what each account got. */
+function logConversion(what: string, r: ConversionReport): void {
+  const mapped = r.runesMapped.map((m) => `${m.from}->${m.to} x${m.count}`).join(', ') || 'none';
+  const refunded = r.runesRefunded.map((m) => `${m.from} x${m.count}`).join(', ') || 'none';
+  console.log(`v1 ${what} converted: ${r.starterSigils.length} starter sigils, runes ${mapped}, refunded ${refunded} for ${r.gold} gold, ${r.runesReturned} returned (${r.runesPending} pending), ${r.testSigilsUnpacked} test sigils taken apart`);
+  for (const w of r.warnings) console.log(`  v1 ${what}: ${w}`);
+}
+
 function parseSave(json: string, classId: ClassId): PlayerSave | null {
   try {
     const raw: unknown = JSON.parse(json);
     // v1 saves are converted before anything else reads them.
-    const v: unknown = isRuneFormat2(raw) ? raw : convertCharacterSave(raw).save;
+    const conversion = isRuneFormat2(raw) ? null : convertCharacterSave(raw);
+    if (conversion) logConversion(`character ${conversion.save.name}`, conversion.report);
+    const v: unknown = conversion ? conversion.save : raw;
     if (!isPlayerSave(v, classId)) return null;
     // Saves from before waypoints existed have none; everyone owns the town's.
     const waypoints: unknown = Reflect.get(v, 'waypoints');
@@ -460,17 +480,19 @@ export class AccountStore {
    * The account's shared stash; null when it has never been saved. 'unreadable' when the row is
    * damaged or holds an item that fails the shape check: the caller must not save over it.
    */
-  loadStash(accountId: number): StashSave | null | 'unreadable' {
+  loadStash(accountId: number): LoadedStash | null | 'unreadable' {
     const raw = row(this.db.prepare('SELECT stash_json FROM accounts WHERE id = ?').get(accountId))?.stash_json;
     if (typeof raw !== 'string') return null;
     try {
       const stored: unknown = JSON.parse(raw);
-      const v: unknown = isRuneFormat2(stored) ? stored : convertStash(stored).stash;
+      const conversion = isRuneFormat2(stored) ? null : convertStash(stored);
+      if (conversion) logConversion(`account ${accountId} stash`, conversion.report);
+      const v: unknown = conversion ? conversion.stash : stored;
       if (!isRecord(v) || !Array.isArray(v.items) || !Array.isArray(v.cells)) return 'unreadable';
       const items = v.items.filter(isStoredItem);
       if (items.length !== v.items.length) return 'unreadable';
       const cells = v.cells.map((c: unknown) => (typeof c === 'number' ? c : null));
-      return { items, cells, runeFormat: 2 };
+      return { stash: { items, cells, runeFormat: 2 }, refundGold: conversion?.report.gold ?? 0 };
     } catch (err) {
       console.error(`account ${accountId} stash could not be read: ${err instanceof Error ? err.message : String(err)}`);
       return 'unreadable';
@@ -531,7 +553,9 @@ export class AccountStore {
     }
     // A v1 shelf is readable data, not damage: a conversion failure stops the server rather than
     // starting a fresh shelf that the next trade would write over it.
-    const v: unknown = isRuneFormat2(stored) ? stored : convertTraderShelf(stored).shelf;
+    const conversion = isRuneFormat2(stored) ? null : convertTraderShelf(stored);
+    if (conversion) logConversion('trader shelf', conversion.report);
+    const v: unknown = conversion ? conversion.shelf : stored;
     if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
     const stock = v.stock.flatMap((e: unknown) => (isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : []));
     if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);

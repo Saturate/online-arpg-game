@@ -6,7 +6,8 @@
     "dev": "pnpm -r --parallel --filter './apps/*' dev",
     "test": "vitest run",
     "typecheck": "pnpm -r typecheck",
-    "town:pull": "pnpm --filter @rune/server town:pull"
+    "town:pull": "pnpm --filter @rune/server town:pull",
+    "runes:convert-check": "apps/server/node_modules/.bin/tsx scripts/runes-convert-check.ts"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

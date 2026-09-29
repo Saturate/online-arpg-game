@@ -991,7 +991,15 @@ export class RoomManager implements AdminHooks {
       return;
     }
     room.add(client, character.classId, character.name, character.save ?? undefined);
-    if (stash) room.loadStash(client, stash);
+    if (stash) {
+      // Gold for Linger and Pierce runes in a v1 stash; saved together with the converted stash, so paid once.
+      if (stash.refundGold > 0) {
+        const m = room.members.get(client.id);
+        const p = m ? room.sim.world.player.get(m.playerId) : undefined;
+        if (p) p.gold += stash.refundGold;
+      }
+      room.loadStash(client, stash.stash);
+    }
     const waiting = room.pendingCount(client);
     if (waiting > 0) this.system(client, `${waiting} item${waiting === 1 ? '' : 's'} did not fit in your bag or stash. Make room in the stash and log in again to get them back.`);
     // A brand new character gets its starter kit on first entry; store it right away.
