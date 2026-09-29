@@ -150,7 +150,8 @@ export interface StatDelta {
 export function compareGear(next: GearItem, current: GearItem | null): StatDelta[] {
   const a = gearStats([next]);
   const b = current ? gearStats([current]) : {};
-  return STAT_IDS.map((stat) => ({ stat, delta: (a[stat] ?? 0) - (b[stat] ?? 0) }))
+  // Rounded so float noise (0.8 - 0.7) neither prints nor counts as a change.
+  return STAT_IDS.map((stat) => ({ stat, delta: Math.round(((a[stat] ?? 0) - (b[stat] ?? 0)) * 100) / 100 }))
     .filter((d) => d.delta !== 0)
     .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASSES, createGear, GEAR_BASES, gearStats, Simulation, SIM, type GearItem } from '../src/index.js';
+import { CLASSES, createGear, formatNumber, STAT_LABELS, GEAR_BASES, gearStats, Simulation, SIM, type GearItem } from '../src/index.js';
 
 function give(sim: Simulation, pid: number, item: GearItem): void {
   const p = sim.world.player.get(pid)!;
@@ -88,5 +88,15 @@ describe('gear', () => {
     const id2 = b.addPlayer('c', save.classId, save.name, save);
     const p = b.world.player.get(id2)!;
     expect(p.items.get(p.gear.weapon ?? -1)?.kind).toBe('gear');
+  });
+});
+
+describe('number display', () => {
+  it('hides float noise and negative zero', () => {
+    expect(formatNumber(0.1 + 0.2)).toBe('0.3');
+    expect(formatNumber(0.8 - 0.7)).toBe('0.1');
+    expect(formatNumber(-0.0001)).toBe('0');
+    expect(formatNumber(12)).toBe('12');
+    expect(STAT_LABELS.lifeRegen(0.1 + 0.2)).toBe('Regenerate 0.3 life per second');
   });
 });

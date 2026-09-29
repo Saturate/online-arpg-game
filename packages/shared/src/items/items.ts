@@ -1,7 +1,7 @@
 import { HEAT, LOOT, SPIRIT } from '../config/sim.js';
 import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
-import { GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
+import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { RUNE_IDS, RUNES, type RuneId } from '../data/runes.js';
 import { skillById, SKILLS } from '../data/skills.js';
@@ -209,7 +209,7 @@ export function behaviourOf(affixes: readonly AffixRoll[]): BehaviourAffixId | n
 }
 
 export function formatAffix(a: AffixRoll): string {
-  return AFFIXES[a.id].text.replace('{v}', String(a.value));
+  return AFFIXES[a.id].text.replace('{v}', formatNumber(a.value, AFFIXES[a.id].decimals ?? 0));
 }
 
 export function sigilMods(item: SigilItem): CompileMods & { misfireMultiplier: number } {

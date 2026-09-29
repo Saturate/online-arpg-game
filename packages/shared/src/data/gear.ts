@@ -33,19 +33,29 @@ export type StatId = (typeof STAT_IDS)[number];
 
 export type StatBlock = Partial<Record<StatId, number>>;
 
+/**
+ * A number as players should read it: at most `decimals` places, no binary float noise
+ * (0.1 + 0.2 shows as 0.3) and no "-0".
+ */
+export function formatNumber(v: number, decimals = 2): string {
+  const f = 10 ** decimals;
+  const r = Math.round(v * f) / f;
+  return String(r === 0 ? 0 : r);
+}
+
 export const STAT_LABELS: Record<StatId, (v: number) => string> = {
-  life: (v) => `+${v} to maximum life`,
-  armor: (v) => `+${v} to armour`,
-  moveSpeed: (v) => `${v}% increased movement speed`,
-  heatMax: (v) => `+${v} to maximum Force`,
-  heatCooling: (v) => `${v}% faster Force recovery`,
-  spirit: (v) => `+${v} to spirit`,
-  damage: (v) => `${v}% increased damage`,
-  castSpeed: (v) => `${v}% increased cast speed`,
-  attackSpeed: (v) => `${v}% increased attack speed`,
-  lifeRegen: (v) => `Regenerate ${v} life per second`,
-  minionDamage: (v) => `Minions deal ${v}% increased damage`,
-  minionLife: (v) => `Minions have ${v}% increased life`,
+  life: (v) => `+${formatNumber(v)} to maximum life`,
+  armor: (v) => `+${formatNumber(v)} to armour`,
+  moveSpeed: (v) => `${formatNumber(v)}% increased movement speed`,
+  heatMax: (v) => `+${formatNumber(v)} to maximum Force`,
+  heatCooling: (v) => `${formatNumber(v)}% faster Force recovery`,
+  spirit: (v) => `+${formatNumber(v)} to spirit`,
+  damage: (v) => `${formatNumber(v)}% increased damage`,
+  castSpeed: (v) => `${formatNumber(v)}% increased cast speed`,
+  attackSpeed: (v) => `${formatNumber(v)}% increased attack speed`,
+  lifeRegen: (v) => `Regenerate ${formatNumber(v)} life per second`,
+  minionDamage: (v) => `Minions deal ${formatNumber(v)}% increased damage`,
+  minionLife: (v) => `Minions have ${formatNumber(v)}% increased life`,
 };
 
 export interface GearBase {
