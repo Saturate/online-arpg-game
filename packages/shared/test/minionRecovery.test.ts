@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { SIM, Simulation, type EntityId } from '../src/index.js';
+import { createVessel, SIM, Simulation, type EntityId, type VesselItem } from '../src/index.js';
 import { dealDamage, isTargetable } from '../src/sim/combat.js';
 import { findNavPath } from '../src/sim/minionPath.js';
+import { pathBudgetStats } from '../src/sim/minions.js';
 
 function binderOn(sim: Simulation) {
   const id = sim.addPlayer('c', 'binder');
@@ -129,5 +130,81 @@ describe('minion pathing behind the town fence', () => {
     for (let i = 0; i < 1 * SIM.tickRate; i++) sim.step();
     expect(mpos.x).toBeLessThan(2140);
     expect(dist(mpos, pos)).toBeLessThan(80);
+  });
+
+  it('drops a route whose goal has moved on when the replan is refused, instead of walking it', () => {
+    const { sim, mpos, m } = townFence();
+    const mc = sim.world.minion.get(m);
+    if (!mc) throw new Error('setup');
+    // A route planned a tick ago toward a goal far south; the master is now north-west, out of sight.
+    mc.path = [{ x: 2230, y: 1400 }];
+    mc.pathGoal = sim.map.navCell(2230, 1400);
+    mc.pathTick = sim.tick;
+    const stale = { x: 2230, y: 1400 };
+    const before = dist(mpos, stale);
+    const stride = mc.moveSpeed / SIM.tickRate;
+    sim.step();
+    expect(mc.path).toEqual([]);
+    // It stepped toward its master rather than a full stride down the old route.
+    expect(before - dist(mpos, stale)).toBeLessThan(stride * 0.5);
+  });
+});
+
+describe('the route search budget', () => {
+  function brutesOutside(count: number, spacing: number) {
+    const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const b = binderOn(sim);
+    b.p.stats.spiritMax = 10_000;
+    b.p.level = 30;
+    for (let slot = 1; slot < count; slot++) {
+      const v: VesselItem = { ...createVessel(sim.newItemUid(), sim.rng, 'common', 'zombie_brute', 1), affixes: [] };
+      b.p.items.set(v.uid, v);
+      b.p.inventory[b.p.inventory.indexOf(null)] = v.uid;
+      expect(sim.equipVessel(b.id, v.uid, slot)).toBeNull();
+    }
+    sim.step();
+    b.pos.x = 2060;
+    b.pos.y = 400;
+    b.p.trail = [];
+    const minions = b.p.minions.filter((x): x is EntityId => x !== null && x !== undefined);
+    expect(minions.length).toBe(count);
+    for (const [k, id] of minions.entries()) {
+      const mp = sim.world.position.get(id);
+      if (!mp) throw new Error('setup');
+      mp.x = 2220 + (k % 2) * spacing;
+      mp.y = 200 + Math.floor(k / 2) * spacing;
+    }
+    return { sim, minions, ...b };
+  }
+
+  it('runs at most 3 searches a tick and serves the rest in line', () => {
+    const { sim, minions, pos } = brutesOutside(12, 100);
+    let queuedAtOnce = 0;
+    for (let t = 0; t < 8 * SIM.tickRate; t++) {
+      sim.step();
+      const stats = pathBudgetStats(sim);
+      if (stats.tick === sim.tick - 1) {
+        expect(stats.searches).toBeLessThanOrEqual(3);
+        expect(stats.cells).toBeLessThanOrEqual(5000);
+      }
+      queuedAtOnce = Math.max(queuedAtOnce, stats.queued);
+    }
+    expect(queuedAtOnce).toBeGreaterThan(3);
+    expect(pathBudgetStats(sim).queued).toBe(0);
+    // Everyone got through the gate (or was pulled over) in the end.
+    for (const id of minions) {
+      const mp = sim.world.position.get(id);
+      if (!mp) throw new Error('gone');
+      expect(mp.x).toBeLessThan(2140);
+      expect(dist(mp, pos)).toBeLessThan(300);
+    }
+  });
+
+  it('shares one search between minions standing together with the same goal', () => {
+    const { sim, minions } = brutesOutside(4, 0);
+    sim.step();
+    const stats = pathBudgetStats(sim);
+    expect(stats.searches).toBe(1);
+    for (const id of minions) expect(sim.world.minion.get(id)?.path.length ?? 0).toBeGreaterThan(0);
   });
 });

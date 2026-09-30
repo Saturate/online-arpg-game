@@ -3,10 +3,10 @@ import type { GameMap } from '../world/gamemap.js';
 import type { Vec2 } from './math.js';
 
 /**
- * A* on the nav grid for one minion that has lost its master's trail. The enemies' flow field
- * (world/nav.ts) leads to the nearest player or minion, not to one master, so it cannot route a
- * minion home. Searches are rare (only when a minion is cut off) and capped, so a hopeless one
- * gives up quickly and the stuck teleport takes over.
+ * A* on the nav grid for one minion whose goal is out of walking sight with no usable trail crumb.
+ * The enemies' flow field (world/nav.ts) leads to the nearest player or minion, not to one master
+ * or one target, so it cannot route a minion. Each search is capped, so a hopeless one gives up
+ * and the stuck teleport takes over; the per-tick budget over all minions is in minions.ts.
  */
 
 const SQRT2 = Math.SQRT2;
@@ -29,6 +29,8 @@ interface Scratch {
   g: Float32Array;
   from: Int32Array;
   generation: number;
+  /** Reused between searches so a search allocates nothing but its result. */
+  open: Heap;
 }
 
 const scratch = new WeakMap<GameMap, Scratch>();
@@ -37,7 +39,7 @@ function scratchFor(map: GameMap): Scratch {
   let s = scratch.get(map);
   if (!s) {
     const n = map.navCols * map.navRows;
-    s = { seen: new Uint32Array(n), closed: new Uint32Array(n), g: new Float32Array(n), from: new Int32Array(n), generation: 0 };
+    s = { seen: new Uint32Array(n), closed: new Uint32Array(n), g: new Float32Array(n), from: new Int32Array(n), generation: 0, open: new Heap() };
     scratch.set(map, s);
   }
   s.generation++;
@@ -84,6 +86,11 @@ class Heap {
     return this.cells.length;
   }
 
+  clear(): void {
+    this.cells.length = 0;
+    this.keys.length = 0;
+  }
+
   push(cell: number, key: number): void {
     const { cells, keys } = this;
     let i = cells.length;
@@ -127,11 +134,17 @@ class Heap {
   }
 }
 
+/** Cells the last search expanded, for the per-tick budget. */
+export interface SearchStats {
+  expanded: number;
+}
+
 /**
  * Cell centres from just after `from` to `to`, or null when there is no route within `maxExpand`
  * cells searched. The last point is `to` itself when its cell is walkable.
  */
-export function findNavPath(map: GameMap, from: Vec2, to: Vec2, maxExpand: number): Vec2[] | null {
+export function findNavPath(map: GameMap, from: Vec2, to: Vec2, maxExpand: number, stats?: SearchStats): Vec2[] | null {
+  if (stats) stats.expanded = 0;
   const start = openCell(map, from.x, from.y);
   const goal = openCell(map, to.x, to.y);
   if (start === null || goal === null) return null;
@@ -147,7 +160,8 @@ export function findNavPath(map: GameMap, from: Vec2, to: Vec2, maxExpand: numbe
   };
   const s = scratchFor(map);
   const gen = s.generation;
-  const open = new Heap();
+  const open = s.open;
+  open.clear();
   s.seen[start] = gen;
   s.g[start] = 0;
   s.from[start] = -1;
@@ -157,7 +171,10 @@ export function findNavPath(map: GameMap, from: Vec2, to: Vec2, maxExpand: numbe
     const c: number = open.pop();
     if (s.closed[c] === gen) continue;
     s.closed[c] = gen;
-    if (c === goal) return unwind(s, c, cols, to, map);
+    if (c === goal) {
+      if (stats) stats.expanded = expanded;
+      return unwind(s, c, cols, to, map);
+    }
     expanded++;
     const cx: number = c % cols;
     const cy: number = (c - cx) / cols;
@@ -174,6 +191,7 @@ export function findNavPath(map: GameMap, from: Vec2, to: Vec2, maxExpand: numbe
       open.push(n, g + h(n));
     }
   }
+  if (stats) stats.expanded = expanded;
   return null;
 }
 

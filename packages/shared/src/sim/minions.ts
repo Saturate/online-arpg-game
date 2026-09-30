@@ -7,7 +7,7 @@ import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp, type PackRole, type PlayerComp } from './ecs.js';
 import { knockbackImmune } from './enemies.js';
 import { distSq, type Vec2 } from './math.js';
-import { findNavPath } from './minionPath.js';
+import { findNavPath, type SearchStats } from './minionPath.js';
 import type { Simulation } from './simulation.js';
 import { spawnProjectile } from './spells.js';
 
@@ -40,6 +40,16 @@ const PATH_REPLAN_TICKS = 10;
 /** A route is planned again when this old, or when its goal has drifted this many cells. */
 const PATH_STALE_TICKS = 40;
 const PATH_GOAL_DRIFT_CELLS = 3;
+/**
+ * Searches over every minion in one tick. A search that fails at PATH_EXPAND costs about 0.7 ms, so
+ * a warband of hounds cut off at once could spend many milliseconds in one tick; with these limits a
+ * tick expands at most 5000 cells (two failed searches, or three short ones) and the rest wait in
+ * line for the next ticks.
+ */
+const PATH_SEARCHES_PER_TICK = 3;
+const PATH_CELLS_PER_TICK = 5000;
+/** A route planned moments ago from this close by, in sight, toward about the same goal is reused rather than searched again. */
+const PATH_SHARE_START = 80;
 /** A waypoint this close counts as reached. */
 const WAYPOINT_REACHED = 12;
 /** How far along a route a minion looks for the furthest waypoint it can walk to straight. */
@@ -347,13 +357,14 @@ function stepToward(pos: Vec2, tx: number, ty: number, step: number, stopAt: num
  * when the trail has stopped getting it anywhere, it plans a route on the nav grid and keeps to it
  * until the goal is in sight.
  */
-function navigate(sim: Simulation, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, trail: readonly Vec2[], step: number, stopAt: number): void {
+function navigate(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, trail: readonly Vec2[], step: number, stopAt: number): void {
   if (sim.map.lineClear(pos.x, pos.y, goal.x, goal.y, radius * 0.8, 'move')) {
     m.path.length = 0;
+    budgets.get(sim)?.queue.delete(m);
     stepToward(pos, goal.x, goal.y, step, stopAt);
     return;
   }
-  if (m.path.length > 0 && followPath(sim, m, pos, radius, goal, step, stopAt)) return;
+  if (m.path.length > 0 && followPath(sim, id, m, pos, radius, goal, step, stopAt)) return;
   if (m.stuck.ticks < PATH_AFTER_STUCK_TICKS) {
     for (let i = trail.length - 1; i >= 0; i--) {
       const c = trail[i];
@@ -363,17 +374,130 @@ function navigate(sim: Simulation, m: MinionComp, pos: Vec2, radius: number, goa
       }
     }
   }
-  if (planPath(sim, m, pos, goal) && followPath(sim, m, pos, radius, goal, step, stopAt)) return;
+  if (planPath(sim, id, m, pos, radius, goal) && followPath(sim, id, m, pos, radius, goal, step, stopAt)) return;
   stepToward(pos, goal.x, goal.y, step, stopAt);
 }
 
-/** Plans a nav-grid route unless one was tried moments ago; returns whether the minion has a route. */
-function planPath(sim: Simulation, m: MinionComp, pos: Vec2, goal: Vec2): boolean {
-  if (sim.tick - m.pathTick < PATH_REPLAN_TICKS) return m.path.length > 0;
+interface PathRequest {
+  id: EntityId;
+  from: Vec2;
+  goal: Vec2;
+}
+
+/** A search from the last few ticks, successful or not, that nearby minions heading the same way reuse. */
+interface SharedRoute {
+  tick: number;
+  from: Vec2;
+  goalCell: number;
+  path: readonly Vec2[];
+}
+
+interface PathBudget {
+  tick: number;
+  searches: number;
+  cells: number;
+  /** Minions waiting for a search, oldest first (a Map keeps insertion order, and a repeated ask keeps its place). */
+  queue: Map<MinionComp, PathRequest>;
+  shared: SharedRoute[];
+  stats: SearchStats;
+}
+
+const budgets = new WeakMap<Simulation, PathBudget>();
+
+function budgetFor(sim: Simulation): PathBudget {
+  let b = budgets.get(sim);
+  if (!b) {
+    b = { tick: sim.tick, searches: 0, cells: 0, queue: new Map(), shared: [], stats: { expanded: 0 } };
+    budgets.set(sim, b);
+  }
+  if (b.tick !== sim.tick) {
+    b.tick = sim.tick;
+    b.searches = 0;
+    b.cells = 0;
+    b.shared = b.shared.filter((r) => sim.tick - r.tick < PATH_REPLAN_TICKS);
+  }
+  return b;
+}
+
+/** Room for one more search this tick, at its full cap, inside both limits. */
+function budgetRoom(b: PathBudget): boolean {
+  return b.searches < PATH_SEARCHES_PER_TICK && b.cells + PATH_EXPAND <= PATH_CELLS_PER_TICK;
+}
+
+function sharedRoute(sim: Simulation, b: PathBudget, from: Vec2, radius: number, goalCell: number): SharedRoute | null {
+  const cols = sim.map.navCols;
+  for (const r of b.shared) {
+    if (cellDrift(cols, goalCell, r.goalCell) > PATH_GOAL_DRIFT_CELLS) continue;
+    if (distSq(from.x, from.y, r.from.x, r.from.y) > PATH_SHARE_START * PATH_SHARE_START) continue;
+    if (sim.map.lineClear(from.x, from.y, r.from.x, r.from.y, radius * 0.8, 'move')) return r;
+  }
+  return null;
+}
+
+function takeRoute(sim: Simulation, m: MinionComp, route: readonly Vec2[], goalCell: number): void {
   m.pathTick = sim.tick;
-  m.pathGoal = sim.map.navCell(goal.x, goal.y);
-  m.path = findNavPath(sim.map, pos, goal, PATH_EXPAND) ?? [];
+  m.pathGoal = goalCell;
+  // A copy: following a route shifts and splices it.
+  m.path = [...route];
+}
+
+function search(sim: Simulation, b: PathBudget, m: MinionComp, from: Vec2, goal: Vec2): void {
+  const goalCell = sim.map.navCell(goal.x, goal.y);
+  const path = findNavPath(sim.map, from, goal, PATH_EXPAND, b.stats) ?? [];
+  b.searches++;
+  b.cells += b.stats.expanded;
+  b.shared.push({ tick: sim.tick, from: { x: from.x, y: from.y }, goalCell, path });
+  takeRoute(sim, m, path, goalCell);
+}
+
+/**
+ * Plans a nav-grid route unless one was tried moments ago; returns whether the minion has a route.
+ * Reuses a route a packmate just planned when it can; otherwise searches if this tick's budget has
+ * room and nobody is waiting ahead of it, and joins the line if not (served at the end of the tick
+ * or on later ticks by `drainPathQueue`).
+ */
+function planPath(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radius: number, goal: Vec2): boolean {
+  if (sim.tick - m.pathTick < PATH_REPLAN_TICKS) return m.path.length > 0;
+  const b = budgetFor(sim);
+  const goalCell = sim.map.navCell(goal.x, goal.y);
+  const shared = sharedRoute(sim, b, pos, radius, goalCell);
+  if (shared) {
+    b.queue.delete(m);
+    takeRoute(sim, m, shared.path, shared.goalCell);
+    return m.path.length > 0;
+  }
+  const first = b.queue.keys().next();
+  if (budgetRoom(b) && (first.done === true || first.value === m)) {
+    b.queue.delete(m);
+    search(sim, b, m, pos, goal);
+    return m.path.length > 0;
+  }
+  b.queue.set(m, { id, from: { x: pos.x, y: pos.y }, goal: { x: goal.x, y: goal.y } });
   return m.path.length > 0;
+}
+
+/** Spends what is left of this tick's search budget on the minions waiting in line, oldest first. */
+function drainPathQueue(sim: Simulation): void {
+  const b = budgets.get(sim);
+  if (!b || b.queue.size === 0) return;
+  budgetFor(sim);
+  for (const [m, req] of b.queue) {
+    if (!budgetRoom(b)) break;
+    b.queue.delete(m);
+    // Gone since it asked (dead, unbound, or its room closed).
+    if (sim.world.minion.get(req.id) !== m) continue;
+    const radius = sim.world.radius.get(req.id) ?? m.def.radius;
+    const goalCell = sim.map.navCell(req.goal.x, req.goal.y);
+    const shared = sharedRoute(sim, b, req.from, radius, goalCell);
+    if (shared) takeRoute(sim, m, shared.path, shared.goalCell);
+    else search(sim, b, m, req.from, req.goal);
+  }
+}
+
+/** This tick's route searches and the minions waiting for one, for tests and the bench. */
+export function pathBudgetStats(sim: Simulation): { tick: number; searches: number; cells: number; queued: number } {
+  const b = budgets.get(sim);
+  return b ? { tick: b.tick, searches: b.searches, cells: b.cells, queued: b.queue.size } : { tick: sim.tick, searches: 0, cells: 0, queued: 0 };
 }
 
 function cellDrift(cols: number, a: number, b: number): number {
@@ -383,9 +507,19 @@ function cellDrift(cols: number, a: number, b: number): number {
 }
 
 /** One step along the planned route, cutting to the furthest waypoint in a straight line. */
-function followPath(sim: Simulation, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, step: number, stopAt: number): boolean {
-  const drift = cellDrift(sim.map.navCols, sim.map.navCell(goal.x, goal.y), m.pathGoal);
-  if ((sim.tick - m.pathTick >= PATH_STALE_TICKS || drift > PATH_GOAL_DRIFT_CELLS) && !planPath(sim, m, pos, goal)) return false;
+function followPath(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, step: number, stopAt: number): boolean {
+  const cols = sim.map.navCols;
+  const goalCell = sim.map.navCell(goal.x, goal.y);
+  if (sim.tick - m.pathTick >= PATH_STALE_TICKS || cellDrift(cols, goalCell, m.pathGoal) > PATH_GOAL_DRIFT_CELLS) {
+    const planned = planPath(sim, id, m, pos, radius, goal);
+    // A replan the rate limit or the budget refused leaves the old route. An old route that is only
+    // old still leads the right way; one toward where the goal no longer is (a target that ran off)
+    // is dropped, and the minion takes the trail or a straight step until its search comes up.
+    if (!planned || cellDrift(cols, goalCell, m.pathGoal) > PATH_GOAL_DRIFT_CELLS) {
+      m.path.length = 0;
+      return false;
+    }
+  }
   const path = m.path;
   while (path.length > 1) {
     const first = path[0];
@@ -421,6 +555,7 @@ function pullOver(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, 
   pos.y = p.y;
   m.targetId = null;
   m.path.length = 0;
+  budgets.get(sim)?.queue.delete(m);
   resetStuck(m, pos, Math.hypot(pos.x - opos.x, pos.y - opos.y));
 }
 
@@ -450,7 +585,7 @@ function trackStuck(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2
  * While the master is dead: no fighting, no abilities, and the minion walks back to wait around
  * the corpse. Monsters ignore it (see isTargetable), so it cannot die for its master's death.
  */
-function standDown(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number, speed: number, dt: number): void {
+function standDown(sim: Simulation, id: EntityId, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number, speed: number, dt: number): void {
   if (!m.standingDown) {
     m.standingDown = true;
     m.targetId = null;
@@ -465,7 +600,7 @@ function standDown(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2,
     return;
   }
   const goal = followGoal(sim, owner, m, opos, radius);
-  navigate(sim, m, pos, radius, goal.at, owner.trail, speed * dt, goal.stopAt);
+  navigate(sim, id, m, pos, radius, goal.at, owner.trail, speed * dt, goal.stopAt);
   if (trackStuck(sim, m, owner, pos, opos, radius)) return;
   settle(sim, pos, radius);
 }
@@ -568,7 +703,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
     const speed = m.moveSpeed * (m.howled > 0 ? 1 + HOUND_PACK.howl.speedBonus : 1) * sim.map.speedAt(pos.x, pos.y);
 
     if (owner.respawnIn !== null) {
-      standDown(sim, m, owner, pos, opos, radius, speed, dt);
+      standDown(sim, id, m, owner, pos, opos, radius, speed, dt);
       continue;
     }
     if (m.standingDown) rejoin(sim, m, owner, pos, opos, radius);
@@ -611,7 +746,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
       }
     }
     if (m.state === 'retreat') {
-      navigate(sim, m, pos, radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
+      navigate(sim, id, m, pos, radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
       healEntity(sim, id, h.maxLife * MINIONS.cowardRegenFraction * dt, false);
       if (trackStuck(sim, m, owner, pos, opos, radius)) continue;
       settle(sim, pos, radius);
@@ -667,7 +802,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
         const canShoot = sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 4, 'shots');
         if (!canShoot || dist > def.attackRange) {
           // Reposition until there is a clear shot, walking around whatever is in the way.
-          navigate(sim, m, pos, radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
+          navigate(sim, id, m, pos, radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
         } else if (dist < def.kiteDistance) {
           const away = { x: pos.x + (pos.x - tpos.x), y: pos.y + (pos.y - tpos.y) };
           const before = { x: pos.x, y: pos.y };
@@ -705,7 +840,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
       } else {
         // Packmates circle to their own side of the target instead of queueing behind the Leader.
         const goal = m.pack?.role === 'mate' ? flankPoint(sim, owner, m, pos, tpos, radius + (w.radius.get(target) ?? 0) + def.attackRange * 0.5) : tpos;
-        navigate(sim, m, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
+        navigate(sim, id, m, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
         const now = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
         if (now <= reach && m.attackCooldown <= 0) {
           m.attackCooldown = m.attackCooldownBase;
@@ -720,11 +855,12 @@ export function updateMinions(sim: Simulation, dt: number): void {
       const goal = followGoal(sim, owner, m, opos, radius);
       // Minions sprint to catch up when far behind, so they do not trail across the map.
       const catchUp = ownerDist2 > MINIONS.catchUpDistance ** 2 ? MINIONS.catchUpSpeedMultiplier : 1;
-      navigate(sim, m, pos, radius, goal.at, owner.trail, speed * catchUp * dt, goal.stopAt);
+      navigate(sim, id, m, pos, radius, goal.at, owner.trail, speed * catchUp * dt, goal.stopAt);
       if (trackStuck(sim, m, owner, pos, opos, radius)) continue;
     }
     settle(sim, pos, radius);
   }
+  drainPathQueue(sim);
   // Before separation, so being shoved by a packmate does not turn a dog around.
   for (const [id, m, pos] of w.query(w.minion, w.position)) {
     const from = tickStarts.get(id);
