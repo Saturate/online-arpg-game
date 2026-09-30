@@ -79,8 +79,8 @@ Live settings (`ServerSettings`), applied without a restart:
 | `worldSeed` | 1 | 0 to 999,999 |
 | `dayMinutes` | 20 | 2 to 240 |
 | `nightBrightness` | 0.6 | 0 to 1 |
-| `heroLight` (the hero's light at night; party members get a faint share; underground it scales the hero's torch) | 1 | 0 to 3 |
-| `heroLightRadius` (how far the hero's night light reaches, world units) | 700 | 200 to 1600 |
+| `heroLight` (the hero's light at night; party members get a faint share; underground it scales the hero's torch) | 0.8 | 0 to 3 |
+| `heroLightRadius` (how far the hero's night light reaches, world units) | 520 | 200 to 1600 |
 | `lampLight` (torches, lanterns, fires, portals and waypoints at night, and every torch underground) | 1 | 0 to 3 |
 | `timeOfDay` | `cycle` | `cycle` or `hold` |
 | `clockOffset`, `heldPhase` | 0, 0.25 | 0 to 1 (phase 0 is 06:00) |

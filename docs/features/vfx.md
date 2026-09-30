@@ -11,9 +11,9 @@ Spells and ground effects look like a dark, gritty ARPG: embers, smoke and grime
 - **Novas:** a shockwave ring with a bright, broken leading edge and a dark band behind it (it stands in for refraction), throwing debris off the front: embers, ice shards, sparks, motes, or dust and stones for impact and plain novas.
 - **Zones:** a ground shader per style, always with the same crisp edge ring.
   - Fire: scrolling noise flames, glowing embers blinking out in the ash, faint heat shimmer, scorched ground with a charred band inside the edge, rising embers, flame tongues and smoke.
-  - Cold: frost veins creeping in from the rim over darkened rime, crystal spikes around the edge with glints, low mist.
-  - Lightning: jagged arcs that jump every few frames over scorched ground, sparks.
-  - Restore, ward and mixed: a slow runic circle (two thin rings, a band of glyph strokes, a soft inner light) and rising motes.
+  - Cold: feathery rime (veins broken into short barbs, at half the brightness of the first version) creeping in from the rim over darkened rime, crystal spikes around the edge in the body colour 0x5ab4e0, low mist. Its night glow lifts to only 0.7 of the other styles', so a frost patch does not go neon.
+  - Lightning: jagged arcs that jump every few frames over scorched ground, sparks. Fewer arcs by day.
+  - Restore, ward and mixed: a slow runic circle (two thin rings, a band of glyph strokes, a soft inner light) and rising motes. The rim dims to 0.8 at night.
   - Plain: stirred dust.
 - **Auras:** a faint runic circle the size of the aura around the caster, turning slowly, and motes of the aura's type (embers, shards, sparks or motes).
 - **Bond tethers:** a cord with pulses running from the caster to the bonded ally, and motes along it.
@@ -21,15 +21,17 @@ Spells and ground effects look like a dark, gritty ARPG: embers, smoke and grime
 - **Hits:** fire sprays embers and a smoke puff, cold chips shards and a breath of mist, lightning throws sparks with a flash, other elements shed motes, and physical hits spray dark blood and dust.
 - **Deaths** show the element of the last hit on the monster: ash, embers and a scorch mark for fire, a shatter of falling ice for cold, sparks and a scorch for lightning, gore chunks in the monster's colour and dust otherwise. Each also has a small shockwave.
 - **Explosions** (volatile monsters, minions, dungeon traps): a flash, a fireball of embers and sparks, rising smoke, a shockwave and a scorch mark.
-- **Statuses on monsters** (from the `st` bits every entity snapshot already carries: burn, chill, shock): burning bodies carry flickering flame tongues, embers and smoke and give off light; chilled bodies have frost mist at their feet and falling glints; shocked bodies throw sparks with the odd flash. The old emissive tint stays, much weaker on Medium and High, so a burning pack no longer turns into orange silhouettes.
-- **Enemy bullets and telegraphs** are unchanged: the solid magenta bullet with a white outline and its puff trail, and the flat wind-up outline and fill, so they can never be mistaken for a player's spell.
-- **Light:** spells light the world through the shared light budget (`render/lights.ts`): bolts and orbs carry a light, burning ground is a campfire, a storm zone flickers, runic zones glow softly, hits, casts, deaths and explosions flash. Enemy bullets have none.
+- **Statuses on monsters** (from the `st` bits every entity snapshot already carries: burn, chill, shock): burning bodies carry flickering flame tongues, embers and smoke and give off light; chilled bodies have frost mist at their feet and a few pale falling glints (0xbfd8e8); shocked bodies throw sparks with the odd flash. The old emissive tint stays, much weaker on Medium and High, and at 0.4 on Low, where it is the only cue. The shock tint's flicker holds each random value for 0.1 s.
+- **Hit flash:** the model brightens in its own colours for 0.08 s, at most once every 0.3 s per entity (zones tick every few frames). Textured (KayKit) models get their texture as the emissive map the first time their materials are copied, so a white emissive lights the texture instead of turning the model white; rigs brighten their main colour. Strength 0.25 on Medium and High, 0.35 on Low.
+- **Enemy bullets** are unchanged: the solid magenta bullet with a white outline and its puff trail.
+- **Enemy telegraphs and hazards** share one hostile look (`hostileMaterial` in `materials.ts`), one draw each: a blood-red ring (0xb81c14 at 0.9) broken into 24 segments inside a dark border (0x1a0806 at 0.8), with the element only as a thin inner tick, and a red fill that grows to the edge over the wind-up. Line telegraphs have dashed edges and fill along their length. Player areas have solid rings in their element colour, so the two never read alike. Enemy casts get a small grey puff, not the player's element flash and light.
+- **Light:** spells light the world through the shared light budget (`render/lights.ts`): bolts and orbs carry a light, burning ground is a campfire, a storm zone crackles, runic zones glow softly, hits, casts, deaths and explosions flash. A zone's light reaches 1.2x its radius and no further. Random flicker (bolts, orbs, fire and storm zones) holds each value 0.1 s within 15% (`vfx/jitter.ts`); a fresh random every frame strobed. Enemy bullets and casts have none.
 
 ## Why
 
 - **Readability first.** Every zone, nova and aura keeps a crisp edge ring in its body colour, the colours stay close to the old flat ones, and enemy bullets and telegraphs keep their own look.
 - **Embers, not neon.** The world is drawn with ACES tone mapping at an exposure of about 1.5 and a canvas grade; a body colour at full strength clips to yellow white by day. Effect shaders run the same tone mapping and output colour space as the lit world, and their glow is scaled to roughly half, rising at night. Palettes (`vfx/palette.ts`) have a core, a body, a deep tone for falloff and charred edges, and a smoke colour.
-- **Day and night.** A shared `uNight` uniform (the night factor outdoors, always 1 underground) lifts glow at night, where effects are the light, and eases scorch and rime darkening; spell light keeps a third of its strength by day (`SPELL_DAY_LIGHT`).
+- **Day and night.** A shared `uNight` uniform (the night factor outdoors, always 1 underground) lifts glow at night, where effects are the light, and eases scorch and rime darkening; spell light keeps 0.35 of its strength by day (`SPELL_DAY_LIGHT`), lightning 0.2. Whether a map has night comes from its theme (`nightModeOf` in `daylight.ts`): town and wilds follow the clock, dungeon, staging and arena are always night, flat test maps never are. `Effects` reads it from the world scene, so the game, the Spell Studio and the bench agree.
 - **Stacked zones share one glow.** A caster recasting a zone in place stacks about ten copies on one spot; ten additive glows burned to white. `Vfx.zoneShare` gives copies of one style on nearly the same spot one zone's worth of glow between them, oldest first, so a fading copy hands over smoothly, and fully covered copies do not draw.
 - **Premultiplied alpha** in the ground and nova shaders: one pass both darkens the ground (scorch, rime, dust) and adds light (flames, arcs).
 - **No real refraction or soft particles.** Both need a copy of the scene or its depth as a texture, an extra full-screen pass. The nova's dark band stands in for refraction and sprites fade near the ground instead of depth fading.
@@ -46,6 +48,7 @@ Code is in `apps/client/src/render/vfx/`:
 - `ribbons.ts`: `RibbonBatch`, every trail ribbon in one geometry and one draw; camera-facing strips built from a short point history, thinning and fading to the tail, with a noise-broken or jittering filament shader by style.
 - `materials.ts`: shader materials for zones, novas, orbs, auras, tethers, and the Low one-quad area. Each returns `{ material, u }` with typed uniforms; copies of one kind and style share a compiled program.
 - `palette.ts`: styles (`styleOf(el, fx)`) and their colours.
+- `jitter.ts`: `HeldJitter`, the held random flicker.
 - `vfx.ts`: `Vfx`, the system: the layers, ribbons, shockwave pool, flash lights, budget and quality, and the emitters.
 - `spellViews.ts`: the drawn view of every projectile, nova and zone, by quality.
 
@@ -55,6 +58,7 @@ Wiring:
 - A frame: `EntityRenderer.render` calls `vfx.begin(dt)` (clock, night factor, budget, pool steps), views and events emit, `Effects.update` calls `vfx.commit()` (buffer uploads, ribbons). Spell light is read by the light budget in `WorldScene.follow`.
 - `render/fxEvents.ts`: `playFxEvent` draws every game event the same way in the game, the Spell Studio and the VFX bench.
 - The setting is Esc, Settings, Spell effects, stored with the other client options (`ui/settings.ts`, default High). Changing it rebuilds the pools and every spell view on the next frame.
+- **Shader warm-up:** when a room is built and after a quality change, `Vfx.warm` adds a throwaway mesh per material and style the level can draw (zone, nova, orb and aura for each of the 7 styles, the tether and the hostile markers; the one-quad area on Low), runs `renderer.compileAsync` and removes them. The warm materials stay alive: three frees a program when its last material is disposed. Before this, the first cast of each (kind, style) stalled a frame on its compile.
 
 The API emitters and views use:
 
@@ -107,20 +111,23 @@ The dev tools VFX tab (`/admin/dev/#vfx/crowd/high`): 8 god-mode casters (3 Froz
 
 | Crowd, 84 live spells | Before | Low | Medium | High |
 |---|---|---|---|---|
-| Draw calls (monsters and world alone: about 700) | 1230 | 1007 | 947 | 945 |
+| Draw calls (monsters and world alone: about 700) | 1230 | 1007 (988 after the review fixes) | 947 | 945 (926) |
 | EntityRenderer CPU per frame | 1.3 ms | 1.4 to 1.6 ms | 1.45 ms | 1.5 ms |
 | Effects CPU per frame | 0.10 ms | 0.06 ms | 0.09 ms | 0.10 ms |
 | Render CPU per frame | 8.7 to 9.4 ms | 7.7 to 8.6 ms | 7.2 ms | 7.1 ms |
 | JS heap growth per frame | 1.85 MB | 1.40 MB | 1.26 MB | 1.26 MB |
 | Live particles | up to 900 boxes | 350 | 1060 | 1970 |
 
-Spell views emit their particles inside `EntityRenderer.render`, which is why it gains about 0.2 ms: that work used to be in the game's draw loop, outside the measurement. GPU time was not measured (headless Chrome has no timer query here); the fragment cost is the zone and nova shaders (three octaves of value noise over each area) and additive sprite overdraw in a crowd.
+Spell views emit their particles inside `EntityRenderer.render`, which is why it gains about 0.2 ms: that work used to be in the game's draw loop, outside the measurement. After the review fixes (hostile markers, texture flash, pool spreading, shader warm-up) the same bench was run against the previous commit in one browser, alternating, three 600-frame runs each once the machine settled: High 926 against 950 draw calls, EntityRenderer 1.21 to 1.24 against 1.19 to 1.2 ms, Effects 0.07 to 0.08 against 0.07 ms, render 5.5 to 5.8 against 5.6 to 5.8 ms, heap 1.19 to 1.22 against 1.29 to 1.31 MB per frame; Low 988 against 1011 draw calls, 1.15 to 1.2 against 1.14 ms, 0.05 against 0.04 ms, 5.8 to 5.9 against 5.75 to 5.9 ms, 1.33 to 1.37 against 1.41 MB. The telegraphs are one draw instead of two.
+
+GPU time was not measured (headless Chrome has no timer query here); the fragment cost is the zone and nova shaders (three octaves of value noise over each area) and additive sprite overdraw in a crowd.
 
 ## Limits and open questions
 
 - Zones and novas show only their first element: that is all the snapshot carries, so Frostfire looks like fire.
 - The bond tether is always the ward colour: the snapshot lists linked ids without the bond's effect.
-- Monster hazards (poison, fire and frost puddles) keep their flat look; they are enemy ground effects and could get a light polish of their own that stays distinct from player zones.
-- Hit flashes: zones tick often, and the full flash left monsters in a zone white; on Medium and High the flash is softer. Whether hits need a different cue is open.
+- Status tints on procedural rigs are a flat colour: the rig shader's emissive does not use the vertex colours, so on Low a chilled or burning rig monster reads as a tinted silhouette (textured models keep their texture under the tint). Multiplying the rig emissive by the vertex colour in `rigs/compile.ts` would fix it.
+- The texture-flash program variant (KayKit materials with the emissive map) compiles on the first hit of each material program; it is not in the warm-up.
+- Changing the `heroLight` and `heroLightRadius` defaults only reaches a server whose stored settings lack them; a server that saved its settings keeps its values until an admin changes them.
 - Stacked zones share glow by style and position only; two casters' zones of one style on one spot also share.
 - Real point lights go to the brightest sources near the camera through the shared budget (8 lights); everything else gets a ground pool from it.
