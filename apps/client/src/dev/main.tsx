@@ -8,8 +8,9 @@ import { ReplayTab } from './ReplayTab.js';
 import { RigsTab } from './rigs/RigsTab.js';
 import { SpellLabTab } from './SpellLabTab.js';
 import { SpellStudioTab, type InjectedSpell } from './SpellStudioTab.js';
+import { VfxTab } from './vfx/VfxTab.js';
 
-const TABS = ['assets', 'monsters', 'studio', 'lab', 'loot', 'replay'] as const;
+const TABS = ['assets', 'monsters', 'studio', 'lab', 'vfx', 'loot', 'replay'] as const;
 type Tab = (typeof TABS)[number];
 
 function DevApp() {
@@ -48,6 +49,9 @@ function DevTools() {
           <button type="button" className={tab === 'lab' ? 'on' : ''} onClick={() => setTab('lab')}>
             Spell Lab
           </button>
+          <button type="button" className={tab === 'vfx' ? 'on' : ''} onClick={() => setTab('vfx')}>
+            VFX
+          </button>
           <button type="button" className={tab === 'loot' ? 'on' : ''} onClick={() => setTab('loot')}>
             Loot
           </button>
@@ -69,6 +73,7 @@ function DevTools() {
             }}
           />
         )}
+        {tab === 'vfx' && <VfxTab />}
         {tab === 'loot' && <LootTab />}
         {tab === 'replay' && <ReplayTab />}</main>
     </div>

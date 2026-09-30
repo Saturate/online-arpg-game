@@ -36,6 +36,7 @@ import { netSettings } from '../net/settings.js';
 import { COLORS, cssColor, ELEMENT_COLORS, FX, TIER_COLORS, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { Effects } from '../render/fx.js';
+import { playFxEvent } from '../render/fxEvents.js';
 import { Minimap } from '../render/minimap.js';
 import { WorldScene } from '../render/scene.js';
 import { initSkillPicks, pickSkill, useUi } from '../ui/store.js';
@@ -923,24 +924,12 @@ export class Game {
     const renderTick = room.interp.renderTick(now) ?? Infinity;
     const ready = this.pendingEvents.filter((p) => p.tick <= renderTick + 1);
     this.pendingEvents = this.pendingEvents.filter((p) => p.tick > renderTick + 1);
+    const opts = useSettings.getState().options;
+    const ctx = { fx, entities, selfId: this.playerId, damageNumbers: opts.damageNumbers, shake: (n: number) => world.addShake(n) };
     for (const { ev } of ready) {
+      playFxEvent(ev, ctx);
       switch (ev.e) {
-        case 'dmg': {
-          entities.flash(`s${ev.id}`);
-          if (ev.amt < 1) break;
-          const own = ev.id === this.playerId;
-          if (own) world.addShake(VIEW.shakeOnHit);
-          if (useSettings.getState().options.damageNumbers) fx.text(ev.x, ev.y, String(ev.amt), own ? 0xff4040 : ev.el ? ELEMENT_COLORS[ev.el] : 0xffffff, ev.amt >= 30);
-          fx.burst(ev.x, ev.y, ev.el ? ELEMENT_COLORS[ev.el] : 0xffe0c0, 4, 90, { up: 120, size: 3, life: 0.3 });
-          break;
-        }
-        case 'heal':
-          fx.text(ev.x, ev.y, `+${ev.amt}`, COLORS.heal);
-          fx.burst(ev.x, ev.y, COLORS.heal, 6, 40, { up: 90, size: 3, gravity: -60 });
-          break;
         case 'levelUp': {
-          fx.shockwave(ev.x, ev.y, 160, 0xffd76a, 0.8);
-          fx.burst(ev.x, ev.y, 0xffd76a, 40, 220, { up: 260, size: 5, life: 1 });
           if (ev.id === this.playerId) {
             const id = performance.now();
             useUi.setState({ banner: { id, title: `Level ${ev.level}`, text: 'You feel stronger. Life and Force restored.' } });
@@ -950,46 +939,16 @@ export class Game {
           }
           break;
         }
-        case 'raise':
-          entities.removeCorpseNear(ev.x, ev.y);
-          break;
         case 'waypoint':
           if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
           break;
-        case 'death':
-          fx.clearTelegraphs(ev.id);
-          if (ev.k === 'enemy') entities.markDying(ev.id);
-          fx.burst(ev.x, ev.y, ev.color, ev.big ? FX.deathParticles * 2 : FX.deathParticles, ev.big ? 260 : 180, { size: ev.big ? 8 : 6 });
-          fx.shockwave(ev.x, ev.y, ev.big ? 140 : 70, ev.big ? COLORS.rareOutline : ev.color);
-          if (ev.big) world.addShake(5);
-          break;
         case 'fizzle':
-          fx.burst(ev.x, ev.y, ev.why === 'misfire' ? 0xff5030 : 0x999999, 14, 80, { up: 60, size: 6, gravity: -30, life: 0.7 });
-          fx.text(ev.x, ev.y - 20, ev.why === 'misfire' ? 'misfire' : 'fizzle', ev.why === 'misfire' ? 0xff5030 : 0xaaaaaa);
           if (ev.id === this.playerId) this.lastFizzle = ev.why === 'misfire' ? 'misfire' : `dud: ${ev.reason ?? '?'}`;
           break;
-        case 'explode':
-          fx.shockwave(ev.x, ev.y, ev.r, 0xff8a3a, 0.4);
-          fx.burst(ev.x, ev.y, 0xff8a3a, 30, 260);
-          world.addShake(4);
-          break;
         case 'pickup':
-          fx.burst(ev.x, ev.y, COLORS.selfRing, 16, 60, { up: 200, size: 4, gravity: 200 });
           if (ev.id === this.playerId) useUi.getState().notify(`Picked up ${ev.count} item${ev.count > 1 ? 's' : ''}`);
           break;
-        case 'attack':
-          entities.attack(`s${ev.id}`);
-          break;
-        case 'tele':
-          fx.telegraph(ev);
-          entities.windup(`s${ev.id}`, ev.t);
-          break;
-        case 'hazard':
-          fx.hazard(ev);
-          break;
-        case 'cast':
-          entities.attack(`s${ev.id}`);
-          fx.burst(ev.x, ev.y, ev.el ? ELEMENT_COLORS[ev.el] : 0xd0d8ff, 8, 70, { up: 140, size: 3, life: 0.35 });
+        default:
           break;
       }
     }
