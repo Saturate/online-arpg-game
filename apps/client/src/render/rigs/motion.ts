@@ -130,8 +130,18 @@ const WALK_SWING = 0.45;
 const RUN_SWING = 0.7;
 /** Fastest leg cycle a gait may play, in cycles per second; tiny fast legs slide rather than blur. */
 const MAX_CYCLE: Record<Gait, number> = { biped: 2.4, quad: 3.2, hop: 3, scurry: 4.5, skitter: 5, fly: 0, hover: 0, float: 0, slither: 1.6, bounce: 2.2, still: 0, crawl: 2.6 };
-/** Ground covered per cycle for legless gaits, in model units. */
-const GLIDE_STRIDE: Partial<Record<Gait, number>> = { hover: 5, float: 5, slither: 3.5, bounce: 2.6, fly: 6 };
+/** Ground covered per cycle for legless gaits, in model units. A crawl slides on its belly and paddles. */
+const GLIDE_STRIDE: Partial<Record<Gait, number>> = { hover: 5, float: 5, slither: 3.5, bounce: 2.6, fly: 6, crawl: 2.4 };
+/** How far a capped gait may lengthen its swing before it has to leave the ground instead. */
+const MAX_SWING = 0.9;
+/** The share of a cycle one foot of a hopper spends on the ground; the rest is the hop. */
+const HOP_DUTY = 0.125;
+/** Seconds for stride length and ground time to follow a change of speed. */
+const STRIDE_EASE = 0.12;
+/** Cycle offsets of each leg: a pair alternating, a quad's diagonal walk and its gallop. */
+const PAIR = [0, 0.5] as const;
+const QUAD_WALK = [0, 0.5, 0.5, 0] as const;
+const QUAD_RUN = [0, 0.08, 0.5, 0.58] as const;
 
 const CROSSFADE = 0.2;
 const STRIKE_SECONDS = 0.14;
@@ -165,6 +175,15 @@ export interface RigMotion {
   time: number;
   /** Walk cycles completed, fractional. */
   phase: number;
+  /** Swing amplitude multiplier: a capped gait takes longer strides before it leaves the ground. */
+  stretch: number;
+  /** Share of a cycle each foot is planted: 0.5 is a walk, less adds a flight phase between steps. */
+  duty: number;
+  /** A skittering leg's forward reach per radian of swing (reachOf), in body units. */
+  readonly reach: number;
+  /** The two legs that step, and all four for quadrupeds (legs in front, arms behind). */
+  readonly pair: readonly (Channel | null)[];
+  readonly four: readonly (Channel | null)[];
   readonly weights: Float64Array;
   base: number;
   action: Action;
@@ -226,6 +245,11 @@ function initMotion(rig: Rig, seed: number): RigMotion {
     seed,
     time: 0,
     phase: 0,
+    reach: reachOf(extras),
+    stretch: 1,
+    duty: rig.profile.gait === 'hop' ? HOP_DUTY : 0.5,
+    pair: [parts.legL, parts.legR],
+    four: [parts.legL, parts.legR, parts.armL, parts.armR],
     weights,
     base: IDLE,
     action: 'none',
@@ -377,8 +401,33 @@ export function cycleLength(rig: Rig, swing: number): number {
   const glide = GLIDE_STRIDE[rig.profile.gait];
   if (glide !== undefined || rig.legLength <= 0) return (glide ?? 4) * scale;
   // A stiff leg planted for half a cycle carries the body 2 L sin(swing); two legs per cycle.
-  const splay = rig.profile.gait === 'skitter' || rig.profile.gait === 'crawl' ? 0.6 : 1;
-  return 4 * rig.legLength * scale * Math.sin(swing) * splay;
+  const k = SWING_K[rig.profile.gait] ?? 1;
+  const reach = rig.profile.gait === 'skitter' ? (rig.motion?.reach ?? rig.legLength * 0.6) : rig.legLength;
+  return 4 * reach * scale * Math.sin(k * swing);
+}
+
+/** Each gait's legs swing this multiple of the shared swing amplitude. */
+const SWING_K: Partial<Record<Gait, number>> = { hop: 1.1, scurry: 1.2, skitter: 0.8 };
+
+/**
+ * How far a splayed leg's foot moves forward per radian of swing about the vertical, in body units:
+ * its horizontal distance from the hip, times how much of that motion points forward once fanned.
+ */
+function reachOf(extras: readonly Channel[]): number {
+  let sum = 0;
+  let n = 0;
+  const v = new Vector3();
+  for (const c of extras) {
+    if (c.node.userData.kind !== 'leg') continue;
+    const foot: unknown = c.node.userData.foot;
+    const length: unknown = c.node.userData.length;
+    if (Array.isArray(foot) && foot.length === 3 && foot.every((f) => typeof f === 'number')) v.set(Number(foot[0]), Number(foot[1]), Number(foot[2]));
+    else v.set(0, typeof length === 'number' ? -length : -1, 0);
+    v.applyEuler(new Euler(c.r0x, 0, 0));
+    sum += Math.hypot(v.x, v.z) * Math.cos(c.r0y);
+    n++;
+  }
+  return n > 0 ? sum / n : 0;
 }
 
 function swingFor(m: RigMotion, heavy: number): number {
@@ -431,7 +480,30 @@ export function driveRig(rig: Rig, d: RigDrive): void {
   const swing = swingFor(m, p.weight);
   const cycle = cycleLength(rig, swing);
   const cap = MAX_CYCLE[p.gait];
-  if (cycle > 0 && cap > 0) m.phase += Math.min(cap, d.speed / cycle) * dt;
+  const legged = GLIDE_STRIDE[p.gait] === undefined && rig.legLength > 0 && cap > 0;
+  if (legged && cycle > 0) {
+    const most = p.gait === 'hop' ? HOP_DUTY : 0.5;
+    let stretch = 1;
+    let duty = most;
+    if (d.speed > 1) {
+      // A planted foot must move back at ground speed. Past the cycle cap the stride grows first,
+      // then the stance shortens and the body flies between steps: a bound or a gallop.
+      const want = (d.speed * 2 * most) / cap;
+      if (want > cycle) {
+        const k = SWING_K[p.gait] ?? 1;
+        const limit = Math.max(swing, MAX_SWING);
+        const sin = (Math.sin(k * swing) * want) / cycle;
+        stretch = Math.max(1, (sin >= Math.sin(k * limit) ? limit : Math.asin(sin) / k) / swing);
+      }
+      const stroke = cycleLength(rig, swing * stretch);
+      duty = Math.min(most, (stroke * Math.min(cap, (d.speed * 2 * most) / stroke)) / (2 * d.speed));
+    }
+    const ease = Math.min(1, dt / STRIDE_EASE);
+    m.stretch += (stretch - m.stretch) * ease;
+    m.duty += (duty - m.duty) * ease;
+    const stroke = cycleLength(rig, swing * m.stretch);
+    if (d.speed > 0) m.phase += Math.min(cap, (2 * m.duty * d.speed) / stroke) * dt;
+  } else if (cycle > 0 && cap > 0) m.phase += Math.min(cap, d.speed / cycle) * dt;
   else if (cycle > 0) m.phase += (d.speed / cycle) * dt;
 
   advanceAction(m, dt);
@@ -618,22 +690,130 @@ function flapTurns(rig: Rig): number {
   return Math.round(14 - 9 * rig.profile.weight);
 }
 
-function locomote(rig: Rig, m: RigMotion, w: number, amp: number, run: boolean): void {
+/** Set by `wave`: how far through its swing the foot is (0 to 1), or -1 while it is planted. */
+let swingP = 0;
+
+/**
+ * A leg's swing at `u` cycles, -1 to 1, planted for `duty` of the cycle around u = 0.5 and moving
+ * forward the rest. While planted the foot, L sin(amp * wave), moves back at a constant speed, so it
+ * matches the ground the whole stance and not only on average.
+ */
+function wave(u: number, duty: number, amp: number): number {
+  const x = u - Math.floor(u);
+  const start = 0.5 - duty / 2;
+  if (x >= start && x < start + duty) {
+    swingP = -1;
+    const t = 1 - (2 * (x - start)) / duty;
+    return amp > 1e-3 ? Math.asin(Math.sin(amp) * t) / amp : t;
+  }
+  let v = x - start - duty;
+  if (v < 0) v += 1;
+  const swing = 1 - duty;
+  swingP = v / swing;
+  return -Math.cos((Math.PI * v) / swing);
+}
+
+/** Marks a foot planted or not, so tests can check a planted foot keeps pace with the ground. */
+function markPlanted(c: Channel | null, down: boolean): void {
+  if (c) c.node.userData.planted = down;
+}
+
+const legAngle = new Float64Array(4);
+const legSwing = new Float64Array(4);
+
+/**
+ * How high into a flight phase the body is, 0 to 1: 0 while any foot is planted, peaking halfway
+ * between the last foot leaving and the next landing. Reads the feet `wave` left in legSwing.
+ */
+function airOf(count: number): number {
+  let since = Infinity;
+  let until = Infinity;
+  for (let i = 0; i < count; i++) {
+    const p = legSwing[i] ?? -1;
+    if (p < 0) return 0;
+    since = Math.min(since, p);
+    until = Math.min(until, 1 - p);
+  }
+  return since + until > 0 ? Math.sin((Math.PI * since) / (since + until)) : 0;
+}
+
+/**
+ * Swings stiff legs by `amp` at their cycle offsets and holds the most upright planted foot on the
+ * ground; in a flight phase the body rises instead. Swinging legs shorten (a knee bend seen from
+ * afar) so their feet clear the ground. `pitch` is the body's lean this frame, which the legs undo.
+ * Returns the flight height, 0 to 1.
+ */
+/** The body pitch `stride` settled on for four legs, which the caller applies to the body. */
+let stridePitch = 0;
+const hipAt = new Float64Array(2);
+
+function stride(rig: Rig, m: RigMotion, legs: readonly (Channel | null)[], off: readonly number[], amp: number, w: number, pitch: number): number {
+  const d = m.duty;
+  const bs = rig.body.scale.y;
+  const L = rig.legLength * bs;
+  const n = Math.min(legs.length, legAngle.length);
+  for (let i = 0; i < n; i++) {
+    legAngle[i] = amp * wave(m.phase + (off[i] ?? 0), d, amp);
+    legSwing[i] = legs[i] ? swingP : 0.5;
+    markPlanted(legs[i] ?? null, swingP < 0);
+  }
+  const air = airOf(n);
+  const flight = L * Math.cos(amp) + 0.08 * L * clamp01((0.5 - d) / 0.2) * air;
+  // Hip height over each planted group: two legs share one; four split into front and back.
+  const groups = n > 2 ? 2 : 1;
+  for (let g = 0; g < groups; g++) {
+    // The least upright planted leg sets the height; a more upright one flexes to meet the ground.
+    let plant = 2;
+    for (let i = g * 2; i < (groups === 1 ? n : g * 2 + 2); i++) if (legs[i] && (legSwing[i] ?? 0) < 0) plant = Math.min(plant, Math.cos(legAngle[i] ?? 0));
+    hipAt[g] = plant > 1 ? flight : L * plant;
+  }
+  let lift = hipAt[0] ?? L;
+  stridePitch = 0;
+  const front = legs[0];
+  const back = legs[2];
+  if (groups === 2 && front && back) {
+    // The body tilts so the front and back feet are both down: y at x rises by x sin(pitch).
+    const xf = front.p0x * bs;
+    const xb = back.p0x * bs;
+    if (Math.abs(xf - xb) > 1e-3) {
+      stridePitch = Math.atan(((hipAt[0] ?? L) - (hipAt[1] ?? L)) / (xf - xb));
+      lift = (hipAt[0] ?? L) - xf * Math.sin(stridePitch);
+    }
+  }
+  const lean = pitch + stridePitch;
+  pos(m.body, 0, lift - L, 0, w);
+  for (let i = 0; i < n; i++) {
+    const c = legs[i] ?? null;
+    if (!c) continue;
+    // Legs swing from the vertical, not from a leaning body, or the planted foot would ride up.
+    rot(c, 0, 0, (legAngle[i] ?? 0) - lean, w);
+    const p = legSwing[i] ?? -1;
+    const reach = L * Math.cos(legAngle[i] ?? 0);
+    const hip = hipAt[groups === 2 && i >= 2 ? 1 : 0] ?? L;
+    if (reach < 1e-3) continue;
+    const k = Math.min(1, (hip - (p < 0 ? 0 : 0.12 * L * Math.sin(Math.PI * p))) / reach);
+    if (k < 1) scl(c, 0, Math.max(-0.6, k - 1), 0, w);
+  }
+  return air;
+}
+
+function paddle(c: Channel | null, swing: number, w: number): void {
+  if (c) rot(c, -c.side * 0.9, 0, swing, w);
+}
+
+function locomote(rig: Rig, m: RigMotion, w: number, base: number, run: boolean): void {
   const p = rig.profile;
   const phi = m.phase * Math.PI * 2;
-  const s = Math.sin(phi);
   const b = m.body;
   const heavy = p.weight;
-  // Keeps the planted foot on the ground: a stiff leg swung by `a` lifts the hip by L (1 - cos a).
-  const drop = rig.legLength * rig.body.scale.y * (1 - Math.cos(amp * s));
+  const amp = Math.min(Math.max(base, MAX_SWING), base * m.stretch);
   switch (p.gait) {
     case 'biped': {
-      rot(m.legL, 0, 0, amp * s, w);
-      rot(m.legR, 0, 0, -amp * s, w);
+      const lean = run ? 0.16 : 0.05 + 0.04 * heavy;
+      stride(rig, m, m.pair, PAIR, amp, w, -lean);
+      const s = (legAngle[0] ?? 0) / amp;
       rot(m.armL, 0, 0, -amp * 0.6 * s, w);
       rot(m.armR, 0, 0, amp * 0.6 * s, w);
-      pos(b, 0, -drop, 0, w);
-      const lean = run ? 0.16 : 0.05 + 0.04 * heavy;
       // Heavy things roll their weight from foot to foot.
       rot(b, (0.03 + 0.05 * heavy) * s, 0.05 * s, -lean, w);
       rot(m.head, 0, -0.04 * s, lean * 0.5, w);
@@ -641,36 +821,34 @@ function locomote(rig: Rig, m: RigMotion, w: number, amp: number, run: boolean):
       break;
     }
     case 'quad': {
-      const g = run ? 0.5 : Math.PI;
       // Walk: diagonal pairs. Run: a gallop, front and back pairs in opposition.
-      rot(m.legL, 0, 0, amp * s, w);
-      rot(m.legR, 0, 0, amp * Math.sin(phi + g), w);
-      rot(m.armL, 0, 0, amp * Math.sin(phi + (run ? Math.PI : Math.PI)), w);
-      rot(m.armR, 0, 0, amp * Math.sin(phi + (run ? Math.PI + 0.5 : 0)), w);
-      pos(b, 0, run ? 0.06 * Math.abs(Math.sin(phi + 0.8)) - drop : -drop, 0, w);
-      rot(b, 0.02 * s, 0, run ? 0.1 * Math.sin(phi + Math.PI / 2) - 0.04 : 0.015 * Math.sin(phi * 2), w);
+      // A slight nose-down lean at the gallop; the rest of the pitch comes from where the feet are.
+      const pitch = run ? -0.04 : 0;
+      stride(rig, m, m.four, run ? QUAD_RUN : QUAD_WALK, amp, w, pitch);
+      const s = (legAngle[0] ?? 0) / amp;
+      rot(b, 0.02 * s, 0, pitch + stridePitch, w);
       rot(m.head, 0, 0.03 * s, run ? -0.18 : -0.03 * Math.sin(phi * 2), w);
       rot(m.tail, 0, 0.25 * s, run ? 0.3 : 0.05, w);
       break;
     }
     case 'hop': {
-      const hop = Math.abs(s);
-      pos(b, 0, (run ? 0.3 : 0.16) * hop * (1 - heavy * 0.5), 0, w);
-      rot(b, 0, 0, -0.08 - 0.06 * Math.cos(phi * 2), w);
-      rot(m.legL, 0, 0, amp * 1.1 * s, w);
-      rot(m.legR, 0, 0, -amp * 1.1 * s, w);
+      const pitch = -0.08 - 0.06 * Math.cos(phi * 2);
+      const air = stride(rig, m, m.pair, PAIR, amp * 1.1, w, pitch);
+      const s = (legAngle[0] ?? 0) / (amp * 1.1);
+      pos(b, 0, (run ? 0.3 : 0.2) * air * (1 - heavy * 0.5), 0, w);
+      rot(b, 0, 0, pitch, w);
       rot(m.armL, 0, 0, -0.5 - 0.3 * s, w);
       rot(m.armR, 0, 0, -0.5 + 0.3 * s, w);
       rot(m.tail, 0, 0.5 * s, 0, w);
       // A mimic chatters its lid as it hops.
-      if (p.dormant === 'chest') rot(m.head, 0, 0, 0.2 * hop, w);
+      if (p.dormant === 'chest') rot(m.head, 0, 0, 0.2 * air, w);
       break;
     }
     case 'scurry': {
-      rot(m.legL, 0, 0, amp * 1.2 * s, w);
-      rot(m.legR, 0, 0, -amp * 1.2 * s, w);
-      pos(b, 0, 0.05 * Math.abs(Math.sin(phi * 2)), 0, w);
-      rot(b, 0, 0.06 * s, 0.06 * Math.sin(phi * 2), w);
+      const pitch = 0.06 * Math.sin(phi * 2);
+      stride(rig, m, m.pair, PAIR, amp * 1.2, w, pitch);
+      const s = (legAngle[0] ?? 0) / (amp * 1.2);
+      rot(b, 0, 0.06 * s, pitch, w);
       rot(m.head, 0, 0, -0.05 * Math.sin(phi * 2 + 1), w);
       rot(m.tail, 0, -0.5 * s, 0, w);
       break;
@@ -681,20 +859,29 @@ function locomote(rig: Rig, m: RigMotion, w: number, amp: number, run: boolean):
         // Alternating sets: a tripod or tetrapod gait, neighbours out of step.
         const k: unknown = c.node.userData.k;
         const set = ((typeof k === 'number' ? k : 0) + (c.side > 0 ? 0 : 1)) % 2;
-        const q = phi + set * Math.PI;
-        rot(c, c.side * 0.3 * Math.max(0, Math.cos(q)), 0, amp * 0.8 * Math.sin(q), w);
+        const v = wave(m.phase + set * 0.5, m.duty, amp * 0.8);
+        const lift = swingP < 0 ? 0 : Math.sin(Math.PI * swingP);
+        markPlanted(c, swingP < 0);
+        // Swung about the vertical (legs use YXZ order), so a planted foot keeps its height.
+        rot(c, -c.side * 0.3 * lift, c.side * amp * 0.8 * v, 0, w);
       }
-      pos(b, 0, 0.03 * Math.abs(Math.sin(phi * 2)), 0, w);
-      rot(b, 0, 0.04 * s, 0, w);
-      rot(m.tail, 0, 0.06 * s, 0, w);
+      wave(m.phase, m.duty, 0);
+      legSwing[0] = swingP;
+      wave(m.phase + 0.5, m.duty, 0);
+      legSwing[1] = swingP;
+      pos(b, 0, 0.08 * rig.legLength * rig.body.scale.y * clamp01((0.5 - m.duty) / 0.2) * airOf(2), 0, w);
+      rot(b, 0, 0.04 * Math.sin(phi), 0, w);
+      rot(m.tail, 0, 0.06 * Math.sin(phi), 0, w);
       break;
     }
     case 'crawl': {
-      // A sprawling low walk: diagonal legs and the whole body snaking.
-      rot(m.legL, 0, 0, amp * s, w);
-      rot(m.armR, 0, 0, amp * s, w);
-      rot(m.legR, 0, 0, -amp * s, w);
-      rot(m.armL, 0, 0, -amp * s, w);
+      // Belly down on the mud, legs splayed and paddling in diagonal pairs, the body snaking.
+      const s = Math.sin(phi);
+      pos(b, 0, -0.1, 0, w);
+      paddle(m.legL, base * 1.4 * s, w);
+      paddle(m.armR, base * 1.4 * s, w);
+      paddle(m.legR, -base * 1.4 * s, w);
+      paddle(m.armL, -base * 1.4 * s, w);
       rot(b, 0, 0.12 * s, 0, w);
       rot(m.head, 0, -0.08 * s, 0, w);
       rot(m.tail, 0, -0.35 * s, 0, w);
@@ -720,7 +907,7 @@ function locomote(rig: Rig, m: RigMotion, w: number, amp: number, run: boolean):
       break;
     case 'bounce': {
       // Squash on landing, stretch in the air.
-      const air = Math.abs(s);
+      const air = Math.abs(Math.sin(phi));
       const land = Math.pow(1 - air, 3);
       pos(b, 0, 0.22 * air, 0, w);
       scl(b, 0.14 * land - 0.05 * air, -0.2 * land + 0.1 * air, 0.14 * land - 0.05 * air, w);
@@ -817,7 +1004,7 @@ function strike(rig: Rig, m: RigMotion, style: Strike, a: number, s: number, w: 
       rot(b, 0, 0, 0.14 * a - 0.18 * s, w);
       rot(m.head, 0, 0, 0.35 * a - 0.3 * s, w);
       rot(m.jaw, 0, 0, -0.55 * a + 0.05 * s, w);
-      if (legs) for (const c of m.extras) if (c.front) rot(c, c.side * 0.5 * a, 0, 0.3 * a - 0.3 * s, w);
+      if (legs) for (const c of m.extras) if (c.front) rot(c, -c.side * 0.5 * a, 0, 0.3 * a - 0.3 * s, w);
       if (rig.profile.gait === 'fly') rot(b, 0, 0, -0.35 * s, w);
       break;
     case 'claw':
@@ -880,7 +1067,8 @@ function strike(rig: Rig, m: RigMotion, style: Strike, a: number, s: number, w: 
       for (const c of m.extras) if (c.node.userData.kind === 'strand') rot(c, 0, 0, 0.7 * s, w);
       break;
     case 'shoot':
-      if (!arms) {
+      // Fliers throw with the wings, talons or not.
+      if (!arms || rig.profile.gait === 'fly') {
         (rig.profile.gait === 'fly' ? flare : pulse)(rig, m, a, s, w);
         break;
       }
@@ -911,7 +1099,7 @@ function strike(rig: Rig, m: RigMotion, style: Strike, a: number, s: number, w: 
       rot(m.armR, 0, 0, -0.6 * a + 2 * s, w);
       for (const c of m.extras) {
         if (c.node.userData.kind === 'wing') rot(c, -c.side * (0.7 * a - 0.4 * s), 0, 0, w);
-        if (c.node.userData.kind === 'leg') rot(c, c.side * (-0.2 * a + 0.4 * s), 0, 0, w);
+        if (c.node.userData.kind === 'leg') rot(c, -c.side * (-0.2 * a + 0.4 * s), 0, 0, w);
       }
       break;
     case 'sting':
@@ -951,7 +1139,8 @@ function pulse(rig: Rig, m: RigMotion, a: number, s: number, w: number): void {
   pos(m.body, 0, 0.05 * a, 0, w);
   for (const c of m.extras) {
     const kind: unknown = c.node.userData.kind;
-    if (kind === 'flame') scl(c, 0.2 * s, -0.3 * a + 0.9 * s, 0.2 * s, w);
+    // Flames flare up while the power gathers; shrinking them read as the thing dying.
+    if (kind === 'flame') scl(c, 0.1 * a + 0.2 * s, 0.25 * a + 0.9 * s, 0.1 * a + 0.2 * s, w);
     if (kind === 'tentacle') rot(c, 0, 0, -0.5 * a + 0.8 * s, w);
   }
   m.push += (-0.45 * a + 0.6 * s) * w;
@@ -970,8 +1159,8 @@ function flinch(rig: Rig, m: RigMotion, w: number): void {
   const e = t < 0.05 ? t / 0.05 : Math.pow(Math.max(0, 1 - (t - 0.05) / (HIT_SECONDS - 0.05)), 2);
   const k = w * e;
   const side = Math.sin(m.seed * 7) > 0 ? 1 : -1;
-  rot(m.body, 0.06 * side, 0, 0.14, k);
-  pos(m.body, -0.06, rig.profile.gait === 'fly' ? 0.1 : 0, 0, k);
+  rot(m.body, 0.06 * side, 0, 0.22, k);
+  pos(m.body, -0.12, rig.profile.gait === 'fly' ? 0.1 : 0, 0, k);
   rot(m.head, 0, 0.15 * side, 0.25, k);
   rot(m.armL, 0, 0, -0.25, k);
   rot(m.armR, 0, 0, -0.25, k);
@@ -1053,8 +1242,9 @@ function die(rig: Rig, m: RigMotion): void {
       pos(b, 0, -0.1 * buckle * (1 - k), 0, 1);
       if (dir > 0) rot(b, 0, 0, (Math.PI / 2) * k - bounceK(t, 0.1, fallT, 0.08), 1);
       else rot(b, (Math.PI / 2) * k - bounceK(t, 0.1, fallT, 0.08), 0, 0, 1);
-      rot(m.armL, -0.3 * k, 0, 0.7 * k, 1);
-      rot(m.armR, 0.3 * k, 0, 0.9 * k, 1);
+      // Arm targets are absolute, so an arm held out at rest (a mummy's) falls with the other.
+      rot(m.armL, -0.3 * k, 0, (0.7 - restZ(m.armL)) * k, 1);
+      rot(m.armR, 0.3 * k, 0, (0.9 - restZ(m.armR)) * k, 1);
       rot(m.legL, 0, 0, 0.25 * k, 1);
       rot(m.legR, 0, 0, -0.15 * k, 1);
       rot(m.head, 0, 0.3 * dir * k, 0.35 * k, 1);
@@ -1063,12 +1253,16 @@ function die(rig: Rig, m: RigMotion): void {
     }
     case 'roll': {
       const k = fallK(t, 0.05, fallT);
-      rot(b, dir * ((Math.PI / 2) * k - bounceK(t, 0.05, fallT, 0.1)), 0, 0, 1);
+      const roll = dir * ((Math.PI / 2) * k - bounceK(t, 0.05, fallT, 0.1));
+      rot(b, roll, 0, 0, 1);
+      // Rolled about the feet the body would land a body height to the side; it rolls about its middle.
+      pos(b, 0, 0, (-Math.sin(roll) * (minY + maxY)) / 2, 1);
       const kick = 0.25 * twitchK(t, 0.1 + fallT);
-      rot(m.legL, 0, 0, 0.35 * k + kick, 1);
-      rot(m.legR, 0, 0, 0.25 * k - kick, 1);
-      rot(m.armL, 0, 0, -0.35 * k - kick, 1);
-      rot(m.armR, 0, 0, -0.25 * k + kick, 1);
+      // Dead legs relax and draw in toward the belly: front legs back, hind legs forward.
+      rot(m.legL, 0, 0, curl(m.legL) * k + kick, 1);
+      rot(m.legR, 0, 0, curl(m.legR) * k - kick, 1);
+      rot(m.armL, 0, 0, curl(m.armL) * k - kick, 1);
+      rot(m.armR, 0, 0, curl(m.armR) * k + kick, 1);
       rot(m.head, 0, 0, -0.25 * k, 1);
       rot(m.jaw, 0, 0, -0.5 * k, 1);
       rot(m.tail, 0, 0.4 * k, 0, 1);
@@ -1080,7 +1274,7 @@ function die(rig: Rig, m: RigMotion): void {
       rot(b, Math.PI * k * dir, 0, 0, 1);
       const kick = 0.2 * twitchK(t, 0.45);
       for (const c of m.extras) {
-        if (c.node.userData.kind === 'leg') rot(c, -c.side * (0.7 * k + kick), 0, 0.2 * k, 1);
+        if (c.node.userData.kind === 'leg') rot(c, c.side * (0.7 * k + kick), 0, 0.2 * k, 1);
         if (c.node.userData.kind === 'claw') rot(c, 0, -c.side * 0.4 * k, 0, 1);
       }
       rot(m.tail, 0, 0, 0.5 * k, 1);
@@ -1097,8 +1291,8 @@ function die(rig: Rig, m: RigMotion): void {
       pos(b, 0, -legDrop * kneel * (1 - k), 0, 1);
       rot(b, 0.1 * dir * k, 0, -(Math.PI / 2) * k + bounceK(t, 0.35, fallT, 0.06), 1);
       // Arms flung out past the head, lying along the ground.
-      rot(m.armL, -0.35 * k, 0, 3 * k + 0.3 * kneel * (1 - k), 1);
-      rot(m.armR, 0.35 * k, 0, 2.85 * k + 0.3 * kneel * (1 - k), 1);
+      rot(m.armL, -0.35 * k, 0, (3 - restZ(m.armL)) * k + 0.3 * kneel * (1 - k), 1);
+      rot(m.armR, 0.35 * k, 0, (2.85 - restZ(m.armR)) * k + 0.3 * kneel * (1 - k), 1);
       rot(m.head, 0, 0.4 * dir * k, -0.2 * kneel, 1);
       break;
     }
@@ -1170,6 +1364,14 @@ function die(rig: Rig, m: RigMotion): void {
     const k = fallK(t, 0.35, fallT);
     for (const c of [m.legL, m.legR]) reachDown(c, b.py * k * 0.7, rig.body.scale.y, 1);
   }
+}
+
+function restZ(c: Channel | null): number {
+  return c ? c.r0z : 0;
+}
+
+function curl(c: Channel | null): number {
+  return c && c.p0x > 0.05 ? -0.4 : 0.4;
 }
 
 /** Swings a limb toward the ground far enough for its tip to touch it, `lift` above. */

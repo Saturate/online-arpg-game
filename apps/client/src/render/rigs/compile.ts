@@ -192,6 +192,8 @@ function compile(raw: Rig): Template {
       bone = new Bone();
       bone.name = `b${bones.length}`;
       bone.position.copy(node.position);
+      // The animator adds Euler offsets, so the bone must decompose its rotation in the same order.
+      bone.rotation.order = node.rotation.order;
       bone.quaternion.copy(node.quaternion);
       bone.scale.copy(node.scale);
       bone.userData = { ...node.userData };
