@@ -80,9 +80,11 @@ export interface Options {
   uiScale: number;
   /** The scroll wheel cycles the right mouse skill (Shift+wheel the left). */
   wheelCyclesSkill: boolean;
+  /** Interface click and hover sounds, 0 (off) to 1. */
+  uiVolume: number;
 }
 
-export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5 };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -122,6 +124,7 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
       const scale = UI_SCALES.find((s) => s === o.uiScale);
       if (scale !== undefined) options.uiScale = scale;
       if (typeof o.wheelCyclesSkill === 'boolean') options.wheelCyclesSkill = o.wheelCyclesSkill;
+      if (typeof o.uiVolume === 'number' && o.uiVolume >= 0 && o.uiVolume <= 1) options.uiVolume = o.uiVolume;
     }
   } catch {
     // Corrupt storage: defaults.
