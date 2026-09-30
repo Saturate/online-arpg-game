@@ -12,6 +12,7 @@ One file per feature, each the single place that explains it: what it does, why 
 | [characters.md](characters.md) | Live | Classes, levels and XP, stats, item requirements, death and respawn |
 | [minions.md](minions.md) | Live | Vessels, the warband, stances, behaviour affixes, minion AI |
 | [monsters.md](monsters.md) | Live | Monster types, abilities, AI, rares and bosses, biome pools, the admin Monsters, Minions and Model check tabs |
+| [vfx.md](vfx.md) | Built, not pushed | Spell and ground effects: the particle system, shader materials, ribbons, spell light, quality levels and the particle budget, the VFX bench |
 | [town.md](town.md) | Live | Worlds and instances, the town and its editor, zones, waypoints, gates, dungeons and their generation, collision |
 | [arena.md](arena.md) | Live | Scored Arena runs, waves, score, one life, the leaderboard |
 | [chat-and-parties.md](chat-and-parties.md) | Live | Chat, commands, whispers, parties and party worlds |
