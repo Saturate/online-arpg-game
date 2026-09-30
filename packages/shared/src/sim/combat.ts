@@ -134,6 +134,28 @@ export function applyAilments(
   }
 }
 
+/**
+ * A bite's poison: adds a stack worth a share of the hit and refreshes every stack, so a pack that
+ * keeps biting keeps the poison up. At the cap the weakest stack gives way, never a stronger one.
+ */
+export function applyPoison(sim: Simulation, targetId: EntityId, hit: number, sourceId: EntityId): void {
+  const st = sim.world.status.get(targetId);
+  if (!st || hit <= 0 || !isTargetable(sim, targetId)) return;
+  const cfg = AILMENTS.poison;
+  const dps = hit * cfg.dpsFractionOfHit;
+  for (const s of st.poison) s.t = cfg.seconds;
+  if (st.poison.length < cfg.maxStacks) {
+    st.poison.push({ dps, t: cfg.seconds, sourceId });
+    return;
+  }
+  let weakest = st.poison[0];
+  for (const s of st.poison) if (weakest && s.dps < weakest.dps) weakest = s;
+  if (weakest && weakest.dps < dps) {
+    weakest.dps = dps;
+    weakest.sourceId = sourceId;
+  }
+}
+
 export function healEntity(sim: Simulation, id: EntityId, amount: number, showNumber: boolean): number {
   const h = sim.world.health.get(id);
   const pos = sim.world.position.get(id);
@@ -226,6 +248,13 @@ export function updateStatuses(sim: Simulation, dt: number): void {
       dealDamage(sim, id, st.burn.dps * dt, st.burn.sourceId, ['fire'], { quiet: true });
       st.burn.t -= dt;
       if (st.burn.t <= 0) st.burn = null;
+    }
+    if (st.poison.length > 0) {
+      for (const s of st.poison) {
+        dealDamage(sim, id, s.dps * dt, s.sourceId, [], { quiet: true });
+        s.t -= dt;
+      }
+      st.poison = st.poison.filter((s) => s.t > 0);
     }
     if (st.chill > 0) st.chill = Math.max(0, st.chill - dt);
     if (st.shock > 0) st.shock = Math.max(0, st.shock - dt);

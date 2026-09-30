@@ -784,8 +784,8 @@ export class EntityRenderer {
         }
       }
       this.applyTint(view, s.st, dt);
-      if (this.vfx && (s.st & (STATUS.burn | STATUS.chill | STATUS.shock)) !== 0 && (s.st & STATUS.hidden) === 0 && !(s.k === 'player' && s.dead)) {
-        this.vfx.status(s.id, item.x, item.y, s.r, s.r * 2.6, (s.st & STATUS.burn) !== 0, (s.st & STATUS.chill) !== 0, (s.st & STATUS.shock) !== 0, dt);
+      if (this.vfx && (s.st & (STATUS.burn | STATUS.chill | STATUS.shock | STATUS.poison)) !== 0 && (s.st & STATUS.hidden) === 0 && !(s.k === 'player' && s.dead)) {
+        this.vfx.status(s.id, item.x, item.y, s.r, s.r * 2.6, (s.st & STATUS.burn) !== 0, (s.st & STATUS.chill) !== 0, (s.st & STATUS.shock) !== 0, (s.st & STATUS.poison) !== 0, dt);
       }
     } else if (view.flash > 0) {
       view.flash -= dt;
@@ -835,6 +835,14 @@ export class EntityRenderer {
       r += 0.1;
       g += 0.45;
       b += 1;
+      k = Math.max(k, ailK);
+    }
+    if ((st & STATUS.poison) !== 0) {
+      // A slow sickly pulse, the same weight as chill; the drip and mist carry it on Medium and High.
+      const f = 0.8 + Math.sin(this.time * 3) * 0.2;
+      r += 0.4 * f;
+      g += 0.62 * f;
+      b += 0.1 * f;
       k = Math.max(k, ailK);
     }
     if ((st & STATUS.cursed) !== 0) {

@@ -134,6 +134,8 @@ export const STATUS = {
   enraged: 64,
   /** Player under a mummy's curse: deals less damage. */
   cursed: 128,
+  /** Poisoned by a bite: stacking damage over time. */
+  poison: 256,
 } as const;
 
 /** What a spell area does, for picking its colour. */

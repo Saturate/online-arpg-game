@@ -140,6 +140,14 @@ export const AILMENTS = {
   burn: { seconds: 3, dpsFractionOfHit: 0.2 },
   chill: { seconds: 2, slow: 0.35 },
   shock: { seconds: 3, damageTakenBonus: 0.2 },
+  /**
+   * Stacking damage over time from bites. Each bite adds a stack worth 12% of the hit per second and
+   * resets every stack to 4 s; at 3 stacks a new bite replaces the weakest. A Grave Hound biting 10
+   * every 0.9 s holds 3 stacks, 3.6 poison DPS on top of 11.1 from the bites: 14.7, between the
+   * Dire Wolf (12.9) and the Hellhound's bite plus burn (16). Three stacks for a few seconds keeps
+   * poison a pressure that builds while you stand in a pack, not a second life bar.
+   */
+  poison: { seconds: 4, maxStacks: 3, dpsFractionOfHit: 0.12 },
 } as const;
 
 export const AURA = {

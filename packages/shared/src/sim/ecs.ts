@@ -233,6 +233,8 @@ export interface StatusComp {
   chill: number;
   shock: number;
   shield: { amount: number; t: number; burning: boolean } | null;
+  /** Poison stacks from bites, each ticking on its own; see AILMENTS.poison. */
+  poison: { dps: number; t: number; sourceId: EntityId }[];
   /** Seconds left on a mummy's curse; a cursed player deals less damage. */
   curse: number;
 }
@@ -335,7 +337,7 @@ export class World {
 }
 
 export function emptyStatus(): StatusComp {
-  return { burn: null, chill: 0, shock: 0, shield: null, curse: 0 };
+  return { burn: null, chill: 0, shock: 0, shield: null, curse: 0, poison: [] };
 }
 
 export function emptyBuffs(): BuffComp {
