@@ -1,5 +1,7 @@
 import { AddEquation, Color, CustomBlending, DataTexture, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, LinearFilter, MeshBasicMaterial, OneFactor, OneMinusSrcColorFactor, PlaneGeometry, PointLight, RGBAFormat } from 'three';
 
+import { RENDER_ORDER } from './config.js';
+
 /**
  * The light budget shared by torches, lanterns, fires and spells. Any number of sources ask for
  * light each frame; the few that matter most (priority, brightness, distance to the camera) get one
@@ -34,6 +36,8 @@ const DECAY = 1.2;
 const LIGHT_CAP = 4;
 /** How bright a ground pool is for a source of intensity 1; low, since it lays over the lit ground. */
 const POOL_GAIN = 0.07;
+/** A pool is drawn this share of its source's radius wide. */
+const POOL_REACH = 0.7;
 
 let nextKey = 1;
 /** A fresh key for one light source. Keep it for the source's life; keys are never reused. */
@@ -88,6 +92,9 @@ export class LightBudget {
   private readonly level = new Float32Array(MAX_SOURCES);
   private readonly score = new Float32Array(MAX_SOURCES);
   private readonly best = new Int32Array(POOL_SIZE);
+  /** This frame's ground pools before drawing: their source index and strength. */
+  private readonly poolSource = new Int32Array(MAX_SOURCES);
+  private readonly poolStrength = new Float32Array(MAX_SOURCES);
   private statics: readonly StaticLight[] = [];
   private staticKeys = new Int32Array(0);
   private emitted = 0;
@@ -97,7 +104,7 @@ export class LightBudget {
   /** Scale on every light from LIGHT_CAP, eased so a burst of spells dims the rest smoothly. */
   private crowd = 1;
   /** How many real lights and ground pools the last frame drew, for the perf readout and tests. */
-  readonly stats = { real: 0, pools: 0, sources: 0, crowd: 1 };
+  readonly stats = { real: 0, pools: 0, sources: 0, crowd: 1, poolLight: 0 };
 
   constructor() {
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -131,8 +138,8 @@ export class LightBudget {
     // Bounds change every frame and the pools cover the view anyway.
     this.pools.frustumCulled = false;
     // Transparent roads and plazas draw at order 0 and ground effects just above; the pools light
-    // all of them, so they draw after (RENDER_ORDER.groundLight in config.ts).
-    this.pools.renderOrder = 3;
+    // all of them, so they draw after.
+    this.pools.renderOrder = RENDER_ORDER.groundLight;
     this.group.add(this.pools);
   }
 
@@ -257,9 +264,7 @@ export class LightBudget {
     this.stats.real = real;
 
     // Every visible source not fully covered by a real light gets a ground pool for the rest.
-    const m = this.pools.instanceMatrix.array;
-    const c = this.poolColor.array;
-    let pools = 0;
+    let candidates = 0;
     for (let i = 0; i < n; i++) {
       const lv = this.level[i] ?? 0;
       if (lv <= 0) continue;
@@ -267,7 +272,20 @@ export class LightBudget {
       const share = 1 - (slot >= 0 ? (this.slotWeight[slot] ?? 0) : 0);
       const strength = lv * share * POOL_GAIN * this.crowd;
       if (strength < 0.002) continue;
-      const r = (this.radius[i] ?? 1) * 0.7;
+      this.poolStrength[candidates] = strength;
+      this.poolSource[candidates++] = i;
+    }
+    this.spreadSpellPools(candidates, statics.length);
+    const m = this.pools.instanceMatrix.array;
+    const c = this.poolColor.array;
+    let pools = 0;
+    let poolLight = 0;
+    for (let p = 0; p < candidates; p++) {
+      const i = this.poolSource[p] ?? 0;
+      const strength = this.poolStrength[p] ?? 0;
+      if (strength < 0.002) continue;
+      poolLight += strength;
+      const r = (this.radius[i] ?? 1) * POOL_REACH;
       const o = pools * 16;
       m[o] = r;
       m[o + 1] = 0;
@@ -295,6 +313,33 @@ export class LightBudget {
     this.pools.instanceMatrix.needsUpdate = true;
     this.poolColor.needsUpdate = true;
     this.stats.pools = pools;
+    this.stats.poolLight = poolLight;
+  }
+
+  /**
+   * A crowd of spells piles up a pool each, and a dozen overlapping pools washed the ground a flat
+   * pastel. Each spell pool is divided by the square root of how many spell pools overlap it, so a
+   * cluster glows a little more than one pool instead of a dozen times more. The world's own lights
+   * (the first `statics` sources) keep their pools as they are.
+   */
+  private spreadSpellPools(count: number, statics: number): void {
+    for (let a = 0; a < count; a++) {
+      const i = this.poolSource[a] ?? 0;
+      if (i < statics) continue;
+      const ax = this.sx[i] ?? 0;
+      const ay = this.sy[i] ?? 0;
+      const ar = (this.radius[i] ?? 1) * POOL_REACH;
+      let overlap = 1;
+      for (let b = 0; b < count; b++) {
+        const j = this.poolSource[b] ?? 0;
+        if (b === a || j < statics) continue;
+        const dx = (this.sx[j] ?? 0) - ax;
+        const dy = (this.sy[j] ?? 0) - ay;
+        const reach = 0.5 * (ar + (this.radius[j] ?? 1) * POOL_REACH);
+        if (dx * dx + dy * dy < reach * reach) overlap++;
+      }
+      if (overlap > 1) this.poolStrength[a] = (this.poolStrength[a] ?? 0) / Math.sqrt(overlap);
+    }
   }
 
   /** The key holding each pool slot, -1 for free; for tests. */

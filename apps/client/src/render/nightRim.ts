@@ -11,7 +11,7 @@ import { Color, type Material, type WebGLProgramParametersWithUniforms } from 't
 export type ShaderSource = Pick<WebGLProgramParametersWithUniforms, 'uniforms' | 'vertexShader' | 'fragmentShader'>;
 
 /** Rim strength at deep night; the scene eases it from 0 by day. */
-export const NIGHT_RIM = 0.28;
+export const NIGHT_RIM = 0.34;
 
 /** Set by the scene every frame from the night factor; 0 by day and underground. */
 export const nightRim = { value: 0 };

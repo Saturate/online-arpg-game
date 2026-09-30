@@ -46,8 +46,8 @@ export interface BuiltWorld {
 
 type LightLook = Omit<StaticLight, 'x' | 'y'>;
 /** Warm flame colours; heights are where the flame sits, so the pool centres under it. */
-const TORCH: LightLook = { height: 56, color: 0xff9a4a, intensity: 3, radius: 480, flicker: 0.1, priority: 0, day: 0 };
-const LANTERN: LightLook = { height: 64, color: 0xffb060, intensity: 2.8, radius: 420, flicker: 0.05, priority: 0, day: 0 };
+const TORCH: LightLook = { height: 56, color: 0xff9a4a, intensity: 3, radius: 400, flicker: 0.1, priority: 0, day: 0 };
+const LANTERN: LightLook = { height: 64, color: 0xffb060, intensity: 2.8, radius: 340, flicker: 0.05, priority: 0, day: 0 };
 const CANDLE: LightLook = { height: 14, color: 0xffb060, intensity: 0.9, radius: 170, flicker: 0.12, priority: 0, day: 0 };
 const FIRE: LightLook = { height: 40, color: 0xff9040, intensity: 3.2, radius: 520, flicker: 0.12, priority: 0, day: 0 };
 

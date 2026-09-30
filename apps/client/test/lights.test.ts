@@ -74,3 +74,33 @@ describe('light budget crowding', () => {
     expect(b.stats.crowd).toBe(1);
   });
 });
+
+describe('light budget spell pools', () => {
+  const emitAll = (b: LightBudget, keys: number[], at: (i: number) => [number, number]) => () => {
+    keys.forEach((k, i) => {
+      const [x, y] = at(i);
+      b.emit(k, x, y, 30, 0xff6a2b, 1, 100);
+    });
+  };
+
+  it('divides overlapping spell pools so a cluster does not wash the ground out', () => {
+    const keys = Array.from({ length: 25 }, () => lightKey());
+    const apart = new LightBudget();
+    run(apart, 60, 0, 0, 1, emitAll(apart, keys, (i) => [(i % 5) * 300 - 600, Math.floor(i / 5) * 300 - 600 + 150]));
+    const piled = new LightBudget();
+    run(piled, 60, 0, 0, 1, emitAll(piled, keys, () => [500, 500]));
+    expect(piled.stats.pools).toBe(apart.stats.pools);
+    // 8 of the 25 get real lights; the other 17 pools each divide by sqrt(17).
+    expect(piled.stats.poolLight / apart.stats.poolLight).toBeCloseTo(1 / Math.sqrt(17), 3);
+  });
+
+  it('leaves the pools of the world lights alone', () => {
+    const b = new LightBudget();
+    b.setStatic(Array.from({ length: 20 }, () => torch(600, 600)));
+    run(b, 60, 0, 0);
+    const alone = new LightBudget();
+    alone.setStatic([torch(600, 600)]);
+    run(alone, 60, 0, 0);
+    expect(b.stats.poolLight).toBeGreaterThan(alone.stats.poolLight * 10);
+  });
+});
