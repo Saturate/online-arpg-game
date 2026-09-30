@@ -97,6 +97,9 @@ function rigMaterial(main: Color, opacity: number, enemy: boolean): MeshStandard
     m.transparent = true;
     m.opacity = opacity;
     m.side = DoubleSide;
+    // A see-through body (the ghost family) drawn at order 0 wrote depth and hid the spell effects
+    // drawn after it, which sit behind or inside the ghost.
+    m.depthWrite = false;
     // Two-pass double-sided transparency flips the material's side and sets needsUpdate twice per
     // draw, rebuilding the program parameters each frame; one pass draws both faces for free.
     m.forceSinglePass = true;
@@ -125,7 +128,7 @@ const tmpN = new Matrix3();
 const tmpC = new Color();
 const tmpF = new Color();
 
-function mergeParts(parts: readonly Part[], main: Color): BufferGeometry {
+function mergeParts(parts: readonly Part[], main: Color, floor: boolean): BufferGeometry {
   const flat = parts.map((p) => (p.geometry.index ? p.geometry.toNonIndexed() : p.geometry));
   let count = 0;
   for (const g of flat) count += g.getAttribute('position').count;
@@ -147,7 +150,7 @@ function mergeParts(parts: readonly Part[], main: Color): BufferGeometry {
     const ei = p.material.emissiveIntensity;
     const glows = ei > 0 && (e.r > 0 || e.g > 0 || e.b > 0);
     // Glowing parts (eyes, runes) keep their colour: the floor is for what the light has to show.
-    const c = partColour(glows ? p.material.color : floorAlbedo(p.material.color, tmpF), main, tmpC);
+    const c = partColour(glows || !floor ? p.material.color : floorAlbedo(p.material.color, tmpF), main, tmpC);
     for (let k = 0; k < gp.count; k++, v++) {
       const o = v * 3;
       tmpV.fromBufferAttribute(gp, k).applyMatrix4(p.matrix);
@@ -250,9 +253,12 @@ function compile(raw: Rig, enemy: boolean): Template {
     groups.set(key, list);
   }
   for (const [opacity, list] of groups) {
-    // Floored like the parts, or a near-black main colour would scale every part down with it.
-    const main = floorAlbedo(dominant(list), new Color());
-    const geometry = mergeParts(list, main);
+    // Floored like the parts, or a near-black main colour would scale every part down with it. Only
+    // enemies: the floor is there so monsters show at night, and heroes and minions keep the dark
+    // colours they were given (they carry or stand in the hero's light).
+    const dom = dominant(list);
+    const main = enemy ? floorAlbedo(dom, new Color()) : dom;
+    const geometry = mergeParts(list, main, enemy);
     const m = new SkinnedMesh(geometry, rigMaterial(main, opacity, enemy));
     m.castShadow = true;
     m.bind(skeleton, new Matrix4());
