@@ -9,6 +9,7 @@ import {
   runeColor,
   runeDescription,
   runeKind,
+  runeGlyph,
   runeName,
   rollLosses,
   sigilCapacity,
@@ -82,11 +83,11 @@ function runeStyle(id: RuneId): CSSProperties & Record<'--rune', string> {
   return { '--rune': cssColor(runeColor(id)) };
 }
 
-/** The rune glyph used in slots and the pool: its first letters in its kind's frame. */
+/** The rune glyph used in slots and the pool: its two-letter glyph in its kind's frame. */
 function Glyph({ id }: { id: RuneId }) {
   return (
     <span className={`forge-glyph kind-${runeKind(id)}`} style={runeStyle(id)} aria-hidden="true">
-      {runeName(id).slice(0, 2)}
+      {runeGlyph(id)}
     </span>
   );
 }

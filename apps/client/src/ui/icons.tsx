@@ -1,4 +1,4 @@
-import { DEFAULTS, isShapeId, MINION_DEFS, runeColor as runeTint, runeKind, runeName, toRuneInstance, type GearCategory, type Item, type RuneInstance, type ShapeId } from '@rune/shared';
+import { DEFAULTS, isShapeId, MINION_DEFS, runeColor as runeTint, runeGlyph, runeKind, runeName, toRuneInstance, type GearCategory, type Item, type RuneInstance, type ShapeId } from '@rune/shared';
 import { useEffect, useId } from 'react';
 import { cssColor, ELEMENT_COLORS, TIER_COLORS } from '../render/config.js';
 import { requestModelIcon, useModelIcons } from './itemIconRenderer.js';
@@ -287,7 +287,7 @@ function RuneIcon({ item, size }: { item: Extract<Item, { kind: 'rune' }>; size:
       <path d="M32 6 L54 18 L54 46 L32 58 L10 46 L10 18 Z" fill="#1c1813" stroke={c} strokeWidth="3" />
       {rolled && <path d="M32 11 L50 21 L50 43 L32 53 L14 43 L14 21 Z" fill="none" stroke={cssColor(TIER_COLORS.magic)} strokeWidth="1.5" />}
       <text x="32" y="40" textAnchor="middle" fontSize="18" fontWeight="700" fill={c} fontFamily="Cinzel, serif">
-        {runeName(item.rune).slice(0, 2)}
+        {runeGlyph(item.rune)}
       </text>
       {item.count > 1 && (
         <text x="56" y="60" textAnchor="end" fontSize="16" fontWeight="700" fill="#f0e6d0" stroke="#000" strokeWidth="3" paintOrder="stroke">

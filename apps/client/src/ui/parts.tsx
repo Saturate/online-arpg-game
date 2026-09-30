@@ -12,6 +12,7 @@ import {
   runeColor,
   runeDescription,
   runeKind,
+  runeGlyph,
   runeName,
   RUNE_STACK,
   sigilCapacity,
@@ -41,7 +42,7 @@ export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; ite
       title={[`${runeName(id)} (${kind})`, ...rolls].join('\n')}
       onClick={onClick}
     >
-      <b>{runeName(id).slice(0, 2)}</b>
+      <b>{runeGlyph(id)}</b>
       {!small && <i>{runeName(id)}</i>}
       {rolls.length > 0 && <sup>*</sup>}
     </span>

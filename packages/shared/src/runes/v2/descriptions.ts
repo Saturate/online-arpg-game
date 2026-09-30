@@ -81,3 +81,48 @@ const AFFIX_TEXT: Partial<Record<AffixId, string>> = RUNE_AFFIX_DESCRIPTIONS;
 export function runeAffixDescription(id: AffixId): string | null {
   return AFFIX_TEXT[id] ?? null;
 }
+
+/**
+ * Two-letter glyphs for rune icons. Hand-picked because first letters collide (Bolt, Bond and
+ * Bounce; Strike and Stack; Chain and Charge; the On triggers).
+ */
+export const RUNE_GLYPHS: Record<RuneId, string> = {
+  orb: 'Or',
+  bolt: 'Bt',
+  beam: 'Be',
+  nova: 'No',
+  zone: 'Zo',
+  dash: 'Da',
+  arrow: 'Ar',
+  strike: 'Sk',
+  cleave: 'Cv',
+  throw: 'Th',
+  trap: 'Tr',
+  aura: 'Au',
+  bond: 'Bd',
+  fire: 'Fi',
+  cold: 'Co',
+  lightning: 'Li',
+  split: 'Sp',
+  link: 'Lk',
+  orbit: 'Ob',
+  homing: 'Ho',
+  bounce: 'Bn',
+  chain: 'Cn',
+  stack: 'St',
+  charge: 'Cg',
+  impact: 'Im',
+  ward: 'Wa',
+  restore: 'Re',
+  onhit: 'OH',
+  onexpire: 'OE',
+  timer: 'Ti',
+  pulse: 'Pu',
+  onland: 'OL',
+  swift: 'Sw',
+  large: 'La',
+};
+
+export function runeGlyph(id: RuneId): string {
+  return RUNE_GLYPHS[id];
+}
