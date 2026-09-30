@@ -45,7 +45,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 
 ### Trader
 
-- **Location:** the market stall nearest the town spawn (170 units reach, checked on the server). It opens on a click after the hero walks into reach, and closes when you walk away, as in D2.
+- **Location:** the market stall nearest the town spawn (170 units reach, checked on the server). It opens on a click after the hero walks into reach, and closes when you walk away, as in D2. Opening it closes the stash, the forge and the waypoint menu, and a right-click sells only while the trader is the open station ([stash.md](stash.md), "One station window at a time").
 - **Sell price:** `max(1, round(TIER_VALUE * (1 + 0.12 * (ilvl - 1))))` with common 4, magic 12, rare 40, relic 150. A rune adds 4, 10 or 25 per affix by affix tier; a rune stack sells for its count; a sigil sells for its own value plus its runes.
 - **Buy at 3x,** priced when bought.
 - **One shelf for the whole server,** 50 items; the oldest is destroyed when a 51st is sold. If someone else bought an item first, the buyer is told so.
@@ -100,7 +100,8 @@ Tests:
 - `packages/shared/test/gear.test.ts`: starter weapon, bases respect item level and slot, even spread over slots, gear survives room moves.
 - `packages/shared/test/sortInventory.test.ts`, `trader.test.ts`: sort order; selling to the shared shelf, starter items refused, stall reach, buying a fresh copy at 3x.
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
-- `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips.
+- `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.
+- `apps/client/test/stations.test.ts`: one station window at a time, the editor and the character sheet with them, which station takes the bag's clicks.
 
 ## Limits and open questions
 

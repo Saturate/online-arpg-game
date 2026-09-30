@@ -25,7 +25,7 @@ export function DevPanel() {
   const [count, setCount] = useState(5);
   const [level, setLevel] = useState(1);
   const [rare, setRare] = useState(false);
-  const [god, setGod] = useState(false);
+  const god = useUi((s) => s.godMode);
   const [scale, setScale] = useState(1);
   const [tier, setTier] = useState<ItemTier>('rare');
   const [category, setCategory] = useState<GearCategory | 'any'>('any');
@@ -103,7 +103,7 @@ export function DevPanel() {
           className={god ? 'on' : ''}
           onClick={() => {
             dev({ c: 'god', on: !god });
-            setGod(!god);
+            useUi.setState({ godMode: !god });
           }}
         >
           God mode {god ? 'on' : 'off'}

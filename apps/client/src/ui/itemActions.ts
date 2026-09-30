@@ -20,6 +20,7 @@ import {
   type StashTabRef,
   type StatId,
 } from '@rune/shared';
+import type { ItemStation } from './stations.js';
 
 /**
  * Where an item currently sits, or where it is dropped. Bag and stash places carry a cell when it
@@ -97,14 +98,23 @@ function inStashPlace(place: ItemPlace): boolean {
 }
 
 /**
- * Right-click behaviour, D2 style: equipped things come off, bag things go on. Sigils and vessels
- * only take a free slot: replacing a skill by accident is worse than having to drag. At the stash a
- * right-click is the same quick move as ctrl+click; `openTab` is the general tab on screen.
+ * Ctrl+click (Cmd+click on macOS): the quick move between bag and stash, only while the stash is the
+ * open station. Anywhere else it does nothing, so a stray click can never sell or buy.
  */
-export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false, traderOpen = false, openTab: number | null = null): ClientMessage | null {
-  // At the trader, right-click on a bag item sells it.
-  if (traderOpen && place.at === 'bag') return { t: 'sell', uid: item.uid };
-  if (stashOpen && (place.at === 'bag' || inStashPlace(place))) return { t: 'quickMove', uid: item.uid, tab: openTab };
+export function quickClick(item: Item, place: ItemPlace, station: ItemStation | null, openTab: number | null): ClientMessage | null {
+  if (station !== 'stash' || (place.at !== 'bag' && place.at !== 'stash')) return null;
+  return { t: 'quickMove', uid: item.uid, tab: openTab };
+}
+
+/**
+ * Right-click behaviour, D2 style: equipped things come off, bag things go on. Sigils and vessels
+ * only take a free slot: replacing a skill by accident is worse than having to drag. `station` is
+ * the open station window (activeStation), never one merely in reach: at the stash a right-click is
+ * the same quick move as ctrl+click, at the trader it sells. `openTab` is the general tab on screen.
+ */
+export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, station: ItemStation | null = null, openTab: number | null = null): ClientMessage | null {
+  if (station === 'trader' && place.at === 'bag') return { t: 'sell', uid: item.uid };
+  if (station === 'stash' && (place.at === 'bag' || inStashPlace(place))) return { t: 'quickMove', uid: item.uid, tab: openTab };
   switch (place.at) {
     case 'stash':
     case 'runeTab':

@@ -23,6 +23,7 @@ Status: one 12x10 grid per account live since 2026-09-29; stash tabs built 2026-
 - **Bound items cannot go in,** and neither can a sigil holding bound runes, so a new character cannot farm its starter kit for another ([items.md](items.md), "Bound items"). Forge refunds never go to the stash for the same reason.
 - **One character per account is in the world at a time:** a join first saves and closes the account's other session, and only then loads the stash, so two sessions can never race on it.
 - **Stations open on a click,** after the hero walks into reach, and close when you walk away, as in D2.
+- **One station window at a time.** Opening the stash, the trader, the forge or a waypoint menu closes the others, and the stash and trader also close the character sheet (they take its side of the screen; on 1600x900 there is no spot for all three beside the bag). The chest can sit inside the trader's reach, so being in reach decides nothing: the bag's right-click and Ctrl/Cmd+click go only to the open station (`activeStation` in `apps/client/src/ui/stations.ts`), so a right-click at the chest never sells. Escape, the bag's close button or I closes the station for real; the next I opens only the bag.
 
 ## How
 

@@ -20,10 +20,10 @@ import {
   type Snapshot,
   type Stance,
   type StagingMessage,
-  type ZoneId,
   type PlayerStats,
 } from '@rune/shared';
 import { create } from 'zustand';
+import { closeStation, openStation, openWaypointMenu, type ItemStation, type WaypointMenu } from './stations.js';
 
 export interface DebugStats {
   tick: number;
@@ -98,7 +98,7 @@ interface UiState {
   /** The Arena leaderboard window. */
   boardOpen: boolean;
   /** Open waypoint menu: the waypoint underfoot and every one this character has found. */
-  waypointMenu: { current: ZoneId; unlocked: ZoneId[] } | null;
+  waypointMenu: WaypointMenu | null;
   banner: { id: number; title: string; text: string } | null;
   chat: ChatLine[];
   chatOpen: boolean;
@@ -128,16 +128,17 @@ interface UiState {
   /** Skill slots the left and right mouse buttons cast, D2 style; saved per character. */
   leftSkill: number;
   rightSkill: number;
-  /** Standing at the stash chest: the stash panel shows and right-click moves items across. */
-  stashOpen: boolean;
-  /** Standing at the trader: the shelf shows and right-click sells. */
-  traderOpen: boolean;
-  /** Standing at the forge: the sigil editor can be opened, spending runes from the bag. */
-  forgeOpen: boolean;
+  /**
+   * The one open station window (see stations.ts). At the stash right-click moves items across, at
+   * the trader it sells, at the forge the sigil editor spends runes from the bag.
+   */
+  station: ItemStation | null;
   traderStock: TraderEntry[];
   characterOpen: boolean;
   devOpen: boolean;
   devTools: boolean;
+  /** God mode as last sent from the dev tools. The server resets it with every new room. */
+  godMode: boolean;
   stats: PlayerStats | null;
   heatMax: number;
   level: number;
@@ -174,6 +175,10 @@ interface UiState {
   leave: (error: string | null) => void;
   toggleDebug: () => void;
   toggleInventory: () => void;
+  openStation: (kind: ItemStation) => void;
+  openWaypointMenu: (menu: WaypointMenu) => void;
+  /** Closes the station window (and the waypoint menu) without touching the bag. */
+  closeStation: () => void;
   toggleEditor: () => void;
   openEditor: (uid: ItemUid) => void;
   notify: (text: string) => void;
@@ -254,13 +259,12 @@ export const useUi = create<UiState>((set, get) => ({
   inventoryOpen: false,
   leftSkill: 0,
   rightSkill: 1,
-  stashOpen: false,
-  traderOpen: false,
-  forgeOpen: false,
+  station: null,
   traderStock: [],
   characterOpen: false,
   devOpen: false,
   devTools: false,
+  godMode: false,
   stats: null,
   heatMax: 1000,
   level: 1,
@@ -322,10 +326,14 @@ export const useUi = create<UiState>((set, get) => ({
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, menuOpen: false, paused: false, reconnectAttempt: 0 }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
-  toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen, characterOpen: !s.inventoryOpen })),
+  // Closing the bag closes the station too, so the next I opens only the bag.
+  toggleInventory: () => set((s) => (s.inventoryOpen ? { ...closeStation(s), inventoryOpen: false, characterOpen: false } : { inventoryOpen: true, characterOpen: true })),
+  openStation: (kind) => set((s) => openStation(s, kind)),
+  openWaypointMenu: (menu) => set((s) => openWaypointMenu(s, menu)),
+  closeStation: () => set((s) => closeStation(s)),
   toggleEditor: () => {
     const s = get();
     if (s.editorOpen) {

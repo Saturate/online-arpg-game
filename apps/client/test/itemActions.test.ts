@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGear, createRolledRune, createSigil, inventoryMessage, Simulation, type GearItem, type InventoryMessage } from '@rune/shared';
-import { compareGear, dropAction, parseDrag, quickAction, replacedBy } from '../src/ui/itemActions.js';
+import { compareGear, dropAction, parseDrag, quickAction, quickClick, replacedBy } from '../src/ui/itemActions.js';
 
 function setup(): { sim: Simulation; pid: number; inv: () => InventoryMessage } {
   const sim = new Simulation(4, { kind: 'flat' });
@@ -96,11 +96,27 @@ describe('stash tabs', () => {
     const { sim, pid, inv } = setup();
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 5, { category: 'ring' });
     give(sim, pid, ring);
-    expect(quickAction(inv(), ring, { at: 'bag' }, 'mage', true, false, 3)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 3 });
-    expect(quickAction(inv(), ring, { at: 'stash', tab: 1, x: 0, y: 0 }, 'mage', true)).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
-    expect(quickAction(inv(), ring, { at: 'sigilTab' }, 'mage', true)).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
+    expect(quickAction(inv(), ring, { at: 'bag' }, 'mage', 'stash', 3)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 3 });
+    expect(quickAction(inv(), ring, { at: 'stash', tab: 1, x: 0, y: 0 }, 'mage', 'stash')).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
+    expect(quickAction(inv(), ring, { at: 'sigilTab' }, 'mage', 'stash')).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
     // Away from the chest a stash place does nothing on right-click.
-    expect(quickAction(inv(), ring, { at: 'runeTab' }, 'mage', false)).toBeNull();
+    expect(quickAction(inv(), ring, { at: 'runeTab' }, 'mage', null)).toBeNull();
+  });
+
+  it('the bag clicks go only to the open station, never to one merely in reach', () => {
+    const { sim, pid, inv } = setup();
+    const ring = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 5, { category: 'ring' });
+    give(sim, pid, ring);
+    const bag = { at: 'bag' as const };
+    expect(quickAction(inv(), ring, bag, 'mage', 'trader')).toEqual({ t: 'sell', uid: ring.uid });
+    expect(quickAction(inv(), ring, bag, 'mage', 'stash', 2)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 2 });
+    expect(quickAction(inv(), ring, bag, 'mage', 'forge')).toEqual({ t: 'equipGear', uid: ring.uid, slot: null });
+    // Ctrl/Cmd+click only ever moves to and from the stash; at the trader it neither sells nor buys.
+    expect(quickClick(ring, bag, 'stash', 2)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 2 });
+    expect(quickClick(ring, { at: 'stash', tab: 1, x: 0, y: 0 }, 'stash', 1)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 1 });
+    expect(quickClick(ring, bag, 'trader', 2)).toBeNull();
+    expect(quickClick(ring, bag, null, 2)).toBeNull();
+    expect(quickClick(ring, { at: 'gear', slot: 'ring1' }, 'stash', 2)).toBeNull();
   });
 
   it('drops onto the rune and sigil tabs, a tab label, and list rows onto a cell', () => {

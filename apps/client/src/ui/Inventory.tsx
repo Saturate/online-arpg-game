@@ -2,8 +2,9 @@ import { BAG, categoryForSlot, generalTab, isBound, sellPrice, TRADER, CLASSES, 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
-import { compareGear, DRAG_TYPE, dropAction, dropRefusal, parseDrag, pendingOf, quickAction, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
+import { compareGear, DRAG_TYPE, dropAction, dropRefusal, parseDrag, pendingOf, quickAction, quickClick, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
 import { affixPips, placeTooltip, unusable } from './itemView.js';
+import { activeStation } from './stations.js';
 import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
@@ -166,7 +167,7 @@ export function ItemTooltip() {
           ? place.hint
           : place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`
-          : place?.at === 'bag' && useUi.getState().traderOpen
+          : place?.at === 'bag' && activeStation(useUi.getState()) === 'trader'
             ? isBound(item)
               ? 'Starter item: cannot be sold'
               : `Right-click to sell for ${sellPrice(item)} gold`
@@ -175,7 +176,7 @@ export function ItemTooltip() {
             ? `${QUICK_KEY}+click to take it out · Shift+click to take some · Drag to move`
             : `${QUICK_KEY}+click to take it out · Drag to move`
           : place?.at === 'bag'
-            ? useUi.getState().stashOpen
+            ? activeStation(useUi.getState()) === 'stash'
               ? `${QUICK_KEY}+click to stash · Drag to move or equip`
               : item.kind === 'rune'
                 ? 'Inscribe it at the forge · Drag to move · Shift+right-click to drop'
@@ -229,10 +230,12 @@ export function ItemCell({
 
   /** Ctrl+click (Cmd+click on macOS) at the stash: the same quick move as a right-click there. */
   const quick = (e: MouseEvent): boolean => {
-    if (!item || !(e.ctrlKey || e.metaKey) || !useUi.getState().stashOpen || (place.at !== 'bag' && place.at !== 'stash')) return false;
+    if (!item || !(e.ctrlKey || e.metaKey)) return false;
+    const msg = quickClick(item, place, activeStation(useUi.getState()), openGeneralTab());
+    if (!msg) return false;
     e.preventDefault();
     setHover(null, 0, 0);
-    sendCommand({ t: 'quickMove', uid: item.uid, tab: openGeneralTab() });
+    sendCommand(msg);
     return true;
   };
 
@@ -257,13 +260,13 @@ export function ItemCell({
       sendCommand({ t: 'discard', uid: item.uid });
       return;
     }
-    const { stashOpen, traderOpen } = useUi.getState();
+    const station = activeStation(useUi.getState());
     // A relic asks before it goes to the shared shelf, where anyone can buy it.
-    if (traderOpen && place.at === 'bag' && !isBound(item) && asksBeforeSelling(item)) {
+    if (station === 'trader' && place.at === 'bag' && !isBound(item) && asksBeforeSelling(item)) {
       usePendingDrop.setState({ uid: item.uid, sell: true });
       return;
     }
-    const msg = quickAction(inventory, item, place, cls, stashOpen, traderOpen, openGeneralTab());
+    const msg = quickAction(inventory, item, place, cls, station, openGeneralTab());
     if (msg) sendCommand(msg);
     else if (item.kind === 'vessel' && cls !== 'binder') useUi.getState().notify('Only Binders can bind vessels');
     else useUi.getState().notify('All slots are full. Drag it onto the one to replace.');
@@ -491,7 +494,7 @@ export function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | number; s
 
 /** The trader's shelf, shared by every player on the server: newest first, 50 at most. */
 export function TraderWindow() {
-  const open = useUi((s) => s.traderOpen && s.inventoryOpen);
+  const open = useUi((s) => s.station === 'trader' && s.inventoryOpen);
   const stock = useUi((s) => s.traderStock);
   const gold = useUi((s) => s.inventory?.gold ?? 0);
   const setHover = useHover((h) => h.set);
@@ -576,10 +579,10 @@ function DropConfirm() {
   const uid = usePendingDrop((s) => s.uid);
   const sell = usePendingDrop((s) => s.sell);
   const inv = useUi((s) => s.inventory);
-  const traderOpen = useUi((s) => s.traderOpen);
+  const atTrader = useUi((s) => activeStation(s) === 'trader');
   const item = itemByUid(inv, uid);
-  // Walking away from the trader leaves nothing to sell to.
-  if (!item || (sell && !traderOpen)) return null;
+  // Walking away from the trader, or turning to another station, leaves nothing to sell to.
+  if (!item || (sell && !atTrader)) return null;
   return (
     <div className="inv-confirm" role="alertdialog" aria-label={sell ? 'Sell item' : 'Drop item'}>
       <p>
@@ -612,18 +615,17 @@ export function Inventory() {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const openEditor = useUi((s) => s.openEditor);
-  const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
+  const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
   const [selUid, setSelUid] = useState<ItemUid | null>(null);
   // Beside the stash or the trader only the bag shows, like D2, so both windows fit on screen.
-  const compact = useUi((s) => s.stashOpen || s.traderOpen);
-  const stashOpen = useUi((s) => s.stashOpen);
-  const traderOpen = useUi((s) => s.traderOpen);
+  const station = useUi((s) => s.station);
+  const compact = station === 'stash' || station === 'trader';
   const { ref, handleProps } = useMovablePanel('inventory');
   // A window that closes under the mouse never sends mouseleave, so the tooltip of the item that
   // was hovered would stay on screen. Any window opening or closing drops it.
   useEffect(() => {
     useHover.getState().set(null, 0, 0);
-  }, [open, stashOpen, traderOpen]);
+  }, [open, station]);
   // Delete drops the bag item under the mouse (rares and relics still ask first).
   useEffect(() => {
     if (!open) return;
@@ -645,6 +647,7 @@ export function Inventory() {
   const used = placements(inv.inventory, BAG).length;
   const close = () => {
     usePendingDrop.setState({ uid: null });
+    useUi.getState().closeStation();
     useUi.setState({ inventoryOpen: false, characterOpen: false });
   };
 

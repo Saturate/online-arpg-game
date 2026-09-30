@@ -581,7 +581,11 @@
 .trader-window {
   right: auto;
   left: 12px;
-  width: 360px;
+  /* Wide enough for "50 / 50 · shared by everyone · 999999 gold" on one line beside the title. */
+  width: 420px;
+}
+.trader-window .inv-header .muted {
+  white-space: nowrap;
 }
 .trader-shelf {
   display: grid;

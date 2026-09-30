@@ -206,7 +206,7 @@ export function ForgeEditor() {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const uid = useUi((s) => s.editorUid);
-  const forgeOpen = useUi((s) => s.forgeOpen);
+  const forgeOpen = useUi((s) => s.station === 'forge');
   const bench = useUi((s) => s.editorAllowed && s.devTools);
   const inscribing = useUi((s) => s.inscribing !== null);
   const forgeError = useUi((s) => s.forgeError);

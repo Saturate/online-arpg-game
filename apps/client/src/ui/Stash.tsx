@@ -44,6 +44,7 @@ import { DRAG_TYPE, dropAction, parseDrag, type DragPayload, type ItemPlace } fr
 import { tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useStashView, type SigilContents } from './stashView.js';
+import { activeStation } from './stations.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import './forge.css';
@@ -186,7 +187,10 @@ function BuyTab({ inv }: { inv: InventoryMessage }) {
   if (asking)
     return (
       <span className="stash-buy-ask">
-        Tab {inv.stash.general.length + 1} for <span className="gold">{price} gold</span>?
+        {/* One flex item: the row's gap would otherwise sit between the price and its question mark. */}
+        <span>
+          Tab {inv.stash.general.length + 1} for <span className="gold">{price} gold</span>?
+        </span>
         <button type="button" onClick={() => sendCommand({ t: 'buyStashTab' })}>
           Buy
         </button>
@@ -632,7 +636,7 @@ function GeneralTabView({ inv, id, onEdit }: { inv: InventoryMessage; id: number
 /** The account's shared stash, beside the bag while standing at the chest in town. */
 export function StashWindow() {
   // The forge sits near the chest; its editor takes the stash's place on screen while it is open.
-  const open = useUi((s) => s.stashOpen && s.inventoryOpen && !s.editorOpen);
+  const open = useUi((s) => activeStation(s) === 'stash');
   const inv = useUi((s) => s.inventory);
   const tab = useStashView((s) => s.tab);
   const [editing, setEditing] = useState(false);

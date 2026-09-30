@@ -211,7 +211,7 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
 /** Separate components per kind so each one's hooks run unconditionally. */
 function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }>; classId: ClassId }) {
   const debug = useUi((s) => s.debugVisible);
-  const editorAllowed = useUi((s) => s.forgeOpen || (s.editorAllowed && s.devTools));
+  const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
   // Still the starter it came from only while it holds the starter's runes.
   const skill = matchingStarter(item);

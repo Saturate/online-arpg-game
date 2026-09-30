@@ -370,7 +370,7 @@ export class Game {
     this.visualOffset = { x: 0, y: 0 };
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
-    useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'zone' ? desc.seed : null, waypointMenu: null });
+    useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'zone' ? desc.seed : null, waypointMenu: null, godMode: false });
     // The town editor works on the town part of the home zone, which sits at the map origin.
     this.townLayout = desc.kind === 'town' || (desc.kind === 'zone' && desc.zone === HOME_ZONE) ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
   }
@@ -414,7 +414,11 @@ export class Game {
     else if (code === 'F3') useUi.setState((s) => ({ devOpen: !s.devOpen }));
     else if (code === 'Escape') {
       if (ui.settingsOpen) useUi.setState({ settingsOpen: false });
-      else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen) useUi.setState({ inventoryOpen: false, editorOpen: false, characterOpen: false });
+      else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen || ui.station || ui.waypointMenu) {
+        // The station closes for real, or the next I would bring the stash or trader back with the bag.
+        ui.closeStation();
+        useUi.setState({ inventoryOpen: false, editorOpen: false, characterOpen: false });
+      }
       else ui.toggleMenu();
     }
     // A settings panel waiting for a key press gets it instead of the game.
@@ -430,7 +434,7 @@ export class Game {
         useUi.setState((s) => ({ characterOpen: !s.characterOpen }));
         break;
       case 'sigilEditor':
-        if (ui.forgeOpen || (ui.editorAllowed && ui.devTools)) ui.toggleEditor();
+        if (ui.station === 'forge' || (ui.editorAllowed && ui.devTools)) ui.toggleEditor();
         else ui.notify('Sigils are inscribed at the forge in town');
         break;
       case 'stance':
@@ -614,9 +618,7 @@ export class Game {
     const origin = room.predictor.position;
     // Stations open on a click (see walkToStation) and close once you walk out of the server's reach.
     const ui = useUi.getState();
-    if (ui.stashOpen && !stationInReach(room.def, 'stash', origin)) useUi.setState({ stashOpen: false });
-    if (ui.forgeOpen && !stationInReach(room.def, 'forge', origin)) useUi.setState({ forgeOpen: false, editorOpen: false });
-    if (ui.traderOpen && !stationInReach(room.def, 'trader', origin)) useUi.setState({ traderOpen: false });
+    if (ui.station && !stationInReach(room.def, ui.station, origin)) ui.closeStation();
     const aimPoint = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
     if (aimPoint && room.input.overCanvas) useDevCursor.setState(aimPoint);
     const sampled = room.input.sample(room.world.basis, origin, aimPoint, this.localAim);
@@ -738,15 +740,15 @@ export class Game {
           sampled.moveDir = room.mover.direction(origin);
           return;
         }
-        useUi.setState({ waypointMenu: { current: offer.current, unlocked: offer.unlocked } });
-      } else if (station.kind === 'stash') useUi.setState({ stashOpen: true, inventoryOpen: true });
+        useUi.getState().openWaypointMenu({ current: offer.current, unlocked: offer.unlocked });
+      } else if (station.kind === 'stash') useUi.getState().openStation('stash');
       else if (station.kind === 'board') useUi.setState({ boardOpen: true });
       else if (station.kind === 'forge') {
-        useUi.setState({ forgeOpen: true, inventoryOpen: true });
+        useUi.getState().openStation('forge');
         if (!useUi.getState().editorOpen) useUi.getState().toggleEditor();
       }
       else {
-        useUi.setState({ traderOpen: true, inventoryOpen: true });
+        useUi.getState().openStation('trader');
         this.send({ t: 'traderList' });
       }
       this.stationTarget = null;
