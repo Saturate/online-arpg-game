@@ -212,3 +212,19 @@ export function pendingOf(inv: InventoryMessage): Item[] {
   const placed = new Set<ItemUid | null>([...inv.inventory, ...stashItemUids(inv.stash), ...inv.warband, ...inv.sigils, ...Object.values(inv.gear)]);
   return inv.items.filter((i) => !placed.has(i.uid));
 }
+
+/**
+ * Whether dropping this item on the ground waits for a yes. Only rares and relics are worth the
+ * pause, and only when the player turned the prompt on in Settings.
+ */
+export function asksBeforeDrop(item: Item, confirmValuable: boolean): boolean {
+  return confirmValuable && (item.tier === 'rare' || item.tier === 'relic');
+}
+
+/**
+ * Whether selling this item waits for a yes. Only relics: a trader run is mostly junk, and a sold
+ * relic lands on the shared shelf where anyone can buy it. Bound items cannot be sold at all.
+ */
+export function asksBeforeSelling(item: Item, confirmValuable: boolean): boolean {
+  return confirmValuable && item.tier === 'relic' && !isBound(item);
+}

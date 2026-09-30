@@ -25,6 +25,13 @@ describe('settings', () => {
     expect(parseSettings(JSON.stringify({ options: { uiVolume: '1' } })).options.uiVolume).toBe(DEFAULT_OPTIONS.uiVolume);
   });
 
+  it('keeps the sell and drop prompt off unless it was turned on', () => {
+    expect(DEFAULT_OPTIONS.confirmValuable).toBe(false);
+    expect(parseSettings(JSON.stringify({ options: { damageNumbers: false } })).options.confirmValuable).toBe(false);
+    expect(parseSettings(JSON.stringify({ options: { confirmValuable: true } })).options.confirmValuable).toBe(true);
+    expect(parseSettings(JSON.stringify({ options: { confirmValuable: 'yes' } })).options.confirmValuable).toBe(false);
+  });
+
   it('swaps bindings on a clash so every action keeps a key', () => {
     const next = rebind(DEFAULT_BINDINGS, 'skill1', 'KeyW');
     expect(next.skill1).toBe('KeyW');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGear, createRolledRune, createSigil, inventoryMessage, Simulation, type GearItem, type InventoryMessage } from '@rune/shared';
-import { compareGear, dropAction, parseDrag, quickAction, quickClick, replacedBy } from '../src/ui/itemActions.js';
+import { asksBeforeDrop, asksBeforeSelling, compareGear, dropAction, parseDrag, quickAction, quickClick, replacedBy } from '../src/ui/itemActions.js';
 
 function setup(): { sim: Simulation; pid: number; inv: () => InventoryMessage } {
   const sim = new Simulation(4, { kind: 'flat' });
@@ -132,5 +132,24 @@ describe('stash tabs', () => {
     // A list row has no grip: it lands with its corner on the cell.
     const fromList = { uid: sigil.uid, from: { at: 'sigilTab' as const }, grab: { x: 3, y: 3 } };
     expect(dropAction(inv(), sigil, fromList, { at: 'bag', x: 2, y: 1 }, 'mage')).toEqual({ t: 'moveItem', uid: sigil.uid, to: { at: 'bag', x: 2, y: 1 } });
+  });
+
+  it('asks before dropping or selling valuables only when the setting is on', () => {
+    const { sim } = setup();
+    const gear = (tier: 'common' | 'magic' | 'rare' | 'relic') => createGear(sim.newItemUid(), sim.rand.loot, tier, 5, { category: 'ring' });
+    const relic = gear('relic');
+    const rare = gear('rare');
+    const magic = gear('magic');
+    for (const item of [relic, rare, magic]) {
+      expect(asksBeforeDrop(item, false)).toBe(false);
+      expect(asksBeforeSelling(item, false)).toBe(false);
+    }
+    expect(asksBeforeDrop(relic, true)).toBe(true);
+    expect(asksBeforeDrop(rare, true)).toBe(true);
+    expect(asksBeforeDrop(magic, true)).toBe(false);
+    // A trader run is mostly rares and junk; only relics reach the shared shelf with a prompt.
+    expect(asksBeforeSelling(relic, true)).toBe(true);
+    expect(asksBeforeSelling(rare, true)).toBe(false);
+    expect(asksBeforeSelling({ ...relic, bound: true }, true)).toBe(false);
   });
 });

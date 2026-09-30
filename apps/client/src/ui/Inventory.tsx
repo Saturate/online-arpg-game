@@ -2,7 +2,7 @@ import { BAG, categoryForSlot, generalTab, isBound, sellPrice, TRADER, CLASSES, 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
-import { compareGear, DRAG_TYPE, dropAction, dropRefusal, parseDrag, pendingOf, quickAction, quickClick, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
+import { asksBeforeDrop, asksBeforeSelling, compareGear, DRAG_TYPE, dropAction, dropRefusal, parseDrag, pendingOf, quickAction, quickClick, replacedBy, type DragPayload, type ItemPlace } from './itemActions.js';
 import { affixPips, placeTooltip, unusable } from './itemView.js';
 import { activeStation } from './stations.js';
 import { ItemDetails, tierColor } from './parts.js';
@@ -11,6 +11,7 @@ import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
 import { openGeneralTab } from './stashView.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
+import { useSettings } from './settings.js';
 import './inventory.css';
 
 interface HoverState {
@@ -33,11 +34,6 @@ export const useDrag = create<{ drag: DragPayload | null }>(() => ({ drag: null 
 
 /** A good item waiting for a yes before it is dropped on the ground or sold to the shared shelf. */
 const usePendingDrop = create<{ uid: ItemUid | null; sell: boolean }>(() => ({ uid: null, sell: false }));
-
-/** Only relics ask before selling; everything else sells on the click, as a trader run is mostly junk. */
-function asksBeforeSelling(item: Item): boolean {
-  return item.tier === 'relic';
-}
 
 /**
  * Bag items that arrived since the player last looked: picked up, bought or a rune stack that grew.
@@ -78,7 +74,7 @@ export function clearItemInteractions(): void {
   usePendingDrop.setState({ uid: null, sell: false });
 }
 
-/** Drops a bag item on the ground; a rare or relic asks first, however it was dropped. */
+/** Drops a bag item on the ground; with the Settings prompt on, a rare or relic asks first, however it was dropped. */
 export function requestDrop(uid: ItemUid): void {
   const item = itemByUid(useUi.getState().inventory, uid);
   if (!item) return;
@@ -87,7 +83,7 @@ export function requestDrop(uid: ItemUid): void {
     useUi.getState().notify(refusal);
     return;
   }
-  if (item.tier === 'rare' || item.tier === 'relic') {
+  if (asksBeforeDrop(item, useSettings.getState().options.confirmValuable)) {
     usePendingDrop.setState({ uid, sell: false });
     return;
   }
@@ -250,9 +246,9 @@ export function ItemCell({
         useUi.getState().notify(refusal);
         return;
       }
-      // A good drop needs a second shift+right-click; junk goes straight away.
+      // With the prompt on, a good drop needs a second shift+right-click; junk goes straight away.
       const pending = usePendingDrop.getState();
-      if ((item.tier === 'rare' || item.tier === 'relic') && (pending.uid !== item.uid || pending.sell)) {
+      if (asksBeforeDrop(item, useSettings.getState().options.confirmValuable) && (pending.uid !== item.uid || pending.sell)) {
         usePendingDrop.setState({ uid: item.uid, sell: false });
         return;
       }
@@ -262,7 +258,7 @@ export function ItemCell({
     }
     const station = activeStation(useUi.getState());
     // A relic asks before it goes to the shared shelf, where anyone can buy it.
-    if (station === 'trader' && place.at === 'bag' && !isBound(item) && asksBeforeSelling(item)) {
+    if (station === 'trader' && place.at === 'bag' && asksBeforeSelling(item, useSettings.getState().options.confirmValuable)) {
       usePendingDrop.setState({ uid: item.uid, sell: true });
       return;
     }
@@ -626,7 +622,7 @@ export function Inventory() {
   useEffect(() => {
     useHover.getState().set(null, 0, 0);
   }, [open, station]);
-  // Delete drops the bag item under the mouse (rares and relics still ask first).
+  // Delete drops the bag item under the mouse (rares and relics still ask first when the prompt is on).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {

@@ -85,9 +85,11 @@ export interface Options {
   uiVolume: number;
   /** Spell effects: Low keeps plain shapes and few particles for slow machines. */
   vfxQuality: VfxQuality;
+  /** Rare and relic drops, and relic sales, wait for a yes. Off by default, so selling and clearing the bag stay one click; on is the safety net. */
+  confirmValuable: boolean;
 }
 
-export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5, vfxQuality: 'high' };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5, vfxQuality: 'high', confirmValuable: false };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -129,6 +131,7 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
       if (typeof o.wheelCyclesSkill === 'boolean') options.wheelCyclesSkill = o.wheelCyclesSkill;
       if (typeof o.uiVolume === 'number' && o.uiVolume >= 0 && o.uiVolume <= 1) options.uiVolume = o.uiVolume;
       if (isVfxQuality(o.vfxQuality)) options.vfxQuality = o.vfxQuality;
+      if (typeof o.confirmValuable === 'boolean') options.confirmValuable = o.confirmValuable;
     }
   } catch {
     // Corrupt storage: defaults.

@@ -17,7 +17,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 - **New items** (picked up, bought, a rune stack that grew) get an ember mark until hovered.
 - **Sort** packs the bag on the server: gear by slot, then sigils, vessels, runes; within each, tier, item level and name.
 - **The trader** at the stall nearest the town spawn buys anything unbound for gold and sells from one shelf shared by the whole server.
-- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first). A dropped item lands as a bag at your feet that you cannot click back up until you step away; others can take it ([loot.md](loot.md)).
+- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first when the prompt setting is on, see "Sell and drop prompt"). A dropped item lands as a bag at your feet that you cannot click back up until you step away; others can take it ([loot.md](loot.md)).
 - **The inventory and trader windows move** like the other framed panels: unlock panels on the HUD and drag them by the title bar; they snap to the screen edges and to each other, and Settings resets them. Positions are kept per browser (`ui/GamePanel.tsx`).
 
 ## Why
@@ -51,7 +51,16 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 - **Sell price:** `max(1, round(TIER_VALUE * (1 + 0.12 * (ilvl - 1))))` with common 4, magic 12, rare 40, relic 150. A rune adds 4, 10 or 25 per affix by affix tier; a rune stack sells for its count; a sigil sells for its own value plus its runes.
 - **Buy at 3x,** priced when bought.
 - **One shelf for the whole server,** 50 items; the oldest is destroyed when a 51st is sold. If someone else bought an item first, the buyer is told so.
-- **Only relics ask before selling** (an in-game prompt, not a browser dialog: "Anyone can buy it off the shelf"). Everything else sells on the right-click.
+- **Sells on the right-click.** With the prompt setting on (below), a relic asks first (an in-game prompt, not a browser dialog: "Anyone can buy it off the shelf"); everything else always sells on the click.
+
+### Sell and drop prompt
+
+A client setting, Esc, Settings, Items, "Ask before dropping rares and relics, or selling relics", default **off**. The owner asked for it off by default: turned on for safety, off when it gets in the way. It is stored with the other client options in localStorage (`ui/settings.ts`, `confirmValuable`), so it belongs to the browser, not the account.
+
+- **On:** dropping a rare or relic (Delete, the Drop button, dragging it out of the bag, shift+right-click) shows the in-game prompt first; shift+right-click drops on a second shift+right-click. Selling a relic at the trader shows the sell prompt. Commons and magics, and every other sale, go straight through.
+- **Off:** every drop and sale happens on the first action.
+- The rules are `asksBeforeDrop` and `asksBeforeSelling` in `ui/itemActions.ts`. Bound items never reach either prompt: they cannot be dropped or sold.
+- Turning the setting off while a prompt is open leaves that prompt up until it is answered.
 - **One transaction per trade:** the shelf, the character and the stash are saved together, and the new shelf goes to everyone in a room with a trader.
 
 ### Conversion from v1

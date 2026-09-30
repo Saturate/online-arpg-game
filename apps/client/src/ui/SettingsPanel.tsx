@@ -9,7 +9,9 @@ const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
   { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place.' },
 ];
 
-const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls' | 'uiVolume' | 'vfxQuality'>; label: string }[] = [
+type BoolOption = { [K in keyof Options]: Options[K] extends boolean ? K : never }[keyof Options];
+
+const TOGGLES: readonly { key: BoolOption; label: string }[] = [
   { key: 'wheelCyclesSkill', label: 'Scroll wheel picks the mouse skills (Shift for the left one)' },
   { key: 'damageNumbers', label: 'Damage numbers' },
   { key: 'screenShake', label: 'Screen shake' },
@@ -76,6 +78,14 @@ export function SettingsPanel() {
                   </label>
                 </li>
               ))}
+            </ul>
+            <h3>Items</h3>
+            <ul className="toggles">
+              <li>
+                <label>
+                  <input type="checkbox" checked={options.confirmValuable} onChange={(e) => setOption('confirmValuable', e.target.checked)} /> Ask before dropping rares and relics, or selling relics
+                </label>
+              </li>
             </ul>
             <h3>Spell effects</h3>
             <div className="scale-row" role="radiogroup" aria-label="Spell effect quality">
