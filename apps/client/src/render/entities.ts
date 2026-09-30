@@ -35,6 +35,7 @@ import { makeSpellView, type SpellView } from './vfx/spellViews.js';
 import type { Vfx } from './vfx/vfx.js';
 import { entityLightKey } from './lights.js';
 import type { VfxQuality } from './vfx/quality.js';
+import { HeldJitter } from './vfx/jitter.js';
 
 export interface RenderItem {
   /** `s<id>` for server entities, `l<n>` for local cosmetic effects. */
@@ -47,6 +48,11 @@ export interface RenderItem {
 }
 
 const FLASH_SECONDS = 0.08;
+/**
+ * The least time between two hit flashes on one entity. Zones tick every few frames, and a flash on
+ * every tick kept monsters standing in one lit up the whole time.
+ */
+const FLASH_COOLDOWN = 0.3;
 
 interface Disposable {
   dispose(): void;
@@ -73,6 +79,10 @@ interface View {
   shield: Mesh | null;
   auraRings: Mesh[];
   flash: number;
+  /** Renderer time of the last hit flash, for FLASH_COOLDOWN. */
+  lastFlash: number;
+  /** Held flicker for the shock tint, so it crackles instead of strobing. */
+  shockJitter: HeldJitter;
   kind: EntitySnap['k'];
   bob: number;
   rig: Rig | null;
@@ -220,9 +230,26 @@ function ownTint(view: View): MeshStandardMaterial[] {
     mesh.material = m;
   }
   const out = [...copies.values()];
+  for (const m of out) flashFromTexture(m);
   view.tintable = out;
   captureBase(view, out);
   return out;
+}
+
+function isBlack(c: Color): boolean {
+  return c.r === 0 && c.g === 0 && c.b === 0;
+}
+
+/**
+ * Textured models (KayKit) have a white material colour, so copying it into the emissive for a hit
+ * flash lit the whole model flat white. With the texture as the emissive map too, a white emissive
+ * brightens the model's own colours instead. Only where the material has no glow of its own: with
+ * a black emissive the map adds nothing until a flash or tint writes it.
+ */
+function flashFromTexture(m: MeshStandardMaterial): void {
+  if (!m.map || m.emissiveMap || !isBlack(m.emissive)) return;
+  m.emissiveMap = m.map;
+  m.needsUpdate = true;
 }
 
 function captureBase(view: View, mats: MeshStandardMaterial[]): void {
@@ -396,6 +423,8 @@ function makeView(item: RenderItem, vfx: Vfx | null): View {
     shield,
     auraRings: [],
     flash: 0,
+    lastFlash: -Infinity,
+    shockJitter: new HeldJitter(),
     kind: s.k,
     bob: Math.random() * Math.PI * 2,
     rig,
@@ -470,7 +499,8 @@ export class EntityRenderer {
 
   flash(key: string): void {
     const v = this.views.get(key);
-    if (!v) return;
+    if (!v || this.time - v.lastFlash < FLASH_COOLDOWN) return;
+    v.lastFlash = this.time;
     v.flash = FLASH_SECONDS;
     if (v.rig && !v.character) rigHit(v.rig, v.bob);
   }
@@ -655,6 +685,8 @@ export class EntityRenderer {
   private rebuildForQuality(): void {
     this.quality = this.vfx?.quality ?? null;
     for (const [key, view] of this.views) {
+      // The ribbon batch was replaced with the quality; an old handle would release someone else's ribbon.
+      view.dashRibbon = -1;
       if (view.spell) this.remove(key, view);
       else if (view.auraRings.length > 0) {
         for (const r of view.auraRings) this.dropAura(view, r);
@@ -783,18 +815,22 @@ export class EntityRenderer {
     let k = 0;
     // With status particles on, the flames, frost and sparks carry the status; a full tint on top
     // turned every burning monster into a flat orange silhouette.
-    const soft = this.vfx?.level.statusParticles ? 0.18 : 1;
+    // On Low the tint is the only status cue, but at full strength it hid the monster under a flat
+    // colour; 0.4 still reads.
+    const particles = this.vfx?.level.statusParticles === true;
+    const burnK = particles ? 0.11 : 0.4;
+    const ailK = particles ? 0.09 : 0.4;
     if ((st & STATUS.burn) !== 0) {
       const f = 0.5 + Math.sin(this.time * 18) * 0.3;
       r += 1 * f;
       g += 0.35 * f;
-      k = 0.6 * soft;
+      k = burnK;
     }
     if ((st & STATUS.chill) !== 0) {
       r += 0.1;
       g += 0.45;
       b += 1;
-      k = Math.max(k, 0.5 * soft);
+      k = Math.max(k, ailK);
     }
     if ((st & STATUS.cursed) !== 0) {
       // A slow purple pulse: the mummy's curse is on you and your hits are weaker.
@@ -810,11 +846,11 @@ export class EntityRenderer {
       k = Math.max(k, 0.7);
     }
     if ((st & STATUS.shock) !== 0) {
-      const f = Math.random() < 0.3 ? 1 : 0.3;
+      const f = 0.6 * view.shockJitter.next(dt);
       r += f;
       g += f * 0.95;
       b += f * 0.3;
-      k = Math.max(k, 0.5 * soft);
+      k = Math.max(k, ailK);
     }
     const active = view.flash > 0 || k > 0;
     // Untouched views keep their shared materials; there is nothing to write or undo.
@@ -824,11 +860,20 @@ export class EntityRenderer {
       const base = view.baseEmissive[i];
       if (!base) return;
       if (view.flash > 0) {
-        // Brighten the entity's own colour so a unit under constant attack stays recognisable.
-        m.emissive.copy(m.color);
-        // With impact particles on, a softer flash: zones tick every few frames and a full flash
-        // left monsters standing in them as white silhouettes.
-        m.emissiveIntensity = this.vfx?.level.shaders ? 0.25 : 0.7;
+        // Brighten the entity's own colours so a unit under constant attack stays recognisable:
+        // through the texture on textured models (see flashFromTexture), the material colour on
+        // rigs, and a flare of their own glow on textured models that have one.
+        const strength = this.vfx?.level.shaders ? 0.25 : 0.35;
+        if (m.map && m.emissiveMap === m.map) {
+          m.emissive.setRGB(1, 1, 1);
+          m.emissiveIntensity = strength;
+        } else if (m.map) {
+          m.emissive.copy(base);
+          m.emissiveIntensity = (view.baseIntensity[i] ?? 1) * 1.6;
+        } else {
+          m.emissive.copy(m.color);
+          m.emissiveIntensity = strength;
+        }
       } else if (k > 0) {
         tmpColor.setRGB(Math.min(1, r), Math.min(1, g), Math.min(1, b));
         m.emissive.copy(tmpColor);
@@ -885,7 +930,10 @@ export class EntityRenderer {
   /** Dust and a pale streak behind a dashing hero. */
   private syncDash(view: View, dashing: boolean, item: RenderItem, dt: number): void {
     const vfx = this.vfx;
-    if (!vfx || !vfx.level.shaders) return;
+    if (!vfx || !vfx.level.shaders) {
+      view.dashRibbon = -1;
+      return;
+    }
     if (dashing) {
       if (view.dashRibbon < 0) {
         const c = PALETTE.plain.core;
