@@ -38,6 +38,7 @@ Status: Live. Wilds maps, the town editor and dungeons since 2026-09-28; public 
 - **The town layout sits at the origin of the home zone's map** and is marked as a safe zone. The layout stays at the origin so the town editor keeps working in town coordinates.
 - **The safe zone rule lives in `isTargetable`,** the one check both monster aggro and damage go through. Monsters lose their target at the gate and leash home. Packs and dungeon entrances keep outside aggro range of the town.
 - **The Arena entrance sits off the roads,** so walking out of town never drops you into it.
+- **The home zone never pauses.** Esc pauses a room only when you are alone in it, it is not shared and it is not an Arena run (`Room.canPause`). The town is where everyone arrives, so the home zone room counts as shared even when one player is in it; other zones, antechambers and dungeons pause when you are alone.
 
 ### Waypoints and gates
 
@@ -104,12 +105,12 @@ Tests:
 - `packages/shared/test/dungeon.test.ts`: deterministic per seed and run; every pack and portal reachable, one boss; the antechamber is safe with a gate and a way back; the boss clears the run once and opens the cache; every bridge can be crossed.
 - `packages/shared/test/town.test.ts`: layout validation round trip, hostile layouts rejected, the map key changes with the layout, roads are faster.
 - `apps/server/test/worlds.test.ts`, `staging.test.ts`: public worlds fill to capacity; old seed messages ignored; the ready-check countdown.
+- `apps/server/test/pause.test.ts`: a player alone in the home zone cannot pause it; alone in the Arena antechamber they can.
 
 ## Limits and open questions
 
-- **Pause:** Esc pauses the room only when you are alone in it and it is not shared. The check looks for a `town` room, but the town lives inside the home zone room, so a player alone in Emberwatch can pause it. The Esc menu text still says the town never pauses.
+- **Pause is per room, not per spot:** a player alone in Mossy Barrens outside the town fence cannot pause either, since the town and the zone share one room. Pausing by position would need `canPause` in the snapshot rather than the welcome.
 - **The town editor has no decor tool,** although comments in `town.ts` mention one; decor such as the forge's weapon rack cannot be moved in game.
 - **The server does not stop deleting portals or the spawn;** only the editor does. A layout without a Wilds portal is rejected, but the home zone drops that portal from the town anyway.
 - **An invalid town save is dropped without a notice** to the builder.
-- **The antechamber panel says friends can join from the Esc menu,** but the Esc menu no longer lists instances; friends join through a party.
 - **The standalone `wildsMap` and the `testground` map** are only used by tests and tools.

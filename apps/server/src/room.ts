@@ -1,5 +1,6 @@
 import {
   applyDev,
+  HOME_ZONE,
   buyItem,
   pendingItems,
   sellItem,
@@ -75,8 +76,9 @@ export class Room {
     return this.sim.mapDef.name;
   }
 
+  /** The town is where everyone meets, so it never pauses; it lives inside the home zone room. */
   get shared(): boolean {
-    return this.desc.kind === 'town';
+    return this.desc.kind === 'town' || (this.desc.kind === 'zone' && this.desc.zone === HOME_ZONE);
   }
 
   /** Pausing a server-authoritative world is only fair when nobody else is in it. Arena runs are timed and scored, so they never pause. */
@@ -171,7 +173,7 @@ export class Room {
         return;
       case 'pause':
         this.paused = msg.paused && this.canPause;
-        if (msg.paused && !this.canPause) client.send({ t: 'notice', text: 'Others are here, so the world keeps running' });
+        if (msg.paused && !this.canPause) client.send({ t: 'notice', text: this.shared ? 'The town never pauses' : 'Others are here, so the world keeps running' });
         return;
       case 'inscribe': {
         // Answered on its own rather than as a notice, so the forge never mistakes another notice
