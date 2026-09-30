@@ -10,6 +10,8 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
   - **Vessels** hold one minion ([minions.md](minions.md)).
   - **Runes** are the parts of a spell, inscribed at the forge ([forge.md](forge.md)). Plain runes stack 20 to a cell; rolled runes carry rune affixes and never stack.
 - **Tiers:** common, magic, rare, relic. Rares and relics get random two-word names; common and magic items are named from their affixes.
+- **Named (unique) items:** an item with `fixedName` keeps a hand-given name and shows it in the unique colour, a worn bronze gold (0xc9a15c, `UNIQUE_COLOR` in `render/config.ts`) set apart from rare yellow and relic orange, in the bag, stash, trader, tooltips and ground labels (the loot snapshot marks it `u`). Its `lore` line shows in italics under the name. So far only vessels carry the fields, and only one item uses them:
+  - **Brothers Creation**, the owner's brothers' Hound vessel: relic, the full pack (a Leader and 6 packmates, [minions.md](minions.md)), "Relic Unique Soul Vessel", lore "Made by the brothers.", fixed affixes at the top tier (50% movement speed, 100% life, 35% attack speed, respawns 40% faster; no behaviour affix), 50 spirit, vessel level = item level + 4. Unbound: it can be stashed, traded, dropped and sold like any relic. It exists only through the owner's Grant item tool ([accounts-admin.md](accounts-admin.md)); it never drops.
 - **A grid inventory, D2 style:** the bag is 12x8, the account stash 12x10 ([stash.md](stash.md)). Items have footprints: body armour and weapons 2x3, helmets, gloves and boots 2x2, belts 2x1, vessels 1x2, jewellery, sigils and runes 1x1.
 - **Pending items** show under the bag ("Pending: N") when something you own fits nowhere. They move in by themselves when room frees up.
 - **New items** (picked up, bought, a rune stack that grew) get an ember mark until hovered.
@@ -23,7 +25,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 ### Affixes and rolls
 
 - **One affix engine** serves gear, sigils, vessels, runes and rare monsters, with tiers, weights, allowed item kinds and prefix or suffix (SPEC).
-- **Affix counts:** common 0, magic 1 to 2, rare 3 to 4, relic 4 to 5, with at most 3 prefixes and 3 suffixes. Affixes in the same group are mutually exclusive, so a vessel has at most one behaviour and a rune at most one release.
+- **Affix counts:** common 0, magic 1 to 2, rare 3 to 4, relic 4 to 5, with at most 3 prefixes and 3 suffixes. Affixes in the same group are mutually exclusive, so a vessel has at most one behaviour and a rune at most one release. The one exception is Brothers Creation, a hand-made item only the owner's Grant item tool creates: its four fixed top-tier affixes are all prefixes, which no drop can roll.
 - **Item level** is the monster level an item dropped from, and it gates affix tiers: T2 from item level 3, T3 from 5. The tier's own cap also applies, so magic items never get T3.
 - **Level requirement:** item level minus 2, checked on the server when equipping ([characters.md](characters.md)).
 - **Corruption:** magic or better sigil drops have an 8% chance. A corrupted sigil gets +1 rune slot and 1.5x misfire chance.
@@ -68,7 +70,8 @@ v2 replaced v1 runes outright, with no switch and no fallback, because only a ha
 
 Code:
 
-- Items: `packages/shared/src/items/items.ts` (the `Item` union, `TIER_ROLLS`, `rollAffixes`, `createGear`, `createVessel`, `createRune`, `createRolledRune`, `sigilCapacity`, `isBound`, `holdsBoundRunes`, `reissueUids`, `STARTER_VESSELS`). Gear bases in `data/gear.ts`, affixes in `data/affixes.ts`. Prices in `items/prices.ts`.
+- Grants: `packages/shared/src/items/grants.ts` (`GRANT_TEMPLATES`, `parseGrantRequest`, `createGrantItem`); `createBrothersCreation` and `BROTHERS_CREATION` in `items.ts`.
+- Items: `packages/shared/src/items/items.ts` (the `Item` union, `TIER_ROLLS`, `rollAffixes`, `createGear`, `createVessel`, `vesselPackmates`, `createRune`, `createRolledRune`, `sigilCapacity`, `isBound`, `holdsBoundRunes`, `reissueUids`, `STARTER_VESSELS`). Gear bases in `data/gear.ts`, affixes in `data/affixes.ts`. Prices in `items/prices.ts`.
 - Grid: `packages/shared/src/items/grid.ts` (`BAG`, `STASH`, footprints, `findSpot`).
 - Inventory rules: `packages/shared/src/sim/inventory.ts` (`addItem`, `takeFromGround`, `addOrPend`, `layOut`, `placePending`, `settlePending`, `sortInventory`, `discard`, `moveItem`, `sellItem`, `buyItem`, equip functions, the starter kit).
 - Trader shelf: `Market` in `apps/server/src/accounts.ts`, trades in `apps/server/src/manager.ts` (`saveTrade`).
@@ -79,10 +82,12 @@ Code:
 type Item = SigilItem | VesselItem | GearItem | RuneItem;
 // all: uid, kind, tier, name, ilvl, affixes: AffixRoll[] ({ id, tier, value }), bound?
 // SigilItem:  slots: RuneItem[]; corrupted: boolean; starter?: string
-// VesselItem: minion: MinionTypeId; level: number
+// VesselItem: minion: MinionTypeId; level: number; pack?: number (Hound packmates); fixedName?: boolean; lore?: string
 // GearItem:   base: string; category: GearCategory
 // RuneItem:   rune: RuneId; count: number; bench?: boolean
 ```
+
+The new vessel fields are optional, so every existing vessel, save, stash and shelf reads as before; a Hound vessel without `pack` counts as one packmate. The v1 conversion never meets them (v1 had no Hounds), and saves carry them through untouched since items are stored as written.
 
 Invariants:
 
@@ -102,10 +107,10 @@ Tests:
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
 - `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.
 - `apps/client/test/stations.test.ts`: one station window at a time, the editor and the character sheet with them, which station takes the bag's clicks.
+- `apps/server/test/grants.test.ts`: a grant adds exactly one item with a uid above every uid in the save, unbound, and it reaches the character on the next login once, with every other item unchanged; nothing is written on a refusal.
 
 ## Limits and open questions
 
 - If the SQLite write in a trade throws after a buy and a later save succeeds, the item can exist twice after a restart (older than the rune rework).
-- Uniques (fixed, hand-made affixes that bend the rules) are planned; see [runes.md](runes.md), "Planned".
+- `fixedName` and `lore` exist on vessels only; other kinds get them with the first unique of their kind. Uniques that bend the rules (fixed, hand-made affixes with special effects) are planned; see [runes.md](runes.md), "Planned".
 - `LOOT.inventorySize` (20) is left over from the old 20-slot bag and unused.
-- Stash tabs are being built; see [stash.md](stash.md).

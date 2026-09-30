@@ -96,6 +96,8 @@ export interface MonsterTraits {
   /** Burrowers resurface within this distance and stay up this long before diving again. */
   burrow?: { surfaceRange: number; surfacedSeconds: number };
   knockbackImmune?: boolean;
+  /** Its bites and pounces poison (AILMENTS.poison). */
+  poisonBite?: boolean;
   /** Element of its melee hits, so a frost wraith's touch chills. */
   contactElement?: ElementId;
   /** Statues and mimics: perfectly still until a target comes this close (or it is hit). */
@@ -660,8 +662,10 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     'Grave Hound',
     'beast',
     'flank',
-    { life: 95, speed: 115, radius: 17, contact: 12, contactCooldown: 0.9, color: 0x6a6e66 },
+    // Bites 10 rather than 12 since the poison came in, so its damage stays in line with the other biters.
+    { life: 95, speed: 115, radius: 17, contact: 10, contactCooldown: 0.9, color: 0x6a6e66 },
     [{ kind: 'leap', cooldown: 4.5, range: 400, windup: 0.55, minRange: 140, radius: 58, damage: 22, duration: 0.55 }],
+    { poisonBite: true },
   ),
   giant_scorpion: monster(
     'giant_scorpion',

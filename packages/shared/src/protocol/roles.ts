@@ -4,7 +4,11 @@
  * never from the database, so nobody can grant it through the admin page.
  */
 
-export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles'] as const;
+/**
+ * `grantItems` makes real, tradeable items out of nothing, so like `manageRoles` only the owner has
+ * it: an admin account taken over could otherwise mint items for anyone.
+ */
+export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles', 'grantItems'] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** Lowest to highest; the index is the rank. */
@@ -26,7 +30,7 @@ export const ROLE_INFO: Record<Role, { name: string; blurb: string }> = {
   player: { name: 'Player', blurb: 'No staff powers' },
   builder: { name: 'Builder', blurb: 'Town editor and F3 dev tools; can look at the admin page' },
   moderator: { name: 'Moderator', blurb: 'Announce, kick, ban and teleport to players' },
-  admin: { name: 'Admin', blurb: 'Everything except handing out roles' },
+  admin: { name: 'Admin', blurb: 'Everything except handing out roles and granting items' },
   owner: { name: 'Owner', blurb: 'Everything; set with ADMIN_USERS on the server' },
 };
 

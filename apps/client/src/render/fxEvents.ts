@@ -79,6 +79,15 @@ export function playFxEvent(ev: GameEvent, ctx: FxEventContext): void {
       if (entities.kindOf(`s${ev.id}`) === 'enemy') fx.vfx.enemyCast(ev.x, ev.y);
       else fx.vfx.cast(ev.el ?? 'plain', ev.x, ev.y);
       break;
+    case 'howl':
+      // A dark ring of breath and dust rolling out from the Leader: loud, not bright.
+      entities.attack(`s${ev.id}`);
+      fx.shockwave(ev.x, ev.y, ev.r, 'plain', 0.9);
+      break;
+    case 'pounce':
+      fx.vfx.impact(null, ev.x, ev.y, true);
+      fx.shockwave(ev.x, ev.y, ev.r, 'plain', 0.45);
+      break;
     case 'waypoint':
       break;
   }

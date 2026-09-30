@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -25,6 +25,11 @@ export interface Account {
 function storedRole(v: unknown): AssignableRole {
   return isAssignableRole(v) ? v : 'player';
 }
+
+export type GrantResult =
+  | { ok: true; item: Item; characterName: string }
+  /** no_character: not this account's; never_played: no save yet; old_format: a v1 save not loaded since. */
+  | { ok: false; error: 'no_character' | 'never_played' | 'unreadable' | 'old_format' };
 
 export interface StoredCharacter extends CharacterSummary {
   accountId: number;
@@ -378,6 +383,12 @@ export class AccountStore {
     return found;
   }
 
+  /** Usernames compare without case, as at registration. */
+  accountByUsername(username: string): Account | null {
+    const r = row(this.db.prepare('SELECT id, username, role FROM accounts WHERE username = ?').get(username));
+    return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
+  }
+
   accountById(accountId: number): Account | null {
     const r = row(this.db.prepare('SELECT id, username, role FROM accounts WHERE id = ?').get(accountId));
     return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
@@ -508,6 +519,57 @@ export class AccountStore {
       console.error(`account ${accountId} stash could not be read: ${err instanceof Error ? err.message : String(err)}`);
       return 'unreadable';
     }
+  }
+
+  /**
+   * Adds one item to an offline character's save as pending (in `items` but in no grid or slot), so
+   * the next login lays it out like any other pending item: stash first unless bound, then the bag,
+   * and kept pending if nothing has room. Only the stored JSON's item list changes, in a
+   * transaction that writes the row only if it is still the one read. The caller makes sure the
+   * account is offline: a live session's next save would write over the row.
+   */
+  grantPendingItem(accountId: number, characterId: number, make: (newUid: () => ItemUid) => Item): GrantResult {
+    let result: GrantResult = { ok: false, error: 'no_character' };
+    this.transaction(() => {
+      const r = row(this.db.prepare('SELECT name, class_id, save_json FROM characters WHERE id = ? AND account_id = ?').get(characterId, accountId));
+      const classId = r?.class_id;
+      if (!r || !isClassId(classId)) return;
+      const json = r.save_json;
+      if (typeof json !== 'string') {
+        result = { ok: false, error: 'never_played' };
+        return;
+      }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(json);
+      } catch {
+        raw = null;
+      }
+      const items: unknown = isRecord(raw) ? raw.items : undefined;
+      if (!isRecord(raw) || !Array.isArray(items) || !parseSave(json, classId)) {
+        result = { ok: false, error: 'unreadable' };
+        return;
+      }
+      // A v1 save converts on its first load; granting into it would mix the formats.
+      if (!isRuneFormat2(raw)) {
+        result = { ok: false, error: 'old_format' };
+        return;
+      }
+      // Above every uid in the save, runes inside sigils included, so the new item collides with
+      // nothing before the room gives everything fresh uids on load.
+      let top = 0;
+      for (const it of items) {
+        if (!isRecord(it)) continue;
+        if (typeof it.uid === 'number') top = Math.max(top, it.uid);
+        if (Array.isArray(it.slots)) for (const r2 of it.slots) if (isRecord(r2) && typeof r2.uid === 'number') top = Math.max(top, r2.uid);
+      }
+      const item = make(() => ++top);
+      const next = JSON.stringify({ ...raw, items: [...items, item] });
+      const changed = num(this.db.prepare('UPDATE characters SET save_json = ? WHERE id = ? AND account_id = ? AND save_json = ?').run(next, characterId, accountId, json).changes);
+      if (changed !== 1) throw new Error(`grant to character ${characterId}: the row changed while it was written`);
+      result = { ok: true, item, characterName: str(r.name) };
+    });
+    return result;
   }
 
   saveCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave, market?: Market): void {

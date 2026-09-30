@@ -637,6 +637,11 @@
   font-size: 12px;
   color: #cfc3a8;
 }
+.tt .tt-unique-lore {
+  font-size: 12px;
+  font-style: italic;
+  color: #a8875a;
+}
 .tt .tt-wand {
   font-size: 12px;
   color: #b8a888;

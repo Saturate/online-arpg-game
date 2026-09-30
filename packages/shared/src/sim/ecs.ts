@@ -81,8 +81,11 @@ export interface PlayerComp {
   gear: Record<GearSlot, ItemUid | null>;
   /** Recomputed whenever equipment changes; see `sim/stats.ts`. */
   stats: PlayerStats;
+  /** Per warband slot: the minion, or for a pack vessel its Leader. */
   minions: (EntityId | null)[];
   minionRespawn: number[];
+  /** Per warband slot: a pack vessel's live packmates, and the ticks at which dead ones fell. */
+  packs: PackState[];
   stance: Stance;
   links: (LinkState | null)[];
   /** Bumped whenever items or equipment change, so the server knows to resend the inventory. */
@@ -154,6 +157,8 @@ export interface EnemyComp {
   rewards: boolean;
   /** Killed by its own suicide blast, so the death burst does not fire on top. */
   detonated: boolean;
+  /** Seconds left held in place by a Hound Leader's pounce: no moving, biting or casting. */
+  pinned: number;
 }
 
 /** An ability winding up. Aim and target points lock at the start, which is what makes it dodgeable. */
@@ -167,6 +172,31 @@ export interface EnemyCast {
 }
 
 export type MinionState = 'follow' | 'engage' | 'retreat';
+
+export interface PackState {
+  mates: EntityId[];
+  /** Sim ticks at which packmates died; they rejoin with the Leader (see sim/minions.ts). */
+  down: number[];
+}
+
+/** A dog in a Hound pack. `index` orders packmates, for their flank angle. */
+export interface PackRole {
+  role: 'leader' | 'mate';
+  index: number;
+}
+
+/** A minion's pounce: stands for `windup`, then flies to the spot over `duration`. */
+export interface MinionLeap {
+  t: number;
+  windup: number;
+  duration: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  radius: number;
+  damage: number;
+}
 
 export interface MinionComp {
   ownerId: EntityId;
@@ -185,6 +215,15 @@ export interface MinionComp {
   tauntTimer: number;
   /** Ticks the current target has been out of sight; the minion gives up after a while. */
   lostSightTicks: number;
+  /** Set for Hound pack dogs. */
+  pack: PackRole | null;
+  /** Seconds until the Leader can pounce again, and the pounce in progress. */
+  leapCooldown: number;
+  leap: MinionLeap | null;
+  leapDamage: number;
+  /** Seconds until the Leader howls again, and seconds left on this dog's howl buff. */
+  howlCooldown: number;
+  howled: number;
 }
 
 export interface ProjectileComp {
@@ -233,6 +272,8 @@ export interface StatusComp {
   chill: number;
   shock: number;
   shield: { amount: number; t: number; burning: boolean } | null;
+  /** Poison stacks from bites, each ticking on its own; see AILMENTS.poison. */
+  poison: { dps: number; t: number; sourceId: EntityId }[];
   /** Seconds left on a mummy's curse; a cursed player deals less damage. */
   curse: number;
 }
@@ -335,7 +376,7 @@ export class World {
 }
 
 export function emptyStatus(): StatusComp {
-  return { burn: null, chill: 0, shock: 0, shield: null, curse: 0 };
+  return { burn: null, chill: 0, shock: 0, shield: null, curse: 0, poison: [] };
 }
 
 export function emptyBuffs(): BuffComp {

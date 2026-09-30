@@ -140,6 +140,14 @@ export const AILMENTS = {
   burn: { seconds: 3, dpsFractionOfHit: 0.2 },
   chill: { seconds: 2, slow: 0.35 },
   shock: { seconds: 3, damageTakenBonus: 0.2 },
+  /**
+   * Stacking damage over time from bites. Each bite adds a stack worth 12% of the hit per second and
+   * resets every stack to 4 s; at 3 stacks a new bite replaces the weakest. A Grave Hound biting 10
+   * every 0.9 s holds 3 stacks, 3.6 poison DPS on top of 11.1 from the bites: 14.7, between the
+   * Dire Wolf (12.9) and the Hellhound's bite plus burn (16). Three stacks for a few seconds keeps
+   * poison a pressure that builds while you stand in a pack, not a second life bar.
+   */
+  poison: { seconds: 4, maxStacks: 3, dpsFractionOfHit: 0.12 },
 } as const;
 
 export const AURA = {
@@ -245,6 +253,31 @@ export const LOOT = {
 export const SPIRIT = {
   vesselBaseByTier: { common: 15, magic: 20, rare: 25, relic: 30 },
   vesselPerAffix: 5,
+} as const;
+
+/**
+ * The Hound pack: one vessel binds a Leader and 1 to 6 packmates for one vessel's spirit.
+ *
+ * Packmate strength: each packmate has `mateShare / sqrt(n)` of the Leader's base life and damage
+ * (n packmates), so the packmates together are worth 0.55 of a hound with one (0.55), 0.78 with
+ * two, 1.1 with four and 1.35 with six. The whole pack is 1.55 to 2.35 hounds' worth rather than
+ * up to 7: a relic pack is clearly the better find but pays for its bodies with fragile ones, and
+ * area damage hits every dog in it.
+ */
+export const HOUND_PACK = {
+  /** Every dog of every pack counts, Leaders included; packmates are trimmed to fit, in warband order. */
+  maxDogs: 12,
+  packmatesByTier: { common: { min: 1, max: 2 }, magic: { min: 1, max: 3 }, rare: { min: 2, max: 4 }, relic: { min: 3, max: 6 } },
+  leader: { lifeMult: 1.35, damageMult: 1.15, radiusScale: 1.25 },
+  mate: { share: 0.55, radiusScale: 0.78, speedMult: 1.15, attackSpeedMult: 1.15 },
+  /** Without its Leader the pack keeps fighting, softer and without the howl. */
+  leaderlessDamageMult: 0.7,
+  /** The Leader howls while fighting; the whole pack runs and bites harder for a while. */
+  howl: { cooldown: 14, seconds: 6, speedBonus: 0.25, damageBonus: 0.2, radius: 140 },
+  /** Enemies under the Leader's landing pounce are held in place (not bosses or knockback-immune ones). */
+  pinSeconds: 1,
+  /** Packmates circle the target at these angles from the Leader's side, so they flank it. */
+  flankAngles: [1.25, -1.25, 2.2, -2.2, Math.PI, 0.6],
 } as const;
 
 export const MINIONS = {

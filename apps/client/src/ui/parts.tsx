@@ -20,6 +20,7 @@ import {
   matchingStarter,
   STAT_IDS,
   STAT_LABELS,
+  vesselPackmates,
   vesselSpirit,
   type ClassId,
   type Item,
@@ -27,7 +28,7 @@ import {
   type RuneItem,
   type SigilCompile,
 } from '@rune/shared';
-import { cssColor, TIER_COLORS } from '../render/config.js';
+import { cssColor, TIER_COLORS, UNIQUE_COLOR } from '../render/config.js';
 import { compileFor, useUi } from './store.js';
 import { tip } from './Tip.js';
 
@@ -60,6 +61,8 @@ export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; ite
 }
 
 export function tierColor(item: Item): string {
+  // Hand-named items carry their own colour whatever their tier, as D2's uniques do.
+  if (item.kind === 'vessel' && item.fixedName) return cssColor(UNIQUE_COLOR);
   return cssColor(TIER_COLORS[item.tier]);
 }
 
@@ -192,11 +195,15 @@ function RuneDetails({ item }: { item: RuneItem }) {
 
 function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
   const def = MINION_DEFS[item.minion];
+  const mates = vesselPackmates(item);
   return (
     <div className="item-details">
-      <Head item={item} sub="Soul Vessel" />
+      <Head item={item} sub={item.fixedName ? 'Unique Soul Vessel' : 'Soul Vessel'} />
+      {item.lore && <p className="tt-sec tt-unique-lore">{item.lore}</p>}
       <p className="tt-sec tt-lore">
-        Binds a {def.name}: {def.ranged ? 'ranged' : 'melee'}, level {item.level}, defaults to {def.defaultBehaviour}.
+        {mates > 0
+          ? `Binds a ${def.name} pack: a Leader and ${mates} packmate${mates === 1 ? '' : 's'}, melee, level ${item.level}. The Leader pounces and howls; packmates flank and their bites poison.`
+          : `Binds a ${def.name}: ${def.ranged ? 'ranged' : 'melee'}, level ${item.level}, defaults to ${def.defaultBehaviour}.`}
       </p>
       <Affixes item={item} />
       <section className="tt-sec">

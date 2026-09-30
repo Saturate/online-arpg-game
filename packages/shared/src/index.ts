@@ -11,6 +11,7 @@ export * from './data/tuningSource.js';
 export * from './items/drops.js';
 export * from './items/items.js';
 export * from './items/grid.js';
+export * from './items/grants.js';
 export * from './items/prices.js';
 export * from './protocol/accounts.js';
 export * from './protocol/arena.js';

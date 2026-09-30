@@ -1,32 +1,83 @@
-import { MINIONS, NAV } from '../config/sim.js';
+import { HOUND_PACK, MINIONS, NAV, SIM } from '../config/sim.js';
+import type { Ability } from '../data/enemies.js';
+import type { MinionDef } from '../data/minions.js';
 import { MIN_PROJECTILE_SPEED } from '../data/tuning.js';
-import { affixValue, behaviourOf } from '../items/items.js';
-import { dealDamage, healEntity, isTargetable } from './combat.js';
-import { emptyBuffs, emptyStatus, type EntityId, type MinionComp } from './ecs.js';
+import { affixValue, behaviourOf, vesselPackmates, type VesselItem } from '../items/items.js';
+import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
+import { emptyBuffs, emptyStatus, type EntityId, type MinionComp, type PackRole, type PlayerComp } from './ecs.js';
+import { knockbackImmune } from './enemies.js';
 import { distSq, type Vec2 } from './math.js';
 import type { Simulation } from './simulation.js';
 import { spawnProjectile } from './spells.js';
 
 const TAUNT_PULSE_SECONDS = 1;
 const ARRIVE_DISTANCE = 12;
+/** The first howl comes soon after the pack engages, then on its cooldown. */
+const FIRST_HOWL_SECONDS = 1.5;
 
-export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): EntityId | null {
+type LeapAbility = Extract<Ability, { kind: 'leap' }>;
+
+function leapOf(def: MinionDef): LeapAbility | null {
+  for (const a of def.abilities ?? []) if (a.kind === 'leap') return a;
+  return null;
+}
+
+function vesselIn(p: PlayerComp, slot: number): VesselItem | null {
+  const uid = p.warband[slot];
+  const item = uid === null || uid === undefined ? undefined : p.items.get(uid);
+  return item?.kind === 'vessel' ? item : null;
+}
+
+/**
+ * Packmates each pack vessel may field, by warband slot. Every Leader always counts; the packmates
+ * share what is left of HOUND_PACK.maxDogs in warband order, so the cap holds however many pack
+ * vessels are bound.
+ */
+export function packmateCounts(p: PlayerComp): number[] {
+  const out = new Array<number>(p.warband.length).fill(0);
+  const packs: { slot: number; want: number }[] = [];
+  for (let slot = 0; slot < p.warband.length; slot++) {
+    const item = vesselIn(p, slot);
+    if (item && vesselPackmates(item) > 0) packs.push({ slot, want: vesselPackmates(item) });
+  }
+  let budget = HOUND_PACK.maxDogs - packs.length;
+  for (const { slot, want } of packs) {
+    const n = Math.max(0, Math.min(want, budget));
+    out[slot] = n;
+    budget -= n;
+  }
+  return out;
+}
+
+/** Pack vessels bound: each one's Leader is a dog, so more than maxDogs of them cannot all field one. */
+export function packVesselCount(p: PlayerComp): number {
+  let n = 0;
+  for (let slot = 0; slot < p.warband.length; slot++) {
+    const item = vesselIn(p, slot);
+    if (item && vesselPackmates(item) > 0) n++;
+  }
+  return n;
+}
+
+function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: VesselItem, role: PackRole | null, at: Vec2): EntityId | null {
   const w = sim.world;
   const owner = w.player.get(ownerId);
-  const opos = w.position.get(ownerId);
-  if (!owner || !opos) return null;
-  const uid = owner.warband[slot];
-  const item = uid === null || uid === undefined ? undefined : owner.items.get(uid);
-  if (!item || item.kind !== 'vessel') return null;
-
+  if (!owner) return null;
   const def = sim.tuning.minion(item.minion);
   const levelMult = 1 + MINIONS.levelScaling * (item.level - 1);
-  const life = Math.round(def.life * MINIONS.lifeMultiplier * levelMult * (1 + affixValue(item.affixes, 'armored') / 100) * owner.stats.minionLifeMult);
-  const a = (Math.PI * 2 * slot) / MINIONS.warbandSlots;
+  // Packmates split the strength of one hound between them (see HOUND_PACK), the Leader is a big one.
+  const share = role?.role === 'mate' ? HOUND_PACK.mate.share / Math.sqrt(Math.max(1, vesselPackmates(item))) : 1;
+  const lifeRole = role?.role === 'leader' ? HOUND_PACK.leader.lifeMult : share;
+  const damageRole = role?.role === 'leader' ? HOUND_PACK.leader.damageMult : share;
+  const radius = role?.role === 'leader' ? def.radius * HOUND_PACK.leader.radiusScale : role?.role === 'mate' ? def.radius * HOUND_PACK.mate.radiusScale : def.radius;
+  const quicker = role?.role === 'mate' ? HOUND_PACK.mate.attackSpeedMult : 1;
+  const life = Math.max(1, Math.round(def.life * MINIONS.lifeMultiplier * levelMult * (1 + affixValue(item.affixes, 'armored') / 100) * owner.stats.minionLifeMult * lifeRole));
+  const damageMult = MINIONS.damageMultiplier * levelMult * owner.stats.minionDamageMult * damageRole;
+  const leap = role?.role === 'leader' ? leapOf(def) : null;
 
   const id = w.create('minion');
-  w.position.set(id, sim.map.findOpen(opos.x + Math.cos(a) * MINIONS.spawnOffset, opos.y + Math.sin(a) * MINIONS.spawnOffset, def.radius));
-  w.radius.set(id, def.radius);
+  w.position.set(id, sim.map.findOpen(at.x, at.y, radius));
+  w.radius.set(id, radius);
   w.health.set(id, { life, maxLife: life });
   w.team.set(id, 'players');
   w.status.set(id, emptyStatus());
@@ -41,27 +92,86 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
     state: 'follow',
     targetId: null,
     attackCooldown: 0,
-    attackCooldownBase: def.attackCooldown / (1 + affixValue(item.affixes, 'attack_speed') / 100),
-    damage: def.damage * MINIONS.damageMultiplier * levelMult * owner.stats.minionDamageMult,
-    moveSpeed: def.moveSpeed * (1 + affixValue(item.affixes, 'hasted') / 100),
+    attackCooldownBase: def.attackCooldown / (1 + affixValue(item.affixes, 'attack_speed') / 100) / quicker,
+    damage: def.damage * damageMult,
+    moveSpeed: def.moveSpeed * (1 + affixValue(item.affixes, 'hasted') / 100) * (role?.role === 'mate' ? HOUND_PACK.mate.speedMult : 1),
     tauntTimer: 0,
     lostSightTicks: 0,
+    pack: role,
+    leapCooldown: leap ? leap.cooldown * 0.5 : 0,
+    leap: null,
+    leapDamage: leap ? leap.damage * damageMult : 0,
+    howlCooldown: FIRST_HOWL_SECONDS,
+    howled: 0,
   });
+  return id;
+}
+
+/** Brings a pack up to `mates` live packmates, appearing around the Leader. */
+function fillPack(sim: Simulation, ownerId: EntityId, slot: number, mates: number): void {
+  const w = sim.world;
+  const owner = w.player.get(ownerId);
+  const item = owner ? vesselIn(owner, slot) : null;
+  const leaderId = owner?.minions[slot];
+  const lpos = leaderId === null || leaderId === undefined ? undefined : w.position.get(leaderId);
+  const pack = owner?.packs[slot];
+  if (!owner || !item || !lpos || !pack) return;
+  const used = new Set(pack.mates.map((id) => w.minion.get(id)?.pack?.index ?? -1));
+  for (let index = 0; pack.mates.length < mates && index < HOUND_PACK.flankAngles.length; index++) {
+    if (used.has(index)) continue;
+    const a = (Math.PI * 2 * index) / HOUND_PACK.flankAngles.length;
+    const id = createMinion(sim, ownerId, slot, item, { role: 'mate', index }, { x: lpos.x + Math.cos(a) * 36, y: lpos.y + Math.sin(a) * 36 });
+    if (id !== null) pack.mates.push(id);
+  }
+}
+
+export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): EntityId | null {
+  const w = sim.world;
+  const owner = w.player.get(ownerId);
+  const opos = w.position.get(ownerId);
+  if (!owner || !opos) return null;
+  const item = vesselIn(owner, slot);
+  if (!item) return null;
+  const a = (Math.PI * 2 * slot) / MINIONS.warbandSlots;
+  const at = { x: opos.x + Math.cos(a) * MINIONS.spawnOffset, y: opos.y + Math.sin(a) * MINIONS.spawnOffset };
+  const pack = vesselPackmates(item) > 0;
+  const id = createMinion(sim, ownerId, slot, item, pack ? { role: 'leader', index: 0 } : null, at);
+  if (id === null) return null;
   owner.minions[slot] = id;
+  // Dead packmates come back with their Leader.
+  const state = owner.packs[slot];
+  if (pack && state) {
+    state.down = [];
+    fillPack(sim, ownerId, slot, packmateCounts(owner)[slot] ?? 0);
+  }
   return id;
 }
 
 export function despawnMinion(sim: Simulation, ownerId: EntityId, slot: number): void {
   const owner = sim.world.player.get(ownerId);
-  const mid = owner?.minions[slot];
-  if (!owner || mid === null || mid === undefined) return;
+  if (!owner) return;
+  const pack = owner.packs[slot];
+  if (pack) {
+    for (const mate of pack.mates) sim.world.destroy(mate);
+    pack.mates = [];
+    pack.down = [];
+  }
+  const mid = owner.minions[slot];
+  if (mid === null || mid === undefined) return;
   sim.world.destroy(mid);
   owner.minions[slot] = null;
 }
 
 export function updateMinionRespawns(sim: Simulation, dt: number): void {
   for (const [pid, p] of sim.world.player) {
+    let counts: number[] | null = null;
     for (let slot = 0; slot < p.warband.length; slot++) {
+      const pack = p.packs[slot];
+      const item = vesselIn(p, slot);
+      if (pack && ((item !== null && vesselPackmates(item) > 0) || pack.mates.length > 0 || pack.down.length > 0)) {
+        counts ??= packmateCounts(p);
+        trimPack(sim, p, pid, slot, counts[slot] ?? 0);
+      }
       if (p.warband[slot] === null || p.minions[slot] !== null) continue;
       const left = (p.minionRespawn[slot] ?? 0) - dt;
       p.minionRespawn[slot] = left;
@@ -70,6 +180,42 @@ export function updateMinionRespawns(sim: Simulation, dt: number): void {
         spawnMinion(sim, pid, slot);
       }
     }
+  }
+}
+
+/**
+ * Keeps a pack within its share of the dog cap after the warband changes: extra packmates go, and
+ * with its Leader alive a pack whose share grew fills up at once.
+ */
+function trimPack(sim: Simulation, p: PlayerComp, pid: EntityId, slot: number, allowed: number): void {
+  const pack = p.packs[slot];
+  if (!pack) return;
+  while (pack.mates.length > allowed) {
+    const id = pack.mates.pop();
+    if (id !== undefined) sim.world.destroy(id);
+  }
+  if (pack.mates.length + pack.down.length > allowed) pack.down.length = Math.max(0, allowed - pack.mates.length);
+  const leader = p.minions[slot];
+  if (leader !== null && leader !== undefined && pack.mates.length + pack.down.length < allowed) fillPack(sim, pid, slot, allowed - pack.down.length);
+}
+
+/** A dead packmate was killed; it waits for its Leader to come back or to howl it back. */
+export function onPackmateDeath(sim: Simulation, m: MinionComp, id: EntityId): void {
+  const pack = sim.world.player.get(m.ownerId)?.packs[m.slot];
+  if (!pack) return;
+  const at = pack.mates.indexOf(id);
+  if (at < 0) return;
+  pack.mates.splice(at, 1);
+  pack.down.push(sim.tick);
+}
+
+/** The Leader fell: its packmates lose the howl until it is back. */
+export function onPackLeaderDeath(sim: Simulation, m: MinionComp): void {
+  const pack = sim.world.player.get(m.ownerId)?.packs[m.slot];
+  if (!pack) return;
+  for (const id of pack.mates) {
+    const mate = sim.world.minion.get(id);
+    if (mate) mate.howled = 0;
   }
 }
 
@@ -207,9 +353,18 @@ export function updateMinions(sim: Simulation, dt: number): void {
       continue;
     }
     const def = m.def;
+    const radius = w.radius.get(id) ?? def.radius;
     if (m.attackCooldown > 0) m.attackCooldown -= dt;
+    if (m.leapCooldown > 0) m.leapCooldown -= dt;
+    if (m.howlCooldown > 0) m.howlCooldown -= dt;
+    if (m.howled > 0) m.howled = Math.max(0, m.howled - dt);
     // Road bonus applies per tick; the stored base speed never changes.
-    const speed = m.moveSpeed * sim.map.speedAt(pos.x, pos.y);
+    const speed = m.moveSpeed * (m.howled > 0 ? 1 + HOUND_PACK.howl.speedBonus : 1) * sim.map.speedAt(pos.x, pos.y);
+
+    if (m.leap) {
+      advanceLeap(sim, id, m, pos, radius, dt);
+      continue;
+    }
 
     const regen = affixValue(m.affixes, 'regenerating');
     if (regen > 0) healEntity(sim, id, (h.maxLife * regen * dt) / 100, false);
@@ -230,7 +385,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
 
     const ownerDist2 = distSq(pos.x, pos.y, opos.x, opos.y);
     if (ownerDist2 > NAV.minionTeleportDistance ** 2) {
-      const p = sim.map.findOpen(opos.x + 30, opos.y + 30, def.radius);
+      const p = sim.map.findOpen(opos.x + 30, opos.y + 30, radius);
       pos.x = p.x;
       pos.y = p.y;
       m.targetId = null;
@@ -247,9 +402,9 @@ export function updateMinions(sim: Simulation, dt: number): void {
       }
     }
     if (m.state === 'retreat') {
-      navigate(sim, pos, def.radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
+      navigate(sim, pos, radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
       healEntity(sim, id, h.maxLife * MINIONS.cowardRegenFraction * dt, false);
-      settle(sim, pos, def.radius);
+      settle(sim, pos, radius);
       continue;
     }
 
@@ -257,7 +412,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
       const block = interceptPoint(sim, opos);
       if (block) {
         stepToward(pos, block.x, block.y, speed * 1.4 * dt, 2);
-        settle(sim, pos, def.radius);
+        settle(sim, pos, radius);
         continue;
       }
     }
@@ -285,24 +440,28 @@ export function updateMinions(sim: Simulation, dt: number): void {
       }
     }
     if (m.targetId === null && rules) m.targetId = findTarget(sim, m, pos, rules.fromOwner ? opos : pos, rules.radius);
+    // Packmates hunt what their Leader hunts; without a Leader they pick their own.
+    const leader = packLeader(sim, owner, m);
+    if (rules && leader && leader.targetId !== null && isTargetable(sim, leader.targetId)) m.targetId = leader.targetId;
+    if (rules && m.pack?.role === 'leader' && m.targetId !== null && m.howlCooldown <= 0) howl(sim, id, m, owner, pos);
 
     const target = m.targetId;
     const tpos = target === null ? undefined : w.position.get(target);
     if (target !== null && tpos) {
       m.state = 'engage';
       const dist = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
-      const reach = def.attackRange + def.radius + (w.radius.get(target) ?? 0);
+      const reach = def.attackRange + radius + (w.radius.get(target) ?? 0);
       if (def.ranged) {
         const canShoot = sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 4, 'shots');
         if (!canShoot || dist > def.attackRange) {
           // Reposition until there is a clear shot, walking around whatever is in the way.
-          navigate(sim, pos, def.radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
+          navigate(sim, pos, radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
         } else if (dist < def.kiteDistance) {
           const away = { x: pos.x + (pos.x - tpos.x), y: pos.y + (pos.y - tpos.y) };
           const before = { x: pos.x, y: pos.y };
           stepToward(pos, away.x, away.y, speed * dt, 0);
           // Backing into a wall is worse than standing ground; kite sideways instead.
-          if (sim.map.pointBlocked(pos.x, pos.y, def.radius, 'move')) {
+          if (sim.map.pointBlocked(pos.x, pos.y, radius, 'move')) {
             pos.x = before.x;
             pos.y = before.y;
             const side = { x: pos.x - (tpos.y - pos.y), y: pos.y + (tpos.x - pos.x) };
@@ -328,24 +487,142 @@ export function updateMinions(sim: Simulation, dt: number): void {
             });
           }
         }
+      } else if (m.pack?.role === 'leader' && startLeap(sim, id, m, pos, tpos, dist, radius)) {
+        settle(sim, pos, radius);
+        continue;
       } else {
-        navigate(sim, pos, def.radius, tpos, owner.trail, speed * dt, reach - 4);
-        if (dist <= reach && m.attackCooldown <= 0) {
+        // Packmates circle to their own side of the target instead of queueing behind the Leader.
+        const goal = m.pack?.role === 'mate' ? flankPoint(sim, owner, m, pos, tpos, radius + (w.radius.get(target) ?? 0) + def.attackRange * 0.5) : tpos;
+        navigate(sim, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
+        const now = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
+        if (now <= reach && m.attackCooldown <= 0) {
           m.attackCooldown = m.attackCooldownBase;
           sim.emit({ e: 'attack', id }, pos.x, pos.y);
-          dealDamage(sim, target, m.damage, id, []);
+          const hit = biteDamage(owner, m);
+          const dealt = dealDamage(sim, target, hit, id, []);
+          if (dealt > 0 && m.pack?.role === 'mate') applyPoison(sim, target, hit, id);
         }
       }
     } else {
       m.state = 'follow';
-      const goal = formationPoint(owner, opos, m.slot, m.behaviour === 'bodyguard');
+      const goal = packFollowPoint(sim, owner, m) ?? formationPoint(owner, opos, m.slot, m.behaviour === 'bodyguard');
       // Minions sprint to catch up when far behind, so they do not trail across the map.
       const catchUp = ownerDist2 > MINIONS.catchUpDistance ** 2 ? MINIONS.catchUpSpeedMultiplier : 1;
-      navigate(sim, pos, def.radius, goal, owner.trail, speed * catchUp * dt, ARRIVE_DISTANCE);
+      navigate(sim, pos, radius, goal, owner.trail, speed * catchUp * dt, ARRIVE_DISTANCE);
     }
-    settle(sim, pos, def.radius);
+    settle(sim, pos, radius);
   }
   separateMinions(sim);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Hound pack
+
+/** A packmate's living Leader, or null (also for dogs that are not packmates). */
+function packLeader(sim: Simulation, owner: PlayerComp, m: MinionComp): MinionComp | null {
+  if (m.pack?.role !== 'mate') return null;
+  const id = owner.minions[m.slot];
+  return id === null || id === undefined ? null : (sim.world.minion.get(id) ?? null);
+}
+
+function biteDamage(owner: PlayerComp, m: MinionComp): number {
+  let d = m.damage;
+  if (m.howled > 0) d *= 1 + HOUND_PACK.howl.damageBonus;
+  if (m.pack?.role === 'mate' && owner.minions[m.slot] === null) d *= HOUND_PACK.leaderlessDamageMult;
+  return d;
+}
+
+/** Where a packmate stands to bite: its own angle around the target, measured from the Leader's side. */
+function flankPoint(sim: Simulation, owner: PlayerComp, m: MinionComp, pos: Vec2, tpos: Vec2, distance: number): Vec2 {
+  const leaderId = owner.minions[m.slot];
+  const lpos = leaderId === null || leaderId === undefined ? undefined : sim.world.position.get(leaderId);
+  const from = lpos ?? pos;
+  const angles = HOUND_PACK.flankAngles;
+  const a = Math.atan2(from.y - tpos.y, from.x - tpos.x) + (angles[(m.pack?.index ?? 0) % angles.length] ?? 0);
+  return { x: tpos.x + Math.cos(a) * distance, y: tpos.y + Math.sin(a) * distance };
+}
+
+/** Out of a fight, packmates trot in a loose ring behind their Leader rather than in the master's ranks. */
+function packFollowPoint(sim: Simulation, owner: PlayerComp, m: MinionComp): Vec2 | null {
+  if (m.pack?.role !== 'mate') return null;
+  const leaderId = owner.minions[m.slot];
+  const lpos = leaderId === null || leaderId === undefined ? undefined : sim.world.position.get(leaderId);
+  if (!lpos) return null;
+  const angles = HOUND_PACK.flankAngles;
+  const a = owner.heading + Math.PI + (angles[m.pack.index % angles.length] ?? 0) * 0.5;
+  return { x: lpos.x + Math.cos(a) * 34, y: lpos.y + Math.sin(a) * 34 };
+}
+
+/** The Leader's howl: the pack runs and bites harder, and packmates that fell long enough ago rejoin. */
+function howl(sim: Simulation, id: EntityId, m: MinionComp, owner: PlayerComp, pos: Vec2): void {
+  const w = sim.world;
+  const cfg = HOUND_PACK.howl;
+  m.howlCooldown = cfg.cooldown;
+  m.howled = cfg.seconds;
+  const pack = owner.packs[m.slot];
+  if (pack) {
+    for (const mate of pack.mates) {
+      const mc = w.minion.get(mate);
+      if (mc) mc.howled = cfg.seconds;
+    }
+    const wait = MINIONS.respawnSeconds * (1 - affixValue(m.affixes, 'faster_respawn') / 100) * SIM.tickRate;
+    const ready = pack.down.filter((t) => sim.tick - t >= wait).length;
+    if (ready > 0) {
+      pack.down = pack.down.filter((t) => sim.tick - t < wait);
+      fillPack(sim, m.ownerId, m.slot, pack.mates.length + ready);
+    }
+  }
+  sim.emit({ e: 'howl', id, x: Math.round(pos.x), y: Math.round(pos.y), r: cfg.radius }, pos.x, pos.y);
+}
+
+/** The Leader pounces on a target in range; returns whether it started. */
+function startLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, tpos: Vec2, dist: number, radius: number): boolean {
+  const a = leapOf(m.def);
+  if (!a || m.leapCooldown > 0 || dist < a.minRange || dist > a.range) return false;
+  if (!sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 8, 'shots')) return false;
+  const angle = Math.atan2(tpos.y - pos.y, tpos.x - pos.x);
+  // Lands against the target, not on top of it.
+  const reach = Math.max(0, Math.min(dist, a.range) - radius);
+  m.leapCooldown = a.cooldown;
+  m.leap = {
+    t: 0,
+    windup: a.windup,
+    duration: a.duration,
+    fromX: pos.x,
+    fromY: pos.y,
+    toX: pos.x + Math.cos(angle) * reach,
+    toY: pos.y + Math.sin(angle) * reach,
+    radius: a.radius,
+    damage: m.leapDamage,
+  };
+  sim.emit({ e: 'attack', id }, pos.x, pos.y);
+  return true;
+}
+
+function advanceLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radius: number, dt: number): void {
+  const l = m.leap;
+  if (!l) return;
+  l.t += dt;
+  if (l.t < l.windup) return;
+  const k = Math.min(1, (l.t - l.windup) / l.duration);
+  pos.x = l.fromX + (l.toX - l.fromX) * k;
+  pos.y = l.fromY + (l.toY - l.fromY) * k;
+  if (k < 1) return;
+  m.leap = null;
+  const land = sim.map.findOpen(pos.x, pos.y, radius);
+  pos.x = land.x;
+  pos.y = land.y;
+  const w = sim.world;
+  const hit = l.damage * (m.howled > 0 ? 1 + HOUND_PACK.howl.damageBonus : 1);
+  for (const [eid, e, ep] of w.query(w.enemy, w.position)) {
+    const reach = l.radius + (w.radius.get(eid) ?? 0);
+    if (distSq(pos.x, pos.y, ep.x, ep.y) > reach * reach) continue;
+    const dealt = dealDamage(sim, eid, hit, id, []);
+    if (dealt <= 0) continue;
+    applyPoison(sim, eid, hit, id);
+    if (!e.boss && !knockbackImmune(e) && !e.leap && !e.dash) e.pinned = Math.max(e.pinned, HOUND_PACK.pinSeconds);
+  }
+  sim.emit({ e: 'pounce', id, x: Math.round(pos.x), y: Math.round(pos.y), r: l.radius }, pos.x, pos.y);
 }
 
 /** Keeps a warband from collapsing into one stack. */

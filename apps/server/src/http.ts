@@ -1,6 +1,9 @@
 import {
   can,
   cleanChat,
+  createGrantItem,
+  parseGrantRequest,
+  Rng,
   isAssignableRole,
   isSeason,
   isSessionToken,
@@ -17,6 +20,7 @@ import {
   type ServerSettings,
   type TownLayout,
 } from '@rune/shared';
+import { randomInt } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
 import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
@@ -82,7 +86,16 @@ export interface AdminHooks extends TuningHooks {
   gotoCharacter(staffAccountId: number, characterId: number): string | null;
   /** Applies a new role to the account's live session, if it has one. */
   roleChanged(accountId: number, role: Role): void;
+  /** Whether the account has a session in the game (any character, in any room or between rooms). */
+  accountOnline(accountId: number): boolean;
 }
+
+const GRANT_ERRORS = {
+  no_character: [404, 'That account has no such character'],
+  never_played: [409, 'That character has never entered the world; play it once first'],
+  unreadable: [409, "That character's save cannot be read; nothing was changed"],
+  old_format: [409, 'That character has not logged in since the rune update; log it in once first'],
+} as const;
 
 export function parseAdminUsers(raw: string | undefined): ReadonlySet<string> {
   return new Set((raw ?? '').split(',').map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0));
@@ -339,6 +352,26 @@ export class AccountApi {
       if (error) throw new HttpError(409, error);
       log(`goto character ${id}`);
       return [200, { ok: true }];
+    }
+    if (method === 'POST' && path === '/api/admin/grant') {
+      need('grantItems');
+      const grant = parseGrantRequest(await readJson(req));
+      if (typeof grant === 'string') throw new HttpError(400, grant);
+      // From here to the write nothing awaits, so a login cannot slip in between the check and the
+      // write, and a login loads the character synchronously too.
+      const target = this.store.accountByUsername(grant.username);
+      if (!target) throw new HttpError(404, 'No such account');
+      // A live session would save its own copy of the character over the grant, so it is refused
+      // rather than handed to the room.
+      if (this.admin.accountOnline(target.id)) throw new HttpError(409, `${target.username} is online; grants go to offline accounts only. Ask them to log out, then try again.`);
+      const rng = new Rng(randomInt(0, 2 ** 32));
+      const result = this.store.grantPendingItem(target.id, grant.characterId, (newUid) => createGrantItem(grant, newUid, rng));
+      if (!result.ok) {
+        const [status, message] = GRANT_ERRORS[result.error];
+        throw new HttpError(status, message);
+      }
+      log(`grant "${result.item.name}" (${grant.template}, ${result.item.tier}, item level ${result.item.ilvl}, uid ${result.item.uid}) to ${target.username} / ${result.characterName} (character ${grant.characterId}), pending until next login`);
+      return [200, { item: result.item, character: result.characterName }];
     }
     const roleRoute = /^\/api\/admin\/accounts\/(\d{1,9})\/role$/.exec(path);
     if (roleRoute && method === 'POST') {

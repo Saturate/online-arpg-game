@@ -3,7 +3,7 @@ import type { Ability, EnemyDef, EnemyTypeId, HazardKind, MonsterDef } from '../
 import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
 import type { ElementId } from './program.js';
 import { affixValue, rollAffixes } from '../items/items.js';
-import { dealDamage, healEntity, isTargetable } from './combat.js';
+import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';
 import { angleDiff, clamp, distSq, type Vec2 } from './math.js';
 import type { Simulation } from './simulation.js';
@@ -144,6 +144,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     raised: false,
     rewards: true,
     detonated: false,
+    pinned: 0,
   });
   return id;
 }
@@ -240,6 +241,11 @@ export function updateEnemies(sim: Simulation, dt: number): void {
     e.knockY *= KNOCK_DECAY;
 
     if (def.behaviour === 'monster' && def.traits.curse) applyCurse(sim, pos, def.traits.curse.radius);
+
+    if (e.pinned > 0) {
+      e.pinned = Math.max(0, e.pinned - dt);
+      continue;
+    }
 
     const slow = st && st.chill > 0 ? 1 - AILMENTS.chill.slow : 1;
     const enrageSpeed = def.behaviour === 'monster' && e.enraged ? (def.traits.enrage?.speed ?? 1) : 1;
@@ -352,7 +358,9 @@ function contactHit(sim: Simulation, id: EntityId, e: EnemyComp, def: EnemyDef, 
   if (def.contactDamage <= 0 || e.burrowed || dist > contact + 2 || e.contactCooldown > 0) return;
   e.contactCooldown = def.contactCooldown;
   sim.emit({ e: 'attack', id }, pos.x, pos.y);
-  dealDamage(sim, target, def.contactDamage * e.damageMult, id, elements);
+  const hit = def.contactDamage * e.damageMult;
+  const dealt = dealDamage(sim, target, hit, id, elements);
+  if (dealt > 0 && def.behaviour === 'monster' && def.traits.poisonBite) applyPoison(sim, target, hit, id);
   const shield = w.status.get(target)?.shield;
   if (shield?.burning) dealDamage(sim, id, SPELL.burningWardDamage, target, ['fire']);
 }
@@ -374,8 +382,11 @@ function targetsInCircle(sim: Simulation, x: number, y: number, r: number): Enti
   return out;
 }
 
-function hitCircle(sim: Simulation, sourceId: EntityId, x: number, y: number, r: number, damage: number, element: ElementId | undefined): void {
-  for (const tid of targetsInCircle(sim, x, y, r)) dealDamage(sim, tid, damage, sourceId, element ? [element] : []);
+function hitCircle(sim: Simulation, sourceId: EntityId, x: number, y: number, r: number, damage: number, element: ElementId | undefined, poison = false): void {
+  for (const tid of targetsInCircle(sim, x, y, r)) {
+    const dealt = dealDamage(sim, tid, damage, sourceId, element ? [element] : []);
+    if (poison && dealt > 0) applyPoison(sim, tid, damage, sourceId);
+  }
 }
 
 function telegraphCircle(sim: Simulation, id: EntityId, x: number, y: number, r: number, t: number, el: ElementId | undefined): void {
@@ -505,7 +516,7 @@ function advanceMonster(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       const land = sim.map.findOpen(l.toX, l.toY, radius);
       pos.x = land.x;
       pos.y = land.y;
-      hitCircle(sim, id, pos.x, pos.y, l.radius, l.damage * e.damageMult, undefined);
+      hitCircle(sim, id, pos.x, pos.y, l.radius, l.damage * e.damageMult, undefined, def.traits.poisonBite === true);
       sim.emit({ e: 'explode', x: pos.x, y: pos.y, r: l.radius }, pos.x, pos.y);
       e.leap = null;
     }

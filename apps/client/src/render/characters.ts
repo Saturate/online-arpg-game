@@ -30,6 +30,9 @@ const PLAYER_ASSETS: Record<ClassId, string> = {
 export const ENEMY_ASSETS: Partial<Record<EnemyTypeId, string>> = ENEMY_MODELS;
 export const MINION_ASSETS: Partial<Record<MinionTypeId, string>> = MINION_MODELS;
 
+/** Pack Leaders are drawn in a darker copy of their type's model. */
+const LEADER_ASSETS: Partial<Record<MinionTypeId, string>> = { hound: 'minion_hound_leader' };
+
 /** Rare enemies swap to a heavier model so a champion reads differently from its pack. */
 const RARE_ASSETS: Partial<Record<EnemyTypeId, string>> = { chaser: 'skel_warrior' };
 
@@ -92,7 +95,12 @@ export function characterAsset(s: EntitySnap): AssetDef | undefined {
     // A chosen model is used for champions too; a height-only override keeps the rare swap.
     return enemyAsset(tryOns.get(`monsters:${s.et}`) ?? overriddenAsset((s.rare && o?.model === undefined ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et], o));
   }
-  if (s.k === 'minion') return tryOns.get(`minions:${s.mt}`) ?? overriddenAsset(MINION_ASSETS[s.mt], serverModels.minions[s.mt]);
+  if (s.k === 'minion') {
+    const o = serverModels.minions[s.mt];
+    // A pack Leader wears the darker copy unless an admin picked another model for the type.
+    const leader = s.pack === 'leader' && o?.model === undefined ? LEADER_ASSETS[s.mt] : undefined;
+    return tryOns.get(`minions:${s.mt}`) ?? overriddenAsset(leader ?? MINION_ASSETS[s.mt], o);
+  }
   return undefined;
 }
 

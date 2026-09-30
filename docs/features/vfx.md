@@ -21,7 +21,7 @@ Spells and ground effects look like a dark, gritty ARPG: embers, smoke and grime
 - **Hits:** fire sprays embers and a smoke puff, cold chips shards and a breath of mist, lightning throws sparks with a flash, other elements shed motes, and physical hits spray dark blood and dust.
 - **Deaths** show the element of the last hit on the monster: ash, embers and a scorch mark for fire, a shatter of falling ice for cold, sparks and a scorch for lightning, gore chunks in the monster's colour and dust otherwise. Each also has a small shockwave.
 - **Explosions** (volatile monsters, minions, dungeon traps): a flash, a fireball of embers and sparks, rising smoke, a shockwave and a scorch mark.
-- **Statuses on monsters** (from the `st` bits every entity snapshot already carries: burn, chill, shock): burning bodies carry flickering flame tongues, embers and smoke and give off light; chilled bodies have frost mist at their feet and a few pale falling glints (0xbfd8e8); shocked bodies throw sparks with the odd flash. The old emissive tint stays, much weaker on Medium and High, and at 0.4 on Low, where it is the only cue. The shock tint's flicker holds each random value for 0.1 s.
+- **Statuses on monsters** (from the `st` bits every entity snapshot already carries: burn, chill, shock, poison; poisoned bodies drip bile green drops and trail a low murky mist, [monsters.md](monsters.md), "Poison"): burning bodies carry flickering flame tongues, embers and smoke and give off light; chilled bodies have frost mist at their feet and a few pale falling glints (0xbfd8e8); shocked bodies throw sparks with the odd flash. The old emissive tint stays, much weaker on Medium and High, and at 0.4 on Low, where it is the only cue. The shock tint's flicker holds each random value for 0.1 s.
 - **Hit flash:** the model brightens in its own colours for 0.08 s, at most once every 0.3 s per entity (zones tick every few frames). Textured (KayKit) models get their texture as the emissive map the first time their materials are copied, so a white emissive lights the texture instead of turning the model white; rigs brighten their main colour. Strength 0.25 on Medium and High, 0.35 on Low.
 - **Enemy bullets** are unchanged: the solid magenta bullet with a white outline and its puff trail.
 - **Enemy telegraphs and hazards** share one hostile look (`hostileMaterial` in `materials.ts`), one draw each: a blood-red ring (0xb81c14 at 0.9) broken into 24 segments inside a dark border (0x1a0806 at 0.8), with the element only as a thin inner tick, and a red fill that grows to the edge over the wind-up. Line telegraphs have dashed edges and fill along their length. Player areas have solid rings in their element colour, so the two never read alike. Enemy casts get a small grey puff, not the player's element flash and light.
@@ -69,7 +69,7 @@ vfx.death(style | null, x, y, bodyColor, big)
 vfx.explosion(x, y, r); vfx.cast(style, x, y); vfx.heal(x, y); vfx.fizzle(x, y, misfire)
 vfx.zone(style, x, y, r, dt, fade); vfx.novaFront(style, x, y, r, dt, life)
 vfx.aura(style, x, y, r, dt); vfx.tether(ax, ay, bx, by, h, dt); vfx.dash(x, y, dt)
-vfx.status(id, x, y, r, height, burn, chill, shock, dt)
+vfx.status(id, x, y, r, height, burn, chill, shock, poison, dt)
 vfx.shockwave(x, y, radius, style, duration)      // pooled ring mesh
 vfx.glowSprite(...); vfx.solidSprite(...)         // one frame, no draw call of its own
 vfx.light(key, x, y, h, color, intensity, radius) // this frame, via the light budget

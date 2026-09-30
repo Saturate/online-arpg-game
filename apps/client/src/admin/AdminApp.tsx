@@ -5,6 +5,7 @@ import { StaffGate, type StaffAccess } from './access.js';
 import { LeaderboardTables } from '../ui/ArenaBoard.js';
 import { ModelCheckTab } from './monsters/ModelCheckTab.js';
 import { TuningTab } from './monsters/TuningTab.js';
+import { GrantTab } from './GrantTab.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -12,9 +13,9 @@ import { TuningTab } from './monsters/TuningTab.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck';
+type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck' | 'grant';
 
-const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check' };
+const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item' };
 /** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
 const WIDE_TABS: ReadonlySet<Tab> = new Set(['monsters', 'minions', 'modelCheck']);
 
@@ -579,7 +580,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck'] as const).map((t) => (
+          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck', 'grant'] as const).filter((t) => t !== 'grant' || can(role, 'grantItems')).map((t) => (
             <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
               {TAB_NAMES[t]}
             </button>
@@ -601,6 +602,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
         {tab === 'monsters' && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} />}
         {tab === 'minions' && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} />}
         {tab === 'modelCheck' && <ModelCheckTab notify={notify} />}
+        {tab === 'grant' && can(role, 'grantItems') && <GrantTab token={token} notify={notify} />}
       </main>
       {toast && (
         <div className="adm-toast" role="status">

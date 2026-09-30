@@ -33,6 +33,13 @@ export const SPELL_DAY_LIGHT = 0.35;
 export const LIGHTNING_DAY_LIGHT = 0.2;
 /** Chill glints are pale grey ice, not the cold body blue, which read as sparks. */
 const CHILL_GLINT = new Color(0xbfd8e8);
+/**
+ * Poison: a bile green drip and a low murky mist. Kept dark and yellowed (swamp water, not neon
+ * slime) so it reads at night by the hero's light without glowing like a spell.
+ */
+const POISON_DRIP = new Color(0x7c9436);
+const POISON_DRIP_DEEP = new Color(0x3a4a18);
+const POISON_MIST = new Color(0x4a5a2c);
 
 export function dayLightOf(style: VfxStyle | null): number {
   return style === 'lightning' ? LIGHTNING_DAY_LIGHT : SPELL_DAY_LIGHT;
@@ -746,8 +753,8 @@ export class Vfx {
     }
   }
 
-  /** Burning, chilled and shocked bodies, per frame. `height` is about the top of the model. */
-  status(id: number, x: number, y: number, r: number, height: number, burn: boolean, chill: boolean, shock: boolean, dt: number): void {
+  /** Burning, chilled, shocked and poisoned bodies, per frame. `height` is about the top of the model. */
+  status(id: number, x: number, y: number, r: number, height: number, burn: boolean, chill: boolean, shock: boolean, poison: boolean, dt: number): void {
     if (!this.level.statusParticles || !this.onScreen(x, y, 40)) return;
     const size = Math.max(0.6, Math.min(2, r / 14));
     if (burn) {
@@ -784,6 +791,24 @@ export class Vfx {
         this.look(rand(0.4, 0.7), rand(2, 3.2), 0.6, SHAPE.shard);
         this.colours(CHILL_GLINT, 1, 1, CHILL_GLINT, 0.8, 0);
         this.glow.pool.spawn(this.spec);
+      }
+    }
+    if (poison) {
+      // Drops run off the body and fall to the ground; gravity and a short life keep them drips, not sparks.
+      for (let n = this.budget.take(14 * size * dt); n > 0; n--) {
+        const a = Math.random() * TAU;
+        const d = r * rand(0.2, 0.7);
+        this.motion(x + Math.cos(a) * d, height * rand(0.35, 0.8), y + Math.sin(a) * d, 0, rand(-6, 4), 0, 220, 0.2);
+        this.look(rand(0.35, 0.6), rand(3, 4.5), 1.8, SHAPE.mote, 1.4);
+        this.colours(POISON_DRIP, 0.75, 0.9, POISON_DRIP_DEEP, 0.7, 0);
+        this.glow.pool.spawn(this.spec);
+      }
+      for (let n = this.budget.take(4 * size * dt); n > 0; n--) {
+        const a = Math.random() * TAU;
+        this.motion(x + Math.cos(a) * r * 0.5, rand(3, height * 0.4), y + Math.sin(a) * r * 0.5, Math.cos(a) * 6, rand(3, 9), Math.sin(a) * 6, -2, 0.7);
+        this.look(rand(1, 1.6), r * 0.8, r * 1.9, SHAPE.smoke);
+        this.colours(POISON_MIST, 1.2, 0.36, POISON_MIST, 1, 0);
+        this.smoke.pool.spawn(this.spec);
       }
     }
     if (shock) {
