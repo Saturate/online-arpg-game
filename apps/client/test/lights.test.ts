@@ -104,3 +104,33 @@ describe('light budget spell pools', () => {
     expect(b.stats.poolLight).toBeGreaterThan(alone.stats.poolLight * 10);
   });
 });
+
+describe('light budget in a big zone', () => {
+  it('only scores the lamps near the camera, so a zone of any size keeps its lights', () => {
+    const b = new LightBudget();
+    // 2000 lamps over a 40000 by 20000 zone: more than MAX_SOURCES, which used to drop the rest.
+    const lamps = Array.from({ length: 2000 }, (_, i) => torch((i % 50) * 800, Math.floor(i / 50) * 500));
+    b.setStatic(lamps);
+    run(b, 30, 39200, 19500);
+    expect(b.stats.real).toBeGreaterThan(0);
+    expect(b.stats.sources).toBeLessThan(40);
+    // Walking to the other corner picks up the lamps there.
+    run(b, 30, 0, 0);
+    expect(b.stats.real).toBeGreaterThan(0);
+    expect(b.stats.sources).toBeLessThan(40);
+  });
+
+  it('keeps emitted lights when the near set changes between frames', () => {
+    const b = new LightBudget();
+    b.setStatic(Array.from({ length: 30 }, (_, i) => torch(i * 400, 0)));
+    const key = lightKey();
+    for (let i = 0; i < 90; i++) {
+      const x = i * 100;
+      b.emit(key, x, 0, 60, 0xffffff, 3, 300, 5);
+      b.update(i / 60, 1 / 60, x, 0, 1);
+    }
+    // The emitted light has top priority, so it holds a real light all the way.
+    expect(b.stats.real).toBeGreaterThan(0);
+    expect(b.stats.sources).toBeGreaterThan(1);
+  });
+});

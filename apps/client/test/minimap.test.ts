@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { minimapRotation, rotatedBounds, rotatePoint } from '../src/render/minimap.js';
+import { MIN_SCALE, minimapRotation, minimapScale, rotateAround, rotatedBounds, rotatePoint, TILE, tilesNear } from '../src/render/minimap.js';
 import { VIEW } from '../src/render/config.js';
 
 /** The ground direction the camera shows as screen up, as GameScene builds its basis. */
@@ -48,5 +48,39 @@ describe('minimap rotation', () => {
     const p = rotatePoint(10, 70, 120, 80, 120, 80, minimapRotation(0));
     expect(p.x).toBeCloseTo(10);
     expect(p.y).toBeCloseTo(70);
+  });
+});
+
+describe('minimap tiles', () => {
+  const angle = minimapRotation(VIEW.yawDegrees);
+
+  it('shows every zone today whole, and a zone four times the area as a window', () => {
+    // The home zone (town plus the zone) and the plain Wilds.
+    expect(minimapScale(7400, 3600, angle).windowed).toBe(false);
+    expect(minimapScale(5600, 4200, angle).windowed).toBe(false);
+    const big = minimapScale(10400, 7200, angle);
+    expect(big.windowed).toBe(true);
+    expect(big.scale).toBe(MIN_SCALE);
+  });
+
+  it('keeps a map shown whole inside one tile', () => {
+    const { scale } = minimapScale(7400, 3600, angle);
+    expect(7400 * scale).toBeLessThanOrEqual(TILE);
+    expect(3600 * scale).toBeLessThanOrEqual(TILE);
+  });
+
+  it('picks the tiles a window touches, clipped to the grid', () => {
+    expect(tilesNear(10, 10, 20, 4, 3)).toEqual([{ col: 0, row: 0 }]);
+    expect(tilesNear(256, 10, 20, 4, 3)).toEqual([
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+    ]);
+    expect(tilesNear(600, 400, 2000, 4, 3)).toHaveLength(12);
+  });
+
+  it('turns around the hero in a window', () => {
+    const p = rotateAround(100, 50, 100, 50, 220, 220, angle);
+    expect(p.x).toBeCloseTo(110);
+    expect(p.y).toBeCloseTo(110);
   });
 });

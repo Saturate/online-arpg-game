@@ -9,13 +9,15 @@ import {
   InterleavedBufferAttribute,
   Mesh,
   OneFactor,
+  OrthographicCamera,
   OneMinusSrcAlphaFactor,
   ShaderMaterial,
   Vector3,
   type Camera,
   type IUniform,
 } from 'three';
-import { RENDER_ORDER } from '../config.js';
+import { ChunkBuckets, NearCache, viewFootprint } from '../chunks.js';
+import { RENDER_ORDER, VIEW } from '../config.js';
 import { emitLight, lightKey, sceneLights, staticFlicker } from '../lights.js';
 import type { ParticleBudget } from './budget.js';
 import { NOISE_GLSL, OUTPUT_GLSL } from './glsl.js';
@@ -258,6 +260,8 @@ export class WorldFires {
   private readonly buffer: InstancedInterleavedBuffer;
   private readonly geometry: InstancedBufferGeometry;
   private spots: readonly FireSpot[] = [];
+  /** The spots near the camera, so a zone of any size only projects the fires that can be on screen. */
+  private near = new NearCache(new ChunkBuckets([]));
   private quads = 0;
   private readonly spec: ParticleSpec = emptySpec();
   // Fires that asked for particles this frame: their spot index and distance, and the chosen few.
@@ -310,7 +314,17 @@ export class WorldFires {
 
   /** The world's fires; replaced when the map is rebuilt. */
   setSpots(spots: readonly FireSpot[]): void {
+    if (spots === this.spots) return;
     this.spots = spots;
+    this.near = new NearCache(new ChunkBuckets(spots));
+  }
+
+  /** Ground distance from the focus beyond which no flame can reach the screen. */
+  private reach(): number {
+    const c = this.camera;
+    // Flames stand up to about 150 over the ground, which leans them into view from past the footprint.
+    if (c instanceof OrthographicCamera) return viewFootprint((c.right - c.left) / 2, (c.top - c.bottom) / 2, c.zoom, (VIEW.pitchDegrees * Math.PI) / 180) + 300;
+    return Infinity;
   }
 
   /** The forge's fire flares up: a sigil was inscribed. */
@@ -340,7 +354,9 @@ export class WorldFires {
     this.quads = 0;
     let cands = 0;
     let drawn = 0;
-    for (let i = 0; i < this.spots.length; i++) {
+    const near = this.near.update(host.focusX, host.focusY, this.reach());
+    for (let n = 0; n < near.length; n++) {
+      const i = near[n] ?? 0;
       const s = this.spots[i];
       if (!s) continue;
       tmp.set(s.x, s.h + 10 * s.size, s.y).project(this.camera);

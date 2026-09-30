@@ -18,5 +18,5 @@ One file per feature, each the single place that explains it: what it does, why 
 | [chat-and-parties.md](chat-and-parties.md) | Live | Chat, commands, whispers, parties, party worlds, party frames and teleport to a member |
 | [accounts-admin.md](accounts-admin.md) | Live | Accounts, guests, sessions, saves, roles, the admin page and live settings, owner item grants, the staff log, admin API tokens, the server log and backups |
 | [dev-tools.md](dev-tools.md) | Live | The `/admin/dev/` tools, the F3 panel, the F1 overlay, replays, URL options |
-| [world-streaming.md](world-streaming.md) | Step 1 built, not pushed; steps 2 to 4 planned | Chunks, monsters far from every player sleep on the server, the tick bench, and the plan for chunked rendering, chunk-based generation and bigger zones |
+| [world-streaming.md](world-streaming.md) | Step 1 and the client half of step 2 built, not pushed; the rest planned | Chunks, monsters far from every player sleep on the server, the client draws the world by chunk around the camera, the tick and World benches, and the plan for snapshots by chunk, chunk-based generation and bigger zones |
 | [guilds.md](guilds.md) | Planned | Guild ranks, the guild window, the guild stash |

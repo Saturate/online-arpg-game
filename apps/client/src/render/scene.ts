@@ -19,6 +19,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { viewFootprint } from './chunks.js';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
 import { darkness, lighting, nightFactor, nightModeOf, overcast, type NightMode } from './daylight.js';
@@ -177,6 +178,11 @@ export class WorldScene {
     return this.world.fires;
   }
 
+  /** Resolves once the world's models near the camera are built; the world bench times zone loads with it. */
+  get ready(): Promise<void> {
+    return this.world.ready;
+  }
+
   get canvas(): HTMLCanvasElement {
     return this.renderer.domElement;
   }
@@ -214,7 +220,13 @@ export class WorldScene {
     // Underground it is always night for the torches; flat test maps have no night at all.
     sceneLights.update(this.time, dt, x, y, this.outdoors ? this.night : darkness(this.nightMode), lighting.lampLight);
     fadeUniforms.uFadeCenter.value.set(x, 0, y);
-    this.world.update(this.time, x, y);
+    const c = this.camera;
+    this.world.update(this.time, x, y, viewFootprint((c.right - c.left) / 2, (c.top - c.bottom) / 2, c.zoom, VIEW.pitchDegrees * DEG));
+  }
+
+  /** Chunk counts of the streamed world, for the world bench. */
+  get chunkStats(): BuiltWorld['stats'] {
+    return this.world.stats;
   }
 
   /**

@@ -1,5 +1,6 @@
 import { AddEquation, Color, CustomBlending, DataTexture, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, LinearFilter, MeshBasicMaterial, OneFactor, OneMinusSrcColorFactor, PlaneGeometry, PointLight, RGBAFormat } from 'three';
 
+import { ChunkBuckets, NearCache } from './chunks.js';
 import { RENDER_ORDER } from './config.js';
 
 /**
@@ -107,6 +108,13 @@ export class LightBudget {
   private readonly poolStrength = new Float32Array(MAX_SOURCES);
   private statics: readonly StaticLight[] = [];
   private staticKeys = new Int32Array(0);
+  /**
+   * The world's lights near the camera focus, as indices into `statics`: a zone of any size only
+   * scores the lights within reach instead of walking every lamp in it each frame.
+   */
+  private near: NearCache = new NearCache(new ChunkBuckets([]));
+  /** Indices into `statics` written at the front of the source arrays this frame and the next. */
+  private active: readonly number[] = [];
   private emitted = 0;
   private readonly pools: InstancedMesh;
   private readonly poolColor: InstancedBufferAttribute;
@@ -157,9 +165,12 @@ export class LightBudget {
 
   /** The world's own lights; replaces the previous set when the map is rebuilt. */
   setStatic(lights: readonly StaticLight[]): void {
-    this.statics = lights.slice(0, MAX_SOURCES);
+    this.statics = lights;
     this.staticKeys = new Int32Array(this.statics.length);
     for (let i = 0; i < this.staticKeys.length; i++) this.staticKeys[i] = lightKey();
+    this.near = new NearCache(new ChunkBuckets(lights));
+    // Until the first update gathers the near set, every light counts, as before streaming.
+    this.active = lights.map((_, i) => i).slice(0, MAX_SOURCES);
   }
 
   /**
@@ -169,7 +180,7 @@ export class LightBudget {
    * for a spell that glows the same by day.
    */
   emit(key: number, x: number, y: number, height: number, color: number, intensity: number, radius: number, priority = 0, day = 0): void {
-    const i = this.statics.length + this.emitted;
+    const i = this.active.length + this.emitted;
     if (i >= MAX_SOURCES) return;
     this.write(i, key, x, y, height, color, intensity, radius, priority, day);
     this.emitted++;
@@ -182,14 +193,16 @@ export class LightBudget {
    */
   update(t: number, dt: number, focusX: number, focusY: number, dark: number, staticGain = 1): void {
     this.time = t;
-    const statics = this.statics;
-    for (let i = 0; i < statics.length; i++) {
-      const s = statics[i];
+    const active = this.active;
+    const staticCount = active.length;
+    for (let i = 0; i < staticCount; i++) {
+      const at = active[i] ?? 0;
+      const s = this.statics[at];
       if (!s) continue;
       const f = staticFlicker(t, s.x, s.y, s.flicker);
-      this.write(i, this.staticKeys[i] ?? -1, s.x, s.y, s.height, s.color, s.intensity * f * staticGain, s.radius, s.priority, s.day);
+      this.write(i, this.staticKeys[at] ?? -1, s.x, s.y, s.height, s.color, s.intensity * f * staticGain, s.radius, s.priority, s.day);
     }
-    const n = statics.length + this.emitted;
+    const n = staticCount + this.emitted;
     this.emitted = 0;
     this.stats.sources = n;
 
@@ -286,7 +299,7 @@ export class LightBudget {
       this.poolStrength[candidates] = strength;
       this.poolSource[candidates++] = i;
     }
-    this.spreadSpellPools(candidates, statics.length);
+    this.spreadSpellPools(candidates, staticCount);
     const m = this.pools.instanceMatrix.array;
     const c = this.poolColor.array;
     let pools = 0;
@@ -325,6 +338,10 @@ export class LightBudget {
     this.poolColor.needsUpdate = true;
     this.stats.pools = pools;
     this.stats.poolLight = poolLight;
+    // Gathered after this frame's sources are used: the next frame's emits are written after the
+    // statics, so the count must not change between an emit and the update that reads it.
+    const near = this.near.update(focusX, focusY, CULL_RANGE);
+    this.active = near.length > MAX_SOURCES ? near.slice(0, MAX_SOURCES) : near;
   }
 
   /**

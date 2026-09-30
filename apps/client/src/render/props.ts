@@ -33,20 +33,29 @@ import { assetById } from './assets.js';
 import { mat } from './models.js';
 import { withOccluderFade } from './occluderFade.js';
 import { staticFlicker, type StaticLight } from './lights.js';
-import { PropBatch } from './propBatch.js';
+import { chunkCoord, chunkKey, CHUNK_SIZE, streamRadii } from './chunks.js';
+import type { Placer } from './propBatch.js';
+import { WorldChunks, type Anim } from './worldChunks.js';
 import { treeGeometry, type TreeKind } from './trees.js';
 import type { FireKind, FireSpot } from './vfx/worldFires.js';
 
 export interface BuiltWorld {
   group: Group;
-  /** Per-frame animation: water, portals, fires, canopy fading around the player. */
-  update(t: number, playerX: number, playerY: number): void;
+  /**
+   * Per-frame: streams the chunks around the camera focus (`footprint` is how far the view reaches
+   * on the ground, see `viewFootprint`) and animates water, portals, fires and canopy fading.
+   */
+  update(t: number, playerX: number, playerY: number, footprint?: number): void;
   /** Stops pending asset loads from adding meshes to a world that has been replaced. */
   dispose(): void;
   /** Torches, lanterns, fires, portals and waypoints, for the scene's light budget. */
   lights: readonly StaticLight[];
   /** Every flame in the world, drawn by the effects system (`vfx/worldFires.ts`). */
   fires: readonly FireSpot[];
+  /** Resolves once the models near the start have been built, for the world bench's load time. */
+  ready: Promise<void>;
+  /** Chunk counts, for the world bench and the perf readout. */
+  stats: WorldChunks['stats'];
 }
 
 type LightLook = Omit<StaticLight, 'x' | 'y'>;
@@ -388,8 +397,9 @@ function shapeCentre(s: Shape): { x: number; y: number } {
 
 export function buildWorld(def: WorldMap): BuiltWorld {
   const group = new Group();
-  const animated: ((t: number, px: number, py: number) => void)[] = [];
-  const disposers: (() => void)[] = [];
+  const chunks = new WorldChunks();
+  group.add(chunks.group);
+  const animated: Anim[] = [];
   const lights: StaticLight[] = [];
   const fires: FireSpot[] = [];
   const { width, height } = def;
@@ -403,12 +413,8 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
   const groundMat = underground
     ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 })
-    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), gw / 420, gh / 420), color: def.groundTint, roughness: 1 });
-  const ground = new Mesh(new PlaneGeometry(gw, gh), groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(width / 2, 0, height / 2);
-  ground.receiveShadow = true;
-  group.add(ground);
+    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), 1, 1), color: def.groundTint, roughness: 1 });
+  addGroundTiles(chunks, groundMat, -margin, -margin, gw, gh);
   const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), new MeshBasicMaterial({ color: COLORS.background }));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(width / 2, -3, height / 2);
@@ -416,40 +422,48 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
   const stoneTex = repeatTexture(stoneCanvas(), 1, 1);
   const dirtTex = repeatTexture(dirtCanvas(), 1, 1);
-  if (underground) addUnderground(group, def);
+  // Every road segment draws the same: one material for all of them, not one per segment and chunk build.
+  const roadMat = new MeshStandardMaterial({ map: dirtTex, roughness: 1, transparent: true, opacity: 0.85 });
+  if (underground) addUnderground(chunks, def);
   for (const patch of def.ground) {
     if (patch.kind === 'floor') continue;
     const s = patch.shape;
     if (s.type === 'circle') {
-      const tex = (patch.kind === 'plaza' ? stoneTex : dirtTex).clone();
-      tex.repeat.set(s.r / 90, s.r / 90);
-      const m = new Mesh(new CircleGeometry(s.r, 48), new MeshStandardMaterial({ map: tex, roughness: 0.95 }));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(s.x, 0.4 + (patch.kind === 'plaza' ? 0.2 : 0), s.y);
-      m.receiveShadow = true;
-      group.add(m);
+      chunks.build(s.x, s.y, s.r, (g) => {
+        const tex = (patch.kind === 'plaza' ? stoneTex : dirtTex).clone();
+        tex.repeat.set(s.r / 90, s.r / 90);
+        const m = new Mesh(new CircleGeometry(s.r, 48), new MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(s.x, 0.4 + (patch.kind === 'plaza' ? 0.2 : 0), s.y);
+        m.receiveShadow = true;
+        g.add(m);
+      });
     } else if (s.type === 'capsule') {
-      const geo = ribbon(
-        [
-          { x: s.ax, y: s.ay },
-          { x: s.bx, y: s.by },
-        ],
-        s.r,
-        0.3,
-        120,
-      );
-      const tex = dirtTex.clone();
-      const m = new Mesh(geo, new MeshStandardMaterial({ map: tex, roughness: 1, transparent: true, opacity: 0.85 }));
-      m.receiveShadow = true;
-      group.add(m);
-      const cap = new Mesh(new CircleGeometry(s.r, 20), m.material);
-      cap.rotation.x = -Math.PI / 2;
-      cap.position.set(s.bx, 0.3, s.by);
-      group.add(cap);
+      const cx = (s.ax + s.bx) / 2;
+      const cy = (s.ay + s.by) / 2;
+      chunks.build(cx, cy, Math.hypot(s.bx - s.ax, s.by - s.ay) / 2 + s.r, (g) => {
+        const geo = ribbon(
+          [
+            { x: s.ax, y: s.ay },
+            { x: s.bx, y: s.by },
+          ],
+          s.r,
+          0.3,
+          120,
+        );
+        const m = new Mesh(geo, roadMat);
+        m.receiveShadow = true;
+        g.add(m);
+        const cap = new Mesh(new CircleGeometry(s.r, 20), roadMat);
+        cap.rotation.x = -Math.PI / 2;
+        cap.position.set(s.bx, 0.3, s.by);
+        g.add(cap);
+      });
     }
   }
 
-  // Rivers: a muddy bank ribbon under a translucent, flowing water ribbon.
+  // Rivers: a muddy bank ribbon under a translucent, flowing water ribbon. A river crosses the whole
+  // map as a few hundred vertices in two draws, so it stays whole rather than being cut into chunks.
   const waterTex = repeatTexture(waterCanvas(), 1, 1);
   for (const river of def.rivers) {
     const bank = new Mesh(ribbon(river.path, river.width / 2 + 16, 0.5, 200), new MeshStandardMaterial({ color: 0x3a3022, roughness: 1 }));
@@ -461,45 +475,50 @@ export function buildWorld(def: WorldMap): BuiltWorld {
       waterTex.offset.y = -t * 0.35;
     });
   }
-  for (const b of def.bridges) group.add(bridge(b.x, b.y, b.angle, b.length, b.width));
+  for (const b of def.bridges) chunks.build(b.x, b.y, b.length / 2 + b.width, (g) => g.add(bridge(b.x, b.y, b.angle, b.length, b.width)));
 
   // Obstacles, grouped by kind so the common ones can be instanced.
   const byKind = new Map<string, Obstacle[]>();
-  for (const o of def.obstacles) byKind.set(o.kind, [...(byKind.get(o.kind) ?? []), o]);
+  for (const o of def.obstacles) {
+    const list = byKind.get(o.kind);
+    if (list) list.push(o);
+    else byKind.set(o.kind, [o]);
+  }
 
-  const batch = new PropBatch();
-  addRocks(batch, byKind.get('rock') ?? []);
-  animated.push(addTrees(group, byKind.get('tree') ?? [], def));
+  addRocks(chunks, byKind.get('rock') ?? []);
+  addTrees(chunks, byKind.get('tree') ?? [], def);
   for (const o of byKind.get('pillar') ?? []) {
     if (o.shape.type !== 'circle') continue;
     const h = hash(o.shape.x, o.shape.y);
-    batch.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
-    if (o.visual < 90) batch.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
+    chunks.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
+    if (o.visual < 90) chunks.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
   }
-  for (const w of byKind.get('wall') ?? []) tileAlong(batch, w, 'dungeon_wall_broken', 70, true);
-  for (const f of byKind.get('fence') ?? []) tileAlong(batch, f, 'fence_wood_straight', 44);
+  for (const w of byKind.get('wall') ?? []) tileAlong(chunks, w, 'dungeon_wall_broken', 70, true);
+  for (const f of byKind.get('fence') ?? []) tileAlong(chunks, f, 'fence_wood_straight', 44);
   const BUILDINGS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'];
   for (const h of byKind.get('house') ?? []) {
     if (h.shape.type !== 'box') continue;
     const k = hash(h.shape.x, h.shape.y);
     const small = Math.max(h.shape.hw, h.shape.hh) < 100;
     const id = small ? (k % 2 === 0 ? 'building_home_B_red' : 'building_home_B_yellow') : (BUILDINGS[k % BUILDINGS.length] ?? 'building_home_A_red');
-    batch.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
+    chunks.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
   }
-  for (const s of byKind.get('stall') ?? []) group.add(stall(s));
-  for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') batch.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
-  for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') batch.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
-  for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') batch.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
+  for (const s of byKind.get('stall') ?? []) if (s.shape.type === 'box') chunks.build(s.shape.x, s.shape.y, Math.hypot(s.shape.hw, s.shape.hh) + 10, (g) => g.add(stall(s)));
+  for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') chunks.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
+  for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
+  for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
+  const addFire = (fire: BuiltFire, x: number, y: number): void => {
+    chunks.attach(x, y, 60, fire.group, fire.update);
+    lights.push(fire.light);
+    fires.push(fire.fire);
+  };
   for (const d of def.decor) {
     const fire = d.asset === 'campfire' ? campfire(d.x, d.y, false, d.scale, d.angle) : d.asset === 'brazier' ? brazier(d.x, d.y, d.scale, d.angle) : null;
     if (fire) {
-      group.add(fire.group);
-      animated.push(fire.update);
-      lights.push(fire.light);
-      fires.push(fire.fire);
+      addFire(fire, d.x, d.y);
       continue;
     }
-    batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
+    chunks.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
     const look = LIT_DECOR[d.asset];
     const light = look ? lightAt(look, d.x, d.y, d.scale) : null;
     if (light) lights.push(light);
@@ -507,18 +526,13 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   }
   for (const l of def.lamps ?? []) {
     const asset = underground ? 'dungeon_torch_lit' : 'grave_post_lantern';
-    batch.add(asset, { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
+    chunks.add(asset, { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
     const light = lightAt(underground ? TORCH : LANTERN, l.x, l.y);
     lights.push(light);
     // The asset heights are 50 (torch) and 70 (post lantern); lamps are fitted to 50 and 80.
     flamesOf(asset, l.x, l.y, 0, underground ? 1 : 80 / 70, light, fires);
   }
-  if (!underground) addBorder(group, batch, def);
-  let cancelled = false;
-  void batch.build(group, () => cancelled);
-  disposers.push(() => {
-    cancelled = true;
-  });
+  if (!underground) addBorder(chunks, def);
 
   const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, zone: 0x8fe07a, waypoint: 0x5ff0e0 } as const;
   for (const p of def.portals) {
@@ -527,40 +541,65 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     // In town the way to the Arena is a building, walked into; elsewhere 'arena' is still a portal.
     const arenaEntrance = p.target === 'arena' && (def.theme === 'town' || !!def.safeZones?.length);
     const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : arenaEntrance ? arenaBuilding(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
-    group.add(built.group);
-    animated.push(built.update);
+    chunks.attach(p.x, p.y, p.r * 2, built.group, built.update);
     lights.push(...built.lights);
     fires.push(...built.fires);
   }
   // The forge's fire, beside its weapon rack, so the spot reads as a smithy at night too.
-  if (def.forge) {
-    const forgeFire = campfire(def.forge.x + 38, def.forge.y + 22, true);
-    group.add(forgeFire.group);
-    animated.push(forgeFire.update);
-    lights.push(forgeFire.light);
-    fires.push(forgeFire.fire);
-  }
+  if (def.forge) addFire(campfire(def.forge.x + 38, def.forge.y + 22, true), def.forge.x + 38, def.forge.y + 22);
   // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
-  if (def.theme === 'wilds' && !def.safeZones?.length) {
-    const fire = campfire(def.spawn.x + 40, def.spawn.y + 60, false);
-    group.add(fire.group);
-    animated.push(fire.update);
-    lights.push(fire.light);
-    fires.push(fire.fire);
-  }
-  if (!underground) addDecor(group, def);
+  if (def.theme === 'wilds' && !def.safeZones?.length) addFire(campfire(def.spawn.x + 40, def.spawn.y + 60, false), def.spawn.x + 40, def.spawn.y + 60);
+  if (!underground) addDecor(chunks, def);
 
   return {
     group,
-    update(t, px, py) {
+    update(t, px, py, footprint = DEFAULT_FOOTPRINT) {
+      chunks.update(t, px, py, streamRadii(footprint));
       for (const a of animated) a(t, px, py);
     },
     dispose() {
-      for (const d of disposers) d();
+      chunks.dispose();
     },
     lights,
     fires,
+    ready: chunks.ready,
+    stats: chunks.stats,
   };
+}
+
+/** The view's ground footprint at the game's own camera on a 16:9 screen, for callers that do not pass one. */
+const DEFAULT_FOOTPRINT = 600;
+
+/**
+ * The ground, one tile per chunk. UVs are in world units (one texture repeat per 420), so the
+ * pattern runs on across tile edges exactly as it did over the single plane the tiles replace.
+ */
+function addGroundTiles(chunks: WorldChunks, material: MeshStandardMaterial, x0: number, z0: number, gw: number, gh: number): void {
+  const size = CHUNK_SIZE;
+  const REPEAT = 420;
+  for (let cy = chunkCoord(z0); cy * size < z0 + gh; cy++) {
+    for (let cx = chunkCoord(x0); cx * size < x0 + gw; cx++) {
+      const ax = Math.max(x0, cx * size);
+      const bx = Math.min(x0 + gw, (cx + 1) * size);
+      const az = Math.max(z0, cy * size);
+      const bz = Math.min(z0 + gh, (cy + 1) * size);
+      if (bx <= ax || bz <= az) continue;
+      chunks.build((ax + bx) / 2, (az + bz) / 2, 0, (g) => {
+        const geo = new BufferGeometry();
+        geo.setAttribute('position', new BufferAttribute(new Float32Array([ax, 0, az, bx, 0, az, bx, 0, bz, ax, 0, bz]), 3));
+        geo.setAttribute('normal', new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+        const u = (x: number) => (x - x0) / REPEAT;
+        const v = (z: number) => (gh - (z - z0)) / REPEAT;
+        geo.setAttribute('uv', new BufferAttribute(new Float32Array([u(ax), v(az), u(bx), v(az), u(bx), v(bz), u(ax), v(bz)]), 2));
+        // Counter-clockwise seen from above, so the tile faces up.
+        geo.setIndex([0, 3, 1, 1, 3, 2]);
+        geo.computeBoundingSphere();
+        const tile = new Mesh(geo, material);
+        tile.receiveShadow = true;
+        g.add(tile);
+      });
+    }
+  }
 }
 
 interface Landmark {
@@ -572,7 +611,7 @@ interface Landmark {
 
 const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D', 'rock_single_E'];
 
-function addRocks(batch: PropBatch, rocks: Obstacle[]): void {
+function addRocks(batch: Placer, rocks: Obstacle[]): void {
   for (const o of rocks) {
     if (o.shape.type !== 'circle') continue;
     const h = hash(o.shape.x, o.shape.y);
@@ -581,7 +620,7 @@ function addRocks(batch: PropBatch, rocks: Obstacle[]): void {
 }
 
 /** Repeats a straight segment asset along a capsule obstacle (walls, fences). */
-function tileAlong(batch: PropBatch, o: Obstacle, asset: string, segment: number, fade = false): void {
+function tileAlong(batch: Placer, o: Obstacle, asset: string, segment: number, fade = false): void {
   if (o.shape.type !== 'capsule') return;
   const { ax, ay, bx, by } = o.shape;
   const len = Math.hypot(bx - ax, by - ay);
@@ -595,35 +634,62 @@ function tileAlong(batch: PropBatch, o: Obstacle, asset: string, segment: number
 
 /**
  * Procedural trees, one merged mesh each. Trees near the player fade out, so nobody fights hidden
- * under a canopy. Map themes shift the mix toward dead trees in bleak places.
+ * under a canopy. Map themes shift the mix toward dead trees in bleak places. Built per chunk.
  */
-function addTrees(group: Group, trees: Obstacle[], def: WorldMap): (t: number, px: number, py: number) => void {
-  const fading: { x: number; y: number; mat: MeshStandardMaterial }[] = [];
+function addTrees(chunks: WorldChunks, trees: Obstacle[], def: WorldMap): void {
   const bleak = /Ashen|Gloom/.test(def.name);
+  const byChunk = new Map<number, { x: number; y: number; kind: TreeKind; h: number; size: number }[]>();
+  // Shared by every tree while it stands at full opacity; a tree near the hero fades on a copy of its own.
+  const solid = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, transparent: true, opacity: 1 });
   for (const o of trees) {
     if (o.shape.type !== 'circle') continue;
     const { x, y } = o.shape;
     const h = hash(x, y);
     const isOak = def.oaks ? def.oaks.some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
     const kind: TreeKind = !def.oaks && h % 100 < (bleak ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
-    const material = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, transparent: true, opacity: 1 });
-    const mesh = new Mesh(treeGeometry(kind, h), material);
     const size = o.visual * (kind === 'pine' ? 1.05 : 1.25);
-    mesh.scale.setScalar(size);
-    mesh.position.set(x, 0, y);
-    mesh.rotation.y = h;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    if (kind !== 'dead') fading.push({ x, y, mat: material });
-  }
-  return (_t, px, py) => {
-    for (const c of fading) {
-      const target = Math.hypot(c.x - px, c.y - py) < 110 ? 0.3 : 1;
-      c.mat.opacity += (target - c.mat.opacity) * 0.15;
-      c.mat.depthWrite = c.mat.opacity > 0.95;
+    const key = chunkKey(chunkCoord(x), chunkCoord(y));
+    const list = byChunk.get(key);
+    const tree = { x, y, kind, h, size };
+    if (list) list.push(tree);
+    else {
+      byChunk.set(key, [tree]);
+      chunks.build(x, y, 0, (group, anims) => {
+        const fading: { x: number; y: number; mesh: Mesh<BufferGeometry, MeshStandardMaterial>; own: MeshStandardMaterial | null; opacity: number }[] = [];
+        for (const t of byChunk.get(key) ?? []) {
+          const geo = treeGeometry(t.kind, t.h);
+          chunks.shared.add(geo);
+          const mesh = new Mesh(geo, solid);
+          mesh.scale.setScalar(t.size);
+          mesh.position.set(t.x, 0, t.y);
+          mesh.rotation.y = t.h;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          group.add(mesh);
+          if (t.kind !== 'dead') fading.push({ x: t.x, y: t.y, mesh, own: null, opacity: 1 });
+        }
+        anims.push((_t, px, py) => {
+          for (const c of fading) {
+            const target = Math.hypot(c.x - px, c.y - py) < 110 ? 0.3 : 1;
+            if (target === 1 && c.opacity === 1) continue;
+            c.opacity += (target - c.opacity) * 0.15;
+            // Back to the shared material once faded in again, so a forest is not a material per tree.
+            if (target === 1 && c.opacity > 0.998) {
+              c.opacity = 1;
+              c.mesh.material = solid;
+              continue;
+            }
+            const own = c.own ?? solid.clone();
+            c.own = own;
+            own.opacity = c.opacity;
+            own.depthWrite = c.opacity > 0.95;
+            c.mesh.material = own;
+          }
+        });
+      });
     }
-  };
+    chunks.reach(x, y, size);
+  }
 }
 
 function addPillars(group: Group, pillars: Obstacle[]): void {
@@ -1222,7 +1288,7 @@ function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean 
 }
 
 /** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
-function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
+function addBorder(chunks: WorldChunks, def: WorldMap): void {
   const rng = new Rng(def.width * 31 + def.height);
   const rocks: Obstacle[] = [];
   const trees: Obstacle[] = [];
@@ -1240,9 +1306,9 @@ function addBorder(group: Group, batch: PropBatch, def: WorldMap): void {
     if (rng.next() < 0.5 && def.theme !== 'town') rocks.push({ kind: 'rock', shape: { type: 'circle', x, y, r: rng.range(40, 70) }, blocksMove: true, blocksShots: true, visual: rng.range(40, 90) });
     else trees.push({ kind: 'tree', shape: { type: 'circle', x, y, r: 16 }, blocksMove: true, blocksShots: true, visual: rng.range(55, 80) });
   }
-  addRocks(batch, rocks);
-  addTrees(group, trees, def);
-  addWildBorder(group, batch, def, rng);
+  addRocks(chunks, rocks);
+  addTrees(chunks, trees, def);
+  addWildBorder(chunks, def, rng);
 }
 
 /** How far the scenery runs past the map edge; the camera sees about this far from the edge. */
@@ -1254,12 +1320,14 @@ const BORDER_PEAKS = ['mountain_A_grass_trees', 'mountain_B_grass', 'mountain_C'
  * reads as wilderness you cannot cross rather than black. Out of reach, so the trees never need the
  * see-through fade and are instanced per variant: a few draw calls for thousands of trees.
  */
-function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng): void {
+function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng): void {
   const { width: w, height: h } = def;
   const bleak = /Ashen|Gloom/.test(def.name);
   /** Distance outside the map, 0 inside it. */
   const outside = (x: number, y: number): number => Math.max(-x, x - w, -y, y - h, 0);
-  const byGeometry = new Map<BufferGeometry, Matrix4[]>();
+  // Per chunk, the transforms of each tree variant; each chunk draws one instanced mesh per variant.
+  const byChunk = new Map<number, Map<BufferGeometry, Matrix4[]>>();
+  const treeMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
   const rocks: Obstacle[] = [];
   const STEP = 85;
   for (let y = -BORDER_DEPTH; y < h + BORDER_DEPTH; y += STEP) {
@@ -1282,18 +1350,32 @@ function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng):
       const kind: TreeKind = k % 100 < (bleak ? 35 : 6) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
       const size = rng.range(55, 90) * (kind === 'pine' ? 1.05 : 1.25);
       const geo = treeGeometry(kind, k);
-      byGeometry.set(geo, [...(byGeometry.get(geo) ?? []), matrix(px, 0, py, size, size, size, k)]);
+      chunks.shared.add(geo);
+      const key = chunkKey(chunkCoord(px), chunkCoord(py));
+      let variants = byChunk.get(key);
+      if (!variants) {
+        const own = new Map<BufferGeometry, Matrix4[]>();
+        variants = own;
+        byChunk.set(key, own);
+        chunks.build(px, py, 0, (group) => {
+          for (const [g, transforms] of own) {
+            const m = instanced(g, treeMat, transforms);
+            if (!m) continue;
+            // Shadows this far out are off-screen or under fog, and thousands of casters are not free.
+            m.castShadow = false;
+            m.computeBoundingSphere();
+            group.add(m);
+          }
+        });
+      }
+      const list = variants.get(geo);
+      const t = matrix(px, 0, py, size, size, size, k);
+      if (list) list.push(t);
+      else variants.set(geo, [t]);
+      chunks.reach(px, py, size);
     }
   }
-  const treeMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
-  for (const [geo, transforms] of byGeometry) {
-    const m = instanced(geo, treeMat, transforms);
-    if (!m) continue;
-    // Shadows this far out are off-screen or under fog, and thousands of casters are not free.
-    m.castShadow = false;
-    group.add(m);
-  }
-  addRocks(batch, rocks);
+  addRocks(chunks, rocks);
 
   // Two staggered rings of peaks behind the forest.
   const perimeter = 2 * (w + h);
@@ -1305,7 +1387,7 @@ function addWildBorder(group: Group, batch: PropBatch, def: WorldMap, rng: Rng):
       const at = pointAround(w, h, depth, t);
       if (!at) continue;
       const asset = BORDER_PEAKS[rng.int(0, BORDER_PEAKS.length - 1)] ?? 'mountain_C';
-      batch.add(asset, { x: at.x + rng.range(-60, 60), y: at.y + rng.range(-60, 60), angle: rng.range(0, 6), fit: { radius: rng.range(depth < 1000 ? 200 : 280, depth < 1000 ? 300 : 420) } });
+      chunks.add(asset, { x: at.x + rng.range(-60, 60), y: at.y + rng.range(-60, 60), angle: rng.range(0, 6), fit: { radius: rng.range(depth < 1000 ? 200 : 280, depth < 1000 ? 300 : 420) } });
     }
   }
 }
@@ -1323,22 +1405,52 @@ function pointAround(w: number, h: number, depth: number, t: number): { x: numbe
 }
 
 /** Grass tufts, flowers and pebbles: thousands of instances, no collision, placed away from obstacles. */
-function addDecor(group: Group, def: WorldMap): void {
+function addDecor(chunks: WorldChunks, def: WorldMap): void {
   if (def.theme === 'flat') return;
   const rng = new Rng(def.width + def.obstacles.length);
   const count = Math.floor((def.width * def.height) / 9000);
-  const grass: Matrix4[] = [];
-  const flowers: Matrix4[] = [];
-  const flowerColors: Color[] = [];
-  const pebbles: Matrix4[] = [];
+  interface Bits {
+    grass: Matrix4[];
+    flowers: Matrix4[];
+    flowerColors: Color[];
+    pebbles: Matrix4[];
+  }
+  const byChunk = new Map<number, Bits>();
   const palette = [0xf5e663, 0xffffff, 0xe06070, 0x9fb4ff];
   const onPatch = (x: number, y: number): boolean =>
     def.ground.some((g) => g.kind === 'plaza' && g.shape.type === 'circle' && Math.hypot(x - g.shape.x, y - g.shape.y) < g.shape.r);
-  const nearObstacle = (x: number, y: number): boolean =>
-    def.obstacles.some((o) => {
-      const c = shapeCentre(o.shape);
-      return Math.abs(c.x - x) < 70 && Math.abs(c.y - y) < 70;
-    });
+  const nearObstacle = obstacleGrid(def.obstacles, 70);
+  const grassColor = new Color(def.groundTint).offsetHSL(0.01, -0.02, 0.02).getHex();
+  // Shared by every chunk, so a chunk released and rebuilt reuses them.
+  const cone = new ConeGeometry(1, 1, 3);
+  const ico = new IcosahedronGeometry(1, 0);
+  chunks.shared.add(cone);
+  chunks.shared.add(ico);
+  const grassMat = mat(grassColor, { rough: 1 });
+  const flowerMat = mat(0xffffff, { emissive: 0x202020 });
+  const pebbleMat = mat(0x7a7468);
+  const bitsAt = (x: number, y: number): Bits => {
+    const key = chunkKey(chunkCoord(x), chunkCoord(y));
+    let b = byChunk.get(key);
+    if (!b) {
+      const own: Bits = { grass: [], flowers: [], flowerColors: [], pebbles: [] };
+      b = own;
+      byChunk.set(key, own);
+      chunks.build(x, y, 0, (group) => {
+        const g1 = instanced(cone, grassMat, own.grass);
+        const g2 = instanced(ico, flowerMat, own.flowers, own.flowerColors);
+        const g3 = instanced(ico, pebbleMat, own.pebbles);
+        for (const m of [g1, g2, g3]) {
+          if (!m) continue;
+          // Decor is too small to cast useful shadows and there are thousands of instances.
+          m.castShadow = false;
+          m.computeBoundingSphere();
+          group.add(m);
+        }
+      });
+    }
+    return b;
+  };
   for (let i = 0; i < count; i++) {
     const x = rng.range(20, def.width - 20);
     const y = rng.range(20, def.height - 20);
@@ -1347,40 +1459,83 @@ function addDecor(group: Group, def: WorldMap): void {
     if (roll < 0.7) {
       if (nearObstacle(x, y) && rng.next() < 0.7) continue;
       const s = rng.range(4, 9);
-      grass.push(matrix(x, s / 2, y, s * 0.5, s, s * 0.5, rng.range(0, 6), rng.range(-0.3, 0.3)));
+      bitsAt(x, y).grass.push(matrix(x, s / 2, y, s * 0.5, s, s * 0.5, rng.range(0, 6), rng.range(-0.3, 0.3)));
     } else if (roll < 0.85) {
-      flowers.push(matrix(x, 3, y, 2.5, 2.5, 2.5));
-      flowerColors.push(new Color(palette[rng.int(0, palette.length - 1)] ?? 0xffffff));
+      const b = bitsAt(x, y);
+      b.flowers.push(matrix(x, 3, y, 2.5, 2.5, 2.5));
+      b.flowerColors.push(new Color(palette[rng.int(0, palette.length - 1)] ?? 0xffffff));
     } else {
       const s = rng.range(2, 5);
-      pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
+      bitsAt(x, y).pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
     }
-  }
-  const grassColor = new Color(def.groundTint).offsetHSL(0.01, -0.02, 0.02).getHex();
-  const g1 = instanced(new ConeGeometry(1, 1, 3), mat(grassColor, { rough: 1 }), grass);
-  const g2 = instanced(new IcosahedronGeometry(1, 0), mat(0xffffff, { emissive: 0x202020 }), flowers, flowerColors);
-  const g3 = instanced(new IcosahedronGeometry(1, 0), mat(0x7a7468), pebbles);
-  for (const m of [g1, g2, g3]) {
-    if (!m) continue;
-    // Decor is too small to cast useful shadows and there are thousands of instances.
-    m.castShadow = false;
-    group.add(m);
   }
 }
 
+/**
+ * Whether any obstacle's centre is within `d` on both axes of a point: the same test as a scan over
+ * every obstacle, answered from a grid of `d`-sized cells, so decor placement stays linear in zone size.
+ */
+function obstacleGrid(obstacles: readonly Obstacle[], d: number): (x: number, y: number) => boolean {
+  const cells = new Map<number, { x: number; y: number }[]>();
+  const keyOf = (cx: number, cy: number) => chunkKey(cx, cy);
+  for (const o of obstacles) {
+    const c = shapeCentre(o.shape);
+    const key = keyOf(Math.floor(c.x / d), Math.floor(c.y / d));
+    const list = cells.get(key);
+    if (list) list.push(c);
+    else cells.set(key, [c]);
+  }
+  return (x, y) => {
+    const cx = Math.floor(x / d);
+    const cy = Math.floor(y / d);
+    for (let j = cy - 1; j <= cy + 1; j++) {
+      for (let i = cx - 1; i <= cx + 1; i++) {
+        for (const c of cells.get(keyOf(i, j)) ?? []) if (Math.abs(c.x - x) < d && Math.abs(c.y - y) < d) return true;
+      }
+    }
+    return false;
+  };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Dungeons
 
-/** Flagstone quads and rock wall boxes, each merged into one mesh, with UVs in world space so the texture never stretches. */
-function addUnderground(group: Group, def: WorldMap): void {
+/**
+ * Flagstone quads and rock wall boxes, merged into one floor and one wall mesh per chunk, with UVs
+ * in world space so the texture never stretches and runs on across chunk edges.
+ */
+function addUnderground(chunks: WorldChunks, def: WorldMap): void {
+  const floorMat = new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0xd0c4b4, roughness: 0.95 });
+  const wallMat = withOccluderFade(new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide }));
+  const byChunk = new Map<number, { floors: Extract<Shape, { type: 'box' }>[]; walls: Extract<Shape, { type: 'box' }>[] }>();
+  const at = (x: number, y: number, reach: number) => {
+    const key = chunkKey(chunkCoord(x), chunkCoord(y));
+    let c = byChunk.get(key);
+    if (!c) {
+      const own: { floors: Extract<Shape, { type: 'box' }>[]; walls: Extract<Shape, { type: 'box' }>[] } = { floors: [], walls: [] };
+      c = own;
+      byChunk.set(key, own);
+      chunks.build(x, y, 0, (group) => buildUnderground(group, own.floors, own.walls, floorMat, wallMat));
+    }
+    chunks.reach(x, y, reach);
+    return c;
+  };
+  for (const patch of def.ground) {
+    if (patch.kind !== 'floor' || patch.shape.type !== 'box') continue;
+    at(patch.shape.x, patch.shape.y, Math.hypot(patch.shape.hw, patch.shape.hh)).floors.push(patch.shape);
+  }
+  for (const o of def.obstacles) {
+    if (o.kind !== 'cavewall' || o.shape.type !== 'box') continue;
+    at(o.shape.x, o.shape.y, Math.hypot(o.shape.hw, o.shape.hh)).walls.push(o.shape);
+  }
+}
+
+function buildUnderground(group: Group, floors: readonly Extract<Shape, { type: 'box' }>[], walls: readonly Extract<Shape, { type: 'box' }>[], floorMat: MeshStandardMaterial, wallMat: MeshStandardMaterial): void {
   const tile = 160;
   const floorPos: number[] = [];
   const floorUv: number[] = [];
   const floorIdx: number[] = [];
-  for (const patch of def.ground) {
-    if (patch.kind !== 'floor' || patch.shape.type !== 'box') continue;
-    const { x, y, hw, hh } = patch.shape;
+  for (const { x, y, hw, hh } of floors) {
     const base = floorPos.length / 3;
     for (const [cx, cz] of [
       [x - hw, y - hh],
@@ -1393,14 +1548,16 @@ function addUnderground(group: Group, def: WorldMap): void {
     }
     floorIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
   }
-  const floorGeo = new BufferGeometry();
-  floorGeo.setAttribute('position', new BufferAttribute(new Float32Array(floorPos), 3));
-  floorGeo.setAttribute('uv', new BufferAttribute(new Float32Array(floorUv), 2));
-  floorGeo.setIndex(floorIdx);
-  floorGeo.computeVertexNormals();
-  const floor = new Mesh(floorGeo, new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0xd0c4b4, roughness: 0.95 }));
-  floor.receiveShadow = true;
-  group.add(floor);
+  if (floorIdx.length > 0) {
+    const floorGeo = new BufferGeometry();
+    floorGeo.setAttribute('position', new BufferAttribute(new Float32Array(floorPos), 3));
+    floorGeo.setAttribute('uv', new BufferAttribute(new Float32Array(floorUv), 2));
+    floorGeo.setIndex(floorIdx);
+    floorGeo.computeVertexNormals();
+    const floor = new Mesh(floorGeo, floorMat);
+    floor.receiveShadow = true;
+    group.add(floor);
+  }
 
   const pos: number[] = [];
   const uv: number[] = [];
@@ -1413,9 +1570,7 @@ function addUnderground(group: Group, def: WorldMap): void {
     uv.push(...uvs);
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
-  for (const o of def.obstacles) {
-    if (o.kind !== 'cavewall' || o.shape.type !== 'box') continue;
-    const { x, y, hw, hh } = o.shape;
+  for (const { x, y, hw, hh } of walls) {
     const x0 = x - hw;
     const x1 = x + hw;
     const z0 = y - hh;
@@ -1427,13 +1582,14 @@ function addUnderground(group: Group, def: WorldMap): void {
     quad([x0, 0, z0], [x0, 0, z1], [x0, h, z1], [x0, h, z0], [z0 / t, 0, z1 / t, 0, z1 / t, h / t, z0 / t, h / t]);
     quad([x1, 0, z1], [x1, 0, z0], [x1, h, z0], [x1, h, z1], [z1 / t, 0, z0 / t, 0, z0 / t, h / t, z1 / t, h / t]);
   }
+  if (idx.length === 0) return;
   const wallGeo = new BufferGeometry();
   wallGeo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
   wallGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2));
   wallGeo.setIndex(idx);
   wallGeo.computeVertexNormals();
-  const walls = new Mesh(wallGeo, withOccluderFade(new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide })));
-  walls.castShadow = true;
-  walls.receiveShadow = true;
-  group.add(walls);
+  const wallMesh = new Mesh(wallGeo, wallMat);
+  wallMesh.castShadow = true;
+  wallMesh.receiveShadow = true;
+  group.add(wallMesh);
 }

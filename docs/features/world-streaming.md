@@ -1,6 +1,6 @@
 # World streaming
 
-Status: Step 1 built (monsters far from every player sleep on the server), not pushed; the leash fix and the respawn order fix 2026-09-30, not pushed. Steps 2 to 4 are planned.
+Status: Step 1 built (monsters far from every player sleep on the server), not pushed; the leash fix and the respawn order fix 2026-09-30, not pushed. Step 2, client side (chunked rendering, see [Step 2: client rendering by chunk](#step-2-client-rendering-by-chunk)), built 2026-09-30, not pushed. The server half of step 2 (snapshots by chunk) and steps 3 and 4 are planned.
 
 ## What it does
 
@@ -74,7 +74,76 @@ Tests: `packages/shared/test/streaming.test.ts`
 
 `packages/shared/test/leash.test.ts`: a monster whose target stands beyond the leash turns at 1300, walks home, goes idle and stays there; it sleeps at home once the player has gone far away; it ignores a player following it home for the first 3 s and then turns on them; a chase inside the leash is unchanged.
 
-## Limits and open questions
+## Step 2: client rendering by chunk
+
+### What it does
+
+- **The client draws the static world by chunk**, on the same 1000 unit grid as the server's sleep (`STREAMING.chunkSize`, read through `CHUNK_SIZE` in `render/chunks.ts`). Border scenery outside the map gets negative chunk coordinates. Each chunk holds its ground tile, its roads and plazas, its trees, bridges, stalls and landmarks, its grass and pebbles, its dungeon floor and walls, and one prop batch (instanced models per kind) of its own.
+- **Only chunks near the camera exist as meshes.** Distances run from the camera focus to a chunk's bounds (its square grown to cover everything anchored in it, so a 420-radius mountain or a long road counts where it reaches). A chunk is built inside the build radius, drawn inside the show radius, hidden (taken out of the scene graph) past the hide radius and released (instance buffers and its own geometry disposed) past the release radius; it is rebuilt from its data when it comes back. At the game camera on a 16:9 screen the radii are 1100, 1500, 2000 and 2900 units.
+- **Models load when a chunk that uses them is built**, not at zone load: a zone's first frame builds the chunks inside the show radius at once and the ring ahead of the view one chunk a frame.
+- **Lights and world fires only look at what is near.** The light budget buckets the world's lights by chunk and scores only those within its 1000 unit reach of the focus (gathered again every 150 units walked); before, it walked every light every frame and silently dropped any past the 512th. The world fires project only the spots within the view's footprint plus 300.
+- **The minimap draws in tiles** of 256 pixels, layout and fog each, made when first drawn. Every zone today fits the frame whole (one tile, as before, at the camera-yaw rotation). A map that would need fewer than 0.025 minimap pixels per unit (`MIN_SCALE`) shows a frame-sized window around the hero instead, turned the same way, with party members past its edge as arrows on the frame.
+- **Nothing visible changes** for today's zones: same models, placements, UVs, lights and fog. Screenshots of the town square at night, a Thornwood forest, the Thornwood east gate and a torch-lit dungeon room look the same as the old renderer side by side.
+
+### Why
+
+- Each prop kind was one instanced mesh for the whole zone, whose bounding sphere always touched the view, so three drew every instance of every kind every frame: 1.26 to 2.48 million triangles a frame (with the shadow pass) to show a screen that needs 40 to 140 thousand. That cost, and the buffers behind it, grew with the zone's area.
+- **Per-chunk batches rather than one batch per kind with draw ranges.** WebGL has no cheap way to draw several ranges of one instanced buffer in one call (that needs the multi-draw base-instance extension, which is not everywhere), and compacting visible instances into one buffer re-uploads on every border crossing. Per-chunk batches cost a draw per kind per chunk on screen, and measured fewer draw calls than before (below), because whole chunks are culled.
+- **Hidden chunks leave the scene graph** instead of being set invisible: three still walks invisible objects every frame to update their matrices. Static chunk content also has its matrices computed once and frozen (`matrixAutoUpdate` and `matrixWorldAutoUpdate` off).
+- **Model batches sit after all the chunks' own meshes in the scene graph.** The shadow pass draws casters in graph order through one shared depth material; every switch between a textured model and an untextured tree changes that material's program, and interleaving them chunk by chunk added about 45 KB of garbage a frame in town.
+- **Trees share one material until they fade.** A tree near the hero fades on a copy of its own and goes back to the shared material once it is solid again; before, every tree had its own material from the start, and a rebuilt chunk would have made a hundred new ones.
+- **The radii.** The show radius is the view footprint's corner (about 600 at 16:9, larger on wide screens and when the town editor zooms out) plus 500 for tall scenery leaning into the picture (a point h high shows up to 0.78 h past the footprint at the 52 degree pitch), and never under 1100. Hide is 400 past show, so walking along a chunk border never flickers; building 900 past show gives a hero at 220 units a second four seconds to fetch a model a chunk is the first to need; release is another 900 out, so walking back and forth over one border never rebuilds.
+- **Rivers stay whole.** A river is a few hundred vertices in two draws across the whole map, so cutting it into chunks would only add draws. The void plane under the world is one quad.
+
+### How
+
+- `apps/client/src/render/chunks.ts` (pure): `chunkCoord`, `chunkKey` and `keyCoords`, `rectDistance`, `viewFootprint`, `streamRadii`, `chunkAction` (the build, show, hide and release rule), `ChunkBuckets` and `NearCache` (items bucketed by chunk and the near list, for lights and fires).
+- `render/worldChunks.ts`: `WorldChunks`. Content is registered at load as data: `add` (a prop placement, into the chunk's `PropBatch`), `build` (a builder function run when the chunk is built), `attach` (a small landmark built once at load and kept across releases: portals, waypoints, the Arena drum, camp fires and braziers, whose lights and flames are data from the start) and `reach` (grows a chunk's bounds). `update` runs the rule over every chunk once a frame and the animations of the drawn ones. `stats` counts chunks, builds, releases and `late`: chunks drawn, or whose models arrived, while already inside the view's footprint.
+- `render/props.ts`: `buildWorld` registers everything with a `WorldChunks` instead of building it; the generators (border ring, wild border forest and peaks, grass and pebbles) still run whole at load with the same random sequence, so every placement is where it was, and bucket their output by chunk. Ground tiles have UVs in world units (one repeat per 420, as the single plane had). Decor placement tests obstacles through a grid (`obstacleGrid`) instead of a scan over every obstacle for every tuft, the same answer in linear time.
+- `render/propBatch.ts`: the measured meshes of each asset are cached (`assetParts`), so a rebuild does not clone and measure a model again, and see-through copies are shared per source material.
+- `render/scene.ts`: `follow` passes the camera's footprint to `world.update`. `render/lights.ts` and `render/vfx/worldFires.ts`: the near lists. `render/minimap.ts`: tiles (`minimapScale`, `tilesNear`, `rotateAround`).
+- The bench: the World tab in `/admin/dev/` (`#world/<town|wilds|big>`, `?time=0.75` for night; `apps/client/src/dev/world/`), the static world and the effects system (for fires and lights) with the camera walked along a path at 360 units a second, with a minimap. `big` is `scaledZoneMap('thornwood', 7, 2)` (`packages/shared/src/world/maps.ts`): Thornwood at twice the width and height, 10400 by 7200, 4x the area, which nothing in the game builds.
+
+### Measurements
+
+The World bench on the development Mac, Chrome, 1600 by 900, 2026-09-30, the old renderer (HEAD before this change, same bench) against the new one on the same page, the second of two runs each. "Stand" is 300 frames at the start of the walk, "walk" the whole path (446 frames in town, 832 in Thornwood, 1988 in the big zone). Render CPU is `WorldScene.follow`, `Effects.update` and `render`; heap is the mean rise of the JS heap per frame; buffers are the vertex, index and instance buffers held by the scene graph; build is the synchronous zone build, ready the first frame drawn with the models around the start (shader compiles included, models in the HTTP cache).
+
+| | Town (home zone, 7400x3600) old / new | Thornwood (5200x3600) old / new | Big (10400x7200) old / new |
+|---|---|---|---|
+| Build ms | 59 / 34 | 53 / 24 | 84 / 31 |
+| Ready ms | 150 / 146 | 135 / 117 | 181 / 128 |
+| Draw calls, stand | 305 / 314 | 166 / 165 | 195 / 166 |
+| Draw calls, walk mean (max) | 174 (303) / 162 (312) | 152 (189) / 136 (184) | 159 (215) / 107 (165) |
+| Triangles, stand | 1,592,753 / 136,783 | 1,250,247 / 42,093 | 2,483,249 / 66,515 |
+| Triangles, walk mean | 1,572,666 / 86,252 | 1,264,679 / 46,640 | 2,479,977 / 39,908 |
+| Render CPU ms, stand | 2.62 / 2.51 | 2.12 / 2.06 | 2.53 / 2.15 |
+| Render CPU ms, walk mean (p95) | 2.30 (2.8) / 2.22 (2.8) | 2.11 (2.5) / 2.03 (2.5) | 2.40 (2.8) / 1.83 (2.3) |
+| Heap per frame, stand | 118 KB / 124 KB | 65 KB / 75 KB | 103 KB / 87 KB |
+| Heap per frame, walk | 79 KB / 95 KB | 79 KB / 78 KB | 68 KB / 59 KB |
+| Buffers held, end (max) | 3.84 MB / 2.77 MB (3.27) | 3.18 MB / 2.77 MB (2.78) | 3.94 MB / 2.54 MB (2.77) |
+| Geometries (renderer.info) | 196 / 200 | 150 / 150 (max 155) | 128 / 117 (max 122) |
+| Meshes in the scene | 569 / 366 | 390 / 431 | 873 / 372 |
+| Chunks: total, built, drawn at the end | / 88, 32, 14 | / 72, 30, 15 | / 154, 26, 13 |
+| Builds, releases, late over load and walk | / 42, 10, 0 | / 52, 22, 0 | / 84, 58, 0 |
+
+- **Triangles drop 12 to 62 times,** and in the big zone the new renderer draws fewer than in today's town: the cost follows the view, not the zone. The GPU time behind them is not in the render CPU column.
+- **Buffers held stop growing with the zone:** 2.5 to 2.8 MB whatever the zone's size, against 3.2 to 3.9 MB before, rising with area.
+- **Draw calls fall** on the walk (7% in town, 33% in the big zone) and stay level standing in town, where the square has many kinds of model in view and each kind now draws once per chunk on screen.
+- **Render CPU is level in today's zones and 20% lower in the big zone.** The per-frame work that grew with the zone (walking every light, every fire and every tree's fade) now covers only what is near; the rest of the CPU is three's shadow and colour passes over what is on screen.
+- **Heap per frame is within noise standing** (runs of the same build vary by 20 KB). Walking in town adds about 15 KB a frame: rebuilding a chunk makes new instance buffers and meshes, 42 builds over the walk.
+- **Load is faster to build** (the zone registers data instead of building every mesh) and no slower to first frame; "late" stayed 0 on every walk, so nothing popped in inside the view.
+
+Tests: `apps/client/test/chunks.test.ts` (chunk indexing and keys, rectangle distance, the view footprint, the radii order and floor, bucketed near lists and the re-gather slack, the hysteresis rule over walks in and out and back and forth, and `WorldChunks` building, hiding, releasing and rebuilding a chunk while freeing only what it owns, and keeping a landmark across a release), `lights.test.ts` (2000 lamps over a 40000 unit zone keep their lights near the camera; emitted lights survive a changing near set), `minimap.test.ts` (whole or windowed per zone size, one tile for today's zones, the tiles a window touches, turning around the hero).
+
+### Limits and open questions
+
+- Landmarks (portals, waypoints, the Arena drum, fires) are built at load and never released; they are a few dozen small meshes per zone.
+- The first view of a model or material in a zone still compiles its shader when it first draws, as before; a chunk built ahead of the view could warm them with `renderer.compileAsync` while it is out of sight.
+- Arriving by a teleport inside a room (a waypoint in the same zone) builds the chunks around the arrival on that frame and loads their models then, like a zone load.
+- The zone is still generated whole at load; step 3 makes generation per chunk, which this layout is ready for (a chunk is data plus builders).
+- The server half of step 2 (a chunk index for entities, so snapshots only touch chunks near each player) is not built.
+
+## Limits and open questions (step 1)
 
 - A player who follows a leashed monster home and stays within 460 units of it turns it round after 3 s, so it can be pulled out and sent home again every few seconds. It stays awake while they do, which is right: they are next to it.
 - A monster whose target died walks home as before (no 3 s hold), and picks a new target anywhere on the map if one appears on the way.
@@ -83,6 +152,6 @@ Tests: `packages/shared/test/streaming.test.ts`
 
 ## Planned
 
-- **Step 2, client chunked rendering and snapshots:** the client builds and draws terrain, scenery and ground by chunk around the camera instead of the whole map, and the server keeps entities in a chunk index, so serialising and interest filtering only touch chunks near each player.
+- **Step 2, snapshots by chunk (server):** the server keeps entities in a chunk index, so serialising and interest filtering only touch chunks near each player. The client half, rendering by chunk, is built (above).
 - **Step 3, chunk-based generation:** zone generation places rivers, ridges, forests and packs per chunk from the zone seed and the chunk's coordinates, so a chunk can be built on demand and the same everywhere; the server generates monster packs for a chunk when it first wakes.
 - **Step 4, bigger zones:** with cost following players, zones can grow well past 5200 by 3600 (the bench's 15600 by 10800 runs a player at 0.3 ms a tick). Open: how big, how waypoints and zone exits spread across it, and whether the flow field needs to go per chunk too.

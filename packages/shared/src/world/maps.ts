@@ -216,11 +216,11 @@ function wildsMap(seed: number): WorldMap {
  * south gates opening straight onto the wilderness, so leaving town is a walk. Every zone has a
  * waypoint near where you arrive, and transitions to its neighbours at the west and east edges.
  */
-function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): WorldMap {
+function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined, size: { width: number; height: number } = ZONE_SIZE): WorldMap {
   const zone = ZONES[zoneId];
   const town = zoneId === HOME_ZONE ? layoutToMap(layout ?? DEFAULT_TOWN_LAYOUT) : null;
-  const width = (town?.width ?? 0) + ZONE_SIZE.width;
-  const height = Math.max(ZONE_SIZE.height, town?.height ?? 0);
+  const width = (town?.width ?? 0) + size.width;
+  const height = Math.max(size.height, town?.height ?? 0);
   const spawn = town ? town.spawn : { x: 260, y: height / 2 };
   const keepClear: SafeZone[] = town ? [{ x: 0, y: 0, w: town.width, h: town.height }] : [];
   const map = generateWilds({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed, biome: zone.biome });
@@ -250,6 +250,14 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): 
   const scale = (width * height) / (WILDS.width * WILDS.height);
   placeCamps(map, seed, laidOut, reachable(laidOut, spawn.x, spawn.y), keepClear, levelFunction(map, zone.levels), zone.biome, scale);
   return map;
+}
+
+/**
+ * A zone `scale` times the usual width and height, for the client's world streaming bench, so a much
+ * bigger zone can be measured without changing the live ones. Nothing in the game builds it.
+ */
+export function scaledZoneMap(zoneId: ZoneId, seed: number, scale: number): WorldMap {
+  return zoneMap(zoneId, seed, undefined, { width: ZONE_SIZE.width * scale, height: ZONE_SIZE.height * scale });
 }
 
 /** How far inside the map edge a gate's trigger sits, and how deep the cleared road into it runs. */
