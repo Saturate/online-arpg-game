@@ -1371,7 +1371,7 @@ export function playerModel(cls: ClassId, color: number): Rig {
 
 /** A monster's procedural model, compiled once per type and shared by every copy. */
 export function enemyModel(type: EnemyTypeId, color: number): Rig {
-  return compiledRig(`enemy:${type}:${color}`, () => buildEnemy(type, color));
+  return compiledRig(`enemy:${type}:${color}`, () => buildEnemy(type, color), true);
 }
 
 export function minionModel(type: MinionTypeId, color: number): Rig {

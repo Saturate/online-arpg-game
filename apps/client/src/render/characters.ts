@@ -72,12 +72,25 @@ export function overriddenAsset(defaultId: string | undefined, o: ModelOverride 
   return base ? sizedAsset(base, o?.height) : undefined;
 }
 
+/** Enemy copies of defs, with the night rim (their materials are cached apart, see `prepared`). */
+const rimmed = new Map<string, AssetDef>();
+
+function enemyAsset(def: AssetDef | undefined): AssetDef | undefined {
+  if (!def) return undefined;
+  let out = rimmed.get(def.id);
+  if (!out) {
+    out = { ...def, rim: true };
+    rimmed.set(def.id, out);
+  }
+  return out;
+}
+
 export function characterAsset(s: EntitySnap): AssetDef | undefined {
   if (s.k === 'player') return assetById(PLAYER_ASSETS[s.cls]);
   if (s.k === 'enemy') {
     const o = serverModels.monsters[s.et];
     // A chosen model is used for champions too; a height-only override keeps the rare swap.
-    return tryOns.get(`monsters:${s.et}`) ?? overriddenAsset((s.rare && o?.model === undefined ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et], o);
+    return enemyAsset(tryOns.get(`monsters:${s.et}`) ?? overriddenAsset((s.rare && o?.model === undefined ? RARE_ASSETS[s.et] : undefined) ?? ENEMY_ASSETS[s.et], o));
   }
   if (s.k === 'minion') return tryOns.get(`minions:${s.mt}`) ?? overriddenAsset(MINION_ASSETS[s.mt], serverModels.minions[s.mt]);
   return undefined;

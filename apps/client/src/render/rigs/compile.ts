@@ -16,9 +16,9 @@ import {
   Vector3,
   type Material,
   type Object3D,
-  type WebGLProgramParametersWithUniforms,
 } from 'three';
 import type { Rig } from './parts.js';
+import { injectRim, type ShaderSource } from '../nightRim.js';
 
 /**
  * Turns a model built from dozens of primitives into one or two skinned meshes. Every pivot the
@@ -30,6 +30,11 @@ import type { Rig } from './parts.js';
 
 /** The smallest main-colour channel; part colours are stored relative to it (see partColour). */
 const MIN_CHANNEL = 0.02;
+/**
+ * The darkest a non-glowing part may be, as linear luminance: sRGB 0x30. Near-black parts had
+ * nothing for the low night fill to show, so at night only a monster's eyes were left.
+ */
+export const ALBEDO_FLOOR = new Color(0x303030).r;
 /** Animated limbs reach past the rest pose, and a corpse lies flat, so culling needs slack. */
 const CULL_SLACK = 2;
 
@@ -55,8 +60,17 @@ const templates = new Map<string, Template>();
  * flash and the status tints (which write the material's emissive) still work, and a corpse's
  * zeroed emissive intensity also puts its eyes out.
  */
-function patchRigShader(this: Material, shader: WebGLProgramParametersWithUniforms): void {
-  const self = this;
+function patchRigShader(this: Material, shader: ShaderSource): void {
+  patchRig(this, shader);
+}
+
+function patchEnemyRigShader(this: Material, shader: ShaderSource): void {
+  patchRig(this, shader);
+  injectRim(shader);
+}
+
+function patchRig(material: Material, shader: ShaderSource): void {
+  const self = material;
   shader.uniforms.uRigGlow = {
     get value(): number {
       return self instanceof MeshStandardMaterial && self.emissiveIntensity <= 0 ? 0 : 1;
@@ -72,7 +86,12 @@ function patchRigShader(this: Material, shader: WebGLProgramParametersWithUnifor
     .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vRigGlow * uRigGlow;');
 }
 
-function rigMaterial(main: Color, opacity: number): MeshStandardMaterial {
+/** Exported for tests: the shader hook and program key a rig's material gets. */
+export function rigShaderHook(enemy: boolean): { hook: (this: Material, shader: ShaderSource) => void; key: string } {
+  return enemy ? { hook: patchEnemyRigShader, key: 'rig-enemy' } : { hook: patchRigShader, key: 'rig' };
+}
+
+function rigMaterial(main: Color, opacity: number, enemy: boolean): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ color: main, vertexColors: true, roughness: 1, metalness: 1, flatShading: true, emissive: 0, emissiveIntensity: 1 });
   if (opacity < 1) {
     m.transparent = true;
@@ -82,8 +101,9 @@ function rigMaterial(main: Color, opacity: number): MeshStandardMaterial {
     // draw, rebuilding the program parameters each frame; one pass draws both faces for free.
     m.forceSinglePass = true;
   }
-  m.onBeforeCompile = patchRigShader;
-  m.customProgramCacheKey = () => 'rig';
+  const { hook, key } = rigShaderHook(enemy);
+  m.onBeforeCompile = hook;
+  m.customProgramCacheKey = () => key;
   return m;
 }
 
@@ -92,9 +112,18 @@ function partColour(part: Color, main: Color, out: Color): Color {
   return out.setRGB(part.r / Math.max(MIN_CHANNEL, main.r), part.g / Math.max(MIN_CHANNEL, main.g), part.b / Math.max(MIN_CHANNEL, main.b));
 }
 
+/** Lifts a colour darker than ALBEDO_FLOOR to it, keeping its hue. Writes into `out`. */
+export function floorAlbedo(c: Color, out: Color): Color {
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  if (lum >= ALBEDO_FLOOR) return out.copy(c);
+  if (lum <= 1e-5) return out.setRGB(ALBEDO_FLOOR, ALBEDO_FLOOR, ALBEDO_FLOOR);
+  return out.copy(c).multiplyScalar(ALBEDO_FLOOR / lum);
+}
+
 const tmpV = new Vector3();
 const tmpN = new Matrix3();
 const tmpC = new Color();
+const tmpF = new Color();
 
 function mergeParts(parts: readonly Part[], main: Color): BufferGeometry {
   const flat = parts.map((p) => (p.geometry.index ? p.geometry.toNonIndexed() : p.geometry));
@@ -114,9 +143,11 @@ function mergeParts(parts: readonly Part[], main: Color): BufferGeometry {
     const gp = g.getAttribute('position');
     const gn = g.getAttribute('normal');
     tmpN.getNormalMatrix(p.matrix);
-    const c = partColour(p.material.color, main, tmpC);
     const e = p.material.emissive;
     const ei = p.material.emissiveIntensity;
+    const glows = ei > 0 && (e.r > 0 || e.g > 0 || e.b > 0);
+    // Glowing parts (eyes, runes) keep their colour: the floor is for what the light has to show.
+    const c = partColour(glows ? p.material.color : floorAlbedo(p.material.color, tmpF), main, tmpC);
     for (let k = 0; k < gp.count; k++, v++) {
       const o = v * 3;
       tmpV.fromBufferAttribute(gp, k).applyMatrix4(p.matrix);
@@ -168,7 +199,7 @@ function dominant(parts: readonly Part[]): Color {
 }
 
 /** Compiles a freshly built rig into a skinned template. The raw rig is consumed. */
-function compile(raw: Rig): Template {
+function compile(raw: Rig, enemy: boolean): Template {
   const root = raw.root;
   const savedPos = root.position.clone();
   const savedQuat = root.quaternion.clone();
@@ -219,9 +250,10 @@ function compile(raw: Rig): Template {
     groups.set(key, list);
   }
   for (const [opacity, list] of groups) {
-    const main = dominant(list);
+    // Floored like the parts, or a near-black main colour would scale every part down with it.
+    const main = floorAlbedo(dominant(list), new Color());
     const geometry = mergeParts(list, main);
-    const m = new SkinnedMesh(geometry, rigMaterial(main, opacity));
+    const m = new SkinnedMesh(geometry, rigMaterial(main, opacity, enemy));
     m.castShadow = true;
     m.bind(skeleton, new Matrix4());
     const sphere = geometry.boundingSphere ?? new Sphere();
@@ -300,12 +332,13 @@ function instantiate(t: Template): Rig {
 
 /**
  * A ready-to-place copy of the rig `build` makes, compiled once per key. Geometry and materials are
- * shared by every copy with the same key; each copy has its own bones and skeleton.
+ * shared by every copy with the same key; each copy has its own bones and skeleton. `enemy` adds
+ * the night rim; the key must tell enemy and friendly builds apart.
  */
-export function compiledRig(key: string, build: () => Rig): Rig {
+export function compiledRig(key: string, build: () => Rig, enemy = false): Rig {
   let t = templates.get(key);
   if (!t) {
-    t = compile(build());
+    t = compile(build(), enemy);
     templates.set(key, t);
   }
   return instantiate(t);

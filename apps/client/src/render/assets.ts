@@ -1,6 +1,7 @@
 import { Box3, Color, Group, Mesh, MeshStandardMaterial, Vector3, type AnimationClip, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { addNightRim } from './nightRim.js';
 
 /**
  * Asset registry. Every 3D model the game uses is listed here: where the file lives, how big it
@@ -28,6 +29,8 @@ export interface AssetDef {
   tint?: number;
   /** Extra emissive glow, e.g. spectral minions. */
   glow?: number;
+  /** The cold night rim of enemies (nightRim.ts); set on the enemy copy of a def, never on heroes or minions. */
+  rim?: boolean;
 }
 
 const K = '/assets/kaykit';
@@ -254,10 +257,12 @@ export function cloneMaterial(m: MeshStandardMaterial): MeshStandardMaterial {
 const defMaterials = new Map<string, Map<MeshStandardMaterial, MeshStandardMaterial>>();
 
 function prepared(def: AssetDef, source: MeshStandardMaterial): MeshStandardMaterial {
-  let byDef = defMaterials.get(def.id);
+  // Enemies and minions can share a model; only the enemy copy has the rim.
+  const key = def.rim ? `${def.id}#rim` : def.id;
+  let byDef = defMaterials.get(key);
   if (!byDef) {
     byDef = new Map();
-    defMaterials.set(def.id, byDef);
+    defMaterials.set(key, byDef);
   }
   let m = byDef.get(source);
   if (!m) {
@@ -269,6 +274,7 @@ function prepared(def: AssetDef, source: MeshStandardMaterial): MeshStandardMate
       m.emissive.setHex(def.glow);
       m.emissiveIntensity = 0.8;
     }
+    if (def.rim) addNightRim(m);
     byDef.set(source, m);
   }
   return m;
