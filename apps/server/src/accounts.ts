@@ -400,8 +400,15 @@ export class AccountStore {
     return r ? { id: num(r.id), username: str(r.username), role: storedRole(r.role) } : null;
   }
 
+  /**
+   * A real change drops the account's admin tokens, up or down: a token checked against the role
+   * alone would come back to life on re-promotion, with scopes picked for a role long gone.
+   * Returns whether the role changed.
+   */
   setRole(accountId: number, role: AssignableRole): boolean {
-    return num(this.db.prepare('UPDATE accounts SET role = ? WHERE id = ?').run(role, accountId).changes) > 0;
+    const changed = num(this.db.prepare('UPDATE accounts SET role = ? WHERE id = ? AND role != ?').run(role, accountId, role).changes) > 0;
+    if (changed) this.adminTokens.deleteForAccount(accountId);
+    return changed;
   }
 
   setBanned(accountId: number, banned: boolean): boolean {

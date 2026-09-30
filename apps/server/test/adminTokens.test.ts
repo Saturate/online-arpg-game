@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_SERVER_SETTINGS, ENEMY_TYPE_IDS, isAdminToken, TOKEN_SCOPES, type TokenScope } from '@rune/shared';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
-import { AccountApi } from '../src/http.js';
+import { AccountApi, FailedTokenLog } from '../src/http.js';
 import { EventLog, events, redact } from '../src/eventLog.js';
 import { RoomManager } from '../src/manager.js';
 
@@ -208,16 +208,49 @@ describe('admin API tokens', () => {
     expect((await call('DELETE', `/api/admin/tokens/${all.slice(5, 21)}`, all)).status).toBe(403);
   });
 
-  it('follows the creator: a demoted admin token loses what the role lost', async () => {
+  it('drops a creator\'s tokens on any role change, so a re-promotion does not bring them back', async () => {
     const token = await makeToken('admin1', 'settings', ['settings', 'announce']);
     expect((await call('PUT', '/api/admin/settings', token, { xpRate: 1 })).status).toBe(200);
-    store.setRole(ids.admin1 ?? 0, 'moderator');
-    expect((await call('PUT', '/api/admin/settings', token, { xpRate: 1 })).status).toBe(403);
-    expect((await call('POST', '/api/admin/announce', token, { text: 'still a mod' })).status).toBe(200);
-    store.setRole(ids.admin1 ?? 0, 'player');
-    expect((await call('GET', '/api/admin/overview', token)).status).toBe(404);
-    store.setRole(ids.admin1 ?? 0, 'admin');
+    // Setting the role it already has is not a change.
+    expect(store.setRole(ids.admin1 ?? 0, 'admin')).toBe(false);
     expect((await call('PUT', '/api/admin/settings', token, { xpRate: 1 })).status).toBe(200);
+
+    expect((await call('POST', `/api/admin/accounts/${ids.admin1}/role`, sessions.boss ?? '', { role: 'moderator' })).status).toBe(200);
+    expect((await call('POST', '/api/admin/announce', token, { text: 'still a mod' })).status).toBe(401);
+    expect((await call('POST', `/api/admin/accounts/${ids.admin1}/role`, sessions.boss ?? '', { role: 'admin' })).status).toBe(200);
+    expect((await call('PUT', '/api/admin/settings', token, { xpRate: 1 })).status).toBe(401);
+    expect(store.adminTokens.list(ids.admin1 ?? 0)).toEqual([]);
+
+    // Promotions drop them too.
+    const again = await makeToken('admin1', 'again', ['announce']);
+    store.setRole(ids.admin1 ?? 0, 'moderator');
+    store.setRole(ids.admin1 ?? 0, 'admin');
+    expect((await call('GET', '/api/admin/overview', again)).status).toBe(401);
+  });
+
+  it('checks the creator\'s role on every call, for an owner taken off ADMIN_USERS', async () => {
+    const acc = await store.register('boss2', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const liveOwners = new Set(['boss', 'boss2']);
+    const api = new AccountApi(store, () => undefined, rooms, liveOwners, { other: 100_000, token: 100_000 });
+    const { server: s, base: b } = await listen(api);
+    try {
+      const session = store.createSession(acc.id);
+      secrets.push(session);
+      const made = await fetch(`${b}/api/admin/tokens`, { method: 'POST', headers: { authorization: `Bearer ${session}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'owner2', scopes: ['backup'], days: 1 }) });
+      const token = (await json(made)).token;
+      if (!isAdminToken(token)) throw new Error('no token');
+      secrets.push(token, token.slice(22));
+      const backup = () => fetch(`${b}/api/admin/backup`, { headers: { authorization: `Bearer ${token}` } });
+      const ok = await backup();
+      expect(ok.status).toBe(200);
+      await ok.arrayBuffer();
+      // ADMIN_USERS is read at startup; this stands in for a restart without the name.
+      liveOwners.delete('boss2');
+      expect((await backup()).status).toBe(404);
+    } finally {
+      s.close();
+    }
   });
 
   it('expires, and revokes with one call; an admin revokes only their own, the owner anyone', async () => {
@@ -299,6 +332,48 @@ describe('admin API tokens', () => {
     expect((await call('GET', '/api/admin/log?since=abc', token)).status).toBe(400);
   });
 
+  it('keeps refused and unknown token calls out of the staff log, and logs other failures with their status', async () => {
+    const token = await makeToken('boss', 'refused', ['announce']);
+    const out = vi.spyOn(console, 'log');
+    const mark = events.since(0).next;
+    try {
+      for (let i = 0; i < 20; i++) {
+        expect((await call('GET', '/api/admin/backup', token)).status).toBe(403);
+        expect((await call('GET', '/api/admin/nothing-here', token)).status).toBe(404);
+      }
+      expect((await call('POST', '/api/admin/announce', token, {})).status).toBe(400);
+      const lines = events.since(mark).entries.map((e) => e.text);
+      expect(lines).toEqual(['[admin] boss (owner) token "refused": POST /api/admin/announce -> 400']);
+      const printed = out.mock.calls.map((c) => String(c[0]));
+      expect(printed).toContain('[admin] boss (owner) token "refused": GET /api/admin/backup -> 403');
+      expect(printed).toContain('[admin] boss (owner) token "refused": GET /api/admin/nothing-here -> 404');
+    } finally {
+      out.mockRestore();
+    }
+  });
+
+  it('logs rejected tokens by id and address, throttled, and never the secret', async () => {
+    const token = await makeToken('boss', 'rejected', []);
+    const id = token.slice(5, 21);
+    const wrongSecret = 'B'.repeat(43);
+    const wrong = `arpg_${id}_${wrongSecret}`;
+    const warn = vi.spyOn(console, 'warn');
+    const mark = events.since(0).next;
+    try {
+      for (let i = 0; i < 5; i++) expect((await call('GET', '/api/admin/overview', wrong)).status).toBe(401);
+      const lines = events.since(mark).entries.map((e) => e.text);
+      expect(lines).toEqual([`[admin] rejected token arpg_${id}_... from 127.0.0.1 (unknown, wrong, expired or revoked)`]);
+      const printed = JSON.stringify(warn.mock.calls);
+      expect(printed).toContain(`arpg_${id}_...`);
+      for (const s of [wrongSecret, token.slice(22)]) {
+        expect(printed).not.toContain(s);
+        expect(JSON.stringify(events.since(0).entries)).not.toContain(s);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('backs up for the owner only, deletes the copy afterwards, refuses a second at the same time and never shows the path', async () => {
     const backups = () => readdirSync(dir).filter((f) => f.startsWith('.backup-'));
     // Earlier tests downloaded backups too; their copies go once those responses have closed.
@@ -352,6 +427,39 @@ describe('admin API tokens', () => {
     expect(lines.some((l) => l.startsWith('[admin] boss (owner) token "backup": backup ('))).toBe(true);
   });
 
+  it('drops a backup download that stalls, and frees the lock and the temp file', async () => {
+    const backups = () => readdirSync(dir).filter((f) => f.startsWith('.backup-'));
+    await vi.waitFor(() => expect(backups()).toEqual([]));
+    const stalling = new AccountApi(store, () => undefined, rooms, owners, { other: 100_000, token: 100_000, backupStallMs: 300 });
+    const { server: s, base: b } = await listen(stalling);
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const token = await makeToken('boss', 'stall', ['backup']);
+      store.saveSettings({ ...DEFAULT_SERVER_SETTINGS, motd: 'x'.repeat(24 * 1024 * 1024) });
+      const url = new URL(`${b}/api/admin/backup`);
+      const stalled = await new Promise<IncomingMessage>((ok, fail) => {
+        const r = request({ host: url.hostname, port: url.port, path: url.pathname, headers: { authorization: `Bearer ${token}` } }, ok);
+        r.on('error', fail);
+        r.end();
+      });
+      stalled.on('error', () => undefined);
+      stalled.pause();
+      expect(stalled.statusCode).toBe(200);
+      expect(backups()).toHaveLength(1);
+      await vi.waitFor(() => expect(backups()).toEqual([]), { timeout: 5000 });
+      expect(events.since(0).entries.some((e) => e.text === 'backup: the download stalled and was dropped')).toBe(true);
+      store.saveSettings(DEFAULT_SERVER_SETTINGS);
+      const next = await fetch(`${b}/api/admin/backup`, { headers: { authorization: `Bearer ${token}` } });
+      expect(next.status).toBe(200);
+      await next.arrayBuffer();
+      stalled.destroy();
+    } finally {
+      store.saveSettings(DEFAULT_SERVER_SETTINGS);
+      quiet.mockRestore();
+      s.close();
+    }
+  });
+
   it('rate limits each token', async () => {
     const limited = new AccountApi(store, () => undefined, rooms, owners, { other: 100_000, token: 3 });
     const { server: s, base: b } = await listen(limited);
@@ -364,6 +472,41 @@ describe('admin API tokens', () => {
       expect((await get(other)).status).toBe(200);
     } finally {
       s.close();
+    }
+  });
+});
+
+describe('rejected token log', () => {
+  it('writes one line per id a minute, then the count, and sums ids past the cap', () => {
+    let t = 0;
+    const log = new FailedTokenLog(() => t, 2);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const mark = events.since(0).next;
+    try {
+      const a = '0123456789abcdef';
+      const b = 'fedcba9876543210';
+      log.record(a, '10.0.0.1');
+      log.record(a, '10.0.0.2');
+      log.record(a, '10.0.0.3');
+      log.record(b, '10.0.0.4');
+      log.record('1111111111111111', '10.0.0.5');
+      log.record('2222222222222222', '10.0.0.5');
+      // A sweep inside the minute reports only the ids over the cap.
+      t = 30_000;
+      log.sweep();
+      expect(events.since(mark).entries).toHaveLength(3);
+      t = 61_000;
+      log.sweep();
+      log.record(a, '10.0.0.6');
+      expect(events.since(mark).entries.map((e) => e.text)).toEqual([
+        `[admin] rejected token arpg_${a}_... from 10.0.0.1 (unknown, wrong, expired or revoked)`,
+        `[admin] rejected token arpg_${b}_... from 10.0.0.4 (unknown, wrong, expired or revoked)`,
+        '[admin] rejected 2 more token attempts with other ids',
+        `[admin] rejected token arpg_${a}_... 2 more times in a minute, last from 10.0.0.3`,
+        `[admin] rejected token arpg_${a}_... from 10.0.0.6 (unknown, wrong, expired or revoked)`,
+      ]);
+    } finally {
+      warn.mockRestore();
     }
   });
 });

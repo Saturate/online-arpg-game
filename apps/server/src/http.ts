@@ -30,7 +30,7 @@ import { createReadStream, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
 import type { TokenCaller } from './adminTokens.js';
-import { events } from './eventLog.js';
+import { events, redact } from './eventLog.js';
 import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
@@ -40,6 +40,12 @@ const MAX_BODY_BYTES = 4096;
 const LIMITS = { auth: 10, other: 120, token: TOKEN_RULES.perMinute } as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A backup download that sends nothing for this long is dropped: a client that stopped reading
+ * would otherwise hold the one-backup lock and a full copy of the database on the data volume.
+ */
+const BACKUP_STALL_MS = 5 * 60_000;
 
 /** A file sent as a download instead of a JSON body; `done` runs once, however the response ends. */
 class Download {
@@ -184,7 +190,7 @@ function bearer(req: IncomingMessage): string | null {
   return isSessionToken(token) ? token : null;
 }
 
-function sendFile(res: ServerResponse, download: Download): void {
+function sendFile(res: ServerResponse, download: Download, stallMs: number): void {
   let finished = false;
   const done = () => {
     if (finished) return;
@@ -217,17 +223,78 @@ function sendFile(res: ServerResponse, download: Download): void {
     stream.destroy();
     done();
   });
+  // The socket timer restarts on every write the client takes, so only a stalled download ends here.
+  res.setTimeout(stallMs, () => {
+    events.warn('server', 'backup: the download stalled and was dropped');
+    res.destroy();
+  });
   stream.pipe(res);
+}
+
+const FAILED_TOKEN_WINDOW_MS = 60_000;
+
+/**
+ * Failed admin token logins, throttled so a script with a stale token or a guesser cannot flood the
+ * log: the first failure per token id in a minute is a line, the rest a count once the minute is up.
+ * Only the id part is ever printed, never the secret. Beyond `maxIds` distinct ids in a minute
+ * (random ids from a scan) the rest are one summed line, which also keeps the map small.
+ */
+export class FailedTokenLog {
+  private readonly open = new Map<string, { since: number; more: number; lastIp: string }>();
+  private overflow = 0;
+
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxIds = 50,
+  ) {}
+
+  record(tokenId: string, ip: string): void {
+    const t = this.now();
+    const entry = this.open.get(tokenId);
+    if (entry && t - entry.since < FAILED_TOKEN_WINDOW_MS) {
+      entry.more++;
+      entry.lastIp = ip;
+      return;
+    }
+    if (entry) this.report(tokenId, entry);
+    if (!entry && this.open.size >= this.maxIds) {
+      this.overflow++;
+      return;
+    }
+    this.open.set(tokenId, { since: t, more: 0, lastIp: ip });
+    events.warn('server', `[admin] rejected token arpg_${tokenId}_... from ${ip} (unknown, wrong, expired or revoked)`);
+  }
+
+  /** Reports and forgets every minute that is up. The API calls it once a minute. */
+  sweep(): void {
+    const t = this.now();
+    for (const [id, entry] of this.open) {
+      if (t - entry.since < FAILED_TOKEN_WINDOW_MS) continue;
+      this.report(id, entry);
+      this.open.delete(id);
+    }
+    if (this.overflow > 0) {
+      events.warn('server', `[admin] rejected ${this.overflow} more token attempts with other ids`);
+      this.overflow = 0;
+    }
+  }
+
+  private report(tokenId: string, entry: { more: number; lastIp: string }): void {
+    if (entry.more > 0) events.warn('server', `[admin] rejected token arpg_${tokenId}_... ${entry.more} more times in a minute, last from ${entry.lastIp}`);
+  }
 }
 
 export class AccountApi {
   private readonly authLimit = new RateLimiter(LIMITS.auth);
   private readonly otherLimit: RateLimiter;
   private readonly tokenLimit: RateLimiter;
+  private readonly failedTokens: FailedTokenLog;
+  private readonly backupStallMs: number;
   private readonly sweepTimer = setInterval(() => {
     this.authLimit.sweep();
     this.otherLimit.sweep();
     this.tokenLimit.sweep();
+    this.failedTokens.sweep();
   }, 60_000);
   /** One backup at a time: each is a full copy of the database on the data volume. */
   private backupRunning = false;
@@ -240,10 +307,12 @@ export class AccountApi {
     /** Lower-cased owner usernames, from ADMIN_USERS. Empty means nobody. */
     private readonly owners: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
     /** Tests lower these to reach the limits in a few calls. */
-    limits: { other?: number; token?: number } = {},
+    limits: { other?: number; token?: number; backupStallMs?: number; failedTokens?: FailedTokenLog } = {},
   ) {
     this.otherLimit = new RateLimiter(limits.other ?? LIMITS.other);
     this.tokenLimit = new RateLimiter(limits.token ?? LIMITS.token);
+    this.failedTokens = limits.failedTokens ?? new FailedTokenLog();
+    this.backupStallMs = limits.backupStallMs ?? BACKUP_STALL_MS;
     this.sweepTimer.unref();
     for (const name of owners) {
       if (!store.usernameExists(name)) events.warn('server', `[admin] ADMIN_USERS lists "${name}" but no such account exists; it cannot be registered while listed`);
@@ -259,7 +328,7 @@ export class AccountApi {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return false;
     this.route(req, url.pathname, url.searchParams)
-      .then((reply) => (reply instanceof Download ? sendFile(res, reply) : send(res, reply[0], reply[1])))
+      .then((reply) => (reply instanceof Download ? sendFile(res, reply, this.backupStallMs) : send(res, reply[0], reply[1])))
       .catch((err: unknown) => {
         if (err instanceof HttpError) send(res, err.status, { error: err.message });
         else {
@@ -311,9 +380,13 @@ export class AccountApi {
     const raw = bearerValue(req);
     if (path.startsWith('/api/admin/') && isAdminToken(raw)) {
       const caller = this.store.adminTokens.authenticate(raw);
-      if (!caller) throw new HttpError(401, 'Invalid, expired or revoked token');
+      if (!caller) {
+        // isAdminToken matched, so the id is there; only it is logged, never the secret after it.
+        this.failedTokens.record(raw.slice(5, 21), ip);
+        throw new HttpError(401, 'Invalid, expired or revoked token');
+      }
       if (!this.tokenLimit.allow(caller.tokenId)) throw new HttpError(429, 'Too many requests for this token, wait a minute');
-      return this.adminRoute(req, method, path, query, { account: caller.account, token: caller });
+      return this.tokenCall(req, method, path, query, caller);
     }
     const token = bearer(req);
     const account = token ? this.store.accountForToken(token) : null;
@@ -356,6 +429,28 @@ export class AccountApi {
     throw new HttpError(404, 'Not found');
   }
 
+  /**
+   * Every token call that gets past the scope and route checks is in the staff log, reads too, after
+   * the action's own line. A refused or unknown route (403, 404) goes to stdout only: those change
+   * nothing, and a token sending them in a loop would otherwise push real events out of the buffer.
+   * Polling the log itself goes to stdout only, or a script following it would do the same.
+   */
+  private async tokenCall(req: IncomingMessage, method: string, path: string, query: URLSearchParams, caller: TokenCaller): Promise<Reply> {
+    const line = `[admin] ${caller.account.username} (${this.roleOf(caller.account)}) token "${caller.name}": ${method} ${path}`;
+    let reply: Reply;
+    try {
+      reply = await this.adminRoute(req, method, path, query, { account: caller.account, token: caller });
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 500;
+      if (status === 403 || status === 404) console.log(redact(`${line} -> ${status}`));
+      else events.log('staff', `${line} -> ${status}`);
+      throw err;
+    }
+    if (path === '/api/admin/log') console.log(line);
+    else events.log('staff', line);
+    return reply;
+  }
+
   private characters(account: Account): CharactersResponse {
     return { username: account.username, characters: this.store.listCharacters(account.id), role: this.roleOf(account), guest: this.store.isGuest(account.id) };
   }
@@ -377,13 +472,6 @@ export class AccountApi {
     const outranks = (target: Account) => rank(role) > rank(this.roleOf(target));
     const who = token ? `${account.username} (${role}) token "${token.name}"` : `${account.username} (${role})`;
     const log = (what: string) => events.log('staff', `[admin] ${who}: ${what}`);
-    if (token) {
-      // Every token call is in the staff log, reads too. Polling the log itself goes to stdout only,
-      // or a script following it would push the events it came for out of the buffer.
-      const line = `[admin] ${who}: ${method} ${path}`;
-      if (path === '/api/admin/log') console.log(line);
-      else events.log('staff', line);
-    }
     if (method === 'GET' && path === '/api/admin/overview') return [200, this.admin.overview()];
     if (path === '/api/admin/tokens' || path.startsWith('/api/admin/tokens/')) return this.tokenRoute(req, method, path, caller, role, log);
     if (method === 'GET' && path === '/api/admin/log') {

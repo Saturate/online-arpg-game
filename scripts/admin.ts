@@ -6,15 +6,14 @@
  *   pnpm admin PUT settings '{"xpRate":2}'
  *   pnpm admin backup ./rune-copy.db
  *
- * A path without a leading slash is under /api/admin/. The token is read from
+ * A path without a leading slash is under /api/admin/; any path must end up there. The token is read from
  * ~/.config/arpg/admin-token, which must be readable by its owner only (chmod 600), and the server
  * from ARPG_URL (default https://arpg.akj.io). Prints the JSON reply; exits non-zero on an error.
  */
-import { createWriteStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { adminUrl, saveDownload } from './adminClient.js';
 
 const TOKEN_FILE = join(homedir(), '.config', 'arpg', 'admin-token');
 const TOKEN = /^arpg_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/;
@@ -58,8 +57,10 @@ function baseUrl(): URL {
   return url;
 }
 
-function apiPath(p: string): string {
-  return p.startsWith('/') ? p : `/api/admin/${p}`;
+function urlFor(path: string, base: URL): URL {
+  const url = adminUrl(path, base);
+  if (typeof url === 'string') fail(url);
+  return url;
 }
 
 async function main(): Promise<void> {
@@ -73,17 +74,22 @@ async function main(): Promise<void> {
     if (!second) fail('Usage: pnpm admin backup <file>');
     // Checked before asking, so a typo does not cost the server a full copy for nothing.
     if (existsSync(second)) fail(`${second} already exists; pick a new file name`);
-    const res = await fetch(new URL('/api/admin/backup', base), { headers });
+    const res = await fetch(urlFor('backup', base), { headers, redirect: 'error' });
     if (!res.ok || !res.body) fail(`${res.status}: ${await res.text()}`);
-    // 'wx' never overwrites, and 600 because the copy holds every account's password hash.
-    await pipeline(Readable.fromWeb(res.body), createWriteStream(second, { flags: 'wx', mode: 0o600 }));
+    try {
+      await saveDownload(res.body, second);
+    } catch (err) {
+      fail(`The download failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     console.log(`Wrote ${statSync(second).size} bytes to ${second}`);
     return;
   }
 
   const method = first.toUpperCase();
   if (!isMethod(method) || !second) fail('Usage: pnpm admin <GET|POST|PUT|DELETE> <path> [json]');
-  const init: RequestInit = { method, headers };
+  const url = urlFor(second, base);
+  // A redirect would be followed with the token; the admin API never redirects, so one is an error.
+  const init: RequestInit = { method, headers, redirect: 'error' };
   if (third !== undefined) {
     try {
       JSON.parse(third);
@@ -93,7 +99,7 @@ async function main(): Promise<void> {
     headers['content-type'] = 'application/json';
     init.body = third;
   }
-  const res = await fetch(new URL(apiPath(second), base), init);
+  const res = await fetch(url, init);
   const text = await res.text();
   let out = text;
   try {
