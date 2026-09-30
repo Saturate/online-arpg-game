@@ -187,6 +187,8 @@ export type EntitySnap =
       k: 'minion';
       mt: MinionTypeId;
       owner: EntityId;
+      /** A Hound pack dog's role; the Leader is drawn bigger and darker, packmates smaller. */
+      pack?: 'leader' | 'mate';
       life: number;
       maxLife: number;
       st: number;
@@ -203,7 +205,7 @@ export type EntitySnap =
     })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
-  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier }[]; gold: number });
+  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier; u?: true }[]; gold: number });
 
 /**
  * A spell entity as sent once, when it becomes visible or its motion changes: enough for the client
@@ -236,7 +238,11 @@ export type GameEvent =
   /** A corpse at (x, y) was raised, so clients remove the body there. */
   | { e: 'raise'; x: number; y: number }
   /** A damaging ground puddle that lasts `t` seconds. */
-  | { e: 'hazard'; x: number; y: number; r: number; t: number; kind: 'poison' | 'fire' | 'frost' };
+  | { e: 'hazard'; x: number; y: number; r: number; t: number; kind: 'poison' | 'fire' | 'frost' }
+  /** A Hound pack Leader howled: its pack runs and bites harder for a while. */
+  | { e: 'howl'; id: EntityId; x: number; y: number; r: number }
+  /** A Hound pack Leader landed its pounce: enemies within `r` are bitten and pinned. */
+  | { e: 'pounce'; id: EntityId; x: number; y: number; r: number };
 
 export interface SelfState {
   respawnIn: number | null;

@@ -1,4 +1,4 @@
-import { HEAT, LOOT, SPIRIT } from '../config/sim.js';
+import { HEAT, HOUND_PACK, LOOT, SPIRIT } from '../config/sim.js';
 import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
@@ -68,6 +68,12 @@ export interface VesselItem {
   affixes: AffixRoll[];
   /** Starter kit: every new character gets one, so it cannot be sold (it would mint gold). */
   bound?: boolean;
+  /** Packmates beside the Leader, for pack minions (the Hound); rolled by tier (HOUND_PACK). */
+  pack?: number;
+  /** A hand-named item ("Brothers Creation"): its name is part of it and it shows in the unique colour. */
+  fixedName?: boolean;
+  /** A line of flavour text for its tooltip. */
+  lore?: string;
 }
 
 export interface GearItem {
@@ -422,7 +428,7 @@ export function createVessel(uid: ItemUid, rng: Rng, tier: ItemTier, minion?: Mi
   const type = minion ?? MINION_TYPE_IDS[rng.int(0, MINION_TYPE_IDS.length - 1)] ?? 'zombie_brute';
   const affixes = rollAffixes(rng, 'vessel', rng.int(rolls.min, rolls.max), Math.min(rolls.maxAffixTier, ilvlAffixTier(ilvl)));
   const base = `${MINION_DEFS[type].name} Vessel`;
-  return {
+  const item: VesselItem = {
     uid,
     kind: 'vessel',
     tier,
@@ -431,6 +437,48 @@ export function createVessel(uid: ItemUid, rng: Rng, tier: ItemTier, minion?: Mi
     level: Math.max(1, ilvl) + ITEM_TIERS.indexOf(tier) + rng.int(0, 1),
     ilvl,
     affixes,
+  };
+  if (MINION_DEFS[type].pack) {
+    const size = HOUND_PACK.packmatesByTier[tier];
+    item.pack = rng.int(size.min, size.max);
+  }
+  return item;
+}
+
+/** Packmates a pack vessel binds; 1 for a pack vessel saved without the roll, 0 for other minions. */
+export function vesselPackmates(item: VesselItem): number {
+  if (!MINION_DEFS[item.minion].pack) return 0;
+  const n = item.pack ?? 1;
+  return Number.isInteger(n) ? Math.max(1, Math.min(HOUND_PACK.flankAngles.length, n)) : 1;
+}
+
+/** The owner's brothers' Hound vessel, for the admin grant tool: a relic with the full pack and a fixed name. */
+export const BROTHERS_CREATION = {
+  name: 'Brothers Creation',
+  lore: 'Made by the brothers.',
+  /** Fixed rolls at the top tier: a fast, hardy pack that comes back quickly, and no behaviour affix. */
+  affixes: [
+    { id: 'hasted', tier: 2, value: 50 },
+    { id: 'armored', tier: 2, value: 100 },
+    { id: 'attack_speed', tier: 2, value: 35 },
+    { id: 'faster_respawn', tier: 2, value: 40 },
+  ],
+} as const satisfies { name: string; lore: string; affixes: readonly AffixRoll[] };
+
+export function createBrothersCreation(uid: ItemUid, ilvl: number): VesselItem {
+  const level = Math.max(1, Math.floor(ilvl));
+  return {
+    uid,
+    kind: 'vessel',
+    tier: 'relic',
+    name: BROTHERS_CREATION.name,
+    minion: 'hound',
+    level: level + ITEM_TIERS.indexOf('relic') + 1,
+    ilvl: level,
+    affixes: BROTHERS_CREATION.affixes.map((a) => ({ ...a })),
+    pack: HOUND_PACK.flankAngles.length,
+    fixedName: true,
+    lore: BROTHERS_CREATION.lore,
   };
 }
 

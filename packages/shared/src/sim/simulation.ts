@@ -206,6 +206,7 @@ export class Simulation {
       stats: baseStats({ classId, level: 1 }),
       minions: new Array<EntityId | null>(MINIONS.warbandSlots).fill(null),
       minionRespawn: new Array<number>(MINIONS.warbandSlots).fill(0),
+      packs: Array.from({ length: MINIONS.warbandSlots }, () => ({ mates: [], down: [] })),
       stance: 'aggressive',
       links: [null, null, null, null],
       inventoryVersion: 0,

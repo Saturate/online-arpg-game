@@ -10,6 +10,7 @@ import { onBossKilled } from './dungeon.js';
 import { grantKillXp } from './progression.js';
 import { scoreKill } from './arena.js';
 import { dropLoot } from './inventory.js';
+import { onPackLeaderDeath, onPackmateDeath } from './minions.js';
 import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
 
@@ -231,9 +232,11 @@ function kill(sim: Simulation, id: EntityId): void {
       }
     }
     const owner = w.player.get(m.ownerId);
-    if (owner && owner.minions[m.slot] === id) {
+    if (m.pack?.role === 'mate') onPackmateDeath(sim, m, id);
+    else if (owner && owner.minions[m.slot] === id) {
       owner.minions[m.slot] = null;
       owner.minionRespawn[m.slot] = MINIONS.respawnSeconds * (1 - affixValue(m.affixes, 'faster_respawn') / 100);
+      if (m.pack?.role === 'leader') onPackLeaderDeath(sim, m);
     }
     w.destroy(id);
   }

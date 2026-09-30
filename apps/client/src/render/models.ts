@@ -1366,6 +1366,9 @@ export function buildMinion(type: MinionTypeId, color: number): Rig {
       b.add(rig.armL, rig.armR);
       return rig;
     }
+    case 'hound':
+      // Stand-in while the Grave Hound file streams in, in the bound minions' green.
+      return wolf(0x6f8a62, { fire: false, bulk: 1.2 }, motion('quad', 'bite', 'roll', 0.45, { ability: 'leap' }));
   }
 }
 

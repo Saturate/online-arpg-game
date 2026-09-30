@@ -49,6 +49,9 @@ export const TIER_COLORS: Record<ItemTier, number> = {
   relic: 0xff7a2a,
 };
 
+/** Hand-named items: a worn bronze gold, apart from rare yellow and relic orange, like D2's uniques. */
+export const UNIQUE_COLOR = 0xc9a15c;
+
 export function fxColor(fx: SpellFx, el: ElementId | null): number {
   if (el) return ELEMENT_COLORS[el];
   switch (fx) {

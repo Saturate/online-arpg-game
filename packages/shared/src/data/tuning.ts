@@ -173,6 +173,8 @@ export const MONSTER_MODEL_IDS = [
   'mon_grave_hound',
   'minion_brute',
   'minion_archer',
+  'minion_hound',
+  'minion_hound_leader',
 ] as const;
 export type MonsterModelId = (typeof MONSTER_MODEL_IDS)[number];
 
@@ -207,6 +209,7 @@ export const ENEMY_MODELS: Partial<Record<EnemyTypeId, MonsterModelId>> = {
 export const MINION_MODELS: Partial<Record<MinionTypeId, MonsterModelId>> = {
   zombie_brute: 'minion_brute',
   skeleton_archer: 'minion_archer',
+  hound: 'minion_hound',
 };
 
 /** Model height in world units; heroes are 54. */

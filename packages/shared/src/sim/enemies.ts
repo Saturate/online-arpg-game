@@ -144,6 +144,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     raised: false,
     rewards: true,
     detonated: false,
+    pinned: 0,
   });
   return id;
 }
@@ -240,6 +241,11 @@ export function updateEnemies(sim: Simulation, dt: number): void {
     e.knockY *= KNOCK_DECAY;
 
     if (def.behaviour === 'monster' && def.traits.curse) applyCurse(sim, pos, def.traits.curse.radius);
+
+    if (e.pinned > 0) {
+      e.pinned = Math.max(0, e.pinned - dt);
+      continue;
+    }
 
     const slow = st && st.chill > 0 ? 1 - AILMENTS.chill.slow : 1;
     const enrageSpeed = def.behaviour === 'monster' && e.enraged ? (def.traits.enrage?.speed ?? 1) : 1;

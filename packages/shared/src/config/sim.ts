@@ -255,6 +255,31 @@ export const SPIRIT = {
   vesselPerAffix: 5,
 } as const;
 
+/**
+ * The Hound pack: one vessel binds a Leader and 1 to 6 packmates for one vessel's spirit.
+ *
+ * Packmate strength: each packmate has `mateShare / sqrt(n)` of the Leader's base life and damage
+ * (n packmates), so the packmates together are worth 0.55 of a hound with one (0.55), 0.78 with
+ * two, 1.1 with four and 1.35 with six. The whole pack is 1.55 to 2.35 hounds' worth rather than
+ * up to 7: a relic pack is clearly the better find but pays for its bodies with fragile ones, and
+ * area damage hits every dog in it.
+ */
+export const HOUND_PACK = {
+  /** Every dog of every pack counts, Leaders included; packmates are trimmed to fit, in warband order. */
+  maxDogs: 12,
+  packmatesByTier: { common: { min: 1, max: 2 }, magic: { min: 1, max: 3 }, rare: { min: 2, max: 4 }, relic: { min: 3, max: 6 } },
+  leader: { lifeMult: 1.35, damageMult: 1.15, radiusScale: 1.25 },
+  mate: { share: 0.55, radiusScale: 0.78, speedMult: 1.15, attackSpeedMult: 1.15 },
+  /** Without its Leader the pack keeps fighting, softer and without the howl. */
+  leaderlessDamageMult: 0.7,
+  /** The Leader howls while fighting; the whole pack runs and bites harder for a while. */
+  howl: { cooldown: 14, seconds: 6, speedBonus: 0.25, damageBonus: 0.2, radius: 140 },
+  /** Enemies under the Leader's landing pounce are held in place (not bosses or knockback-immune ones). */
+  pinSeconds: 1,
+  /** Packmates circle the target at these angles from the Leader's side, so they flank it. */
+  flankAngles: [1.25, -1.25, 2.2, -2.2, Math.PI, 0.6],
+} as const;
+
 export const MINIONS = {
   /** On top of each minion's own numbers: they died too fast and hit too softly to be worth their spirit. */
   damageMultiplier: 1.5,

@@ -33,7 +33,7 @@ import { Connection } from '../net/connection.js';
 import { Recorder, encodeReplay } from './replay.js';
 import { isOutdated, reloadForUpdate } from './update.js';
 import { netSettings } from '../net/settings.js';
-import { cssColor, FX, TIER_COLORS, VIEW } from '../render/config.js';
+import { cssColor, FX, TIER_COLORS, UNIQUE_COLOR, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { Effects } from '../render/fx.js';
 import { playFxEvent } from '../render/fxEvents.js';
@@ -863,7 +863,7 @@ export class Game {
           // clickable, the easy way to pick a drop out of a pile.
           to.names.forEach((n, i) => {
             if (!showAllLoot && n.tier !== 'rare' && n.tier !== 'relic') return;
-            labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id) });
+            labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(n.u ? UNIQUE_COLOR : TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id) });
           });
           if (to.gold > 0) labels.push({ key: `g${id}`, x, y, text: `${to.gold} gold`, color: '#e8c860', height: 34, className: 'fx-label loot gold' });
         }

@@ -1,4 +1,4 @@
-import { LOOT, MINIONS, WAVES } from '../config/sim.js';
+import { HOUND_PACK, LOOT, MINIONS, WAVES } from '../config/sim.js';
 import { classStarterSigils, createStarterSigil } from '../data/starterSigils.js';
 import { categoryForSlot, GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 import { convertCharacterSave, convertStash } from '../items/convertV2.js';
@@ -34,7 +34,7 @@ import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
 import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
 import { distSq } from './math.js';
-import { despawnMinion } from './minions.js';
+import { despawnMinion, packVesselCount } from './minions.js';
 import type { PlayerSave, Simulation } from './simulation.js';
 import { computeStats } from './stats.js';
 
@@ -497,6 +497,10 @@ export function equipVessel(sim: Simulation, pid: EntityId, uid: ItemUid, slot: 
   if (spiritReservedFor(p) > spiritMax(p)) {
     p.warband[slot] = previous;
     return 'Not enough spirit to bind that vessel';
+  }
+  if (packVesselCount(p) > HOUND_PACK.maxDogs) {
+    p.warband[slot] = previous;
+    return `Your hounds are at the pack limit of ${HOUND_PACK.maxDogs}`;
   }
   const at = anchorOf(p.inventory, BAG, uid);
   removeFrom(p.inventory, uid);

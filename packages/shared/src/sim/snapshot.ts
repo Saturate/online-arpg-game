@@ -87,7 +87,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
         if (!m || !h) break;
         const tpos = m.targetId === null ? undefined : w.position.get(m.targetId);
         const a = tpos ? Math.atan2(tpos.y - pos.y, tpos.x - pos.x) : 0;
-        out.push({ ...base, k: 'minion', mt: m.typeId, owner: m.ownerId, life: Math.ceil(h.life), maxLife: h.maxLife, st, a: round2(a) });
+        out.push({ ...base, k: 'minion', mt: m.typeId, owner: m.ownerId, ...(m.pack ? { pack: m.pack.role } : {}), life: Math.ceil(h.life), maxLife: h.maxLife, st, a: round2(a) });
         break;
       }
       case 'projectile': {
@@ -125,7 +125,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
       case 'loot': {
         const l = w.loot.get(id);
         if (!l) break;
-        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: l.items.map((it) => ({ n: it.name, tier: it.tier })), gold: l.gold });
+        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: l.items.map((it) => (it.kind === 'vessel' && it.fixedName ? { n: it.name, tier: it.tier, u: true } : { n: it.name, tier: it.tier })), gold: l.gold });
         break;
       }
     }
@@ -228,6 +228,7 @@ export function snapshotFor(
   const always = new Set<EntityId>([pid]);
   if (p) {
     for (const m of p.minions) if (m !== null) always.add(m);
+    for (const pack of p.packs) for (const m of pack.mates) always.add(m);
     for (const l of p.links) if (l?.targetId !== null && l?.targetId !== undefined) always.add(l.targetId);
   }
   const near = (x: number, y: number): boolean => !pos || distSq(x, y, pos.x, pos.y) <= r2;
