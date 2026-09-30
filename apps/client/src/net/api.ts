@@ -1,4 +1,4 @@
-import { isClassId, isLeaderboardResponse, isRole, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isItemShape, isLeaderboardResponse, isRole, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -110,6 +110,15 @@ function isReached(v: unknown): v is { reached: number } {
   return isRecord(v) && typeof v.reached === 'number';
 }
 
+export interface GrantResponse {
+  item: Item;
+  character: string;
+}
+
+function isGrantResponse(v: unknown): v is GrantResponse {
+  return isRecord(v) && isItemShape(v.item) && typeof v.character === 'string';
+}
+
 export function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiResult<T> {
   if (!r.ok) return r;
   return guard(r.data) ? { ok: true, data: r.data } : { ok: false, status: 502, error: 'Unexpected server response' };
@@ -138,4 +147,5 @@ export const adminApi = {
   goto: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/goto', token, { characterId }), isOk),
   kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
   announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),
+  grant: async (token: string, req: GrantRequest) => narrow(await call('POST', '/api/admin/grant', token, req), isGrantResponse),
 };

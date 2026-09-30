@@ -241,6 +241,11 @@ export class RoomManager implements AdminHooks {
     return null;
   }
 
+  accountOnline(accountId: number): boolean {
+    for (const c of this.clients.values()) if (c.accountId === accountId) return true;
+    return false;
+  }
+
   /** Accounts with a character in the world right now. */
   onlineAccounts(): Set<number> {
     return new Set([...this.clients.values()].flatMap((c) => (c.accountId !== null && c.characterId !== null ? [c.accountId] : [])));

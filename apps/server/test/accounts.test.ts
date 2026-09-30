@@ -145,6 +145,7 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     roleChanged: (id, role) => roles.push([id, role]),
     currentTown: () => DEFAULT_TOWN_LAYOUT,
     gotoCharacter: () => null,
+    accountOnline: () => false,
     tuningOverrides: () => emptyTuning(),
     setMonsterOverride: () => emptyTuning(),
     setMinionOverride: () => emptyTuning(),
