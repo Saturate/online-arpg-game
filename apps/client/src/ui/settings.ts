@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { isVfxQuality, type VfxQuality } from '../render/vfx/quality.js';
 
 /**
  * Player preferences: key bindings and display options. Stored per browser in localStorage, since
@@ -82,9 +83,11 @@ export interface Options {
   wheelCyclesSkill: boolean;
   /** Interface click and hover sounds, 0 (off) to 1. */
   uiVolume: number;
+  /** Spell effects: Low keeps plain shapes and few particles for slow machines. */
+  vfxQuality: VfxQuality;
 }
 
-export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5 };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5, vfxQuality: 'high' };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -125,6 +128,7 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
       if (scale !== undefined) options.uiScale = scale;
       if (typeof o.wheelCyclesSkill === 'boolean') options.wheelCyclesSkill = o.wheelCyclesSkill;
       if (typeof o.uiVolume === 'number' && o.uiVolume >= 0 && o.uiVolume <= 1) options.uiVolume = o.uiVolume;
+      if (isVfxQuality(o.vfxQuality)) options.vfxQuality = o.vfxQuality;
     }
   } catch {
     // Corrupt storage: defaults.

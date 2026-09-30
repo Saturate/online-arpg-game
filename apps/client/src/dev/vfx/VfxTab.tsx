@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { readLink, writeLink } from '../deepLink.js';
+import { isVfxQuality, QUALITY_LABELS, VFX_QUALITIES, type VfxQuality } from '../../render/vfx/quality.js';
 import { BENCH_SCENES, VfxBench, type VfxBenchResult } from './vfxBench.js';
 
 declare global {
@@ -9,10 +10,12 @@ declare global {
   }
 }
 
-/** `#vfx/<scene>`. `?time=0.75` in the URL shows the scene at night. */
+/** `#vfx/<scene>/<quality>`. `?time=0.75` in the URL shows the scene at night. */
 export function VfxTab() {
-  const [, first] = readLink();
+  const [, first, second] = readLink();
   const [scene, setScene] = useState(() => BENCH_SCENES.find((s) => s.id === first)?.id ?? 'crowd');
+  // The bench's own quality, so measuring Low never changes the player's saved setting.
+  const [quality, setQuality] = useState<VfxQuality>(isVfxQuality(second) ? second : 'high');
   const host = useRef<HTMLDivElement>(null);
   const fxLayer = useRef<HTMLDivElement>(null);
   const bench = useRef<VfxBench | null>(null);
@@ -20,15 +23,32 @@ export function VfxTab() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    writeLink(['vfx', scene]);
+    // Scripts taking screenshots switch scenes by editing the hash.
+    const onHash = () => {
+      const [, id, q] = readLink();
+      if (id && BENCH_SCENES.some((s) => s.id === id)) setScene(id);
+      if (isVfxQuality(q)) setQuality(q);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
+    bench.current?.setQuality(quality);
+    writeLink(['vfx', scene, quality]);
+  }, [quality, scene]);
+
+  useEffect(() => {
     if (!host.current || !fxLayer.current) return;
     const b = new VfxBench(host.current, fxLayer.current, scene);
+    b.setQuality(quality);
     bench.current = b;
     window.vfxBench = b;
     return () => {
       b.dispose();
       if (window.vfxBench === b) window.vfxBench = undefined;
     };
+    // Quality changes go to the running bench above; only a new scene rebuilds it.
   }, [scene]);
 
   const run = () => {
@@ -52,6 +72,13 @@ export function VfxTab() {
             </button>
           ))}
         </div>
+        <div className="chip-row">
+          {VFX_QUALITIES.map((q) => (
+            <button key={q} type="button" className={q === quality ? 'on' : ''} onClick={() => setQuality(q)}>
+              {QUALITY_LABELS[q]}
+            </button>
+          ))}
+        </div>
         <button type="button" className="wide" disabled={busy} onClick={run}>
           {busy ? 'Measuring...' : 'Measure 300 frames'}
         </button>
@@ -59,6 +86,7 @@ export function VfxTab() {
           <table className="rigs-stats small">
             <tbody>
               <tr><td>spells</td><td>{result.spells}</td></tr>
+              <tr><td>particles</td><td>{result.particles}</td></tr>
               <tr><td>draw calls</td><td>{result.drawCalls}</td></tr>
               <tr><td>triangles</td><td>{result.triangles}</td></tr>
               <tr><td>entities ms</td><td>{result.entitiesMs.toFixed(2)}</td></tr>

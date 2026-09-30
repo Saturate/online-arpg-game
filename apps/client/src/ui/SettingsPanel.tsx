@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { ACTION_LABELS, ACTIONS, keyLabel, RESERVED_KEYS, UI_SCALES, useSettings, type Action, type ControlScheme, type Options } from './settings.js';
 import { GamePanel, usePanelLayout } from './GamePanel.js';
 import { useUi } from './store.js';
+import { QUALITY_LABELS, VFX_QUALITIES } from '../render/vfx/quality.js';
 
 const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
   { id: 'keyboard', label: 'WASD + mouse', hint: 'Move with the keys, aim and attack with the mouse.' },
   { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place.' },
 ];
 
-const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls' | 'uiVolume'>; label: string }[] = [
+const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls' | 'uiVolume' | 'vfxQuality'>; label: string }[] = [
   { key: 'wheelCyclesSkill', label: 'Scroll wheel picks the mouse skills (Shift for the left one)' },
   { key: 'damageNumbers', label: 'Damage numbers' },
   { key: 'screenShake', label: 'Screen shake' },
@@ -76,6 +77,15 @@ export function SettingsPanel() {
                 </li>
               ))}
             </ul>
+            <h3>Spell effects</h3>
+            <div className="scale-row" role="radiogroup" aria-label="Spell effect quality">
+              {VFX_QUALITIES.map((q) => (
+                <button key={q} type="button" role="radio" aria-checked={options.vfxQuality === q} className={options.vfxQuality === q ? 'on' : ''} onClick={() => setOption('vfxQuality', q)}>
+                  {QUALITY_LABELS[q]}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">Low keeps plain spell shapes and few particles, for slower machines.</p>
             <h3>Interface size</h3>
             <div className="scale-row">
               {UI_SCALES.map((s) => (

@@ -1,7 +1,7 @@
 import { SIM, serializeEntities, type EntitySnap, type GameEvent } from '@rune/shared';
-import { COLORS, ELEMENT_COLORS } from '../../render/config.js';
 import { EntityRenderer, type RenderItem } from '../../render/entities.js';
 import { Effects } from '../../render/fx.js';
+import { playFxEvent } from '../../render/fxEvents.js';
 import { WorldScene } from '../../render/scene.js';
 import type { StudioSim } from './studioSim.js';
 
@@ -36,8 +36,8 @@ export class StudioView {
   ) {
     this.world = new WorldScene(host, studio.sim.mapDef);
     this.world.setZoom(ZOOM);
-    this.entities = new EntityRenderer(this.world.scene, this.world.camera);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
+    this.entities = new EntityRenderer(this.world.scene, this.world.camera, this.fx.vfx);
     this.capture();
     this.capture();
     this.frame = requestAnimationFrame(this.loop);
@@ -111,38 +111,11 @@ export class StudioView {
 
   private playEvents(events: readonly GameEvent[]): void {
     let texts = 0;
+    const ctx = { fx: this.fx, entities: this.entities, selfId: this.studio.playerId, damageNumbers: true, dudReasons: true, shake: () => {} };
     for (const ev of events) {
-      switch (ev.e) {
-        case 'dmg': {
-          this.entities.flash(`s${ev.id}`);
-          if (ev.id === this.studio.playerId || ev.amt < 1) break;
-          const color = ev.el ? ELEMENT_COLORS[ev.el] : 0xffffff;
-          if (texts++ < MAX_TEXTS_PER_TICK) this.fx.text(ev.x, ev.y, String(ev.amt), color, ev.amt >= 30);
-          this.fx.burst(ev.x, ev.y, ev.el ? ELEMENT_COLORS[ev.el] : 0xffe0c0, 3, 90, { up: 120, size: 3, life: 0.3 });
-          break;
-        }
-        case 'heal':
-          this.fx.text(ev.x, ev.y, `+${ev.amt}`, COLORS.heal);
-          break;
-        case 'fizzle':
-          this.fx.burst(ev.x, ev.y, ev.why === 'misfire' ? 0xff5030 : 0x999999, 14, 80, { up: 60, size: 6, gravity: -30, life: 0.7 });
-          this.fx.text(ev.x, ev.y - 20, ev.why === 'misfire' ? 'misfire' : `dud: ${ev.reason ?? '?'}`, ev.why === 'misfire' ? 0xff5030 : 0xaaaaaa);
-          break;
-        case 'explode':
-          this.fx.shockwave(ev.x, ev.y, ev.r, 0xff8a3a, 0.4);
-          this.fx.burst(ev.x, ev.y, 0xff8a3a, 30, 260);
-          break;
-        case 'cast':
-          this.entities.attack(`s${ev.id}`);
-          this.fx.burst(ev.x, ev.y, ev.el ? ELEMENT_COLORS[ev.el] : 0xd0d8ff, 8, 70, { up: 140, size: 3, life: 0.35 });
-          break;
-        case 'attack':
-          this.entities.attack(`s${ev.id}`);
-          break;
-        case 'death':
-        case 'pickup':
-          break;
-      }
+      // The player's own hits and a wall of numbers past the cap add nothing; the metrics carry the totals.
+      if (ev.e === 'dmg') ctx.damageNumbers = ev.id !== this.studio.playerId && texts++ < MAX_TEXTS_PER_TICK;
+      playFxEvent(ev, ctx);
     }
   }
 

@@ -16,8 +16,8 @@ import { EntityRenderer, type RenderItem } from '../../render/entities.js';
 import { Effects } from '../../render/fx.js';
 import { playFxEvent, type FxEventContext } from '../../render/fxEvents.js';
 import { WorldScene } from '../../render/scene.js';
+import type { VfxQuality } from '../../render/vfx/quality.js';
 import { studioSigil, studioSkillOf, type StudioSkill } from '../studio/studioSim.js';
-import { COLORS, ELEMENT_COLORS } from '../../render/config.js';
 
 /** One caster: a held skill in slot 1 and, optionally, a persistent one (aura or bond) in slot 2. */
 interface CasterDef {
@@ -108,6 +108,20 @@ const SCENES: readonly BenchScene[] = [
       { skill: 'bolt[onhit] fire zone ward', at: { x: -330, y: 200 } },
     ],
   },
+  {
+    // Casters stand on the nearest road, so every ground effect lies over a road patch: ground
+    // effects must draw above roads (RENDER_ORDER in render/config.ts).
+    id: 'road',
+    label: 'Ground effects on a road',
+    monsters: 8,
+    casters: [
+      { skill: 'zone[+75% duration] fire', at: { x: 0, y: 0 } },
+      { skill: 'frost_mire', at: { x: 0, y: 0 } },
+      { skill: 'zone[+75% duration] lightning', at: { x: 0, y: 0 } },
+      { skill: 'sanctuary', persistent: 'aura cold', at: { x: 0, y: 0 } },
+      { skill: 'war_cry', at: { x: 0, y: 0 } },
+    ],
+  },
 ];
 
 export const BENCH_SCENES = SCENES;
@@ -139,6 +153,9 @@ export interface VfxBenchResult {
   /** Mean JS heap growth per frame in bytes, counting only rises. Chrome only. */
   heapPerFrame: number | null;
   spells: number;
+  /** Mean live particles, both layers. */
+  particles: number;
+  quality: VfxQuality;
 }
 
 interface ChromeMemory {
@@ -175,15 +192,18 @@ export class VfxBench {
   private last = performance.now();
   private clock = 0;
   private played = -1;
-  private sample: { frames: number; entities: number; fx: number; render: number; wall: number; heap: number; calls: number; tris: number; spells: number; lastHeap: number | null; done: (r: VfxBenchResult) => void; want: number } | null = null;
+  private sample: { frames: number; entities: number; fx: number; render: number; wall: number; heap: number; calls: number; tris: number; spells: number; particles: number; lastHeap: number | null; done: (r: VfxBenchResult) => void; want: number } | null = null;
   paused = false;
+  private roadFocus: { x: number; y: number } | null = null;
+  /** Camera offset from the default framing and zoom, for close-up screenshots. */
+  readonly view = { dx: 0, dy: 0, zoom: 1 };
 
   constructor(host: HTMLElement, fxLayer: HTMLElement, sceneId: string) {
     this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', casters: [], monsters: 0 };
     const sim = new Simulation(7, { kind: 'wilds', seed: 7 }, { waves: false });
     this.world = new WorldScene(host, sim.mapDef);
-    this.entities = new EntityRenderer(this.world.scene, this.world.camera);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
+    this.entities = new EntityRenderer(this.world.scene, this.world.camera, this.fx.vfx);
     this.ctx = { fx: this.fx, entities: this.entities, selfId: null, damageNumbers: false, shake: () => {} };
     this.centre = sim.map.findOpen(sim.mapDef.width / 2, sim.mapDef.height / 2, 200);
     this.record(sim);
@@ -210,9 +230,13 @@ export class VfxBench {
       if (at) dummies.push({ id, x: at.x, y: at.y });
     }
     const casters: { id: EntityId; x: number; y: number; hasPersistent: boolean }[] = [];
+    const road = this.scene.id === 'road' ? nearestRoad(sim, cx, cy) : null;
+    if (road) this.roadFocus = { x: (road.ax + road.bx) / 2, y: (road.ay + road.by) / 2 };
     this.scene.casters.forEach((c, i) => {
       const skill = skillOf(c.skill);
-      const id = sim.addPlayer(`bench${i}`, skill.classId, `Caster ${i + 1}`, undefined, { x: cx + c.at.x, y: cy + c.at.y });
+      const along = (i + 0.5) / this.scene.casters.length;
+      const at = road ? { x: road.ax + (road.bx - road.ax) * along, y: road.ay + (road.by - road.ay) * along } : { x: cx + c.at.x, y: cy + c.at.y };
+      const id = sim.addPlayer(`bench${i}`, skill.classId, `Caster ${i + 1}`, undefined, at);
       const p = w.player.get(id);
       const pos = w.position.get(id);
       if (!p || !pos) return;
@@ -306,13 +330,14 @@ export class VfxBench {
       if (snapTo.k === 'projectile' || snapTo.k === 'nova' || snapTo.k === 'zone') spells++;
       items.push({ key: `s${id}`, snap: { ...snapTo, x, y, r }, x, y, isSelf: false, isAlly: snapTo.k === 'player' || snapTo.k === 'minion' });
     }
-    this.emitTrails(items, dt);
     const t1 = performance.now();
     this.entities.render(items, dt);
     const t2 = performance.now();
     this.fx.update(dt);
     const t3 = performance.now();
-    this.world.follow(this.centre.x - 110, this.centre.y, dt);
+    if (this.world.camera.zoom !== this.view.zoom) this.world.setZoom(this.view.zoom);
+    const f = this.roadFocus ?? { x: this.centre.x - 110, y: this.centre.y };
+    this.world.follow(f.x + this.view.dx, f.y + this.view.dy, dt);
     this.world.render();
     const t4 = performance.now();
 
@@ -327,6 +352,7 @@ export class VfxBench {
     s.calls += info.calls;
     s.tris += info.triangles;
     s.spells += spells;
+    s.particles += this.fx.vfx.particleCount;
     const heap = heapNow();
     if (heap !== null && s.lastHeap !== null && heap > s.lastHeap) s.heap += heap - s.lastHeap;
     s.lastHeap = heap;
@@ -343,26 +369,20 @@ export class VfxBench {
         frameMs: s.wall / s.frames,
         heapPerFrame: heap === null ? null : Math.round(s.heap / s.frames),
         spells: Math.round(s.spells / s.frames),
+        particles: Math.round(s.particles / s.frames),
+        quality: this.fx.vfx.quality,
       });
     }
   };
 
-  /** The game's projectile trails, as game.ts emits them. */
-  private emitTrails(items: readonly RenderItem[], dt: number): void {
-    if (!this.fx.trailDue(dt)) return;
-    for (const item of items) {
-      const s = item.snap;
-      if (s.k !== 'projectile') continue;
-      const color = s.team === 'enemies' ? COLORS.enemyBullet : s.el ? ELEMENT_COLORS[s.el] : COLORS.playerProjectile;
-      if (s.orb) this.fx.orbTrail(item.x, item.y, color, s.r);
-      else this.fx.trail(item.x, item.y, color, s.r * (s.team === 'enemies' ? 0.8 : 0.9));
-    }
-  }
-
   measure(frames: number): Promise<VfxBenchResult> {
     return new Promise((done) => {
-      this.sample = { frames: 0, entities: 0, fx: 0, render: 0, wall: 0, heap: 0, calls: 0, tris: 0, spells: 0, lastHeap: heapNow(), done, want: frames };
+      this.sample = { frames: 0, entities: 0, fx: 0, render: 0, wall: 0, heap: 0, calls: 0, tris: 0, spells: 0, particles: 0, lastHeap: heapNow(), done, want: frames };
     });
+  }
+
+  setQuality(q: VfxQuality): void {
+    this.fx.vfx.setQuality(q);
   }
 
   /** Jumps the playback to a recorded second, for screenshots. */
@@ -377,4 +397,20 @@ export class VfxBench {
     this.fx.dispose();
     this.world.dispose();
   }
+}
+
+/** The road segment nearest a point, as its end points. */
+function nearestRoad(sim: Simulation, x: number, y: number): { ax: number; ay: number; bx: number; by: number } | null {
+  let best: { ax: number; ay: number; bx: number; by: number } | null = null;
+  let bestD = Infinity;
+  for (const g of sim.mapDef.ground) {
+    const s = g.shape;
+    if (g.kind !== 'road' || s.type !== 'capsule') continue;
+    const d = Math.hypot((s.ax + s.bx) / 2 - x, (s.ay + s.by) / 2 - y);
+    if (d < bestD) {
+      bestD = d;
+      best = { ax: s.ax, ay: s.ay, bx: s.bx, by: s.by };
+    }
+  }
+  return best;
 }

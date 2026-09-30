@@ -2,7 +2,6 @@ import { CLASSES, ENEMIES, familyOf, MINION_DEFS, STATUS, type ClassId, type Ene
 import {
   Box3,
   AdditiveBlending,
-  BackSide,
   BoxGeometry,
   CapsuleGeometry,
   CircleGeometry,
@@ -26,10 +25,16 @@ import {
   type Object3D,
   type Scene,
 } from 'three';
-import { COLORS, ELEMENT_COLORS, fxColor, TIER_COLORS } from './config.js';
+import { COLORS, fxColor, RENDER_ORDER, TIER_COLORS } from './config.js';
 import { assetById, cloneMaterial, instantiate } from './assets.js';
 import { characterAsset, characterNow, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
 import { beginRigFrame, driveRig, enemyModel, minionModel, playerModel, rigAttack, rigHit, rigWindup, type Rig, type RigDrive } from './models.js';
+import { auraMaterial, tetherMaterial, type TetherUniforms } from './vfx/materials.js';
+import { PALETTE, styleOf } from './vfx/palette.js';
+import { makeSpellView, type SpellView } from './vfx/spellViews.js';
+import type { Vfx } from './vfx/vfx.js';
+import { entityLightKey } from './lights.js';
+import type { VfxQuality } from './vfx/quality.js';
 
 export interface RenderItem {
   /** `s<id>` for server entities, `l<n>` for local cosmetic effects. */
@@ -83,6 +88,10 @@ interface View {
   mound: Mesh | null;
   /** Monster type, so a death can tell whether it leaves a body (ghosts and totems do not). */
   typeId: EnemyTypeId | null;
+  /** Projectiles, novas and zones draw through their spell view. */
+  spell: SpellView | null;
+  /** Ribbon behind a dashing hero, or -1. */
+  dashRibbon: number;
 }
 
 interface Corpse {
@@ -118,6 +127,8 @@ const GEO = {
   octa: new OctahedronGeometry(1, 0),
   dodeca: new DodecahedronGeometry(1, 0),
   torus: new TorusGeometry(1, 0.12, 8, 24),
+  /** 2 x 2, so a scale of r covers a circle of radius r. */
+  quad: new PlaneGeometry(2, 2),
 };
 
 /** Materials no view changes after creation, shared for the whole session and never disposed. */
@@ -156,6 +167,7 @@ function basic(color: number, opacity = 1, additive = false): MeshBasicMaterial 
 function flatOnGround(mesh: Mesh, y = 1): Mesh {
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = y;
+  mesh.renderOrder = RENDER_ORDER.groundMark;
   return mesh;
 }
 
@@ -247,7 +259,7 @@ function attachCharacter(view: View, cm: CharacterModel, s: EntitySnap): void {
   view.tinted = false;
 }
 
-function makeView(item: RenderItem): View {
+function makeView(item: RenderItem, vfx: Vfx | null): View {
   const root = new Group();
   const s = item.snap;
   const owned = new Set<Disposable>();
@@ -260,6 +272,7 @@ function makeView(item: RenderItem): View {
   let rig: Rig | null = null;
   let healthBar: View['healthBar'] = null;
   let shield: Mesh | null = null;
+  let spell: SpellView | null = null;
   // A cached glTF goes straight in; the procedural rig is only a stand-in while a file loads or if it fails.
   const asset = characterAsset(s);
   const character = asset ? characterNow(asset, s.id) : null;
@@ -322,71 +335,12 @@ function makeView(item: RenderItem): View {
       root.add(healthBar.group);
       break;
     }
-    case 'projectile': {
-      const enemy = s.team === 'enemies';
-      if (enemy) {
-        const core = new Mesh(GEO.sphere, shared('bullet', () => new MeshBasicMaterial({ color: COLORS.enemyBullet })));
-        core.scale.setScalar(s.r);
-        const outline = new Mesh(GEO.sphere, shared('bullet-outline', () => new MeshBasicMaterial({ color: COLORS.enemyBulletOutline, side: BackSide })));
-        outline.scale.setScalar(s.r * 1.4);
-        const g = new Group();
-        g.add(core, outline);
-        g.position.y = 18;
-        root.add(g);
-      } else if (s.orb) {
-        // A slow orb reads as a heavy thing, not a spark: a near-black core inside a thin element shell,
-        // a smouldering band that turns as it rolls, and a faint pool of light under it so it still
-        // reads at night.
-        const color = s.el ? ELEMENT_COLORS[s.el] : s.fx === 'damage' ? COLORS.playerProjectile : fxColor(s.fx, null);
-        const ember = new Color(color).multiplyScalar(0.18).getHex();
-        const core = new Mesh(GEO.sphere, sharedBasic(ember, 1));
-        core.scale.setScalar(s.r * 0.72);
-        const shell = new Mesh(GEO.sphere, own(basic(color, 0.18, true)));
-        shell.scale.setScalar(s.r);
-        shell.name = 'orb-shell';
-        const band = new Mesh(GEO.torus, sharedBasic(color, 0.85, true));
-        band.scale.setScalar(s.r * 0.86);
-        band.name = 'orb-band';
-        const g = new Group();
-        g.add(core, shell, band);
-        g.position.y = 20;
-        const pool = flatOnGround(new Mesh(GEO.disk, sharedBasic(color, 0.1, true)), 1.2);
-        pool.scale.setScalar(s.r * 2.4);
-        root.add(g, pool);
-      } else {
-        // Solid core in the element colour plus a faint additive halo: additive alone washes out to white on bright ground.
-        const color = s.el ? ELEMENT_COLORS[s.el] : s.fx === 'damage' ? COLORS.playerProjectile : fxColor(s.fx, null);
-        const core = new Mesh(GEO.sphere, sharedBasic(color, 0.9));
-        core.scale.setScalar(s.r * 0.8);
-        const halo = new Mesh(GEO.sphere, sharedBasic(color, 0.25, true));
-        halo.scale.setScalar(s.r * 1.4);
-        const g = new Group();
-        g.add(core, halo);
-        g.position.y = 18;
-        root.add(g);
-      }
+    case 'projectile':
+    case 'nova':
+    case 'zone':
+      spell = makeSpellView(s, vfx);
+      root.add(spell.root);
       break;
-    }
-    case 'nova': {
-      const color = fxColor(s.fx, s.el);
-      const m = flatOnGround(new Mesh(GEO.ring, own(basic(color, 0.8, true))), 3);
-      m.name = 'ring';
-      const fill = flatOnGround(new Mesh(GEO.disk, own(basic(color, 0.15, true))), 2);
-      fill.name = 'fill';
-      root.add(m, fill);
-      break;
-    }
-    case 'zone': {
-      const color = fxColor(s.fx, s.el);
-      const fill = flatOnGround(new Mesh(GEO.disk, own(basic(color, 0.22, true))), 1.5);
-      fill.scale.setScalar(s.r);
-      fill.name = 'fill';
-      const edge = flatOnGround(new Mesh(GEO.thinRing, own(basic(color, 0.9, true))), 2);
-      edge.scale.setScalar(s.r);
-      edge.name = 'edge';
-      root.add(fill, edge);
-      break;
-    }
     case 'loot': {
       const color = TIER_COLORS[s.tier];
       const bag = new Mesh(GEO.sphere, own(standard(0x8a6a3a, { roughness: 0.9 })));
@@ -454,6 +408,8 @@ function makeView(item: RenderItem): View {
     disposed: false,
     mound: null,
     typeId: s.k === 'enemy' ? s.et : null,
+    spell,
+    dashRibbon: -1,
   };
   if (character) attachCharacter(view, character, s);
   else if (rig && s.k === 'enemy' && s.rare) {
@@ -492,8 +448,10 @@ export class EntityRenderer {
   private readonly views = new Map<string, View>();
   private readonly dying = new Set<EntityId>();
   private corpses: Corpse[] = [];
-  private readonly links = new Map<string, Mesh>();
+  private readonly links = new Map<string, { mesh: Mesh; u: TetherUniforms | null }>();
   private readonly linkMat = basic(0x7fe0c0, 0.65, true);
+  /** The quality spell views were built for; a change rebuilds them. */
+  private quality: VfxQuality | null = null;
   private time = 0;
   // Reused every frame so rendering allocates nothing per entity.
   private readonly seen = new Set<string>();
@@ -505,7 +463,10 @@ export class EntityRenderer {
   constructor(
     private readonly scene: Scene,
     private readonly camera: Camera,
-  ) {}
+    private readonly vfx: Vfx | null = null,
+  ) {
+    this.quality = vfx?.quality ?? null;
+  }
 
   flash(key: string): void {
     const v = this.views.get(key);
@@ -582,6 +543,8 @@ export class EntityRenderer {
 
   render(items: readonly RenderItem[], dt: number): void {
     this.time += dt;
+    this.vfx?.begin(dt);
+    if (this.vfx && this.vfx.quality !== this.quality) this.rebuildForQuality();
     beginRigFrame(this.camera);
     const seen = this.seen;
     const positions = this.positions;
@@ -593,7 +556,7 @@ export class EntityRenderer {
       let view = this.views.get(item.key);
       if (!view || view.kind !== item.snap.k) {
         if (view) this.remove(item.key, view);
-        view = makeView(item);
+        view = makeView(item, this.vfx);
         this.views.set(item.key, view);
         this.scene.add(view.root);
         this.upgrade(view, item);
@@ -610,7 +573,7 @@ export class EntityRenderer {
       else this.remove(key, view);
     }
     this.updateCorpses(dt);
-    this.renderLinks(items, positions);
+    this.renderLinks(items, positions, dt);
   }
 
   /** Called on the death event, just before the entity leaves the snapshot, so it falls instead of vanishing. */
@@ -688,8 +651,26 @@ export class EntityRenderer {
     this.views.delete(key);
   }
 
+  /** Spell views, auras and tethers are built per quality; drop them so they rebuild on the next frame. */
+  private rebuildForQuality(): void {
+    this.quality = this.vfx?.quality ?? null;
+    for (const [key, view] of this.views) {
+      if (view.spell) this.remove(key, view);
+      else if (view.auraRings.length > 0) {
+        for (const r of view.auraRings) this.dropAura(view, r);
+        view.auraRings.length = 0;
+      }
+    }
+    for (const [key, link] of this.links) this.dropLink(key, link);
+  }
+
   private disposeView(view: View): void {
     view.disposed = true;
+    view.spell?.dispose();
+    view.spell = null;
+    if (view.dashRibbon >= 0) this.vfx?.ribbons.release(view.dashRibbon);
+    view.dashRibbon = -1;
+    for (const r of view.auraRings) this.dropAura(view, r);
     this.scene.remove(view.root);
     // Only what this view created: glTF geometry, procedural shapes and cached materials are shared with other entities.
     for (const r of view.owned) r.dispose();
@@ -732,31 +713,11 @@ export class EntityRenderer {
       }
       if (s.k === 'player') {
         if (!view.character && rig) rig.root.position.y = s.dashing && !s.dead ? 6 : 0;
-        this.syncAuras(view, s);
+        this.syncAuras(view, s, item, dt);
+        this.syncDash(view, s.dashing && !s.dead, item, dt);
       }
-    } else if (s.k === 'projectile' && s.orb) {
-      const band = view.root.getObjectByName('orb-band');
-      const shell = view.root.getObjectByName('orb-shell');
-      if (band) {
-        band.rotation.x += dt * 2.6;
-        band.rotation.y += dt * 1.1;
-      }
-      if (shell instanceof Mesh && shell.material instanceof MeshBasicMaterial) shell.material.opacity = 0.16 + Math.sin(t * 6 + view.bob) * 0.05;
-    } else if (s.k === 'nova') {
-      const ring = view.root.getObjectByName('ring');
-      const fill = view.root.getObjectByName('fill');
-      const k = s.maxR > 0 ? s.r / s.maxR : 1;
-      if (ring) ring.scale.setScalar(Math.max(1, s.r));
-      if (fill) fill.scale.setScalar(Math.max(1, s.r));
-      for (const o of [ring, fill]) if (o instanceof Mesh && o.material instanceof MeshBasicMaterial) o.material.opacity = (o === ring ? 0.9 : 0.2) * (1 - k * 0.6);
-    } else if (s.k === 'zone') {
-      const fill = view.root.getObjectByName('fill');
-      const edge = view.root.getObjectByName('edge');
-      const pulse = 0.18 + Math.sin(t * 5) * 0.05;
-      const fade = Math.min(1, s.left * 4);
-      if (fill instanceof Mesh && fill.material instanceof MeshBasicMaterial) fill.material.opacity = pulse * fade;
-      if (edge instanceof Mesh && edge.material instanceof MeshBasicMaterial) edge.material.opacity = 0.85 * fade;
-      if (edge) edge.rotation.z += dt * 0.4;
+    } else if (view.spell && (s.k === 'projectile' || s.k === 'nova' || s.k === 'zone')) {
+      view.spell.update(s, item.x, item.y, dt);
     } else if (s.k === 'loot') {
       // The bag sits on the ground like a dropped item; only the light shaft breathes.
       const beam = view.root.getObjectByName('beam');
@@ -786,6 +747,9 @@ export class EntityRenderer {
         }
       }
       this.applyTint(view, s.st, dt);
+      if (this.vfx && (s.st & (STATUS.burn | STATUS.chill | STATUS.shock)) !== 0 && (s.st & STATUS.hidden) === 0 && !(s.k === 'player' && s.dead)) {
+        this.vfx.status(s.id, item.x, item.y, s.r, s.r * 2.6, (s.st & STATUS.burn) !== 0, (s.st & STATUS.chill) !== 0, (s.st & STATUS.shock) !== 0, dt);
+      }
     } else if (view.flash > 0) {
       view.flash -= dt;
     }
@@ -817,17 +781,20 @@ export class EntityRenderer {
     let g = 0;
     let b = 0;
     let k = 0;
+    // With status particles on, the flames, frost and sparks carry the status; a full tint on top
+    // turned every burning monster into a flat orange silhouette.
+    const soft = this.vfx?.level.statusParticles ? 0.18 : 1;
     if ((st & STATUS.burn) !== 0) {
       const f = 0.5 + Math.sin(this.time * 18) * 0.3;
       r += 1 * f;
       g += 0.35 * f;
-      k = 0.6;
+      k = 0.6 * soft;
     }
     if ((st & STATUS.chill) !== 0) {
       r += 0.1;
       g += 0.45;
       b += 1;
-      k = Math.max(k, 0.5);
+      k = Math.max(k, 0.5 * soft);
     }
     if ((st & STATUS.cursed) !== 0) {
       // A slow purple pulse: the mummy's curse is on you and your hits are weaker.
@@ -847,7 +814,7 @@ export class EntityRenderer {
       r += f;
       g += f * 0.95;
       b += f * 0.3;
-      k = Math.max(k, 0.5);
+      k = Math.max(k, 0.5 * soft);
     }
     const active = view.flash > 0 || k > 0;
     // Untouched views keep their shared materials; there is nothing to write or undo.
@@ -859,7 +826,9 @@ export class EntityRenderer {
       if (view.flash > 0) {
         // Brighten the entity's own colour so a unit under constant attack stays recognisable.
         m.emissive.copy(m.color);
-        m.emissiveIntensity = 0.7;
+        // With impact particles on, a softer flash: zones tick every few frames and a full flash
+        // left monsters standing in them as white silhouettes.
+        m.emissiveIntensity = this.vfx?.level.shaders ? 0.25 : 0.7;
       } else if (k > 0) {
         tmpColor.setRGB(Math.min(1, r), Math.min(1, g), Math.min(1, b));
         m.emissive.copy(tmpColor);
@@ -871,31 +840,78 @@ export class EntityRenderer {
     });
   }
 
-  private syncAuras(view: View, s: Extract<EntitySnap, { k: 'player' }>): void {
+  private syncAuras(view: View, s: Extract<EntitySnap, { k: 'player' }>, item: RenderItem, dt: number): void {
     while (view.auraRings.length > s.auras.length) {
       const ring = view.auraRings.pop();
-      if (ring) view.root.remove(ring);
+      if (ring) this.dropAura(view, ring);
     }
+    const vfx = this.vfx;
+    const shaded = vfx !== null && vfx.level.shaders;
     s.auras.forEach((a, i) => {
       let ring = view.auraRings[i];
       if (!ring) {
-        ring = flatOnGround(new Mesh(GEO.thinRing, sharedBasic(fxColor(a.fx, a.el), 0.5, true)), 1.2 + i * 0.1);
-        const fill = flatOnGround(new Mesh(GEO.disk, sharedBasic(fxColor(a.fx, a.el), 0.06, true)), -0.2);
-        ring.add(fill);
-        fill.rotation.x = 0;
+        if (shaded) {
+          // A faint runic circle the size of the aura; the quad is 2 wide, so its scale is the radius.
+          const m = auraMaterial(styleOf(a.el, a.fx), vfx.shared);
+          ring = flatOnGround(new Mesh(GEO.quad, m.material), 1.1 + i * 0.1);
+          ring.userData.owned = true;
+        } else {
+          ring = flatOnGround(new Mesh(GEO.thinRing, sharedBasic(fxColor(a.fx, a.el), 0.5, true)), 1.2 + i * 0.1);
+          const fill = flatOnGround(new Mesh(GEO.disk, sharedBasic(fxColor(a.fx, a.el), 0.06, true)), -0.2);
+          ring.add(fill);
+          fill.rotation.x = 0;
+        }
+        ring.renderOrder = RENDER_ORDER.groundEffect;
         view.root.add(ring);
         view.auraRings.push(ring);
       }
-      const pulse = 1 + Math.sin(this.time * 2 + i) * 0.015;
-      ring.scale.setScalar(a.r * pulse);
-      ring.rotation.z += 0.004;
+      if (shaded) {
+        ring.scale.setScalar(a.r);
+        vfx.aura(styleOf(a.el, a.fx), item.x, item.y, a.r, dt);
+      } else {
+        const pulse = 1 + Math.sin(this.time * 2 + i) * 0.015;
+        ring.scale.setScalar(a.r * pulse);
+        ring.rotation.z += 0.004;
+      }
     });
   }
 
+  private dropAura(view: View, ring: Mesh): void {
+    view.root.remove(ring);
+    const m = ring.material;
+    if (ring.userData.owned === true && !Array.isArray(m)) m.dispose();
+  }
+
+  /** Dust and a pale streak behind a dashing hero. */
+  private syncDash(view: View, dashing: boolean, item: RenderItem, dt: number): void {
+    const vfx = this.vfx;
+    if (!vfx || !vfx.level.shaders) return;
+    if (dashing) {
+      if (view.dashRibbon < 0) {
+        const c = PALETTE.plain.core;
+        view.dashRibbon = vfx.ribbons.acquire(c.r * 0.5, c.g * 0.5, c.b * 0.5, 9, 0.3, 0);
+      }
+      vfx.ribbons.push(view.dashRibbon, item.x, 14, item.y, vfx.time);
+      vfx.dash(item.x, item.y, dt);
+    } else if (view.dashRibbon >= 0) {
+      vfx.ribbons.release(view.dashRibbon);
+      view.dashRibbon = -1;
+    }
+  }
+
+  private dropLink(key: string, link: { mesh: Mesh; u: TetherUniforms | null }): void {
+    this.scene.remove(link.mesh);
+    const m = link.mesh.material;
+    if (link.u && !Array.isArray(m)) m.dispose();
+    this.links.delete(key);
+  }
+
   /** Links draw as glowing tethers between the caster and the target. */
-  private renderLinks(items: readonly RenderItem[], positions: Map<number, RenderItem>): void {
+  private renderLinks(items: readonly RenderItem[], positions: Map<number, RenderItem>, dt: number): void {
     const seen = this.linkSeen;
     seen.clear();
+    const vfx = this.vfx;
+    const shaded = vfx !== null && vfx.level.shaders;
     for (const item of items) {
       if (item.snap.k !== 'player') continue;
       for (const target of item.snap.links) {
@@ -903,25 +919,34 @@ export class EntityRenderer {
         if (!to) continue;
         const key = `${item.snap.id}-${target}`;
         seen.add(key);
-        let m = this.links.get(key);
-        if (!m) {
-          m = new Mesh(GEO.cylinder, this.linkMat);
-          this.links.set(key, m);
-          this.scene.add(m);
+        let link = this.links.get(key);
+        if (!link) {
+          if (shaded) {
+            const m = tetherMaterial(vfx.shared);
+            link = { mesh: new Mesh(GEO.cylinder, m.material), u: m.u };
+          } else link = { mesh: new Mesh(GEO.cylinder, this.linkMat), u: null };
+          this.links.set(key, link);
+          this.scene.add(link.mesh);
         }
+        const m = link.mesh;
         const a = this.linkFrom.set(item.x, 30, item.y);
         const b = this.linkTo.set(to.x, 30, to.y);
         const len = a.distanceTo(b);
         m.position.copy(a).add(b).multiplyScalar(0.5);
-        m.scale.set(2 + Math.sin(this.time * 8) * 0.6, len, 2 + Math.sin(this.time * 8) * 0.6);
+        const thick = link.u ? 2.4 : 2 + Math.sin(this.time * 8) * 0.6;
+        m.scale.set(thick, len, thick);
         m.lookAt(b);
         m.rotateX(Math.PI / 2);
+        if (link.u && vfx) {
+          link.u.uLength.value = len;
+          vfx.tether(item.x, item.y, to.x, to.y, 30, dt);
+          vfx.light(entityLightKey(item.snap.id, 3), (item.x + to.x) / 2, (item.y + to.y) / 2, 30, PALETTE.ward.body, 0.6, Math.min(200, len * 0.6));
+        }
       }
     }
-    for (const [key, m] of this.links) {
+    for (const [key, link] of this.links) {
       if (seen.has(key)) continue;
-      this.scene.remove(m);
-      this.links.delete(key);
+      this.dropLink(key, link);
     }
   }
 }

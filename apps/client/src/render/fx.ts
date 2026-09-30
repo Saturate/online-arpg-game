@@ -1,44 +1,10 @@
-import type { ElementId, GameEvent } from '@rune/shared';
-import {
-  AdditiveBlending,
-  BoxGeometry,
-  CircleGeometry,
-  PlaneGeometry,
-  Color,
-  DoubleSide,
-  DynamicDrawUsage,
-  InstancedMesh,
-  Matrix4,
-  Mesh,
-  MeshBasicMaterial,
-  Quaternion,
-  RingGeometry,
-  Vector3,
-  type Scene,
-} from 'three';
-import { cssColor, FX } from './config.js';
+import type { ElementId, EntityId, GameEvent } from '@rune/shared';
+import { CircleGeometry, PlaneGeometry, Color, DoubleSide, Mesh, MeshBasicMaterial, RingGeometry, type Scene } from 'three';
+import { useSettings } from '../ui/settings.js';
+import { cssColor, FX, RENDER_ORDER } from './config.js';
 import type { WorldScene } from './scene.js';
-
-interface Particle {
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  life: number;
-  maxLife: number;
-  size: number;
-  gravity: number;
-}
-
-interface Shockwave {
-  mesh: Mesh;
-  mat: MeshBasicMaterial;
-  age: number;
-  duration: number;
-  radius: number;
-}
+import { styleOf, type VfxStyle } from './vfx/palette.js';
+import { Vfx } from './vfx/vfx.js';
 
 /** A monster wind-up: the outline shows where, the fill growing to the edge shows when. */
 interface Telegraph {
@@ -75,141 +41,57 @@ interface FloatingText {
   duration: number;
 }
 
-const GRAVITY = 520;
-const matrix = new Matrix4();
-const quat = new Quaternion();
-const scale = new Vector3();
-const pos = new Vector3();
-const color = new Color();
+const tmpColor = new Color();
 
 /**
- * Visual-only effects. Particles are one InstancedMesh so hundreds of them cost one draw call.
- * Text (damage numbers, names) is DOM, positioned by projecting world points each frame.
+ * Visual-only effects. Particles, trails and shockwaves live in the Vfx system (render/vfx/); this
+ * class keeps monster telegraphs and hazards, which stay crisp on purpose, and the DOM text
+ * (damage numbers, names), positioned by projecting world points each frame.
  */
 export class Effects {
-  private readonly particles: (Particle | null)[] = new Array<Particle | null>(FX.maxParticles).fill(null);
-  private readonly mesh: InstancedMesh;
-  private readonly waves: Shockwave[] = [];
+  readonly vfx: Vfx;
   private readonly texts: FloatingText[] = [];
+  /** The element of the last hit on each entity, so a death shows how it died. */
+  private readonly lastHit = new Map<EntityId, ElementId | null>();
+  private readonly unsubscribe: () => void;
   /** Last values written per label: reading style.color back returns the browser's rgb() form, so it never matched. */
   private readonly labels = new Map<string, { el: HTMLSpanElement; text: string; color: string; className: string }>();
-  private readonly ringGeo = new RingGeometry(0.8, 1, 48);
   private readonly edgeGeo = new RingGeometry(0.92, 1, 48);
   private readonly diskGeo = new CircleGeometry(1, 40);
   private readonly planeGeo = new PlaneGeometry(1, 1);
   private readonly teles: Telegraph[] = [];
   private readonly pools: Pool[] = [];
-  private cursor = 0;
-  private trailClock = 0;
 
   constructor(
     private readonly scene: Scene,
     private readonly world: WorldScene,
     private readonly layer: HTMLElement,
   ) {
-    this.mesh = new InstancedMesh(
-      new BoxGeometry(1, 1, 1),
-      // Normal blending keeps element colours readable on bright ground; additive turned everything white.
-      new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false }),
-      FX.maxParticles,
-    );
-    this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.mesh.frustumCulled = false;
-    for (let i = 0; i < FX.maxParticles; i++) {
-      matrix.makeScale(0, 0, 0);
-      this.mesh.setMatrixAt(i, matrix);
-      this.mesh.setColorAt(i, color.setHex(0xffffff));
-    }
-    scene.add(this.mesh);
+    this.vfx = new Vfx(scene, world.camera, useSettings.getState().options.vfxQuality);
+    this.unsubscribe = useSettings.subscribe((st) => this.vfx.setQuality(st.options.vfxQuality));
   }
 
+  /** A coloured burst, for callers that only know a colour. */
   burst(x: number, y: number, hex: number, count: number, speed: number, opts: { up?: number; size?: number; life?: number; gravity?: number } = {}): void {
-    for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const s = speed * (0.4 + Math.random() * 0.6);
-      this.spawn(
-        {
-          x,
-          y: 14 + Math.random() * 10,
-          z: y,
-          vx: Math.cos(a) * s,
-          vy: (opts.up ?? 180) * (0.5 + Math.random()),
-          vz: Math.sin(a) * s,
-          life: 0,
-          maxLife: (opts.life ?? 0.6) * (0.6 + Math.random() * 0.6),
-          size: (opts.size ?? 5) * (0.6 + Math.random() * 0.8),
-          gravity: opts.gravity ?? GRAVITY,
-        },
-        hex,
-      );
-    }
+    this.vfx.burst(x, y, tmpColor.setHex(hex), count, speed, opts.up ?? 180, opts.size ?? 5, opts.life ?? 0.6, opts.gravity ?? 520);
   }
 
-  /**
-   * Whether projectile trails emit this frame. A fixed rate keeps trail density and particle pool use
-   * the same at any refresh rate; per-frame emission wrapped the pool at 144 Hz.
-   */
-  trailDue(dt: number): boolean {
-    if (dt <= 0) return false;
-    this.trailClock += dt;
-    const step = 1 / FX.trailHz;
-    if (this.trailClock < step) return false;
-    // Modulo, not subtraction: a long hitch must not turn into a burst of catch-up emissions.
-    this.trailClock %= step;
-    return true;
+  shockwave(x: number, y: number, radius: number, style: VfxStyle, duration = 0.35): void {
+    this.vfx.shockwave(x, y, radius, style, duration);
   }
 
-  trail(x: number, y: number, hex: number, size: number): void {
-    this.spawn(
-      {
-        x: x + (Math.random() - 0.5) * 4,
-        y: 18,
-        z: y + (Math.random() - 0.5) * 4,
-        vx: 0,
-        vy: 10,
-        vz: 0,
-        life: 0,
-        maxLife: 0.22,
-        size,
-        gravity: 0,
-      },
-      hex,
-    );
+  /** A hit on an entity, in the style of what dealt it. */
+  hit(id: EntityId, x: number, y: number, el: ElementId | null, amount: number): void {
+    if (this.lastHit.size > 4000) this.lastHit.clear();
+    this.lastHit.set(id, el);
+    this.vfx.impact(el ? styleOf(el, 'damage') : null, x, y, amount >= 30);
   }
 
-  /**
-   * An orb sheds small embers off its rim instead of the bolt's single puff: one puff the orb's size
-   * washed its dark core out to a white blob.
-   */
-  orbTrail(x: number, y: number, hex: number, radius: number): void {
-    for (let i = 0; i < 2; i++) {
-      const a = Math.random() * Math.PI * 2;
-      this.spawn(
-        {
-          x: x + Math.cos(a) * radius,
-          y: 18 + (Math.random() - 0.5) * radius,
-          z: y + Math.sin(a) * radius,
-          vx: Math.cos(a) * 14,
-          vy: 18,
-          vz: Math.sin(a) * 14,
-          life: 0,
-          maxLife: 0.45,
-          size: Math.max(2, radius * 0.22),
-          gravity: 0,
-        },
-        hex,
-      );
-    }
-  }
-
-  shockwave(x: number, y: number, radius: number, hex: number, duration = 0.35): void {
-    const mat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.8, blending: AdditiveBlending, depthWrite: false, side: DoubleSide });
-    const mesh = new Mesh(this.ringGeo, mat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 3, y);
-    mesh.scale.setScalar(1);
-    this.scene.add(mesh);
-    this.waves.push({ mesh, mat, age: 0, duration, radius });
+  /** A death, shown in the element of the hit that caused it. */
+  death(id: EntityId, x: number, y: number, hex: number, big: boolean): void {
+    const el = this.lastHit.get(id) ?? null;
+    this.lastHit.delete(id);
+    this.vfx.death(el ? styleOf(el, 'damage') : null, x, y, tmpColor.setHex(hex), big);
   }
 
   telegraph(ev: TeleEvent): void {
@@ -248,6 +130,9 @@ export class Effects {
       fill.scale.set(0.01, ev.w, 1);
       fill.userData = { x: ev.x, y: ev.y, cos: Math.cos(angle), sin: Math.sin(angle) };
     }
+    // Above roads and plazas, like every ground effect; see RENDER_ORDER.
+    outline.renderOrder = RENDER_ORDER.groundEffect;
+    fill.renderOrder = RENDER_ORDER.groundEffect;
     this.scene.add(outline, fill);
     this.teles.push({ ownerId: ev.id, outline, fill, outlineMat, fillMat, age: 0, duration: Math.max(0.05, ev.t), shape: ev.shape, size });
   }
@@ -266,6 +151,7 @@ export class Effects {
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(ev.x, 2, ev.y);
     mesh.scale.setScalar(ev.r);
+    mesh.renderOrder = RENDER_ORDER.groundEffect;
     this.scene.add(mesh);
     this.pools.push({ mesh, mat, age: 0, duration: ev.t });
   }
@@ -315,43 +201,8 @@ export class Effects {
   }
 
   update(dt: number): void {
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
-      if (!p) continue;
-      p.life += dt;
-      if (p.life >= p.maxLife) {
-        this.particles[i] = null;
-        matrix.makeScale(0, 0, 0);
-        this.mesh.setMatrixAt(i, matrix);
-        continue;
-      }
-      p.vy -= p.gravity * dt;
-      p.x += p.vx * dt;
-      p.y = Math.max(1, p.y + p.vy * dt);
-      p.z += p.vz * dt;
-      const k = 1 - p.life / p.maxLife;
-      pos.set(p.x, p.y, p.z);
-      scale.setScalar(p.size * k);
-      matrix.compose(pos, quat, scale);
-      this.mesh.setMatrixAt(i, matrix);
-    }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-
-    for (let i = this.waves.length - 1; i >= 0; i--) {
-      const w = this.waves[i];
-      if (!w) continue;
-      w.age += dt;
-      const k = w.age / w.duration;
-      if (k >= 1) {
-        this.scene.remove(w.mesh);
-        w.mat.dispose();
-        this.waves.splice(i, 1);
-        continue;
-      }
-      w.mesh.scale.setScalar(Math.max(1, w.radius * (0.2 + 0.8 * Math.sqrt(k))));
-      w.mat.opacity = 0.8 * (1 - k);
-    }
+    this.vfx.begin(dt);
+    this.vfx.commit();
 
     for (let i = this.teles.length - 1; i >= 0; i--) {
       const t = this.teles[i];
@@ -405,6 +256,8 @@ export class Effects {
   }
 
   dispose(): void {
+    this.unsubscribe();
+    this.vfx.dispose();
     for (let i = this.teles.length - 1; i >= 0; i--) this.removeTele(i);
     for (const p of this.pools) {
       this.scene.remove(p.mesh);
@@ -413,12 +266,5 @@ export class Effects {
     this.pools.length = 0;
     for (const t of this.texts) t.el.remove();
     for (const label of this.labels.values()) label.el.remove();
-  }
-
-  private spawn(p: Particle, hex: number): void {
-    const i = this.cursor;
-    this.cursor = (this.cursor + 1) % FX.maxParticles;
-    this.particles[i] = p;
-    this.mesh.setColorAt(i, color.setHex(hex));
   }
 }

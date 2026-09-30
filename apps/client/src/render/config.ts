@@ -68,12 +68,27 @@ export function cssColor(color: number): string {
 }
 
 export const FX = {
-  maxParticles: 900,
   damageNumberSeconds: 0.9,
-  deathParticles: 22,
-  /** Projectile trail emissions per second, independent of frame rate. */
+  /** Low-quality projectile trail puffs per second, independent of frame rate. */
   trailHz: 30,
   /** Render smoothing snaps instead of blending when a reconcile moves the player further than this. */
   maxSmoothedCorrection: 100,
   torchCount: 10,
+} as const;
+
+/**
+ * Draw order of see-through things. Roads and plazas are transparent ground meshes at order 0, and
+ * three sorts the transparent pass by this before distance, so every ground effect is ordered above
+ * them instead of being lifted higher, which would float it off the ground.
+ */
+export const RENDER_ORDER = {
+  /** Selection rings, rare glows and loot pools. */
+  groundMark: 1,
+  /** Zones, novas, auras, telegraphs, hazards and scorch marks. */
+  groundEffect: 2,
+  /** Light pools, over the effects they light. */
+  groundLight: 3,
+  ribbons: 4,
+  smoke: 5,
+  glow: 6,
 } as const;

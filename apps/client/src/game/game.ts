@@ -33,7 +33,7 @@ import { Connection } from '../net/connection.js';
 import { Recorder, encodeReplay } from './replay.js';
 import { isOutdated, reloadForUpdate } from './update.js';
 import { netSettings } from '../net/settings.js';
-import { COLORS, cssColor, ELEMENT_COLORS, FX, TIER_COLORS, VIEW } from '../render/config.js';
+import { cssColor, FX, TIER_COLORS, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { Effects } from '../render/fx.js';
 import { playFxEvent } from '../render/fxEvents.js';
@@ -338,8 +338,10 @@ export class Game {
       }),
     });
     const world = new WorldScene(this.mounts.host, def);
-    const entities = new EntityRenderer(world.scene, world.camera);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
+    // Underground, spell light is the light: effects glow as they do at night.
+    fx.vfx.setUnderground(def.theme !== 'town' && def.theme !== 'wilds');
+    const entities = new EntityRenderer(world.scene, world.camera, fx.vfx);
     const input = new InputState(
       world.canvas,
       (code) => this.onKey(code),
@@ -838,7 +840,6 @@ export class Game {
     const sample = room.interp.sample(now);
     this.renderedEnemies = [];
     this.renderedLoot = [];
-    const trail = fx.trailDue(dt);
     const showAllLoot = room.input.showLootDown;
     const partyNames = useUi.getState().partyInfo?.members;
 
@@ -867,11 +868,6 @@ export class Game {
             labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id) });
           });
           if (to.gold > 0) labels.push({ key: `g${id}`, x, y, text: `${to.gold} gold`, color: '#e8c860', height: 34, className: 'fx-label loot gold' });
-        }
-        if (to.k === 'projectile' && trail) {
-          const color = to.team === 'enemies' ? COLORS.enemyBullet : to.el ? ELEMENT_COLORS[to.el] : COLORS.playerProjectile;
-          if (to.orb) fx.orbTrail(x, y, color, r);
-          else fx.trail(x, y, color, to.r * (to.team === 'enemies' ? 0.8 : 0.9));
         }
         items.push({ key: `s${id}`, snap, x, y, isSelf: false, isAlly: to.k === 'player' || to.k === 'minion' });
       }
