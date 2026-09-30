@@ -1,12 +1,13 @@
 import {
-  BAG,
   categoryForSlot,
   findSpot,
   GEAR_SLOTS,
+  generalTab,
   holdsBoundRunes,
   isBound,
   itemSize,
   STASH,
+  stashItemUids,
   gearStats,
   STAT_IDS,
   type ClassId,
@@ -16,6 +17,7 @@ import {
   type InventoryMessage,
   type Item,
   type ItemUid,
+  type StashTabRef,
   type StatId,
 } from '@rune/shared';
 
@@ -25,7 +27,14 @@ import {
  */
 export type ItemPlace =
   | { at: 'bag'; x?: number; y?: number }
-  | { at: 'stash'; x: number; y: number }
+  /** A cell of general stash tab `tab`. */
+  | { at: 'stash'; tab: number; x: number; y: number }
+  /** In the rune tab (a rolled rune in its list), or the rune tab itself as a drop target. */
+  | { at: 'runeTab' }
+  /** In the sigil tab's list, or the sigil tab itself as a drop target. */
+  | { at: 'sigilTab' }
+  /** A tab's label in the tab bar: only a drop target, which puts the item anywhere in that tab. */
+  | { at: 'tabLabel'; tab: StashTabRef }
   | { at: 'sigil'; slot: number }
   | { at: 'warband'; slot: number }
   | { at: 'gear'; slot: GearSlot }
@@ -58,7 +67,8 @@ function cell(v: unknown): v is number {
 function parsePlace(v: unknown): ItemPlace | null {
   if (!isRecord(v)) return null;
   if (v.at === 'bag') return cell(v.x) && cell(v.y) ? { at: 'bag', x: v.x, y: v.y } : { at: 'bag' };
-  if (v.at === 'stash' && cell(v.x) && cell(v.y)) return { at: 'stash', x: v.x, y: v.y };
+  if (v.at === 'stash' && cell(v.x) && cell(v.y) && typeof v.tab === 'number' && Number.isInteger(v.tab)) return { at: 'stash', tab: v.tab, x: v.x, y: v.y };
+  if (v.at === 'runeTab' || v.at === 'sigilTab') return { at: v.at };
   if ((v.at === 'sigil' || v.at === 'warband') && typeof v.slot === 'number' && Number.isInteger(v.slot) && v.slot >= 0 && v.slot < 4) return { at: v.at, slot: v.slot };
   if (v.at === 'gear' && isGearSlot(v.slot)) return { at: 'gear', slot: v.slot };
   return null;
@@ -82,21 +92,24 @@ function firstEmpty(slots: readonly (ItemUid | null)[]): number | null {
   return i < 0 ? null : i;
 }
 
+function inStashPlace(place: ItemPlace): boolean {
+  return place.at === 'stash' || place.at === 'runeTab' || place.at === 'sigilTab';
+}
+
 /**
  * Right-click behaviour, D2 style: equipped things come off, bag things go on. Sigils and vessels
- * only take a free slot: replacing a skill by accident is worse than having to drag.
+ * only take a free slot: replacing a skill by accident is worse than having to drag. At the stash a
+ * right-click is the same quick move as ctrl+click; `openTab` is the general tab on screen.
  */
-export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false, traderOpen = false): ClientMessage | null {
+export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace, classId: ClassId, stashOpen = false, traderOpen = false, openTab: number | null = null): ClientMessage | null {
   // At the trader, right-click on a bag item sells it.
   if (traderOpen && place.at === 'bag') return { t: 'sell', uid: item.uid };
-  // At the stash, right-click moves things across instead, like D2's ctrl-click.
-  if (stashOpen && (place.at === 'bag' || place.at === 'stash')) {
-    const to = place.at === 'bag' ? 'stash' : 'bag';
-    const spot = findSpot(to === 'bag' ? inv.inventory : inv.stash, to === 'bag' ? BAG : STASH, itemSize(item));
-    return spot ? { t: 'moveItem', uid: item.uid, to, x: spot.x, y: spot.y } : null;
-  }
+  if (stashOpen && (place.at === 'bag' || inStashPlace(place))) return { t: 'quickMove', uid: item.uid, tab: openTab };
   switch (place.at) {
     case 'stash':
+    case 'runeTab':
+    case 'sigilTab':
+    case 'tabLabel':
     case 'trader':
     case 'forge':
       return null;
@@ -119,14 +132,27 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
-  const fromGrid = drag.from.at === 'bag' || drag.from.at === 'stash';
-  if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge') return null;
+  const fromGrid = drag.from.at === 'bag' || inStashPlace(drag.from);
+  if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge' || drag.from.at === 'tabLabel') return null;
+  if (target.at === 'runeTab') return fromGrid && item.kind === 'rune' && drag.from.at !== 'runeTab' ? { t: 'moveItem', uid: item.uid, to: { at: 'runes' } } : null;
+  if (target.at === 'sigilTab') return fromGrid && item.kind === 'sigil' && drag.from.at !== 'sigilTab' ? { t: 'moveItem', uid: item.uid, to: { at: 'sigils' } } : null;
+  if (target.at === 'tabLabel') {
+    if (!fromGrid) return null;
+    if (target.tab === 'runes') return item.kind === 'rune' ? { t: 'moveItem', uid: item.uid, to: { at: 'runes' } } : null;
+    if (target.tab === 'sigils') return item.kind === 'sigil' ? { t: 'moveItem', uid: item.uid, to: { at: 'sigils' } } : null;
+    const tab = generalTab(inv.stash, target.tab);
+    const spot = tab ? findSpot(tab.cells, STASH, itemSize(item)) : null;
+    return spot ? { t: 'moveItem', uid: item.uid, to: { at: 'tab', tab: target.tab, x: spot.x, y: spot.y } } : null;
+  }
   if (target.at === 'bag' || target.at === 'stash') {
     if (!fromGrid) return target.at === 'bag' ? quickAction(inv, item, drag.from, classId) : null;
     if (target.x === undefined || target.y === undefined) return null;
-    const x = target.x - drag.grab.x;
-    const y = target.y - drag.grab.y;
-    return x >= 0 && y >= 0 ? { t: 'moveItem', uid: item.uid, to: target.at, x, y } : null;
+    // A list row has no footprint to grip, so only grid-to-grid drags keep the offset.
+    const grab = drag.from.at === 'bag' || drag.from.at === 'stash' ? drag.grab : { x: 0, y: 0 };
+    const x = target.x - grab.x;
+    const y = target.y - grab.y;
+    if (x < 0 || y < 0) return null;
+    return { t: 'moveItem', uid: item.uid, to: target.at === 'bag' ? { at: 'bag', x, y } : { at: 'tab', tab: target.tab, x, y } };
   }
   // Dragging one skill onto another slot reorders the skill bar.
   if (drag.from.at === 'sigil' && target.at === 'sigil') return drag.from.slot === target.slot ? null : { t: 'swapSigils', a: drag.from.slot, b: target.slot };
@@ -173,6 +199,6 @@ export function dropRefusal(item: Item): string | null {
 
 /** Items the character owns that sit in no grid and no slot: they wait for room (see pendingItems on the server). */
 export function pendingOf(inv: InventoryMessage): Item[] {
-  const placed = new Set<ItemUid | null>([...inv.inventory, ...inv.stash, ...inv.warband, ...inv.sigils, ...Object.values(inv.gear)]);
+  const placed = new Set<ItemUid | null>([...inv.inventory, ...stashItemUids(inv.stash), ...inv.warband, ...inv.sigils, ...Object.values(inv.gear)]);
   return inv.items.filter((i) => !placed.has(i.uid));
 }

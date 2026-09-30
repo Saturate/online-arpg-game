@@ -14,6 +14,7 @@ import {
   rollLosses,
   sigilCapacity,
   sigilCastDelay,
+  stashItemUids,
   type GrammarError,
   type InventoryMessage,
   type ItemUid,
@@ -62,7 +63,7 @@ function sigilsOf(inv: InventoryMessage): SigilPlace[] {
   };
   inv.sigils.forEach((uid, slot) => push(uid, 'equipped', slot));
   for (const uid of inv.inventory) push(uid, 'bag', -1);
-  for (const uid of inv.stash) push(uid, 'stash', -1);
+  for (const uid of stashItemUids(inv.stash)) push(uid, 'stash', -1);
   return out;
 }
 

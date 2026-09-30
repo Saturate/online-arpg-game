@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGear, inventoryMessage, Simulation, type GearItem, type InventoryMessage } from '@rune/shared';
+import { createGear, createRolledRune, createSigil, inventoryMessage, Simulation, type GearItem, type InventoryMessage } from '@rune/shared';
 import { compareGear, dropAction, parseDrag, quickAction, replacedBy } from '../src/ui/itemActions.js';
 
 function setup(): { sim: Simulation; pid: number; inv: () => InventoryMessage } {
@@ -75,7 +75,7 @@ describe('grid drops', () => {
     const { sim, inv } = setup();
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1, { category: 'ring' });
     const drag = { uid: ring.uid, from: { at: 'bag' as const, x: 1, y: 1 }, grab: { x: 1, y: 2 } };
-    expect(dropAction(inv(), ring, drag, { at: 'stash', x: 5, y: 4 }, 'mage')).toEqual({ t: 'moveItem', uid: ring.uid, to: 'stash', x: 4, y: 2 });
+    expect(dropAction(inv(), ring, drag, { at: 'stash', tab: 1, x: 5, y: 4 }, 'mage')).toEqual({ t: 'moveItem', uid: ring.uid, to: { at: 'tab', tab: 1, x: 4, y: 2 } });
     // A grip that would put the corner off the grid is refused rather than clamped.
     expect(dropAction(inv(), ring, drag, { at: 'bag', x: 0, y: 0 }, 'mage')).toBeNull();
   });
@@ -88,5 +88,33 @@ describe('skill slots', () => {
     const drag = { uid: sigil.uid, from: { at: 'sigil' as const, slot: 0 }, grab: { x: 0, y: 0 } };
     expect(dropAction(inv(), sigil, drag, { at: 'sigil', slot: 3 }, 'mage')).toEqual({ t: 'swapSigils', a: 0, b: 3 });
     expect(dropAction(inv(), sigil, drag, { at: 'sigil', slot: 0 }, 'mage')).toBeNull();
+  });
+});
+
+describe('stash tabs', () => {
+  it('right-click and ctrl+click at the stash send a quick move with the open tab', () => {
+    const { sim, pid, inv } = setup();
+    const ring = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 5, { category: 'ring' });
+    give(sim, pid, ring);
+    expect(quickAction(inv(), ring, { at: 'bag' }, 'mage', true, false, 3)).toEqual({ t: 'quickMove', uid: ring.uid, tab: 3 });
+    expect(quickAction(inv(), ring, { at: 'stash', tab: 1, x: 0, y: 0 }, 'mage', true)).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
+    expect(quickAction(inv(), ring, { at: 'sigilTab' }, 'mage', true)).toEqual({ t: 'quickMove', uid: ring.uid, tab: null });
+    // Away from the chest a stash place does nothing on right-click.
+    expect(quickAction(inv(), ring, { at: 'runeTab' }, 'mage', false)).toBeNull();
+  });
+
+  it('drops onto the rune and sigil tabs, a tab label, and list rows onto a cell', () => {
+    const { sim, inv } = setup();
+    const rune = createRolledRune(sim.newItemUid(), sim.rand.loot, 'rare', 5, 'orb');
+    const sigil = createSigil(sim.newItemUid(), sim.rand.loot, 'magic');
+    const fromBag = (uid: number) => ({ uid, from: { at: 'bag' as const, x: 0, y: 0 }, grab: { x: 0, y: 0 } });
+    expect(dropAction(inv(), rune, fromBag(rune.uid), { at: 'runeTab' }, 'mage')).toEqual({ t: 'moveItem', uid: rune.uid, to: { at: 'runes' } });
+    expect(dropAction(inv(), sigil, fromBag(sigil.uid), { at: 'runeTab' }, 'mage')).toBeNull();
+    expect(dropAction(inv(), sigil, fromBag(sigil.uid), { at: 'sigilTab' }, 'mage')).toEqual({ t: 'moveItem', uid: sigil.uid, to: { at: 'sigils' } });
+    expect(dropAction(inv(), sigil, fromBag(sigil.uid), { at: 'tabLabel', tab: 1 }, 'mage')).toEqual({ t: 'moveItem', uid: sigil.uid, to: { at: 'tab', tab: 1, x: 0, y: 0 } });
+    expect(dropAction(inv(), sigil, fromBag(sigil.uid), { at: 'tabLabel', tab: 'sigils' }, 'mage')).toEqual({ t: 'moveItem', uid: sigil.uid, to: { at: 'sigils' } });
+    // A list row has no grip: it lands with its corner on the cell.
+    const fromList = { uid: sigil.uid, from: { at: 'sigilTab' as const }, grab: { x: 3, y: 3 } };
+    expect(dropAction(inv(), sigil, fromList, { at: 'bag', x: 2, y: 1 }, 'mage')).toEqual({ t: 'moveItem', uid: sigil.uid, to: { at: 'bag', x: 2, y: 1 } });
   });
 });

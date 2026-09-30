@@ -1,0 +1,320 @@
+/* Stash tabs: the tab bar, the list tabs and the rename prompt. Scoped to stash- classes. */
+
+.stash-window {
+  width: 590px;
+}
+
+/* Tab labels and controls are clicked and dragged onto, never read as text to copy. */
+.stash-tabs,
+.stash-toolbar,
+.stash-filters,
+.stash-row,
+.stash-editor,
+.stash-window .inv-footer {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stash-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 3px 2px;
+  padding: 4px 14px 0;
+  border-bottom: 1px solid #3a2f20;
+}
+.panel .stash-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 132px;
+  padding: 5px 9px 4px;
+  font: 600 11.5px Cinzel, Georgia, serif;
+  letter-spacing: 0.3px;
+  color: #a8957a;
+  background: linear-gradient(180deg, #1a1510, #0f0c09);
+  border: 1px solid #2e261b;
+  border-top: 3px solid color-mix(in srgb, var(--tab) 70%, #000);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.panel .stash-tab.fixed {
+  border-top-color: #3a3024;
+  font-style: italic;
+}
+.panel .stash-tab:hover {
+  color: #d8c7a4;
+  border-color: #4a3b24;
+  border-top-color: var(--tab);
+}
+.panel .stash-tab.active {
+  color: #ecd9ae;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tab) 22%, #1f1911), #15110c);
+  border-color: #4a3b24;
+  border-top-color: var(--tab);
+  border-bottom: 1px solid #15110c;
+  z-index: 1;
+}
+.panel .stash-tab.drop-ok {
+  border-color: #6fd08a;
+  box-shadow: 0 0 8px rgba(111, 208, 138, 0.35);
+}
+.panel .stash-tab.drop-no {
+  border-color: #7a3a2c;
+}
+.stash-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stash-tab-count {
+  font: 500 10px ui-monospace, monospace;
+  color: #6f6250;
+}
+.stash-tab-gap {
+  width: 8px;
+}
+.panel button.stash-buy {
+  margin: 0 0 3px auto;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  color: #d9b56a;
+  border-style: dashed;
+}
+.stash-buy-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 3px auto;
+  font-size: 11.5px;
+  color: #cfc3a8;
+}
+.panel .stash-buy-ask button {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+.stash-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px 6px;
+  background: #15110c;
+}
+.stash-toolbar,
+.stash-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.stash-spacer {
+  flex: 1;
+}
+.stash-title {
+  font: 600 13px Cinzel, Georgia, serif;
+  color: #d9b56a;
+  letter-spacing: 0.4px;
+}
+.stash-title.general {
+  padding-left: 8px;
+  border-left: 3px solid var(--tab);
+}
+.panel .stash-toolbar button {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.stash-toolbar select,
+.stash-filters select,
+.stash-filters input,
+.stash-split input,
+.stash-editor input {
+  background: #120e0a;
+  color: #e0d4bc;
+  border: 1px solid #3f3222;
+  border-radius: 3px;
+  padding: 3px 5px;
+  font-size: 12px;
+}
+.stash-filters input[type='search'] {
+  width: 110px;
+}
+.stash-grid {
+  margin-top: 0;
+}
+
+/* The list tabs keep the grid's height, so switching tabs does not move the bag beside it. */
+.stash-list {
+  height: 392px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #241d15;
+}
+.stash-list.drop-ok {
+  border-color: #6fd08a;
+  box-shadow: inset 0 0 12px rgba(111, 208, 138, 0.18);
+}
+.stash-list.drop-no {
+  border-color: #7a3a2c;
+}
+.stash-empty {
+  margin: auto;
+  max-width: 300px;
+  text-align: center;
+  color: #7a6d58;
+  font-size: 12px;
+}
+.stash-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 8px;
+  text-align: left;
+  color: inherit;
+  background: linear-gradient(90deg, #17120d, #100d09);
+  border: 1px solid #231c14;
+  border-radius: 3px;
+  cursor: grab;
+}
+.stash-row:hover {
+  border-color: #4a3b24;
+  background: linear-gradient(90deg, #211910, #140f0a);
+}
+.stash-row.dragging {
+  opacity: 0.35;
+}
+.stash-rune-row {
+  grid-template-columns: 32px minmax(120px, 170px) 1fr auto;
+  min-height: 38px;
+}
+.stash-rune-row .forge-glyph {
+  width: 28px;
+  height: 28px;
+  font-size: 11.5px;
+}
+.stash-row-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stash-count {
+  font: 600 11px ui-monospace, monospace;
+  color: #cfc6b6;
+}
+.stash-row-affixes {
+  font-size: 11px;
+  color: #8f8fd0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stash-row-ilvl {
+  font: 500 10.5px ui-monospace, monospace;
+  color: #6f6250;
+}
+.stash-sigil-row {
+  grid-template-columns: 38px 1fr;
+  align-items: start;
+  padding: 4px 8px;
+}
+.stash-sigil-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #2e261b;
+  border-radius: 4px;
+  background: radial-gradient(circle at 50% 38%, #1d1712, #0b0907 75%);
+}
+.stash-sigil-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.stash-sigil-meta {
+  font-size: 11px;
+  color: #a8957a;
+}
+.stash-sigil-sentence {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #cfc3a8;
+}
+
+.stash-split {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid #4a3b24;
+  border-radius: 4px;
+  background: rgba(40, 28, 14, 0.6);
+}
+.stash-split input {
+  width: 56px;
+}
+.panel .stash-split button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* Rename and recolour, drawn over the tab it edits. */
+.stash-editor {
+  position: absolute;
+  top: 38px;
+  left: 16px;
+  z-index: 3;
+  display: grid;
+  gap: 8px;
+  width: 260px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, #211a12, #140f0a);
+  border: 1px solid #5a4830;
+  border-radius: 5px;
+  box-shadow: 0 8px 28px #000c;
+}
+.stash-editor label {
+  display: grid;
+  gap: 4px;
+  font: 600 11px Cinzel, Georgia, serif;
+  color: #a8957a;
+}
+.stash-swatches {
+  display: flex;
+  gap: 5px;
+}
+.stash-swatch {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #000;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+.stash-swatch.on {
+  outline: 2px solid #d9b56a;
+  outline-offset: 1px;
+}
+.stash-editor-why {
+  margin: 0;
+  font-size: 11px;
+  color: #e0806a;
+}
+.stash-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

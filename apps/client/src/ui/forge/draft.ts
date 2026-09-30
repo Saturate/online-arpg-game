@@ -46,8 +46,10 @@ function uniqueRunes(cells: readonly (ItemUid | null)[], inv: InventoryMessage):
   return out;
 }
 
+/** Stash runes in the order the server draws plain ones: the rune tab, then general tabs. */
 export function runeStock(inv: InventoryMessage, bench = false): RuneStock {
-  return { bag: uniqueRunes(inv.inventory, inv), stash: uniqueRunes(inv.stash, inv), bench };
+  const stash = [...uniqueRunes(inv.stash.runes.list, inv), ...inv.stash.general.flatMap((t) => uniqueRunes(t.cells, inv))];
+  return { bag: uniqueRunes(inv.inventory, inv), stash, bench };
 }
 
 export function keepAll(sigil: SigilItem): RuneRef[] {
@@ -93,7 +95,8 @@ export interface Resolution {
 }
 
 /**
- * The server takes a plain rune from the bag first, bound stacks first, then the stash. Mirrored
+ * The server takes a plain rune from the bag first, bound stacks first, then the rune tab's stacks,
+ * then stacks in general tabs (runeStock lists the stash in that order). Mirrored
  * here so the price and the stash marker show what will really be taken.
  */
 function plainSources(stock: RuneStock, rune: RuneId): RuneItem[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BAG, createRune, emptyGrid, STASH, type InventoryMessage, type Item, type RuneItem, type SigilItem } from '@rune/shared';
+import { BAG, createRune, emptyGrid, emptyStash, type InventoryMessage, type Item, type RuneItem, type SigilItem } from '@rune/shared';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refundOverflow, removeAt, resolveDraft, runeStock } from '../src/ui/forge/draft.js';
 
 const priceOf = (r: RuneItem): number => (r.affixes.length > 0 ? 50 : 5);
@@ -12,12 +12,15 @@ function sigilWith(slots: RuneItem[]): SigilItem {
   return { uid: 100, kind: 'sigil', tier: 'magic', name: 'Test Sigil', ilvl: 1, affixes: [], slots, corrupted: false };
 }
 
-function inventory(bag: Item[], stash: Item[] = []): InventoryMessage {
+/** `stash` items go in general tab 1, `tab` items in the rune tab. */
+function inventory(bag: Item[], stash: Item[] = [], tab: Item[] = []): InventoryMessage {
   const inv = emptyGrid(BAG);
   bag.forEach((it, i) => (inv[i] = it.uid));
-  const st = emptyGrid(STASH);
-  stash.forEach((it, i) => (st[i] = it.uid));
-  return { t: 'inventory', items: [...bag, ...stash], inventory: inv, stash: st, gold: 100, sigils: [null, null, null, null], warband: [], gear: { weapon: null, helmet: null, body: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null } };
+  const st = emptyStash();
+  const cells = st.general[0]?.cells ?? [];
+  stash.forEach((it, i) => (cells[i] = it.uid));
+  st.runes.list = tab.map((i) => i.uid);
+  return { t: 'inventory', items: [...bag, ...stash, ...tab], inventory: inv, stash: st, stashTabPrice: 250, gold: 100, sigils: [null, null, null, null], warband: [], gear: { weapon: null, helmet: null, body: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null } };
 }
 
 describe('forge draft', () => {
@@ -29,6 +32,22 @@ describe('forge draft', () => {
       ['cold', 0, 1],
     ]);
     expect(pool.rolled.map((r) => [r.item.uid, r.origin])).toEqual([[2, 'bag']]);
+  });
+
+  it('counts the rune tab as stash runes and draws from it after the bag, before general tabs', () => {
+    const inv = inventory([createRune(1, 'fire', 1)], [createRune(3, 'fire', 2)], [createRune(5, 'fire', 5), createRune(6, 'bolt', 2), rolled(7, 'orb')]);
+    const pool = buildPool(sigilWith([]), [], runeStock(inv));
+    expect(pool.plain.map((p) => [p.rune, p.bag, p.stash])).toEqual([
+      ['bolt', 0, 2],
+      ['fire', 1, 7],
+    ]);
+    const fire = { from: 'plain', rune: 'fire' } as const;
+    const res = resolveDraft(sigilWith([]), Array.from({ length: 8 }, () => fire), runeStock(inv), priceOf);
+    expect(res.slots.map((s) => s.origin)).toEqual(['bag', 'stash', 'stash', 'stash', 'stash', 'stash', 'stash', 'stash']);
+    // The general tab stack is only reached once the rune tab's five are drafted.
+    expect(res.valid).toHaveLength(8);
+    expect(runeStock(inv).stash.map((r) => r.uid)).toEqual([5, 6, 7, 3]);
+    expect(pool.rolled.map((r) => [r.item.uid, r.origin])).toEqual([[7, 'stash']]);
   });
 
   it('hides runes the engine cannot run', () => {

@@ -1,4 +1,4 @@
-import { BAG, categoryForSlot, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type InventoryMessage, type Item, type ItemUid } from '@rune/shared';
+import { BAG, categoryForSlot, generalTab, isBound, sellPrice, TRADER, CLASSES, GEAR_SLOTS, itemSize, placements, STASH, STAT_LABELS, type GearSlot, type GridSize, type InventoryMessage, type Item, type ItemUid } from '@rune/shared';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { ItemIcon, SlotSilhouette } from './icons.js';
@@ -7,6 +7,7 @@ import { affixPips, placeTooltip, unusable } from './itemView.js';
 import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
+import { openGeneralTab } from './stashView.js';
 import './inventory.css';
 
 interface HoverState {
@@ -25,7 +26,7 @@ export const useHover = create<HoverState>((set) => ({ item: null, place: null, 
  * The item being dragged, so every cell can light up if it would accept it. The browser only
  * exposes drag data on drop, so this mirrors it for the duration of the drag.
  */
-const useDrag = create<{ drag: DragPayload | null }>(() => ({ drag: null }));
+export const useDrag = create<{ drag: DragPayload | null }>(() => ({ drag: null }));
 
 /** A good item waiting for a yes before it is dropped on the ground or sold to the shared shelf. */
 const usePendingDrop = create<{ uid: ItemUid | null; sell: boolean }>(() => ({ uid: null, sell: false }));
@@ -136,6 +137,9 @@ function SpiritPreview({ item, place }: { item: Item; place: ItemPlace | null })
   );
 }
 
+/** The modifier for quick moves as the player's keyboard names it. */
+export const QUICK_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl';
+
 export function ItemTooltip() {
   const { item, x, y, place } = useHover();
   const classId = useUi((s) => s.classId);
@@ -164,11 +168,13 @@ export function ItemTooltip() {
             ? isBound(item)
               ? 'Starter item: cannot be sold'
               : `Right-click to sell for ${sellPrice(item)} gold`
-            : place?.at === 'stash'
-          ? 'Right-click to take it out · Drag to move'
+            : place?.at === 'stash' || place?.at === 'runeTab' || place?.at === 'sigilTab'
+          ? item.kind === 'rune' && item.affixes.length === 0 && item.count > 1
+            ? `${QUICK_KEY}+click to take it out · Shift+click to take some · Drag to move`
+            : `${QUICK_KEY}+click to take it out · Drag to move`
           : place?.at === 'bag'
             ? useUi.getState().stashOpen
-              ? 'Right-click to stash · Drag to move or equip'
+              ? `${QUICK_KEY}+click to stash · Drag to move or equip`
               : item.kind === 'rune'
                 ? 'Inscribe it at the forge · Drag to move · Shift+right-click to drop'
                 : 'Right-click to equip · Drag onto a slot · Shift+right-click to drop'
@@ -219,6 +225,15 @@ export function ItemCell({
   const blocked = item && classId ? unusable(item, level, classId) : null;
   const fresh = useFresh((f) => item !== undefined && place.at === 'bag' && f.uids.has(item.uid));
 
+  /** Ctrl+click (Cmd+click on macOS) at the stash: the same quick move as a right-click there. */
+  const quick = (e: MouseEvent): boolean => {
+    if (!item || !(e.ctrlKey || e.metaKey) || !useUi.getState().stashOpen || (place.at !== 'bag' && place.at !== 'stash')) return false;
+    e.preventDefault();
+    setHover(null, 0, 0);
+    sendCommand({ t: 'quickMove', uid: item.uid, tab: openGeneralTab() });
+    return true;
+  };
+
   const act = (e: MouseEvent) => {
     e.preventDefault();
     const { inventory, classId: cls } = useUi.getState();
@@ -246,9 +261,8 @@ export function ItemCell({
       usePendingDrop.setState({ uid: item.uid, sell: true });
       return;
     }
-    const msg = quickAction(inventory, item, place, cls, stashOpen, traderOpen);
+    const msg = quickAction(inventory, item, place, cls, stashOpen, traderOpen, openGeneralTab());
     if (msg) sendCommand(msg);
-    else if (stashOpen && (place.at === 'bag' || place.at === 'stash')) useUi.getState().notify(`No room in the ${place.at === 'bag' ? 'stash' : 'bag'}`);
     else if (item.kind === 'vessel' && cls !== 'binder') useUi.getState().notify('Only Binders can bind vessels');
     else useUi.getState().notify('All slots are full. Drag it onto the one to replace.');
   };
@@ -270,13 +284,14 @@ export function ItemCell({
   /** A grid place refined to the exact cell under the pointer: an item spans several cells. */
   function cellUnder(e: { clientX: number; clientY: number; currentTarget: Element }): ItemPlace {
     if (!gridCell || (place.at !== 'bag' && place.at !== 'stash') || place.x === undefined || place.y === undefined) return place;
+    const grid = place;
     // Spans come from the item's footprint, not its pixel size, so window zoom and UI scale cannot
     // throw the cell count off.
     const r = e.currentTarget.getBoundingClientRect();
     const span = item ? itemSize(item) : { w: 1, h: 1 };
     const x = place.x + Math.min(span.w - 1, Math.floor(((e.clientX - r.left) / Math.max(1, r.width)) * span.w));
     const y = place.y + Math.min(span.h - 1, Math.floor(((e.clientY - r.top) / Math.max(1, r.height)) * span.h));
-    return { ...place, x, y };
+    return { ...grid, x, y };
   }
 
   const tier: CSSProperties & Record<'--tier', string> = { '--tier': item ? tierColor(item) : 'transparent', ...style };
@@ -327,7 +342,10 @@ export function ItemCell({
       }}
       onMouseMove={(e) => item && setHover(item, e.clientX, e.clientY, place)}
       onMouseLeave={() => setHover(null, 0, 0)}
-      onClick={() => item && onSelect?.()}
+      onClick={(e) => {
+        if (quick(e)) return;
+        if (item) onSelect?.();
+      }}
       onContextMenu={act}
       aria-label={item ? `${item.name}${blocked ? ' (cannot use)' : ''}` : (label ?? 'Empty slot')}
     >
@@ -425,12 +443,14 @@ function Paperdoll() {
 /** Pixel size of one bag or stash cell. */
 const CELL = 44;
 
-/** A D2-style grid: items span their footprint, and every free cell is a drop target. */
-function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | 'stash'; selUid: ItemUid | null; onSelect: (uid: ItemUid) => void }) {
+/** A D2-style grid: items span their footprint, and every free cell is a drop target. `which` is the bag or a general tab's id. */
+export function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | number; selUid: ItemUid | null; onSelect: (uid: ItemUid) => void }) {
   const inv = useUi((s) => s.inventory);
   if (!inv) return null;
   const size: GridSize = which === 'bag' ? BAG : STASH;
-  const cells = which === 'bag' ? inv.inventory : inv.stash;
+  const cells = which === 'bag' ? inv.inventory : generalTab(inv.stash, which)?.cells;
+  if (!cells) return null;
+  const at = (x: number, y: number): ItemPlace => (which === 'bag' ? { at: 'bag', x, y } : { at: 'stash', tab: which, x, y });
   const style: CSSProperties = { gridTemplateColumns: `repeat(${size.w}, ${CELL}px)`, gridTemplateRows: `repeat(${size.h}, ${CELL}px)` };
   return (
     <div className="inv-grid" style={style}>
@@ -439,7 +459,7 @@ function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | 'stash'; selUid:
           <ItemCell
             key={`free-${i}`}
             item={undefined}
-            place={{ at: which, x: i % size.w, y: Math.floor(i / size.w) }}
+            place={at(i % size.w, Math.floor(i / size.w))}
             className="inv-cell grid-free"
             style={{ gridColumn: (i % size.w) + 1, gridRow: Math.floor(i / size.w) + 1 }}
           />
@@ -453,7 +473,7 @@ function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | 'stash'; selUid:
           <ItemCell
             key={uid}
             item={item}
-            place={{ at: which, x, y }}
+            place={at(x, y)}
             gridCell={CELL}
             className="inv-cell grid-item"
             iconSize={Math.min(s.w, s.h) * CELL - 4}
@@ -509,35 +529,6 @@ export function TraderWindow() {
           <kbd>Right-click</kbd> a bag item to sell
         </span>
         <span>When the shelf is full, the oldest item goes for good</span>
-      </footer>
-    </section>
-  );
-}
-
-/** The account's shared stash, beside the bag while standing at the chest in town. */
-export function StashWindow() {
-  // The forge sits near the chest; its editor takes the stash's place on screen while it is open.
-  const open = useUi((s) => s.stashOpen && s.inventoryOpen && !s.editorOpen);
-  const inv = useUi((s) => s.inventory);
-  const [selUid, setSelUid] = useState<ItemUid | null>(null);
-  if (!open || !inv) return null;
-  const used = placements(inv.stash, STASH).length;
-  return (
-    <section className="panel inv-window stash-window" aria-label="Stash">
-      <header className="inv-header">
-        <h2>Stash</h2>
-        <span className="muted">{used} items · shared by all your characters</span>
-      </header>
-      <div className="inv-body">
-        <ItemGrid which="stash" selUid={selUid} onSelect={(uid) => setSelUid(uid === selUid ? null : uid)} />
-      </div>
-      <footer className="inv-footer">
-        <span>
-          <kbd>Right-click</kbd> move between bag and stash
-        </span>
-        <span>
-          <kbd>Drag</kbd> to place
-        </span>
       </footer>
     </section>
   );
