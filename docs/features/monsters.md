@@ -59,7 +59,7 @@ Code:
 - Numbers: `ENEMY_LEVEL`, `WILDS` (aggro, alert, leash), `NAV`, `WAVES`, `CURSE` in `packages/shared/src/config/sim.ts`.
 - Tuning: `packages/shared/src/data/tuning.ts` (editable keys and limits, `normalizeEnemyOverride`, `MonsterTuning`), `apps/server/src/tuningStore.ts` (table `tuning_overrides`), `tuningRoutes.ts`, `liveTuning.ts`, and `retune` in `manager.ts`.
 - Admin UI: `apps/client/src/admin/monsters/` (`TuningTab.tsx`, `exportText.ts`, `ModelCheckTab.tsx`, `modelChecks.ts`, `ModelStage.tsx`, `monsterViewer.ts`); try-ons in `apps/client/src/render/tryOn.ts`.
-- Model files: `tools/blender/` is a headless Blender pipeline for fixing, rigging and animating a quadruped `.glb` (order, worked example and lessons in `tools/blender/README.md`); `pnpm model:check <file.glb> [--height N]` runs the Model check on a local file from the terminal (`scripts/model-check.ts`, through `admin/monsters/checkGlb.ts`) and exits non-zero on a warning.
+- Model files: `tools/blender/` is a headless Blender pipeline for fixing, rigging and animating a quadruped `.glb` (order, worked example and lessons in `tools/blender/README.md`); `pnpm model:check <file.glb> [--height N] [--static] [--floats]` runs the Model check on a local file from the terminal (`scripts/model-check.ts`, through `admin/monsters/checkGlb.ts`) and exits non-zero on a warning.
 - Rendering: model registry and the tint shader (`corruptMaterial`) in `apps/client/src/render/assets.ts`; procedural models in `render/models.ts`; corpses in `render/entities.ts`.
 
 The ability and monster shapes:
@@ -96,14 +96,16 @@ Model check runs 10 checks, all pass or warn:
 |---|---|
 | triangles | over 5000 |
 | size | file over 3 MB |
-| facing | not +Z (guessed from head-like part names, then glowing parts, then body shape) |
-| feet | a part (a mesh node, whatever its materials) reaches more than 3% of the height below the rest, unless it holds most of the triangles |
+| facing | not +Z (guessed from the skeleton when there is one: toe bones point forward from the foot, or a head bone sits ahead of the hips; then parts named with a whole head word such as head, eye, jaw or horn, measured from the hips when there are any; then small glowing parts that are not sparks (`orbit`, `spark`, `ember` and the like); then body shape) |
+| feet | a part (a mesh node, whatever its materials) reaches more than 3% of the height below the rest, unless it holds most of the triangles or the model is marked as floating |
 | colours | an untextured, non-emissive material is near black (luminance under 0.01) |
 | loops | idle, walk or run do not loop (position within 0.0005 of height, rotation within 0.5 degrees) |
 | materials | a primitive has no material |
-| roles | missing idle/walk/run, an attack, hit or death clip |
+| roles | missing idle, walk or run (not for a model marked as never moving), an attack, hit or death clip |
 | rootMotion | walk or run travel more than 10% of the height |
 | rig | no animations (otherwise it reports skinned or rigid) |
+
+Two flags say what the file cannot: **never moves** (`--static`; towers and totems need no walk or run) and **floats or burrows** (`--floats`; a wraith's hem or a worm's buried segments may hang below the rest, and the game stands that lowest part on the ground). The admin tab has them as checkboxes, cleared for each new file.
 
 Try on stores the file in the browser's IndexedDB and tells an open game tab over a BroadcastChannel; nothing reaches the server.
 
@@ -155,7 +157,7 @@ Tests:
 - `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
 - `packages/shared/test/tuning.test.ts`: override validation, stale kinds dropped, overrides at spawn, XP scaled but Arena score untouched, living monsters unchanged, export format and round trip.
 - `apps/server/test/tuning.test.ts`: permissions, validation, reset, live rooms pick up new spawns, `models` before `welcome`, overrides survive a restart.
-- `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; feet in their own material are not a stray part; a textured file checks in Node; a height-only override keeps the model swap.
+- `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; feet in their own material are not a stray part; a textured file checks in Node; head parts match whole words (no horn in thorn_beast); a glowing body or sparks are not eyes; the static and floats flags; every KayKit hero and skeleton in `public/assets/kaykit/` faces +Z; a height-only override keeps the model swap.
 
 ## Limits and open questions
 

@@ -1,7 +1,7 @@
 import { Texture, TextureLoader } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { AnimRole } from '../../render/assets.js';
-import { checkModel, guessRoles, type ModelReport } from './modelChecks.js';
+import { checkModel, guessRoles, type ModelFlags, type ModelReport } from './modelChecks.js';
 
 /**
  * The Model check for a .glb read from disk, for `pnpm model:check` and tests. GLTFLoader parses
@@ -23,7 +23,7 @@ export interface GlbCheck {
   roles: Partial<Record<AnimRole, string>>;
 }
 
-export async function checkGlb(bytes: Uint8Array): Promise<GlbCheck> {
+export async function checkGlb(bytes: Uint8Array, flags: ModelFlags = {}): Promise<GlbCheck> {
   // GLTFLoader reads embedded images through self.URL, which Node has as the global URL.
   if (typeof self === 'undefined') Object.assign(globalThis, { self: globalThis });
   const buffer = new ArrayBuffer(bytes.byteLength);
@@ -35,6 +35,6 @@ export async function checkGlb(bytes: Uint8Array): Promise<GlbCheck> {
   const gltf = await loader.parseAsync(buffer, '');
   const json: unknown = gltf.parser.json;
   const roles = guessRoles(gltf.animations.map((c) => c.name));
-  const report = checkModel({ scene: gltf.scene, clips: gltf.animations, json, bytes: bytes.byteLength, roles });
+  const report = checkModel({ scene: gltf.scene, clips: gltf.animations, json, bytes: bytes.byteLength, roles, flags });
   return { report, clips: gltf.animations.map((c) => ({ name: c.name, seconds: c.duration })), roles };
 }

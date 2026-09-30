@@ -1,4 +1,4 @@
-import { Box3, Group, Mesh, MeshStandardMaterial, Object3D, PropertyBinding, Quaternion, SkinnedMesh, Vector3, type AnimationClip, type Material } from 'three';
+import { Bone, Box3, Group, Mesh, MeshStandardMaterial, Object3D, PropertyBinding, Quaternion, SkinnedMesh, Vector3, type AnimationClip, type Material } from 'three';
 import type { AnimRole } from '../../render/assets.js';
 
 /**
@@ -21,7 +21,7 @@ export interface Check {
 export interface Facing {
   /** The direction the model seems to face, in the file's own axes; null when it cannot tell. */
   axis: '+x' | '-x' | '+z' | '-z' | null;
-  source: 'named parts' | 'glowing parts' | 'body shape' | 'none';
+  source: 'skeleton' | 'named parts' | 'glowing parts' | 'body shape' | 'none';
 }
 
 export interface ModelReport {
@@ -40,6 +40,15 @@ export interface ModelInput {
   json: unknown;
   bytes: number;
   roles: Partial<Record<AnimRole, string>>;
+  flags?: ModelFlags;
+}
+
+/** What the file cannot say about itself, set by whoever checks it. */
+export interface ModelFlags {
+  /** Never moves (a tower or totem): no walk or run clip is needed. */
+  static?: boolean;
+  /** Floats or burrows: its lowest part is meant to hang below the rest. */
+  floats?: boolean;
 }
 
 export const LIMITS = {
@@ -130,32 +139,101 @@ function label(o: Object3D): string {
 
 // ---------------------------------------------------------------------------------------------
 
-function facingFrom(points: Vector3[], center: Vector3, size: Vector3): Facing['axis'] {
-  if (points.length === 0) return null;
-  const mean = points.reduce((a, p) => a.add(p), new Vector3()).divideScalar(points.length).sub(center);
-  const reach = Math.max(size.x, size.z);
-  if (Math.hypot(mean.x, mean.z) < reach * 0.08) return null;
-  if (Math.abs(mean.x) > Math.abs(mean.z)) return mean.x > 0 ? '+x' : '-x';
-  return mean.z > 0 ? '+z' : '-z';
+/** The words in a node name: "Skeleton_Minion_Eyes" and "EyeLeft.001" give eye(s) as a word of its own. */
+export function nameWords(name: string): string[] {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w !== '');
 }
 
-const HEAD_PART = /head|snout|muzzle|nose|eye|face|jaw|beak|mouth|skull|horn/i;
+function hasWord(o: Object3D, words: ReadonlySet<string>): boolean {
+  return nameWords(o.name).some((w) => words.has(w));
+}
 
-function estimateFacing(scene: Object3D, ms: readonly Mesh[], boxes: Map<Mesh, Box3>, center: Vector3, size: Vector3): Facing {
+/** Whole words only: "thorn_beast" and "horned_charger" are model names, not horns. */
+const HEAD_WORDS = new Set(['head', 'snout', 'muzzle', 'nose', 'eye', 'eyes', 'face', 'jaw', 'beak', 'mouth', 'skull', 'horn', 'horns']);
+const TOE_WORDS = new Set(['toe', 'toes']);
+const HIP_WORDS = new Set(['hips', 'hip', 'pelvis']);
+/** Glowing bits that drift around the body: a wisp's sparks are not its eyes. */
+const PARTICLE_WORDS = new Set(['orbit', 'spark', 'sparks', 'particle', 'particles', 'ember', 'embers', 'mote', 'motes']);
+
+function horizontalAxis(v: Vector3): Facing['axis'] {
+  if (Math.abs(v.x) > Math.abs(v.z)) return v.x > 0 ? '+x' : '-x';
+  return v.z > 0 ? '+z' : '-z';
+}
+
+/** The mean offset of `points` from `from`, as an axis; null when it is under 8% of the model's reach. */
+function facingFrom(points: Vector3[], from: Vector3, size: Vector3): Facing['axis'] {
+  if (points.length === 0) return null;
+  const mean = points.reduce((a, p) => a.add(p), new Vector3()).divideScalar(points.length).sub(from);
+  const reach = Math.max(size.x, size.z);
+  if (Math.hypot(mean.x, mean.z) < reach * 0.08) return null;
+  return horizontalAxis(mean);
+}
+
+function worldPos(o: Object3D): Vector3 {
+  return o.getWorldPosition(new Vector3());
+}
+
+/**
+ * Reads the skeleton, which says more than the mesh: weapons and capes stretch the bounding box, but
+ * toes always point forward from the foot, and a four-legged head bone sits ahead of the hips.
+ */
+function skeletonFacing(bones: readonly Bone[], size: Vector3): Facing['axis'] {
+  const forward = new Vector3();
+  for (const toe of bones.filter((b) => hasWord(b, TOE_WORDS))) {
+    if (!(toe.parent instanceof Bone)) continue;
+    const d = worldPos(toe).sub(worldPos(toe.parent));
+    forward.x += d.x;
+    forward.z += d.z;
+  }
+  // Clearly along one axis, or it says nothing (a toe bone straight below its foot, say).
+  const along = Math.max(Math.abs(forward.x), Math.abs(forward.z));
+  if (along > 0 && along > 2 * Math.min(Math.abs(forward.x), Math.abs(forward.z))) return horizontalAxis(forward);
+  const hips = bones.find((b) => hasWord(b, HIP_WORDS));
+  const heads = bones.filter((b) => hasWord(b, HEAD_WORDS));
+  if (hips && heads.length > 0) return facingFrom(heads.map(worldPos), worldPos(hips), size);
+  return null;
+}
+
+function estimateFacing(scene: Object3D, ms: readonly Mesh[], boxes: Map<Mesh, Box3>, center: Vector3, size: Vector3, height: number): Facing {
+  const bones: Bone[] = [];
+  scene.traverse((o) => {
+    if (o instanceof Bone) bones.push(o);
+  });
+  const bySkeleton = skeletonFacing(bones, size);
+  if (bySkeleton) return { axis: bySkeleton, source: 'skeleton' };
+  // Offsets are taken from the hips when there are any: the box centre moves with every weapon.
+  const hips = bones.find((b) => hasWord(b, HIP_WORDS));
+  const from = hips ? worldPos(hips) : center;
+
   const named: Vector3[] = [];
   scene.traverse((o) => {
-    if (o === scene || !HEAD_PART.test(o.name)) return;
+    if (o === scene || o instanceof Bone || !hasWord(o, HEAD_WORDS)) return;
     const box = o instanceof Mesh ? boxes.get(o) : undefined;
-    named.push(box && !box.isEmpty() ? box.getCenter(new Vector3()) : o.getWorldPosition(new Vector3()));
+    named.push(box && !box.isEmpty() ? box.getCenter(new Vector3()) : worldPos(o));
   });
-  const byName = facingFrom(named, center, size);
+  const byName = facingFrom(named, from, size);
   if (byName) return { axis: byName, source: 'named parts' };
 
-  // Glowing eyes are the usual tell on a model with anonymous part names.
-  const glowing = ms.filter((m) => materialsOf(m).some((mat) => mat instanceof MeshStandardMaterial && mat.emissive.getHex() !== 0 && mat.emissiveIntensity > 0));
+  // Glowing eyes are the usual tell on a model with anonymous part names. A glowing body (a wisp's
+  // ball, a slime) is no eye, and neither are sparks drifting around it.
+  const particle = (m: Mesh): boolean => {
+    for (let o: Object3D | null = m; o && o !== scene; o = o.parent) if (hasWord(o, PARTICLE_WORDS)) return true;
+    return false;
+  };
+  const eyeSized = (m: Mesh): boolean => {
+    const box = boxes.get(m);
+    if (!box || box.isEmpty()) return false;
+    const s = box.getSize(new Vector3());
+    return Math.max(s.x, s.y, s.z) < height * 0.25;
+  };
+  const glowing = ms.filter((m) => materialsOf(m).some((mat) => mat instanceof MeshStandardMaterial && mat.emissive.getHex() !== 0 && mat.emissiveIntensity > 0) && eyeSized(m) && !particle(m));
   const byGlow = facingFrom(
-    glowing.map((m) => boxes.get(m)?.getCenter(new Vector3()) ?? m.getWorldPosition(new Vector3())),
-    center,
+    glowing.map((m) => boxes.get(m)?.getCenter(new Vector3()) ?? worldPos(m)),
+    from,
     size,
   );
   if (byGlow) return { axis: byGlow, source: 'glowing parts' };
@@ -195,7 +273,7 @@ function partOf(m: Mesh): Object3D {
   return p instanceof Group && p.parent !== null ? p : m;
 }
 
-function feetCheck(ms: readonly Mesh[], boxes: Map<Mesh, Box3>, overall: Box3, height: number): Check {
+function feetCheck(ms: readonly Mesh[], boxes: Map<Mesh, Box3>, overall: Box3, height: number, floats: boolean): Check {
   const title = 'Feet';
   const parts = new Map<Object3D, { low: number; triangles: number }>();
   for (const m of ms) {
@@ -216,7 +294,11 @@ function feetCheck(ms: readonly Mesh[], boxes: Map<Mesh, Box3>, overall: Box3, h
   // Only the part holding the lowest point can float the rest. The main mesh (most of the
   // triangles) standing below a separate head or tail is just a model whose feet are in that mesh.
   const minor = lowest !== null && (parts.get(lowest)?.triangles ?? 0) * 2 < total;
-  if (lowest !== null && minor && Number.isFinite(restLow) && overall.min.y < restLow - height * LIMITS.strayBelow) {
+  const hangs = lowest !== null && minor && Number.isFinite(restLow) && overall.min.y < restLow - height * LIMITS.strayBelow;
+  if (hangs && floats && lowest !== null) {
+    return { id: 'feet', title, status: 'pass', detail: `Floats or burrows: "${label(lowest)}" hangs ${round(restLow - overall.min.y)} below the rest and is what the game stands on the ground.` };
+  }
+  if (hangs && lowest !== null) {
     return {
       id: 'feet',
       title,
@@ -323,15 +405,15 @@ function materialsCheck(json: unknown): Check {
   return { id: 'materials', title, status: 'warn', detail: `${missing.join(', ')} ${missing.length === 1 ? 'has' : 'have'} no material and would draw plain white.`, fix: 'Give it a material, or delete it if it is left over (a stray default cube, say).' };
 }
 
-function rolesCheck(roles: ModelInput['roles']): Check {
+function rolesCheck(roles: ModelInput['roles'], still: boolean): Check {
   const title = 'Required roles';
   const missing: string[] = [];
   if (!roles.idle) missing.push('idle');
-  if (!roles.walk && !roles.run) missing.push('walk or run');
+  if (!still && !roles.walk && !roles.run) missing.push('walk or run');
   if (!roles.attack && !roles.cast && !roles.shoot) missing.push('attack, cast or shoot');
   if (!roles.hit) missing.push('hit');
   if (!roles.death) missing.push('death');
-  if (missing.length === 0) return { id: 'roles', title, status: 'pass', detail: 'Idle, locomotion, an attack, hit and death are all mapped.' };
+  if (missing.length === 0) return { id: 'roles', title, status: 'pass', detail: still ? 'Idle, an attack, hit and death are all mapped; it never moves, so it needs no walk.' : 'Idle, locomotion, an attack, hit and death are all mapped.' };
   return { id: 'roles', title, status: 'warn', detail: `No clip for ${missing.join(', ')}.`, fix: 'Add the missing clips in Blender (as NLA actions) or map an existing clip in the table.' };
 }
 
@@ -386,7 +468,7 @@ function rootMotionCheck(scene: Object3D, clips: readonly AnimationClip[], roles
 }
 
 export function checkModel(input: ModelInput): ModelReport {
-  const { scene, clips, json, bytes, roles } = input;
+  const { scene, clips, json, bytes, roles, flags = {} } = input;
   scene.updateMatrixWorld(true);
   const ms = meshes(scene);
   const boxes = new Map<Mesh, Box3>();
@@ -400,7 +482,7 @@ export function checkModel(input: ModelInput): ModelReport {
   const center = overall.isEmpty() ? new Vector3() : overall.getCenter(new Vector3());
   const height = size.y;
   const triangles = triangleCount(ms);
-  const facing = estimateFacing(scene, ms, boxes, center, size);
+  const facing = estimateFacing(scene, ms, boxes, center, size, height);
   const skinned = ms.some((m) => m instanceof SkinnedMesh);
   const animation = skinned ? 'skinned' : clips.length > 0 ? 'rigid' : 'none';
   const mb = bytes / (1024 * 1024);
@@ -413,11 +495,11 @@ export function checkModel(input: ModelInput): ModelReport {
       ? { id: 'size', title: 'File size', status: 'warn', detail: `${round(mb, 1)} MB, above 3 MB; every player downloads it.`, fix: 'Shrink textures to 1024 px or less, or bake colours into materials instead of textures.' }
       : { id: 'size', title: 'File size', status: 'pass', detail: `${bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${round(mb, 1)} MB`}.` },
     facingCheck(facing),
-    feetCheck(ms, boxes, overall, height),
+    feetCheck(ms, boxes, overall, height, flags.floats === true),
     coloursCheck(ms, json),
     loopsCheck(clips, roles, height),
     materialsCheck(json),
-    rolesCheck(roles),
+    rolesCheck(roles, flags.static === true),
     rootMotionCheck(scene, clips, roles, height),
     animation === 'none'
       ? { id: 'rig', title: 'Animation', status: 'warn', detail: 'The file has no animations.', fix: 'Add at least idle, walk, attack, hit and death clips.' }

@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { instantiate, registerFile, unregisterFile, type AnimRole, type AssetDef } from '../../render/assets.js';
 import { isTryOnKey, listTryOns, removeTryOn, saveTryOn, type TryOnEntry, type TryOnKey } from '../../render/tryOn.js';
 import { newAssetEntry } from './exportText.js';
-import { checkModel, guessRoles } from './modelChecks.js';
+import { checkModel, guessRoles, type ModelFlags } from './modelChecks.js';
 import { ModelStage, ROLES, type StageTarget } from './ModelStage.js';
 import './monsters.css';
 
@@ -36,6 +36,7 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
   const [error, setError] = useState('');
   const [roles, setRoles] = useState<Partial<Record<AnimRole, string>>>({});
   const [height, setHeight] = useState(54);
+  const [flags, setFlags] = useState<ModelFlags>({});
   const [tryKey, setTryKey] = useState<TryOnKey>('monsters:dire_wolf');
   const [tryOns, setTryOns] = useState<TryOnEntry[]>([]);
   const [entry, setEntry] = useState<string | null>(null);
@@ -63,13 +64,14 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
       registerFile(`check:${seq}`, gltf.scene, gltf.animations);
       setFile({ seq, name: f.name, bytes, scene: gltf.scene, clips: gltf.animations, json });
       setRoles(guessRoles(gltf.animations.map((c) => c.name)));
+      setFlags({});
     } catch (e) {
       setFile(null);
       setError(`Could not read the file: ${e instanceof Error ? e.message : 'unknown error'}`);
     }
   };
 
-  const report = useMemo(() => (file ? checkModel({ scene: file.scene, clips: file.clips, json: file.json, bytes: file.bytes.byteLength, roles }) : null), [file, roles]);
+  const report = useMemo(() => (file ? checkModel({ scene: file.scene, clips: file.clips, json: file.json, bytes: file.bytes.byteLength, roles, flags }) : null), [file, roles, flags]);
 
   const heightOk = Number.isFinite(height) && height >= MODEL_HEIGHT.min && height <= MODEL_HEIGHT.max;
   const target = useMemo<StageTarget | null>(() => {
@@ -135,6 +137,14 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
             <label className="mon-field">
               <span>Height in game units (hero 54)</span>
               <input type="number" min={MODEL_HEIGHT.min} max={MODEL_HEIGHT.max} value={height} onChange={(e) => setHeight(Number(e.target.value))} className={heightOk ? '' : 'mon-bad'} />
+            </label>
+            <label className="mon-check-flag">
+              <input type="checkbox" checked={flags.static === true} onChange={(e) => setFlags({ ...flags, static: e.target.checked })} />
+              <span>Never moves (tower, totem): no walk needed</span>
+            </label>
+            <label className="mon-check-flag">
+              <input type="checkbox" checked={flags.floats === true} onChange={(e) => setFlags({ ...flags, floats: e.target.checked })} />
+              <span>Floats or burrows: its lowest part may hang below the rest</span>
             </label>
             <h3>Roles</h3>
             <table className="mon-table">

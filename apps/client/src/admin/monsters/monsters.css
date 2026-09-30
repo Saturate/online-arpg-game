@@ -255,6 +255,14 @@
   font-size: 13px;
   color: var(--muted);
 }
+.mon-check-flag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
 .mon-error {
   color: var(--bad);
 }

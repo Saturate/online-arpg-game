@@ -400,21 +400,20 @@ describe('dedupeImages', () => {
 });
 
 describe('exported built-in monsters', () => {
-  // The Model check reads "horn" in thorn_beast and horned_charger as a head part, and the wisp is
-  // a ball whose orbiting sparks it takes for eyes; their facing guesses say nothing about the export.
-  const guessless = ['thorn_beast', 'horned_charger', 'will_o_wisp'];
-  it.each(BUILTIN_MODELS.map((m) => [m.id, m] as const))('%s passes facing, loops and roles in the Model check', (id, m) => {
+  it.each(BUILTIN_MODELS.map((m) => [m.id, m] as const))('%s passes facing, loops and roles in the Model check', (_id, m) => {
     const { root, clips } = prepareBuiltin(m);
     const roles = guessRoles(clips.map((c) => c.name));
-    const report = checkModel({ scene: root, clips, json: {}, bytes: 0, roles });
+    const gait = m.build().profile.gait;
+    // Towers and totems never move; hovering, flying and burrowing bodies hang off their lowest part.
+    const flags = { static: m.speed === 0, floats: gait === 'hover' || gait === 'fly' || gait === 'slither' };
+    const report = checkModel({ scene: root, clips, json: {}, bytes: 0, roles, flags });
     const status = (id: string) => report.checks.find((c) => c.id === id)?.status;
     expect(status('loops')).toBe('pass');
-    // Towers and totems never move, so they have no walk; every other role must be there.
-    if (m.speed > 0) expect(status('roles')).toBe('pass');
-    else expect(report.checks.find((c) => c.id === 'roles')?.detail).toBe('No clip for walk or run.');
+    expect(status('roles')).toBe('pass');
     expect(status('rootMotion')).toBe('pass');
+    if (flags.floats) expect(status('feet')).toBe('pass');
     // Only a guess from the parts; when it can tell, it must say +Z.
-    if (!guessless.includes(id) && report.facing.axis !== null && report.facing.source !== 'body shape') expect(report.facing.axis).toBe('+z');
+    if (report.facing.axis !== null && report.facing.source !== 'body shape') expect(report.facing.axis).toBe('+z');
     // Metres: somewhere between a rat and the Treant King (about 6 m), not world units or centimetres.
     expect(report.height).toBeGreaterThan(0.2);
     expect(report.height).toBeLessThan(10);

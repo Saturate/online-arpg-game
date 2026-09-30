@@ -1,9 +1,10 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { Document, NodeIO, type Material, type Node } from '@gltf-transform/core';
 import { MONSTER_MODEL_IDS } from '@rune/shared';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
 import { checkGlb } from '../src/admin/monsters/checkGlb.js';
-import { checkModel, guessRoles, type Check, type ModelReport } from '../src/admin/monsters/modelChecks.js';
+import { checkModel, guessRoles, nameWords, type Check, type ModelFlags, type ModelReport } from '../src/admin/monsters/modelChecks.js';
 import { ASSETS } from '../src/render/assets.js';
 
 type Vec3 = [number, number, number];
@@ -124,10 +125,10 @@ async function build(f: Fixture): Promise<{ bytes: Uint8Array; parsed: Awaited<R
   return { bytes, parsed };
 }
 
-async function report(f: Fixture, bytesOverride?: number): Promise<ModelReport> {
+async function report(f: Fixture, bytesOverride?: number, flags?: ModelFlags): Promise<ModelReport> {
   const { bytes, parsed } = await build(f);
   const names = parsed.animations.map((c) => c.name);
-  return checkModel({ scene: parsed.scene, clips: parsed.animations, json: parsed.parser.json, bytes: bytesOverride ?? bytes.byteLength, roles: guessRoles(names) });
+  return checkModel({ scene: parsed.scene, clips: parsed.animations, json: parsed.parser.json, bytes: bytesOverride ?? bytes.byteLength, roles: guessRoles(names), flags });
 }
 
 function check(r: ModelReport, id: Check['id']): Check {
@@ -272,6 +273,44 @@ describe('model checks', () => {
     expect(check(r, 'rig').detail).toMatch(/Skinned/);
   });
 
+  it('matches head parts by whole word, so a model called thorn_beast or horned_charger has no horn', async () => {
+    expect(nameWords('Skeleton_Minion_Eyes')).toEqual(['skeleton', 'minion', 'eyes']);
+    expect(nameWords('HeadTop_End.001')).toEqual(['head', 'top', 'end']);
+    // A root named after the model sits at the origin, behind a body that runs forward to +Z.
+    for (const name of ['thorn_beast', 'horned_charger']) {
+      const r = await report({ ...GOOD, parts: [{ name, min: [-0.1, 0, -1.4], max: [0.1, 0.1, -1.2], color: GREY }, ...GOOD.parts] });
+      expect(r.facing).toEqual({ axis: '+z', source: 'named parts' });
+    }
+  });
+
+  it('takes no glowing body or drifting sparks for eyes', async () => {
+    const glow: Vec3 = [0.8, 0.4, 0.1];
+    const r = await report({
+      parts: [
+        { name: 'ball', min: [-0.4, 1.4, -0.4], max: [0.4, 2.2, 0.4], color: GREY, emissive: glow },
+        { name: 'orbit_0', min: [-0.05, 1.8, -0.8], max: [0.05, 1.9, -0.7], color: GREY, emissive: glow },
+        { name: 'orbit_1', min: [0.3, 1.8, -0.6], max: [0.4, 1.9, -0.5], color: GREY, emissive: glow },
+      ],
+    });
+    // Both sparks sit behind the ball; read as eyes they would say -Z.
+    expect(r.facing.source).not.toBe('glowing parts');
+  });
+
+  it('needs no walk for a model marked as never moving', async () => {
+    const still = { ...GOOD, anims: ['Idle', 'Attack', 'Hit', 'Death'].map((n) => loopAnim(n, 'leg_front')) };
+    expect(check(await report(still), 'roles')).toMatchObject({ status: 'warn', detail: 'No clip for walk or run.' });
+    expect(check(await report(still, undefined, { static: true }), 'roles')).toMatchObject({ status: 'pass', detail: expect.stringMatching(/never moves/) });
+    // Still asks for everything else.
+    const bare = { ...GOOD, anims: [loopAnim('Idle', 'leg_front')] };
+    expect(check(await report(bare, undefined, { static: true }), 'roles').detail).toBe('No clip for attack, cast or shoot, hit, death.');
+  });
+
+  it('lets a floater or burrower hang its lowest part below the rest when marked so', async () => {
+    const floater = { ...GOOD, parts: [...GOOD.parts, { name: 'tail_tip', min: [-0.1, -0.4, -0.1], max: [0.1, -0.3, 0.1], color: GREY }] };
+    expect(check(await report(floater), 'feet').status).toBe('warn');
+    expect(check(await report(floater, undefined, { floats: true }), 'feet')).toMatchObject({ status: 'pass', detail: expect.stringMatching(/^Floats or burrows: "tail_tip"/) });
+  });
+
   it('guesses roles from common clip names', () => {
     expect(guessRoles(['Idle_Combat', 'Walking_A', 'Running_A', '1H_Melee_Attack_Chop', 'Spellcast_Shoot', 'Hit_A', 'Death_A'])).toEqual({
       idle: 'Idle_Combat',
@@ -283,6 +322,20 @@ describe('model checks', () => {
       hit: 'Hit_A',
       death: 'Death_A',
     });
+  });
+});
+
+describe('KayKit characters', () => {
+  // Untouched source files: they face the Blender Front view, glTF +Z, and the check must say so.
+  const dirs = ['adventurers', 'skeletons'];
+  const files = dirs.flatMap((d) => readdirSync(new URL(`../public/assets/kaykit/${d}/`, import.meta.url)).filter((f) => f.endsWith('.glb')).map((f) => `${d}/${f}`));
+  it.each(files)('%s faces +Z', async (file) => {
+    const { report: r } = await checkGlb(readFileSync(new URL(`../public/assets/kaykit/${file}`, import.meta.url)));
+    expect(r.facing.axis).toBe('+z');
+    expect(check(r, 'facing').status).toBe('pass');
+  });
+  it('finds the heroes and skeletons', () => {
+    expect(files.length).toBeGreaterThanOrEqual(9);
   });
 });
 

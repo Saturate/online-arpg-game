@@ -38,10 +38,11 @@ Editing and bringing it back:
 
 What the Model check still says about exports, and why:
 
-- KayKit characters: over 5,000 triangles (they are, in the source files too), and "faces -Z going by its named parts". Blender shows them facing the Front view; the source files get the same verdict, so the facing guess is wrong for the KayKit skeleton, not the export.
+- KayKit characters: over 5,000 triangles (they are, in the source files too). Facing reads their skeleton (toe bones point forward) and passes.
 - Some built-in monsters use black (#000000) or near-black materials in `render/models.ts`; the check flags them as invisible at night.
-- Floating and burrowing built-ins (elementals, wraiths, the sand worm) have parts well below the rest, or hover above the origin. The game stands a model file's lowest point on the ground, so an imported elemental stands on the ground unless it is edited to.
-- Built-ins whose id contains "horn" (thorn_beast, horned_charger) get a wrong facing guess: the check reads the root node's name as a horn.
+- Floating and burrowing built-ins (wraiths, the vulture, the sand worms) have parts well below the rest, or hover above the origin: tick "Floats or burrows" (`--floats`) and the feet check passes. The game stands a model file's lowest point on the ground, so an imported elemental stands on the ground unless it is edited to.
+- The bone spire and flame totem have no Walk or Run: tick "Never moves" (`--static`).
+- The Fallen shaman's arm hangs below its feet, and the frost giant's facing is only a body-shape hint (its club and long arms move the box centre away from its eyes).
 
 ## Why
 
@@ -67,7 +68,7 @@ Tests:
 - `apps/client/test/replay.test.ts`: recording and playback.
 - `apps/client/test/studio.test.ts`: studio metrics, export shape, determinism, starter pricing equals the game's.
 - `apps/client/test/loot.test.ts`: the loot simulator is deterministic and chunk-invariant.
-- `apps/client/test/modelExport.test.ts`: the export's axis turn and metres, every vertex staying where the game draws it (rigid and skinned, at rest and animated), transforms baked into the parts, hidden parts and userData left out, names and the GLB rewrite, materials merged, the repaint maths, every built-in export passing the Model check's loop, role, root motion and facing checks, and a repeated image stored once with the file reading the same.
+- `apps/client/test/modelExport.test.ts`: the export's axis turn and metres, every vertex staying where the game draws it (rigid and skinned, at rest and animated), transforms baked into the parts, hidden parts and userData left out, names and the GLB rewrite, materials merged, the repaint maths, every built-in export passing the Model check's loop, role, root motion and facing checks (and feet, for floaters, with the flags set), and a repeated image stored once with the file reading the same.
 - `apps/server/test/accounts.test.ts`: dev tools for builders and up, time scale reset.
 
 ## Limits and open questions

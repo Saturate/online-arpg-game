@@ -1,11 +1,13 @@
 /**
  * The admin page's Model check on a local file, for model work outside the browser:
  *
- *   pnpm model:check <file.glb> [--height N]
+ *   pnpm model:check <file.glb> [--height N] [--static] [--floats]
  *
  * Prints one pass or warn line per check (with the fix on warnings) and exits non-zero on any
  * warning. --height is the game height the model would get (its AssetDef height, in world units;
  * a hero is 54): it is checked against the range the tuner accepts and turned into a scale.
+ * --static is for a model that never moves (a tower, a totem): it needs no walk or run clip.
+ * --floats is for a floater or burrower, whose lowest part is meant to hang below the rest.
  */
 import { readFileSync } from 'node:fs';
 import { checkGlb } from '../apps/client/src/admin/monsters/checkGlb.js';
@@ -14,7 +16,7 @@ import { MODEL_HEIGHT } from '../packages/shared/src/index.js';
 const HERO_HEIGHT = 54;
 
 function usage(): never {
-  console.error('usage: pnpm model:check <file.glb> [--height N]');
+  console.error('usage: pnpm model:check <file.glb> [--height N] [--static] [--floats]');
   process.exit(2);
 }
 
@@ -25,7 +27,7 @@ if (at >= 0 && heightArg === undefined) usage();
 const file = args.find((a, i) => !a.startsWith('--') && (at < 0 || i !== at + 1));
 if (file === undefined) usage();
 
-const { report, clips, roles } = await checkGlb(readFileSync(file));
+const { report, clips, roles } = await checkGlb(readFileSync(file), { static: args.includes('--static'), floats: args.includes('--floats') });
 const lines = [
   `${file}`,
   `  ${report.triangles} triangles, height ${report.height.toFixed(3)} in the file, ${report.animation} animation, faces ${report.facing.axis ?? 'unknown'} (${report.facing.source})`,
