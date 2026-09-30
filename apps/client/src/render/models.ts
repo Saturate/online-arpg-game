@@ -699,7 +699,8 @@ function toad(color: number): Rig {
   for (let i = 0; i < 6; i++) b.add(mesh(G.sphere, mat(0x6a7a30, { emissive: 0x2a4008, intensity: 0.6 }), -0.5 + (i % 3) * 0.3, 1.2 + (i % 2) * 0.1, (i < 3 ? 1 : -1) * 0.35, 0.1, 0.1, 0.1));
   rig.legL = limb(0.55, 0.2, skin, -0.4, 0.55, 0.55);
   rig.legR = limb(0.55, 0.2, skin, -0.4, 0.55, -0.55);
-  for (const l of [rig.legL, rig.legR]) l.add(mesh(G.sphereLow, skin, 0.12, -0.55, 0, 0.2, 0.06, 0.16));
+  // The webbed pad rests on the leg's tip, so it sits on the ground and not in it.
+  for (const l of [rig.legL, rig.legR]) l.add(mesh(G.sphereLow, skin, 0.12, -0.49, 0, 0.2, 0.06, 0.16));
   b.add(rig.legL, rig.legR);
   return rig;
 }

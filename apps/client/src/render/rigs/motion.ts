@@ -602,7 +602,8 @@ function idle(rig: Rig, m: RigMotion, w: number): void {
     case 'hop':
       // Imps and toads twitch: small, quick head turns and a restless weight shift.
       rot(m.head, 0, 0.3 * osc(m, 3, m.seed), 0.06 * osc(m, 5, m.seed), w);
-      pos(b, 0, 0.02 * Math.abs(osc(m, 4, m.seed)), 0, w);
+      // Standing only: under a hop it would lift the planted foot off the ground.
+      pos(b, 0, 0.02 * Math.abs(osc(m, 4, m.seed)), 0, w * (m.weights[IDLE] ?? 0));
       rot(m.armL, 0, 0, -0.6 + 0.15 * osc(m, 5, m.seed), w);
       rot(m.armR, 0, 0, -0.6 + 0.1 * osc(m, 4, m.seed + 1), w);
       rot(m.tail, 0, 0.5 * osc(m, 4, m.seed), 0, w);
@@ -759,28 +760,35 @@ function stride(rig: Rig, m: RigMotion, legs: readonly (Channel | null)[], off: 
   }
   const air = airOf(n);
   const flight = L * Math.cos(amp) + 0.08 * L * clamp01((0.5 - d) / 0.2) * air;
-  // Hip height over each planted group: two legs share one; four split into front and back.
-  const groups = n > 2 ? 2 : 1;
-  for (let g = 0; g < groups; g++) {
-    // The least upright planted leg sets the height; a more upright one flexes to meet the ground.
-    let plant = 2;
-    for (let i = g * 2; i < (groups === 1 ? n : g * 2 + 2); i++) if (legs[i] && (legSwing[i] ?? 0) < 0) plant = Math.min(plant, Math.cos(legAngle[i] ?? 0));
-    hipAt[g] = plant > 1 ? flight : L * plant;
-  }
-  let lift = hipAt[0] ?? L;
+  // The body pivots at its origin, so leaning moves each hip: one at (x, y) ends up at
+  // x sin(lean) + y cos(lean). `lift` is how high the body is raised plus L, and a hip sits at
+  // lift + hipShift(hip, lean) over the ground.
+  let lift = flight;
+  let lean = pitch;
   stridePitch = 0;
   const front = legs[0];
   const back = legs[2];
-  if (groups === 2 && front && back) {
-    // The body tilts so the front and back feet are both down: y at x rises by x sin(pitch).
-    const xf = front.p0x * bs;
-    const xb = back.p0x * bs;
-    if (Math.abs(xf - xb) > 1e-3) {
-      stridePitch = Math.atan(((hipAt[0] ?? L) - (hipAt[1] ?? L)) / (xf - xb));
-      lift = (hipAt[0] ?? L) - xf * Math.sin(stridePitch);
+  if (n > 2 && front && back && Math.abs(front.p0x - back.p0x) > 1e-3) {
+    // Hip height over the front and back pairs; the body tilts so both are down.
+    for (let g = 0; g < 2; g++) {
+      // The least upright planted leg sets the height; a more upright one flexes to meet the ground.
+      let plant = 2;
+      for (let i = g * 2; i < g * 2 + 2; i++) if (legs[i] && (legSwing[i] ?? 0) < 0) plant = Math.min(plant, Math.cos(legAngle[i] ?? 0));
+      hipAt[g] = plant > 1 ? flight : L * plant;
     }
+    lean = Math.atan(((hipAt[0] ?? L) - (hipAt[1] ?? L)) / ((front.p0x - back.p0x) * bs));
+    stridePitch = lean - pitch;
+    lift = (hipAt[0] ?? L) - hipShift(front, bs, L, lean);
+  } else {
+    // A pair: the planted leg that needs the body lowest sets it; hips off centre (a toad's, set
+    // back) rise or sink with the lean, or those feet would float or dig in.
+    let need = Infinity;
+    for (let i = 0; i < n; i++) {
+      const c = legs[i];
+      if (c && (legSwing[i] ?? 0) < 0) need = Math.min(need, L * Math.cos(legAngle[i] ?? 0) - hipShift(c, bs, L, pitch));
+    }
+    if (need < Infinity) lift = need;
   }
-  const lean = pitch + stridePitch;
   pos(m.body, 0, lift - L, 0, w);
   for (let i = 0; i < n; i++) {
     const c = legs[i] ?? null;
@@ -789,12 +797,17 @@ function stride(rig: Rig, m: RigMotion, legs: readonly (Channel | null)[], off: 
     rot(c, 0, 0, (legAngle[i] ?? 0) - lean, w);
     const p = legSwing[i] ?? -1;
     const reach = L * Math.cos(legAngle[i] ?? 0);
-    const hip = hipAt[groups === 2 && i >= 2 ? 1 : 0] ?? L;
+    const hip = lift + hipShift(c, bs, L, lean);
     if (reach < 1e-3) continue;
     const k = Math.min(1, (hip - (p < 0 ? 0 : 0.12 * L * Math.sin(Math.PI * p))) / reach);
     if (k < 1) scl(c, 0, Math.max(-0.6, k - 1), 0, w);
   }
   return air;
+}
+
+/** How far leaning the body by `lean` raises a hip above where it sits upright, L up. */
+function hipShift(c: Channel, bs: number, L: number, lean: number): number {
+  return (c.p0x * Math.sin(lean) + c.p0y * Math.cos(lean)) * bs - L;
 }
 
 function paddle(c: Channel | null, swing: number, w: number): void {

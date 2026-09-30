@@ -27,9 +27,10 @@ function tip(o: Object3D, out: Vector3): Vector3 {
  * Feet distance over ground distance: while a foot is on the ground it should move back at the
  * ground speed (1.0); a foot that moves slower slides. The animator marks planted feet. `contact`
  * is the share of the cycle with any foot down; `lift` how far the planted feet rise and fall, as a
- * share of leg length, which is the other way a foot slides.
+ * share of leg length, which is the other way a foot slides; `height` how high planted feet sit
+ * above the ground on average, as a share of leg length (floating or dug in).
  */
-function cover(type: EnemyTypeId, speed: number): { cover: number; contact: number; lift: number } {
+function cover(type: EnemyTypeId, speed: number): { cover: number; contact: number; lift: number; height: number } {
   const rig = buildEnemy(type, ENEMIES[type].color);
   rig.root.scale.setScalar(ENEMIES[type].radius);
   const d: RigDrive = { speed, dead: false, dormant: false, hidden: false, dt: DT, seed: 1.3 };
@@ -45,6 +46,7 @@ function cover(type: EnemyTypeId, speed: number): { cover: number; contact: numb
   let sum = 0;
   let n = 0;
   let touching = 0;
+  let high = 0;
   for (let i = 1; i < samples.length; i++) {
     const a = samples[i - 1];
     const b = samples[i];
@@ -53,6 +55,7 @@ function cover(type: EnemyTypeId, speed: number): { cover: number; contact: numb
     for (let k = 0; k < fs.length; k++) {
       if (!b.down[k]) continue;
       sum += -((b.x[k] ?? 0) - (a.x[k] ?? 0)) / DT;
+      high += b.y[k] ?? 0;
       n++;
       any = true;
     }
@@ -64,7 +67,7 @@ function cover(type: EnemyTypeId, speed: number): { cover: number; contact: numb
     if (ys.length > 0) lift = Math.max(lift, Math.max(...ys) - Math.min(...ys));
   }
   const leg = (rig.legLength || 1) * rig.root.scale.y * rig.body.scale.y;
-  return { cover: n > 0 ? sum / n / speed : 0, contact: touching / (samples.length - 1), lift: lift / leg };
+  return { cover: n > 0 ? sum / n / speed : 0, contact: touching / (samples.length - 1), lift: lift / leg, height: n > 0 ? high / n / leg : 1 };
 }
 
 const WALKERS: readonly EnemyTypeId[] = ['scarab', 'plague_rat', 'spiderling', 'dire_wolf', 'cave_spider', 'hellhound', 'tusked_boar', 'thorn_beast', 'venom_spider', 'lizardman', 'gargoyle', 'giant_scorpion'];
@@ -79,6 +82,8 @@ describe('procedural monster feet', () => {
         expect(c.cover, at).toBeGreaterThan(0.8);
         expect(c.cover, at).toBeLessThan(1.2);
         expect(c.lift, at).toBeLessThan(0.12);
+        // A thin leg's rim reaches past its tip, so a few hundredths above is still on the ground.
+        expect(Math.abs(c.height), at).toBeLessThan(0.04);
         // Hoppers spend most of the cycle in the air, so a short stance can match the ground.
         if (HOPPERS.includes(type)) expect(c.contact, at).toBeLessThan(0.27);
       }
