@@ -6,6 +6,7 @@ import {
   type CharacterSummary,
   type ClassId,
   type PartyInfo,
+  type PartyMemberStatus,
   type TraderEntry,
   type WorldInfo,
   type MapTheme,
@@ -87,6 +88,10 @@ interface UiState {
   /** Which copy of the world this character is in. */
   world: WorldInfo | null;
   partyInfo: PartyInfo | null;
+  /** The other party members, wherever they are, refreshed by the server about once a second. */
+  partyStatus: PartyMemberStatus[];
+  /** The teleport to a party member being channelled; `endsAt` is on the performance clock. */
+  teleport: { to: string; endsAt: number; seconds: number } | null;
   /** Name of whoever invited us, while the invite is unanswered. */
   partyInvite: string | null;
   /** Antechamber ready check, while standing in one. */
@@ -230,6 +235,8 @@ export const useUi = create<UiState>((set, get) => ({
   minimapVisible: true,
   world: null,
   partyInfo: null,
+  partyStatus: [],
+  teleport: null,
   partyInvite: null,
   staging: null,
   arena: null,
@@ -326,7 +333,7 @@ export const useUi = create<UiState>((set, get) => ({
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyStatus: [], teleport: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   // Closing the bag closes the station too, so the next I opens only the bag.

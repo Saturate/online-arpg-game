@@ -19,6 +19,7 @@ import { ForgeEditor } from './ForgeEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
 import { WaypointPanel } from './WaypointPanel.js';
+import { PartyFrames, TeleportBar } from './PartyFrames.js';
 import { GameTooltip } from './Tip.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 
@@ -65,11 +66,15 @@ export function GameView({ token, character }: { token: string; character: Chara
       <div className="fx-layer" ref={fxRef} aria-hidden="true" />
       {/* Everything scalable lives in one layer; the tooltip stays outside because it is placed at mouse coordinates. */}
       <div className="ui-layer" style={{ zoom: uiScale }}>
-        <div className={`minimap${minimapVisible ? '' : ' hidden'}`}>
-          <canvas ref={minimapRef} aria-label="Minimap" />
-          <span>{roomName}</span>
+        <div className="top-left">
+          <div className={`minimap${minimapVisible ? '' : ' hidden'}`}>
+            <canvas ref={minimapRef} aria-label="Minimap" />
+            <span>{roomName}</span>
+          </div>
+          <PartyFrames />
         </div>
         <Party />
+        <TeleportBar />
         <Notices />
         <ChatBox />
         <Banner />

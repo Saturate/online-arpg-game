@@ -536,7 +536,17 @@ export class Game {
         useUi.setState({ world: msg.world });
         return;
       case 'party':
-        useUi.setState({ partyInfo: msg.party });
+        useUi.setState(msg.party ? { partyInfo: msg.party } : { partyInfo: null, partyStatus: [], teleport: null });
+        return;
+      case 'partyStatus':
+        useUi.setState({ partyStatus: msg.members });
+        return;
+      case 'teleportChannel':
+        if (msg.to !== null) useUi.setState({ teleport: { to: msg.to, endsAt: performance.now() + msg.seconds * 1000, seconds: msg.seconds } });
+        else {
+          useUi.setState({ teleport: null });
+          if (msg.reason) useUi.getState().notify(msg.reason);
+        }
         return;
       case 'trader':
         useUi.setState({ traderStock: msg.stock });
@@ -914,7 +924,10 @@ export class Game {
 
     if (room.minimap && now - this.lastMinimap > MINIMAP_MS) {
       this.lastMinimap = now;
-      room.minimap.update(px, py, this.latest.entities, playerId, new Set(useUi.getState().partyInfo?.members.map((m) => m.name) ?? []));
+      const ui = useUi.getState();
+      // Members beyond the snapshot's reach still show, from the once-a-second party status.
+      const far = ui.partyStatus.flatMap((m) => (m.x !== undefined && m.y !== undefined ? [{ name: m.name, x: m.x, y: m.y }] : []));
+      room.minimap.update(px, py, this.latest.entities, playerId, new Set(ui.partyInfo?.members.map((m) => m.name) ?? []), far);
     }
   }
 

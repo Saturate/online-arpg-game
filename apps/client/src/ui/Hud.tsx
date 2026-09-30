@@ -295,9 +295,10 @@ export function Party() {
   const partyInfo = useUi((s) => s.partyInfo);
   const arena = useUi((s) => s.arena);
   const playerId = useUi((s) => s.playerId);
-  // Public worlds are shared with strangers, so the frame lists yourself and your party only.
-  const members = new Set(partyInfo?.members.map((m) => m.name) ?? []);
-  const shown = players.filter((p) => p.id === playerId || members.has(p.name));
+  // Public worlds are shared with strangers, so this lists yourself only; in a party the party
+  // frames under the minimap show the members wherever they are.
+  const shown = partyInfo ? [] : players.filter((p) => p.id === playerId);
+  if (!arena && shown.length === 0) return null;
   return (
     <aside className="party">
       {arena && (

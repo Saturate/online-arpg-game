@@ -170,8 +170,38 @@ export class Minimap {
     }
   }
 
-  /** `party` names the player's party members; in the same map they share their vision, D2 style. */
-  update(selfX: number, selfY: number, entities: Iterable<EntitySnap>, selfId: number, party: ReadonlySet<string> = new Set()): void {
+  /**
+   * A party member's marker: a ringed dot, or an arrow on the edge pointing at them when they stand
+   * past the drawn map (spawn and arrival points can sit on or beyond its border).
+   */
+  private drawAlly(g: CanvasRenderingContext2D, x: number, y: number): void {
+    const inset = 5;
+    const cx = Math.min(this.w - inset, Math.max(inset, x));
+    const cy = Math.min(this.h - inset, Math.max(inset, y));
+    g.strokeStyle = '#000';
+    g.lineWidth = 1;
+    if (cx === x && cy === y) {
+      g.beginPath();
+      g.arc(x, y, 2.5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      return;
+    }
+    const a = Math.atan2(y - cy, x - cx);
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * 5, cy + Math.sin(a) * 5);
+    g.lineTo(cx + Math.cos(a + 2.5) * 4, cy + Math.sin(a + 2.5) * 4);
+    g.lineTo(cx + Math.cos(a - 2.5) * 4, cy + Math.sin(a - 2.5) * 4);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+
+  /**
+   * `party` names the player's party members; in the same map they share their vision, D2 style.
+   * `far` are same-room members from the party status, drawn when the snapshot does not carry them.
+   */
+  update(selfX: number, selfY: number, entities: Iterable<EntitySnap>, selfId: number, party: ReadonlySet<string> = new Set(), far: readonly { name: string; x: number; y: number }[] = []): void {
     const g = this.canvas.getContext('2d');
     if (!g) return;
     const s = this.scale;
@@ -197,7 +227,17 @@ export class Minimap {
       else if (e.k === 'minion') g.fillStyle = '#b49cff';
       else if (e.k === 'loot') g.fillStyle = cssColor(TIER_COLORS[e.tier]);
       else continue;
+      if (ally) {
+        this.drawAlly(g, e.x * s, e.y * s);
+        continue;
+      }
       g.fillRect(e.x * s - 1.5, e.y * s - 1.5, e.k === 'enemy' && e.rare ? 4 : 3, e.k === 'enemy' && e.rare ? 4 : 3);
+    }
+    const near = new Set(list.flatMap((e) => (e.k === 'player' ? [e.name] : [])));
+    for (const m of far) {
+      if (near.has(m.name)) continue;
+      g.fillStyle = '#7ad69a';
+      this.drawAlly(g, m.x * s, m.y * s);
     }
     g.fillStyle = '#ffd36b';
     g.strokeStyle = '#000';

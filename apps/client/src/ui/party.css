@@ -1,0 +1,177 @@
+/* The minimap and the party frames stack in the top left corner; hiding the map lifts the frames. */
+.top-left {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+.top-left > .minimap {
+  position: static;
+}
+
+.party-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* The minimap's outer width, so the column reads as one block. */
+  width: 216px;
+  pointer-events: auto;
+}
+
+.pframe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+  padding: 5px 7px 5px 9px;
+  text-align: left;
+  color: var(--text);
+  font: 12px var(--font-body);
+  border: 1px solid #3a2c1a;
+  border-left: 3px solid var(--cls);
+  background: var(--grain), linear-gradient(180deg, rgba(28, 21, 15, 0.92), rgba(12, 9, 7, 0.92));
+  box-shadow: 0 0 0 1px #000, 0 3px 10px rgba(0, 0, 0, 0.55);
+  cursor: var(--cur-hover);
+}
+.pframe:hover {
+  border-color: #6b5634;
+  border-left-color: var(--cls);
+}
+.pframe:focus-visible {
+  outline: 1px solid var(--gold);
+}
+.pframe.refused {
+  cursor: var(--cur);
+}
+.pframe.offline {
+  opacity: 0.5;
+}
+.pframe.dead .pframe-bar span {
+  background: #3a1a16;
+}
+.pframe.going {
+  border-color: #8a6a3a;
+  box-shadow: 0 0 0 1px #000, 0 0 10px rgba(217, 181, 106, 0.35);
+}
+
+.pframe-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.pframe-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 13px Cinzel, serif;
+  color: #e8dcc4;
+}
+.pframe-top small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pframe-bar {
+  display: block;
+  height: 6px;
+  background: #1e0c0a;
+  border: 1px solid #000;
+}
+.pframe-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(180deg, #b3261e, #6e1510);
+}
+
+.pframe-where {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pframe-state {
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pframe-state.town {
+  color: #b8a37a;
+}
+.pframe-state.dungeon {
+  color: #a58cc8;
+}
+.pframe-state.arena {
+  color: #d0703a;
+}
+.pframe-state.dead {
+  color: var(--bad);
+}
+.pframe-zone {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pframe-go {
+  margin-left: auto;
+  color: var(--gold);
+  opacity: 0;
+}
+.pframe:hover .pframe-go,
+.pframe:focus-visible .pframe-go {
+  opacity: 1;
+}
+
+/* The teleport channel, above the skill bar. */
+.cast-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 190px;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 18px;
+  border: 1px solid #4a3820;
+  background: #0c0907;
+  box-shadow: 0 0 0 1px #000, 0 4px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.cast-bar-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(180deg, #8a7ab8, #3e3266);
+  animation-name: cast-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+.cast-bar span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 11px Cinzel, serif;
+  color: #e8dcc4;
+  text-shadow: 0 1px 2px #000;
+}
+@keyframes cast-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (max-width: 760px) {
+  .party-frames {
+    width: 150px;
+  }
+}
