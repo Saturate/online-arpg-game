@@ -5,10 +5,11 @@ import { readLink, writeLink } from './deepLink.js';
 import { AssetsTab } from './AssetsTab.js';
 import { LootTab } from './LootTab.js';
 import { ReplayTab } from './ReplayTab.js';
+import { RigsTab } from './rigs/RigsTab.js';
 import { SpellLabTab } from './SpellLabTab.js';
 import { SpellStudioTab, type InjectedSpell } from './SpellStudioTab.js';
 
-const TABS = ['assets', 'studio', 'lab', 'loot', 'replay'] as const;
+const TABS = ['assets', 'monsters', 'studio', 'lab', 'loot', 'replay'] as const;
 type Tab = (typeof TABS)[number];
 
 function DevApp() {
@@ -38,6 +39,9 @@ function DevTools() {
           <button type="button" className={tab === 'assets' ? 'on' : ''} onClick={() => setTab('assets')}>
             Assets
           </button>
+          <button type="button" className={tab === 'monsters' ? 'on' : ''} onClick={() => setTab('monsters')}>
+            Monsters
+          </button>
           <button type="button" className={tab === 'studio' ? 'on' : ''} onClick={() => setTab('studio')}>
             Spell Studio
           </button>
@@ -55,6 +59,7 @@ function DevTools() {
         <a href="/">Back to game</a>
       </header>
       <main className="dev-main">{tab === 'assets' && <AssetsTab />}
+        {tab === 'monsters' && <RigsTab />}
         {tab === 'studio' && <SpellStudioTab injected={injected} onClearInjected={() => setInjected(null)} />}
         {tab === 'lab' && (
           <SpellLabTab

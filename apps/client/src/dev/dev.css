@@ -650,3 +650,16 @@
 .studio-injected code {
   color: var(--gold);
 }
+
+/* Monsters: procedural rig gallery and bench */
+.rigs {
+  height: 100%;
+  min-height: 0;
+}
+.rigs-stats td {
+  padding: 1px 8px 1px 0;
+}
+.rigs-stats td:last-child {
+  text-align: right;
+  color: var(--gold);
+}
