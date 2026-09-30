@@ -1,4 +1,4 @@
-import { dayPhaseAt, type Lighting } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, dayPhaseAt, type Lighting } from '@rune/shared';
 
 /**
  * Day and night, visual only. The time of day comes from the wall clock, so every player sees the
@@ -6,7 +6,17 @@ import { dayPhaseAt, type Lighting } from '@rune/shared';
  */
 
 /** Updated from the server's 'lighting' message; defaults until it arrives. */
-export const lighting: Lighting = { dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle', clockOffset: 0, heldPhase: 0.25 };
+const D = DEFAULT_SERVER_SETTINGS;
+export const lighting: Lighting = {
+  dayMinutes: D.dayMinutes,
+  nightBrightness: D.nightBrightness,
+  timeOfDay: D.timeOfDay,
+  clockOffset: D.clockOffset,
+  heldPhase: D.heldPhase,
+  heroLight: D.heroLight,
+  heroLightRadius: D.heroLightRadius,
+  lampLight: D.lampLight,
+};
 
 /** Share of the day: day until DUSK, dark from NIGHT to DAWN, then light returns. */
 const DUSK = 0.55;

@@ -184,8 +184,8 @@ export class RoomManager implements AdminHooks {
   }
 
   private lighting(): Lighting {
-    const { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase } = this.current;
-    return { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase };
+    const { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase, heroLight, heroLightRadius, lampLight } = this.current;
+    return { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase, heroLight, heroLightRadius, lampLight };
   }
 
   announce(text: string): number {

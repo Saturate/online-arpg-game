@@ -232,7 +232,7 @@ describe('warband size', () => {
 });
 
 describe('world clock', () => {
-  const base = { dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle' as const, clockOffset: 0, heldPhase: 0.25 };
+  const base = { dayMinutes: 20, nightBrightness: 0.6, timeOfDay: 'cycle' as const, clockOffset: 0, heldPhase: 0.25, heroLight: 1, heroLightRadius: 700, lampLight: 1 };
   it('maps phases and hours both ways', () => {
     expect(hourOfPhase(0)).toBe(6);
     expect(phaseOfHour(6)).toBe(0);

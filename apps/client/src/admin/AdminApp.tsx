@@ -489,6 +489,27 @@ function Settings({ token, role, notify }: TabProps) {
           <input type="range" min={0} max={1} step={0.05} value={draft.nightBrightness} onChange={(e) => setDraft({ ...draft, nightBrightness: Number(e.target.value) })} />
           <small className="muted">How much light is left at the darkest point of night.</small>
         </label>
+        <label className="adm-field">
+          <span>
+            Hero light at night <b>{Math.round(draft.heroLight * 100)}%</b>
+          </span>
+          <input type="range" min={0} max={SETTINGS_LIMITS.lightRateMax} step={0.05} value={draft.heroLight} onChange={(e) => setDraft({ ...draft, heroLight: Number(e.target.value) })} />
+          <small className="muted">The warm light around each hero at night; party members carry a faint share. Underground it scales the hero's torch.</small>
+        </label>
+        <label className="adm-field">
+          <span>
+            Hero light reach <b>{draft.heroLightRadius}</b>
+          </span>
+          <input type="range" min={SETTINGS_LIMITS.heroLightRadiusMin} max={SETTINGS_LIMITS.heroLightRadiusMax} step={20} value={draft.heroLightRadius} onChange={(e) => setDraft({ ...draft, heroLightRadius: Number(e.target.value) })} />
+          <small className="muted">How far the hero's night light reaches, in world units; the screen is about 540 tall.</small>
+        </label>
+        <label className="adm-field">
+          <span>
+            Lamps and torches <b>{Math.round(draft.lampLight * 100)}%</b>
+          </span>
+          <input type="range" min={0} max={SETTINGS_LIMITS.lightRateMax} step={0.05} value={draft.lampLight} onChange={(e) => setDraft({ ...draft, lampLight: Number(e.target.value) })} />
+          <small className="muted">Torches, lanterns, fires, portals and waypoints: their light at night and every torch underground.</small>
+        </label>
         <ClockControl draft={draft} setDraft={setDraft} />
         <label className="adm-check">
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />

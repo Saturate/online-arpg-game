@@ -105,6 +105,12 @@ export interface ServerSettings {
   clockOffset: number;
   /** Where the clock stands while held, 0 to 1 of a day. */
   heldPhase: number;
+  /** Multiplier on the hero's own light at night; party members carry a faint share of it. */
+  heroLight: number;
+  /** How far the hero's light reaches at night, in world units (the screen is about 540 tall). */
+  heroLightRadius: number;
+  /** Multiplier on torches, lanterns, fires and waypoints at night, and on every torch underground. */
+  lampLight: number;
   /** Force bar at level 1 before gear; levels add to it. Lower makes long fights run hot. */
   forceMax: number;
   /** Multiplier on every skill's Force cost. */
@@ -126,6 +132,9 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   timeOfDay: 'cycle',
   clockOffset: 0,
   heldPhase: 0.25,
+  heroLight: 1,
+  heroLightRadius: 700,
+  lampLight: 1,
   forceMax: HEAT.max,
   forceCostRate: 1,
   forceCoolRate: 1,
@@ -133,7 +142,7 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
-export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay' | 'clockOffset' | 'heldPhase'>;
+export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay' | 'clockOffset' | 'heldPhase' | 'heroLight' | 'heroLightRadius' | 'lampLight'>;
 
 /** Where in the day the world is (0 to 1), shared by clients and the admin page so both agree. */
 export function dayPhaseAt(now: number, l: Lighting): number {
@@ -164,6 +173,9 @@ export const SETTINGS_LIMITS = {
   forceRateMax: 10,
   forceRampMin: 1,
   forceRampMax: 20,
+  lightRateMax: 3,
+  heroLightRadiusMin: 200,
+  heroLightRadiusMax: 1600,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -205,12 +217,15 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     out[key] = v;
   }
   const ranges = {
+    heroLight: [0, SETTINGS_LIMITS.lightRateMax],
+    lampLight: [0, SETTINGS_LIMITS.lightRateMax],
+    heroLightRadius: [SETTINGS_LIMITS.heroLightRadiusMin, SETTINGS_LIMITS.heroLightRadiusMax],
     forceMax: [SETTINGS_LIMITS.forceMaxMin, SETTINGS_LIMITS.forceMaxMax],
     forceCostRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
     forceCoolRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
     forceRampMax: [SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax],
   } as const;
-  for (const key of ['forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];
