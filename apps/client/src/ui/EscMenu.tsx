@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { GamePanel, useMovablePanel } from './GamePanel.js';
 import { keyLabel, useSettings } from './settings.js';
 import { sendCommand, useUi } from './store.js';
 
@@ -24,8 +25,7 @@ export function EscMenu() {
 
   return (
     <div className="menu-backdrop" role="dialog" aria-label="Menu">
-      <section className="panel menu">
-        <h2>{paused ? 'Paused' : 'Menu'}</h2>
+      <GamePanel id="menu" className="menu" title={paused ? 'Paused' : 'Menu'}>
         <p className="muted">
           {roomName}
           {world ? `, ${world.name} (${world.players}/${world.capacity})` : ''}
@@ -98,7 +98,7 @@ export function EscMenu() {
         <p className="muted small">
           <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>Alt</kbd> show all loot
         </p>
-      </section>
+      </GamePanel>
     </div>
   );
 }
@@ -106,13 +106,14 @@ export function EscMenu() {
 /** The invite prompt, like D2's party request, answered with a click or /accept and /decline. */
 export function PartyInvitePrompt() {
   const from = useUi((s) => s.partyInvite);
+  const { ref, handleProps } = useMovablePanel('party-invite');
   if (!from) return null;
   const answer = (accept: boolean) => {
     sendCommand({ t: 'partyAnswer', accept });
     useUi.setState({ partyInvite: null });
   };
   return (
-    <div className="panel party-invite" role="alertdialog" aria-label="Party invite">
+    <div className="panel party-invite" role="alertdialog" aria-label="Party invite" ref={ref} {...handleProps}>
       <p>
         <b>{from}</b> invites you to a party.
       </p>

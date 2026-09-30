@@ -2,10 +2,12 @@ import { CLASSES } from '@rune/shared';
 import { cssColor } from '../render/config.js';
 import { keyLabel, useSettings } from './settings.js';
 import { sendCommand, useUi } from './store.js';
+import { useMovablePanel } from './GamePanel.js';
 
 /** Antechamber party list and ready check. The gate opens when everyone here is ready. */
 export function StagingPanel() {
   const staging = useUi((s) => s.staging);
+  const { ref: panelRef, handleProps } = useMovablePanel('staging');
   const name = useUi((s) => s.name);
   const readyKey = useSettings((s) => s.bindings.ready);
   if (!staging) return null;
@@ -13,8 +15,8 @@ export function StagingPanel() {
   const me = staging.members.find((m) => m.name === name);
   const readyCount = staging.members.filter((m) => m.ready).length;
   return (
-    <section className="panel staging-panel" aria-label={arena ? 'Arena party' : 'Dungeon party'}>
-      <header>
+    <section ref={panelRef} className="panel staging-panel" aria-label={arena ? 'Arena party' : 'Dungeon party'}>
+      <header {...handleProps}>
         <h2>{arena ? 'Arena party' : 'Dungeon party'}</h2>
         <span className="muted">
           {arena ? 'Wave 1 at level' : 'Monster level'} {staging.level}

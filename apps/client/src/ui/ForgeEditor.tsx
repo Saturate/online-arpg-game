@@ -31,6 +31,8 @@ import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
 import { useHover } from './Inventory.js';
 import { tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
+import { useMovablePanel } from './GamePanel.js';
+import { tip } from './Tip.js';
 import './forge.css';
 
 /** Drag type for forge slots and pool runes; kept apart from item drags so the two never mix. */
@@ -93,8 +95,8 @@ function Glyph({ id }: { id: RuneId }) {
 }
 
 function OriginTag({ origin }: { origin: RuneOrigin }) {
-  if (origin === 'stash') return <span className="forge-tag stash" title="In the account stash">in stash</span>;
-  if (origin === 'sigil') return <span className="forge-tag kept" title="Taken out of this sigil in this draft: free to put back">taken out</span>;
+  if (origin === 'stash') return <span className="forge-tag stash">in stash</span>;
+  if (origin === 'sigil') return <span className="forge-tag kept">taken out</span>;
   return null;
 }
 
@@ -199,6 +201,7 @@ interface DraftState {
  */
 export function ForgeEditor() {
   const open = useUi((s) => s.editorOpen);
+  const { ref: panelRef, handleProps } = useMovablePanel('forge');
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
   const uid = useUi((s) => s.editorUid);
@@ -314,8 +317,8 @@ export function ForgeEditor() {
   const filterLabel = KIND_FILTERS.find((f) => f.id === filter)?.label.toLowerCase() ?? 'runes';
 
   return (
-    <section className="panel forge" aria-label="Forge">
-      <header className="forge-head">
+    <section ref={panelRef} className="panel forge" aria-label="Forge">
+      <header className="forge-head" {...handleProps}>
         <h2>Forge</h2>
         <span className="muted">
           {free ? "Builders' bench: runes are free and come out bound" : 'Runes come from your bag first, then the stash'} · <span className="gold">{inv.gold} gold</span>
@@ -336,7 +339,7 @@ export function ForgeEditor() {
               className={`bare forge-sigil${p.item.uid === sigil?.uid ? ' active' : ''}${p.where === 'stash' ? ' locked' : ''}`}
               style={{ color: tierColor(p.item) }}
               onClick={() => useUi.setState({ editorUid: p.item.uid, forgeError: null })}
-              title={p.where === 'stash' ? 'Take it out of the stash first' : undefined}
+              {...tip(p.where === 'stash' ? 'Take it out of the stash first' : null)}
             >
               <span className="forge-sigil-where">{p.where === 'equipped' ? <kbd>{p.slot + 1}</kbd> : p.where === 'stash' ? 'stash' : 'bag'}</span>
               <span className="forge-sigil-name">
@@ -377,7 +380,7 @@ export function ForgeEditor() {
                   const rolled = slot.item.affixes.length > 0;
                   // Only a rune already in the sigil can lose rolls on the way out; a new one came in within the table.
                   const weakens = slot.origin === 'sigil' ? weakening(slot.item) : null;
-                  const hint = 'Click to take it out · Drag to move it';
+                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}`;
                   return (
                     <li key={`${refKey(slot.ref)}-${i}`} className={cls} onDragOver={(e) => dragOver(e, i)} onDragLeave={() => setDropAt(null)} onDrop={(e) => onSlotDrop(e, i)}>
                       <button
@@ -399,10 +402,10 @@ export function ForgeEditor() {
                         <Glyph id={slot.item.rune} />
                         <span className="forge-slot-name">{runeName(slot.item.rune)}</span>
                         <span className="forge-slot-marks">
-                          {rolled && <i className="mark rolled" title="Rolled" />}
-                          {slot.item.bound && <i className="mark bound" title="Bound" />}
-                          {weakens && <i className="mark weakens" title={weakens} />}
-                          {slot.origin === 'stash' && <i className="mark stash" title="From the stash" />}
+                          {rolled && <i className="mark rolled" />}
+                          {slot.item.bound && <i className="mark bound" />}
+                          {weakens && <i className="mark weakens" />}
+                          {slot.origin === 'stash' && <i className="mark stash" />}
                           {slot.price > 0 && <span className="forge-price">{slot.price}g</span>}
                         </span>
                       </button>
@@ -521,12 +524,12 @@ function PlainRow({ entry, disabled, onAdd, onDrag }: { entry: PlainEntry; disab
         <span className="forge-rune-count">
           <span>{entry.unlimited ? 'free' : `x${count}`}</span>
           {entry.loose > 0 && (
-            <span className="forge-tag kept" title="Taken out of this sigil in this draft: free to put back">
+            <span className="forge-tag kept">
               {entry.loose} taken out
             </span>
           )}
           {entry.stash > 0 && (
-            <span className="forge-tag stash" title="In the account stash">
+            <span className="forge-tag stash">
               {entry.stash} in stash
             </span>
           )}
@@ -567,8 +570,8 @@ function RolledRow({ entry, free, disabled, onAdd, onDrag }: { entry: RolledEntr
           <span className="forge-rune-desc">{runeDescription(entry.item.rune)}</span>
         </span>
         <span className="forge-rune-count">
-          <i className="mark rolled" title="Rolled" />
-          {entry.item.bound && <i className="mark bound" title="Bound" />}
+          <i className="mark rolled" />
+          {entry.item.bound && <i className="mark bound" />}
           <OriginTag origin={entry.origin} />
         </span>
       </button>

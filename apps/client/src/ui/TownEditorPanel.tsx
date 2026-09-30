@@ -1,5 +1,7 @@
 import { PROP_DEFS, TOWN_PROP_KINDS } from '@rune/shared';
 import { activeTownEditor, useTownEditor, type EditorTool } from '../game/townEditor.js';
+import { useMovablePanel } from './GamePanel.js';
+import { tip } from './Tip.js';
 
 const TOOLS: { id: EditorTool; label: string; key: string }[] = [
   { id: 'select', label: 'Select / move', key: '1' },
@@ -12,17 +14,18 @@ const TOOLS: { id: EditorTool; label: string; key: string }[] = [
 /** Controls for the town editor. All editing happens in the scene; this is only the toolbox. */
 export function TownEditorPanel() {
   const s = useTownEditor();
+  const { ref: panelRef, handleProps } = useMovablePanel('town-editor');
   if (!s.active) return null;
   const ed = activeTownEditor();
   return (
-    <section className="panel town-editor" aria-label="Town editor">
-      <header>
+    <section ref={panelRef} className="panel town-editor" aria-label="Town editor">
+      <header {...handleProps}>
         <h2>Town editor</h2>
         {s.dirty && <span className="unsaved">unsaved</span>}
       </header>
       <div className="tool-row">
         {TOOLS.map((t) => (
-          <button key={t.id} type="button" className={s.tool === t.id ? 'on' : ''} onClick={() => ed?.setTool(t.id)} title={`Key ${t.key}`}>
+          <button key={t.id} type="button" className={s.tool === t.id ? 'on' : ''} onClick={() => ed?.setTool(t.id)} {...tip(`Key ${t.key}`)}>
             <kbd>{t.key}</kbd> {t.label}
           </button>
         ))}

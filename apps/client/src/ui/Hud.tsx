@@ -5,7 +5,9 @@ import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
+import { usePanelLayout } from './GamePanel.js';
 import { spiritUses } from './spirit.js';
+import { tip } from './Tip.js';
 import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
@@ -117,7 +119,7 @@ function XpBar() {
   const next = useUi((s) => s.xpNext);
   const ratio = next > 0 ? Math.min(1, xp / next) : 1;
   return (
-    <div className="xp-bar" title={`${xp.toLocaleString()} / ${next.toLocaleString()} XP to level ${level + 1}`}>
+    <div className="xp-bar" {...tip(`${xp.toLocaleString()} / ${next.toLocaleString()} XP to level ${level + 1}`)}>
       <div style={{ width: `${ratio * 100}%` }} />
       <span>
         Level {level} <small>{Math.floor(ratio * 100)}%</small>
@@ -132,19 +134,32 @@ function PanelButtons() {
   const charKey = useSettings((s) => s.bindings.character);
   const invOpen = useUi((s) => s.inventoryOpen);
   const charOpen = useUi((s) => s.characterOpen);
+  const unlocked = usePanelLayout((s) => s.unlocked);
   return (
     <div className="panel-buttons">
-      <button type="button" className={invOpen ? 'on' : ''} onClick={() => useUi.getState().toggleInventory()} title={`Inventory (${keyLabel(invKey)})`} aria-label="Inventory">
+      <button type="button" className={invOpen ? 'on' : ''} onClick={() => useUi.getState().toggleInventory()} {...tip(`Inventory (${keyLabel(invKey)})`)} aria-label="Inventory">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M7 8V6a5 5 0 0 1 10 0v2h3l-1 13H5L4 8zm2 0h6V6a3 3 0 0 0-6 0z" />
         </svg>
       </button>
-      <button type="button" className={charOpen ? 'on' : ''} onClick={() => useUi.setState((s) => ({ characterOpen: !s.characterOpen }))} title={`Character (${keyLabel(charKey)})`} aria-label="Character">
+      <button type="button" className={charOpen ? 'on' : ''} onClick={() => useUi.setState((s) => ({ characterOpen: !s.characterOpen }))} {...tip(`Character (${keyLabel(charKey)})`)} aria-label="Character">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm-7 18c0-4 3-7 7-7s7 3 7 7z" />
         </svg>
       </button>
-      <button type="button" onClick={() => useUi.getState().toggleMenu()} title="Menu (Esc)" aria-label="Menu">
+      <button
+        type="button"
+        className={unlocked ? 'on' : ''}
+        onClick={() => usePanelLayout.getState().setUnlocked(!unlocked)}
+        {...tip(unlocked ? 'Panels unlocked: drag them by the title bar. Click to lock.' : 'Unlock panels to move them')}
+        aria-label={unlocked ? 'Lock panels' : 'Unlock panels'}
+        aria-pressed={unlocked}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2l3.5 3.5h-2.5V11h5.5V8.5L22 12l-3.5 3.5V13H13v5.5h2.5L12 22l-3.5-3.5H11V13H5.5v2.5L2 12l3.5-3.5V11H11V5.5H8.5z" />
+        </svg>
+      </button>
+      <button type="button" onClick={() => useUi.getState().toggleMenu()} {...tip('Menu (Esc)')} aria-label="Menu">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
         </svg>
@@ -212,7 +227,7 @@ function Warband() {
   if (classId !== 'binder' || !inv) return null;
   return (
     <div className="warband">
-      <span className="stance" title="Cycles minion stance">
+      <span className="stance" {...tip('Minion stance. Press the key to cycle it.')}>
         <kbd>{keyLabel(stanceKey)}</kbd> {stance}
       </span>
       {inv.warband.map((uid, slot) => {
@@ -221,7 +236,7 @@ function Warband() {
         if (!item || item.kind !== 'vessel') return null;
         const t = respawn[slot] ?? 0;
         return (
-          <span key={slot} className={`minion-pip${t > 0 ? ' down' : ''}`} style={{ borderColor: cssColor(MINION_DEFS[item.minion].color) }} title={item.name}>
+          <span key={slot} className={`minion-pip${t > 0 ? ' down' : ''}`} style={{ borderColor: cssColor(MINION_DEFS[item.minion].color) }} {...tip(item.name)}>
             {t > 0 ? t : ''}
           </span>
         );
@@ -333,7 +348,7 @@ export function TargetFrame() {
 export function RecordingBadge() {
   const recording = useUi((s) => s.recording);
   return recording ? (
-    <div className="rec-badge" title="Recording a replay. F8 stops and saves it.">
+    <div className="rec-badge" {...tip('Recording a replay. F8 stops and saves it.')}>
       REC
     </div>
   ) : null;

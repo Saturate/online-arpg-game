@@ -1,17 +1,19 @@
 import { ZONE_IDS, ZONES } from '@rune/shared';
 import { sendCommand, useUi } from './store.js';
+import { useMovablePanel } from './GamePanel.js';
 
 /** D2-style waypoint list. Found waypoints can be travelled to; the rest show as locked. */
 export function WaypointPanel() {
   const menu = useUi((s) => s.waypointMenu);
+  const { ref: panelRef, handleProps } = useMovablePanel('waypoints');
   if (!menu) return null;
   const close = () => useUi.setState({ waypointMenu: null });
   return (
-    <section className="panel waypoints" aria-label="Waypoints">
-      <header>
+    <section ref={panelRef} className="panel waypoints" aria-label="Waypoints">
+      <header {...handleProps}>
         <h2>Waypoints</h2>
         <button type="button" className="close" onClick={close} aria-label="Close waypoints">
-          x
+          ×
         </button>
       </header>
       <ul>

@@ -2,6 +2,7 @@ import { ENEMY_TYPE_IDS, ITEM_TIERS, type DevCommand, type EnemyTypeId, type Gea
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { sendCommand, useUi } from './store.js';
+import { useMovablePanel } from './GamePanel.js';
 
 /** Last ground point under the mouse while it was over the game canvas, kept by the game loop. */
 export const useDevCursor = create<{ x: number; y: number }>(() => ({ x: 0, y: 0 }));
@@ -16,6 +17,7 @@ function dev(cmd: DevCommand): void {
 /** Encounter sandbox (F3). Spawning uses the last spot the mouse hovered on the ground. */
 export function DevPanel() {
   const open = useUi((s) => s.devOpen);
+  const { ref: panelRef, handleProps } = useMovablePanel('dev');
   const portals = useUi((s) => s.roomPortals);
   const allowed = useUi((s) => s.devTools);
   const inArenaRun = useUi((s) => s.arena !== null);
@@ -45,8 +47,8 @@ export function DevPanel() {
   if (!open) return null;
   if (!allowed) {
     return (
-      <section className="panel dev-panel">
-        <header>
+      <section ref={panelRef} className="panel dev-panel">
+        <header {...handleProps}>
           <h2>Encounter sandbox</h2>
         </header>
         <p className="muted">{inArenaRun ? 'Dev tools are off in Arena runs, which are scored.' : 'Dev tools need the builder role. The server owner hands out roles on the admin page.'}</p>
@@ -54,11 +56,11 @@ export function DevPanel() {
     );
   }
   return (
-    <section className="panel dev-panel" aria-label="Encounter sandbox">
-      <header>
+    <section ref={panelRef} className="panel dev-panel" aria-label="Encounter sandbox">
+      <header {...handleProps}>
         <h2>Encounter sandbox</h2>
         <button type="button" className="close" onClick={() => useUi.setState({ devOpen: false })} aria-label="Close sandbox">
-          x
+          ×
         </button>
       </header>
       <h3>Spawn</h3>
