@@ -196,6 +196,14 @@ export class RigGallery {
     const e = Array.isArray(stored) ? stored.filter((v): v is number => typeof v === 'number') : [];
     const [x0 = -1, x1 = 1, y0 = 0, y1 = 2, z0 = -1, z1 = 1] = e;
     const extent = { tall: y1 - Math.min(0, y0), wide: Math.max(x1 - x0, z1 - z0) };
+    // The rest extent has orbiting parts at the origin and a hovering body on the ground; framed on
+    // it, an elemental's shards rose over the cell's name. Orbits reach 2.35 up and 0.9 out, 1.5 out
+    // at a pulse, and a hover floats 0.42 up.
+    if (rig.extras.some((o) => o.userData.kind === 'orbit')) {
+      extent.tall = Math.max(extent.tall, 3.4);
+      extent.wide = Math.max(extent.wide, 3.6);
+    }
+    if (rig.profile.gait === 'hover') extent.tall += 0.45;
     this.cells.push({ entry, el, rig, x, role, t: START, ground, groundMat, drive: { speed: 0, dead: false, dormant: false, hidden: false, dt: 0, seed: i * 1.37 }, labelEl, extent });
   }
 
