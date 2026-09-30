@@ -1,0 +1,269 @@
+{
+  "asset": {
+    "generator": "glTF-Transform v4.5.1",
+    "version": "2.0"
+  },
+  "accessors": [
+    {
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 740,
+      "max": [
+        1.820098876953125,
+        2.75,
+        0.38677310943603516
+      ],
+      "min": [
+        -0.179901123046875,
+        0,
+        -0.38677310943603516
+      ],
+      "bufferView": 0,
+      "byteOffset": 0
+    },
+    {
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 740,
+      "bufferView": 0,
+      "byteOffset": 12
+    },
+    {
+      "type": "VEC4",
+      "componentType": 5126,
+      "count": 740,
+      "bufferView": 0,
+      "byteOffset": 24
+    },
+    {
+      "type": "VEC2",
+      "componentType": 5126,
+      "count": 740,
+      "bufferView": 0,
+      "byteOffset": 40
+    },
+    {
+      "type": "SCALAR",
+      "componentType": 5123,
+      "count": 1860,
+      "bufferView": 1,
+      "byteOffset": 0
+    },
+    {
+      "type": "SCALAR",
+      "componentType": 5123,
+      "count": 1344,
+      "bufferView": 1,
+      "byteOffset": 3720
+    },
+    {
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 823,
+      "max": [
+        2,
+        4,
+        0.4999999701976776
+      ],
+      "min": [
+        -2,
+        0,
+        -0.4999999701976776
+      ],
+      "bufferView": 2,
+      "byteOffset": 0
+    },
+    {
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 823,
+      "bufferView": 2,
+      "byteOffset": 12
+    },
+    {
+      "type": "VEC4",
+      "componentType": 5126,
+      "count": 823,
+      "bufferView": 2,
+      "byteOffset": 24
+    },
+    {
+      "type": "VEC2",
+      "componentType": 5126,
+      "count": 823,
+      "bufferView": 2,
+      "byteOffset": 40
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 35520,
+      "byteStride": 48,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 35520,
+      "byteLength": 6408,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 41928,
+      "byteLength": 39504,
+      "byteStride": 48,
+      "target": 34962
+    }
+  ],
+  "samplers": [
+    {
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "textures": [
+    {
+      "source": 0,
+      "sampler": 0
+    }
+  ],
+  "images": [
+    {
+      "name": "dungeon_texture",
+      "mimeType": "image/png",
+      "uri": "dungeon_texture.png"
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "wall_doorway.bin",
+      "byteLength": 81432
+    }
+  ],
+  "materials": [
+    {
+      "name": "texture",
+      "pbrMetallicRoughness": {
+        "roughnessFactor": 0.44999998807907104,
+        "metallicFactor": 0,
+        "baseColorTexture": {
+          "index": 0
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Cube.13134",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "mode": 4,
+          "material": 0,
+          "indices": 4
+        }
+      ]
+    },
+    {
+      "name": "Cube.13132",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 6,
+            "NORMAL": 7,
+            "TANGENT": 8,
+            "TEXCOORD_0": 9
+          },
+          "mode": 4,
+          "material": 0,
+          "indices": 5
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "wall_doorway_door",
+      "translation": [
+        -0.820098876953125,
+        0,
+        0
+      ],
+      "mesh": 0
+    },
+    {
+      "name": "wall_doorway",
+      "mesh": 1,
+      "children": [
+        0
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "name": "Scene",
+      "extras": {
+        "blenderkitUI": {
+          "assetbar_on": 0,
+          "turn_off": 0
+        },
+        "uuid": "4a142ebb-8505-401f-a0ed-ed4f2df5c0a5",
+        "FBXBundleSettings": {
+          "path": "//export 1.0\\standard\\",
+          "mode_bundle": 1,
+          "mode_pivot": 3,
+          "recent": "{\"selection\": [\"chest\", \"chest_lid\"], \"bundles\": [\"chest\"]}",
+          "target_platform": 0,
+          "collapseBundles": 1,
+          "include_children": 1
+        },
+        "FBXBundle_modifier_rename": {
+          "active": 0
+        },
+        "glTF2ExportSettings": {
+          "export_all_influences": 0,
+          "export_animations": 1,
+          "export_apply": 1,
+          "export_cameras": 0,
+          "export_colors": 1,
+          "export_copyright": "",
+          "export_current_frame": 0,
+          "export_displacement": 0,
+          "export_draco_mesh_compression_enable": 0,
+          "export_draco_mesh_compression_level": 6,
+          "export_draco_normal_quantization": 10,
+          "export_draco_position_quantization": 14,
+          "export_draco_texcoord_quantization": 12,
+          "export_extras": 1,
+          "export_force_sampling": 0,
+          "export_format": "GLB",
+          "export_frame_range": 1,
+          "export_frame_step": 1,
+          "export_image_format": "NAME",
+          "export_lights": 0,
+          "export_materials": 1,
+          "export_morph": 1,
+          "export_morph_normal": 1,
+          "export_morph_tangent": 0,
+          "export_normals": 1,
+          "export_selected": 1,
+          "export_skins": 1,
+          "export_tangents": 1,
+          "export_texcoords": 1,
+          "export_yup": 1
+        }
+      },
+      "nodes": [
+        1
+      ]
+    }
+  ],
+  "scene": 0
+}

@@ -3,7 +3,8 @@ import type { Vec2 } from '../sim/math.js';
 import type { ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
-export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate' | 'cavewall';
+/** `decor` is a town editor piece marked solid: it blocks like the rest, and its model is drawn from the map's decor. */
+export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate' | 'cavewall' | 'decor';
 
 export type Shape =
   | { type: 'circle'; x: number; y: number; r: number }

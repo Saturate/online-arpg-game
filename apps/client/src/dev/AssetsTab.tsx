@@ -7,7 +7,7 @@ import { exportAsset } from './modelExport.js';
 
 /** `built-in` is the monsters models.ts builds in code; the rest are model files in the registry. */
 type Category = AssetCategory | 'built-in';
-const CATEGORIES: Category[] = ['hero', 'monster', 'built-in', 'building', 'nature', 'prop', 'dungeon', 'graveyard'];
+const CATEGORIES: Category[] = ['hero', 'monster', 'built-in', 'building', 'wall', 'nature', 'prop', 'light', 'dungeon', 'graveyard'];
 
 export function AssetsTab() {
   const host = useRef<HTMLDivElement>(null);
