@@ -367,6 +367,9 @@ export const ASSETS: AssetDef[] = [
     height: h,
     // In town a chest reads as the stash and a coin pile as loot nobody can pick up.
     ...(n === 'chest' || n === 'chest_gold' || n === 'coin_stack' ? { town: false } : {}),
+    // The checkered banner's white squares read as the brightest thing in a dark street; this
+    // takes it down to soiled cloth.
+    ...(n === 'banner_blue' ? { tint: 0x9c948c } : {}),
   })),
   // Graveyard
   ...(

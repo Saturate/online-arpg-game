@@ -3,6 +3,7 @@ import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, inRect, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
+import { placeCamps } from './camps.js';
 import { arenaGateMap, colosseumMap, dungeonMap, dungeonName, stagingMap } from './dungeon.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
 import type { MapDescriptor, MonsterPack, SafeZone, WorldMap } from './types.js';
@@ -244,6 +245,10 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined): 
   if (prev) addGate(map, 'west', spawn.y, prev);
   const next = nextZone(zoneId);
   if (next) addGate(map, 'east', gm.findOpen(width - 130, height / 2, 60).y, next);
+  // Camps come last, so they keep clear of the waypoint and the gates' roads.
+  const laidOut = new GameMap(map);
+  const scale = (width * height) / (WILDS.width * WILDS.height);
+  placeCamps(map, seed, laidOut, reachable(laidOut, spawn.x, spawn.y), keepClear, levelFunction(map, zone.levels), zone.biome, scale);
   return map;
 }
 
@@ -366,7 +371,8 @@ function flatMap(): WorldMap {
   return emptyMap({ name: 'Sandbox', theme: 'flat', width: 2800, height: 2000, spawn: { x: 1400, y: 1000 }, waves: true, safe: false, groundTint: 0x606060 });
 }
 
-function buildMap(desc: MapDescriptor): WorldMap {
+/** Builds a map from scratch, skipping the cache; `loadMap` is what the game uses. */
+export function buildMap(desc: MapDescriptor): WorldMap {
   switch (desc.kind) {
     case 'arena':
       return colosseumMap();

@@ -123,6 +123,8 @@ export interface WorldMap {
    * of its own (the Arena pit). Waves only spawn inside it.
    */
   playArea?: { x: number; y: number; r: number };
+  /** Generated camps in a zone (`camps.ts`): where each fire burns and whether a pack holds it. */
+  camps?: { x: number; y: number; guarded: boolean }[];
 }
 
 export interface Decor {
