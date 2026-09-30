@@ -41,7 +41,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 ## Handoff (2026-09-30, end of session 3)
 
-**Where things stand.** Live at arpg.akj.io is still `fbb1097`. Everything since is local on `main` and not pushed: the 7 reviewed commits from session 2 (minion stutter, tooltips, sunny days, the Arena building and pit, dev deep links, faceted exports), then this session's rune rework and the monster browser. 468 tests pass and typecheck is clean. The repo is now public on GitHub (free Actions minutes); docs-only pushes no longer rebuild the image.
+**Where things stand.** Live at arpg.akj.io is `632b418` (deployed 2026-09-30): the rune rework, the monster browser and the 7 commits from session 2. Characters convert to v2 on their first join after the deploy; the pre-deploy database is at `/data/rune.db.pre-v2-20260930` on the volume. Local commits after that are not deployed. The repo is public on GitHub; docs-only pushes no longer rebuild the image.
 
 **Built this session.**
 
@@ -49,7 +49,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **Monster and minion browser** on the admin page: Monsters, Minions and Model check tabs, overrides applied to new spawns without a deploy, export back to `data/*.ts`. See [monsters.md](docs/features/monsters.md), "Tuning overrides".
 - **Reviews:** three rounds of fresh-eyes review on items (loss and duplication) and on the compiler, engine and UI, plus a browser QA pass; all findings fixed. A random spell search (8000 spells per seed) now finds nothing above about 2.13x the best starter's damage per Force; a seeded 300-spell version runs in the tests. The melee swing code left from the old basic attack is removed.
 
-**Deploying the rework (owner's go needed).**
+**How the rework was deployed (repeat for any change that converts saves).**
 
 1. Take a copy of `/data/rune.db` first; it is the only rollback, since conversion is one-way. For example: `ssh akj@svr.akj.io 'kubectl -n arpg exec deploy/arpg -- node -e "..."'` with `VACUUM INTO`, as done this session, then copy it off the pod.
 2. Run `pnpm runes:convert-check <copy>` on it. On the 2026-09-29 copy: 7 characters, 2 stashes and the 50-item shelf convert; 95 starter sigils, 3 runes to 36 gold, all checks passed. One hand-inscribed sigil ("Wraith Song", a lone Cold rune) fizzles, as it did in v1.
@@ -66,7 +66,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 **Next, in the owner's order.**
 
-1. **Deploy** everything above once the owner says so.
+1. **In progress:** stash tabs, the game-feel UI pass with movable panels, then loot piles, guilds and the forge redesign (fused runes, smashing). Plans are in the feature docs.
 2. **Loot piles** (parked until after the rework): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all ([loot.md](docs/features/loot.md), "Planned: loot piles").
 3. **Phase 4 of the rune plan:** Link, Orbit, Homing, Bounce, Chain, Charge and the channelled Beam ([runes.md](docs/features/runes.md), "Planned").
 
