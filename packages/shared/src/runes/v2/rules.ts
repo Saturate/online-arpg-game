@@ -1,6 +1,6 @@
 /**
- * Every rule the v2 grammar enforces, by name. Several are answers to questions PLAN-runes.md
- * leaves open; those are marked ASSUMED so the owner can see what was decided for the prototype.
+ * Every rule the v2 grammar enforces, by name. Several are answers to questions the rune design
+ * (docs/features/runes.md) left open; those are marked ASSUMED so the owner can see what was decided for the prototype.
  */
 export const RULES = {
   EMPTY: { id: 'empty', text: 'A spell needs at least one rune.' },
@@ -16,7 +16,7 @@ export const RULES = {
   POSTFIX: { id: 'postfix', text: 'Infusions, effects and shapers attach to the nearest shape on their left.' },
   /**
    * ASSUMED. A Split written after the parent's release point and before the payload's shape
-   * splits the payload, not the parent. PLAN-runes.md's own examples need this
+   * splits the payload, not the parent. The examples in docs/features/runes.md need this
    * (`Orb [every 0.2 s], Cold, Split 4, Bolt` sprays four bolts; the endgame spell makes six embers).
    * The release point is the shape itself for a release affix, or the trigger rune's position.
    * A Link right after such a Split goes with it. Everything else still attaches to the parent.

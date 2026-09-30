@@ -1,4 +1,4 @@
-/** Rune data for the spell grammar (PLAN-runes.md). Pure data, no simulation. */
+/** Rune data for the spell grammar (docs/features/runes.md). Pure data, no simulation. */
 
 export const SHAPE_IDS = [
   'orb',
@@ -21,8 +21,8 @@ export const EFFECT_IDS = ['impact', 'ward', 'restore'] as const;
 /** Triggers stay as plain common runes; each one is just another way to write a release affix. */
 export const TRIGGER_IDS = ['onhit', 'onexpire', 'timer', 'pulse', 'onland'] as const;
 /**
- * PLAN-runes.md open question 1: keep Swift and Large as plain runes as well as affixes?
- * They exist here but only parse when the context turns `plainModifierRunes` on.
+ * Swift and Large stay as plain runes as well as affixes (docs/features/runes.md). They only parse
+ * when the context turns `plainModifierRunes` on, which the game does.
  */
 export const PLAIN_MODIFIER_IDS = ['swift', 'large'] as const;
 

@@ -47,7 +47,7 @@ export function StagingPanel() {
         </p>
       ) : (
         <p className="muted">
-          {readyCount} of {staging.members.length} ready. Wait here for friends; they can join from the Esc menu.
+          {readyCount} of {staging.members.length} ready. Wait here for friends: anyone in your world who takes the same entrance joins you here.
         </p>
       )}
       <div className="row-actions">

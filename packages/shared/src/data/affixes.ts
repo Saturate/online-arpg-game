@@ -352,7 +352,7 @@ export const AFFIXES: Record<AffixId, AffixDef> = {
       { weight: 20, min: 18, max: 25 },
     ],
   },
-  // Rule-breaking rolls permit one of a kind (PLAN-runes.md), so these only reach +1 and only on rares.
+  // Rule-breaking rolls permit one of a kind (docs/features/runes.md), so these only reach +1 and only on rares.
   multicast: {
     id: 'multicast',
     text: '+{v} shape cast together (multicast)',

@@ -36,7 +36,7 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     name: 'Fireball',
     description: 'Explodes on impact and leaves the ground burning.',
     classId: 'mage',
-    // PLAN-runes.md's Fireball, not a copy of v1 (a bolt at 0.85 speed and 2x damage). The orb
+    // The Fireball of docs/features/runes.md, not a copy of v1 (a bolt at 0.85 speed and 2x damage). The orb
     // carries v1's 2x hit, since the burst and the burning ground only add to it. v1 had Linger
     // (+75% duration), but one caster's zones never stack and it recasts long before the ground
     // goes out, so the extra time added no damage while its payload price pushed Force past v1.
