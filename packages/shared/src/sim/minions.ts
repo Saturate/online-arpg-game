@@ -7,6 +7,7 @@ import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp, type PackRole, type PlayerComp } from './ecs.js';
 import { knockbackImmune } from './enemies.js';
 import { distSq, type Vec2 } from './math.js';
+import { findNavPath } from './minionPath.js';
 import type { Simulation } from './simulation.js';
 import { spawnProjectile } from './spells.js';
 
@@ -21,6 +22,31 @@ const FIRST_HOWL_SECONDS = 1.5;
 const TURN_STEP_SHARE = 0.25;
 /** Slack past strike reach within which a minion already looks at its target while closing in. */
 const FACE_TARGET_SLACK = 8;
+/**
+ * Stuck recovery while following. A minion counts as making progress when it moves this far from
+ * where the current window began, or gets this much closer to its master. A minion idle in
+ * formation also stops making progress, which is why the teleport also needs the master out of sight.
+ */
+const STUCK_MOVE = 40;
+const STUCK_CLOSER = 16;
+/** About 0.75 s without progress on the trail and the minion asks the nav grid instead. */
+const PATH_AFTER_STUCK_TICKS = 15;
+/** About 2 s without progress and out of sight of the master: pulled over, as at 700 units. */
+const STUCK_TELEPORT_TICKS = 40;
+/** A* budget in nav cells; the town's gate detours need a few hundred. */
+const PATH_EXPAND = 2500;
+/** At most one search per minion this often; a failed one waits too. */
+const PATH_REPLAN_TICKS = 10;
+/** A route is planned again when this old, or when its goal has drifted this many cells. */
+const PATH_STALE_TICKS = 40;
+const PATH_GOAL_DRIFT_CELLS = 3;
+/** A waypoint this close counts as reached. */
+const WAYPOINT_REACHED = 12;
+/** How far along a route a minion looks for the furthest waypoint it can walk to straight. */
+const PATH_LOOKAHEAD = 6;
+/** Behind the master and to either side: where a pulled-over minion is put down, first open spot in sight wins. */
+const BESIDE_ANGLES = [0, 0.8, -0.8, 1.6, -1.6, Math.PI] as const;
+const BESIDE_DISTANCE = 40;
 
 type LeapAbility = Extract<Ability, { kind: 'leap' }>;
 
@@ -66,7 +92,28 @@ export function packVesselCount(p: PlayerComp): number {
   return n;
 }
 
-function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: VesselItem, role: PackRole | null, at: Vec2): EntityId | null {
+/**
+ * The open spot nearest `at`, unless it is on the far side of a wall or fence from `anchor`, where a
+ * minion would start cut off from its master; then the open spot at the anchor itself.
+ */
+function openInSight(sim: Simulation, anchor: Vec2, at: Vec2, radius: number): Vec2 {
+  const p = sim.map.findOpen(at.x, at.y, radius);
+  if (sim.map.lineClear(anchor.x, anchor.y, p.x, p.y, radius * 0.8, 'move')) return p;
+  return sim.map.findOpen(anchor.x, anchor.y, radius);
+}
+
+/** Where a pulled-over minion lands: behind or beside the master, on the master's side of any fence. */
+function besideMaster(sim: Simulation, owner: PlayerComp, opos: Vec2, radius: number): Vec2 {
+  const back = owner.heading + Math.PI;
+  for (const off of BESIDE_ANGLES) {
+    const a = back + off;
+    const p = sim.map.findOpen(opos.x + Math.cos(a) * BESIDE_DISTANCE, opos.y + Math.sin(a) * BESIDE_DISTANCE, radius);
+    if (sim.map.lineClear(opos.x, opos.y, p.x, p.y, radius * 0.8, 'move')) return p;
+  }
+  return sim.map.findOpen(opos.x, opos.y, radius);
+}
+
+function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: VesselItem, role: PackRole | null, at: Vec2, anchor: Vec2): EntityId | null {
   const w = sim.world;
   const owner = w.player.get(ownerId);
   if (!owner) return null;
@@ -83,7 +130,7 @@ function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: Ve
   const leap = role?.role === 'leader' ? leapOf(def) : null;
 
   const id = w.create('minion');
-  w.position.set(id, sim.map.findOpen(at.x, at.y, radius));
+  w.position.set(id, openInSight(sim, anchor, at, radius));
   w.radius.set(id, radius);
   w.health.set(id, { life, maxLife: life });
   w.team.set(id, 'players');
@@ -111,6 +158,11 @@ function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: Ve
     howlCooldown: FIRST_HOWL_SECONDS,
     howled: 0,
     facing: owner.heading,
+    standingDown: owner.respawnIn !== null,
+    stuck: { x: 0, y: 0, ownerDist: Infinity, ticks: 0 },
+    path: [],
+    pathGoal: -1,
+    pathTick: -PATH_REPLAN_TICKS,
   });
   return id;
 }
@@ -128,7 +180,7 @@ function fillPack(sim: Simulation, ownerId: EntityId, slot: number, mates: numbe
   for (let index = 0; pack.mates.length < mates && index < HOUND_PACK.flankAngles.length; index++) {
     if (used.has(index)) continue;
     const a = (Math.PI * 2 * index) / HOUND_PACK.flankAngles.length;
-    const id = createMinion(sim, ownerId, slot, item, { role: 'mate', index }, { x: lpos.x + Math.cos(a) * 36, y: lpos.y + Math.sin(a) * 36 });
+    const id = createMinion(sim, ownerId, slot, item, { role: 'mate', index }, { x: lpos.x + Math.cos(a) * 36, y: lpos.y + Math.sin(a) * 36 }, lpos);
     if (id !== null) pack.mates.push(id);
   }
 }
@@ -143,7 +195,7 @@ export function spawnMinion(sim: Simulation, ownerId: EntityId, slot: number): E
   const a = (Math.PI * 2 * slot) / MINIONS.warbandSlots;
   const at = { x: opos.x + Math.cos(a) * MINIONS.spawnOffset, y: opos.y + Math.sin(a) * MINIONS.spawnOffset };
   const pack = vesselPackmates(item) > 0;
-  const id = createMinion(sim, ownerId, slot, item, pack ? { role: 'leader', index: 0 } : null, at);
+  const id = createMinion(sim, ownerId, slot, item, pack ? { role: 'leader', index: 0 } : null, at, opos);
   if (id === null) return null;
   owner.minions[slot] = id;
   // Dead packmates come back with their Leader.
@@ -291,21 +343,150 @@ function stepToward(pos: Vec2, tx: number, ty: number, step: number, stopAt: num
 /**
  * Walks toward a goal around obstacles. With line of sight it goes straight; otherwise it follows
  * the master's breadcrumb trail, picking the newest crumb it can see, which is always a route the
- * master actually walked.
+ * master actually walked. With no crumb in sight (after a teleport, or spawned across a fence), or
+ * when the trail has stopped getting it anywhere, it plans a route on the nav grid and keeps to it
+ * until the goal is in sight.
  */
-function navigate(sim: Simulation, pos: Vec2, radius: number, goal: Vec2, trail: readonly Vec2[], step: number, stopAt: number): void {
+function navigate(sim: Simulation, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, trail: readonly Vec2[], step: number, stopAt: number): void {
   if (sim.map.lineClear(pos.x, pos.y, goal.x, goal.y, radius * 0.8, 'move')) {
+    m.path.length = 0;
     stepToward(pos, goal.x, goal.y, step, stopAt);
     return;
   }
-  for (let i = trail.length - 1; i >= 0; i--) {
-    const c = trail[i];
-    if (c && sim.map.lineClear(pos.x, pos.y, c.x, c.y, radius * 0.8, 'move')) {
-      stepToward(pos, c.x, c.y, step, 4);
-      return;
+  if (m.path.length > 0 && followPath(sim, m, pos, radius, goal, step, stopAt)) return;
+  if (m.stuck.ticks < PATH_AFTER_STUCK_TICKS) {
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const c = trail[i];
+      if (c && sim.map.lineClear(pos.x, pos.y, c.x, c.y, radius * 0.8, 'move')) {
+        stepToward(pos, c.x, c.y, step, 4);
+        return;
+      }
     }
   }
+  if (planPath(sim, m, pos, goal) && followPath(sim, m, pos, radius, goal, step, stopAt)) return;
   stepToward(pos, goal.x, goal.y, step, stopAt);
+}
+
+/** Plans a nav-grid route unless one was tried moments ago; returns whether the minion has a route. */
+function planPath(sim: Simulation, m: MinionComp, pos: Vec2, goal: Vec2): boolean {
+  if (sim.tick - m.pathTick < PATH_REPLAN_TICKS) return m.path.length > 0;
+  m.pathTick = sim.tick;
+  m.pathGoal = sim.map.navCell(goal.x, goal.y);
+  m.path = findNavPath(sim.map, pos, goal, PATH_EXPAND) ?? [];
+  return m.path.length > 0;
+}
+
+function cellDrift(cols: number, a: number, b: number): number {
+  const ax = a % cols;
+  const bx = b % cols;
+  return Math.max(Math.abs(ax - bx), Math.abs((a - ax) / cols - (b - bx) / cols));
+}
+
+/** One step along the planned route, cutting to the furthest waypoint in a straight line. */
+function followPath(sim: Simulation, m: MinionComp, pos: Vec2, radius: number, goal: Vec2, step: number, stopAt: number): boolean {
+  const drift = cellDrift(sim.map.navCols, sim.map.navCell(goal.x, goal.y), m.pathGoal);
+  if ((sim.tick - m.pathTick >= PATH_STALE_TICKS || drift > PATH_GOAL_DRIFT_CELLS) && !planPath(sim, m, pos, goal)) return false;
+  const path = m.path;
+  while (path.length > 1) {
+    const first = path[0];
+    if (!first || distSq(pos.x, pos.y, first.x, first.y) > WAYPOINT_REACHED * WAYPOINT_REACHED) break;
+    path.shift();
+  }
+  for (let k = Math.min(path.length, PATH_LOOKAHEAD) - 1; k >= 1; k--) {
+    const wp = path[k];
+    if (wp && sim.map.lineClear(pos.x, pos.y, wp.x, wp.y, radius * 0.8, 'move')) {
+      path.splice(0, k);
+      break;
+    }
+  }
+  const target = path[0];
+  if (!target) return false;
+  const last = path.length === 1;
+  stepToward(pos, target.x, target.y, step, last ? stopAt : 0);
+  if (last && distSq(pos.x, pos.y, target.x, target.y) <= Math.max(stopAt, WAYPOINT_REACHED) ** 2) path.length = 0;
+  return true;
+}
+
+function resetStuck(m: MinionComp, pos: Vec2, ownerDist: number): void {
+  m.stuck.x = pos.x;
+  m.stuck.y = pos.y;
+  m.stuck.ownerDist = ownerDist;
+  m.stuck.ticks = 0;
+}
+
+/** Puts a minion down beside its master and forgets what it was doing on the way. */
+function pullOver(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number): void {
+  const p = besideMaster(sim, owner, opos, radius);
+  pos.x = p.x;
+  pos.y = p.y;
+  m.targetId = null;
+  m.path.length = 0;
+  resetStuck(m, pos, Math.hypot(pos.x - opos.x, pos.y - opos.y));
+}
+
+/**
+ * Counts ticks without progress toward the master and pulls the minion over once it has been
+ * stuck about 2 s out of their sight. Returns whether it was pulled. The sight check only runs at
+ * the threshold, so a minion resting in formation costs one line test every 2 s.
+ */
+function trackStuck(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number): boolean {
+  const d = Math.hypot(pos.x - opos.x, pos.y - opos.y);
+  const s = m.stuck;
+  if (d < s.ownerDist - STUCK_CLOSER || distSq(pos.x, pos.y, s.x, s.y) > STUCK_MOVE * STUCK_MOVE) {
+    resetStuck(m, pos, d);
+    return false;
+  }
+  s.ticks++;
+  if (s.ticks < STUCK_TELEPORT_TICKS) return false;
+  if (sim.map.lineClear(pos.x, pos.y, opos.x, opos.y, radius * 0.8, 'move')) {
+    resetStuck(m, pos, d);
+    return false;
+  }
+  pullOver(sim, m, owner, pos, opos, radius);
+  return true;
+}
+
+/**
+ * While the master is dead: no fighting, no abilities, and the minion walks back to wait around
+ * the corpse. Monsters ignore it (see isTargetable), so it cannot die for its master's death.
+ */
+function standDown(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number, speed: number, dt: number): void {
+  if (!m.standingDown) {
+    m.standingDown = true;
+    m.targetId = null;
+    m.leap = null;
+    m.howled = 0;
+    m.state = 'follow';
+    m.path.length = 0;
+    resetStuck(m, pos, Math.hypot(pos.x - opos.x, pos.y - opos.y));
+  }
+  if (distSq(pos.x, pos.y, opos.x, opos.y) > NAV.minionTeleportDistance ** 2) {
+    pullOver(sim, m, owner, pos, opos, radius);
+    return;
+  }
+  const goal = followGoal(sim, owner, m, opos, radius);
+  navigate(sim, m, pos, radius, goal.at, owner.trail, speed * dt, goal.stopAt);
+  if (trackStuck(sim, m, owner, pos, opos, radius)) return;
+  settle(sim, pos, radius);
+}
+
+/** The master is back: a minion left far away or out of sight rejoins them at once. */
+function rejoin(sim: Simulation, m: MinionComp, owner: PlayerComp, pos: Vec2, opos: Vec2, radius: number): void {
+  m.standingDown = false;
+  m.path.length = 0;
+  const far = distSq(pos.x, pos.y, opos.x, opos.y) > MINIONS.catchUpDistance ** 2;
+  if (far || !sim.map.lineClear(pos.x, pos.y, opos.x, opos.y, radius * 0.8, 'move')) pullOver(sim, m, owner, pos, opos, radius);
+  else resetStuck(m, pos, Math.hypot(pos.x - opos.x, pos.y - opos.y));
+}
+
+/**
+ * Where a following minion heads: its formation spot, or the master when that spot is behind a
+ * fence or wall from them, which would send the minion the long way round for nothing.
+ */
+function followGoal(sim: Simulation, owner: PlayerComp, m: MinionComp, opos: Vec2, radius: number): { at: Vec2; stopAt: number } {
+  const at = packFollowPoint(sim, owner, m) ?? formationPoint(owner, opos, m.slot, m.behaviour === 'bodyguard');
+  if (sim.map.lineClear(opos.x, opos.y, at.x, at.y, radius * 0.8, 'move')) return { at, stopAt: ARRIVE_DISTANCE };
+  return { at: opos, stopAt: MINIONS.followDistance * 0.6 };
 }
 
 /** Formation slot for a minion: an arc behind the master's heading; bodyguards take the front. */
@@ -386,6 +567,12 @@ export function updateMinions(sim: Simulation, dt: number): void {
     // Road bonus applies per tick; the stored base speed never changes.
     const speed = m.moveSpeed * (m.howled > 0 ? 1 + HOUND_PACK.howl.speedBonus : 1) * sim.map.speedAt(pos.x, pos.y);
 
+    if (owner.respawnIn !== null) {
+      standDown(sim, m, owner, pos, opos, radius, speed, dt);
+      continue;
+    }
+    if (m.standingDown) rejoin(sim, m, owner, pos, opos, radius);
+
     if (m.leap) {
       advanceLeap(sim, id, m, pos, radius, dt);
       continue;
@@ -410,10 +597,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
 
     const ownerDist2 = distSq(pos.x, pos.y, opos.x, opos.y);
     if (ownerDist2 > NAV.minionTeleportDistance ** 2) {
-      const p = sim.map.findOpen(opos.x + 30, opos.y + 30, radius);
-      pos.x = p.x;
-      pos.y = p.y;
-      m.targetId = null;
+      pullOver(sim, m, owner, pos, opos, radius);
       continue;
     }
 
@@ -427,8 +611,9 @@ export function updateMinions(sim: Simulation, dt: number): void {
       }
     }
     if (m.state === 'retreat') {
-      navigate(sim, pos, radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
+      navigate(sim, m, pos, radius, opos, owner.trail, speed * dt, MINIONS.followDistance * 0.5);
       healEntity(sim, id, h.maxLife * MINIONS.cowardRegenFraction * dt, false);
+      if (trackStuck(sim, m, owner, pos, opos, radius)) continue;
       settle(sim, pos, radius);
       continue;
     }
@@ -474,13 +659,15 @@ export function updateMinions(sim: Simulation, dt: number): void {
     const tpos = target === null ? undefined : w.position.get(target);
     if (target !== null && tpos) {
       m.state = 'engage';
+      // Chasing a target is progress of its own; the stuck count is for getting back to the master.
+      resetStuck(m, pos, Math.sqrt(ownerDist2));
       const dist = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
       const reach = def.attackRange + radius + (w.radius.get(target) ?? 0);
       if (def.ranged) {
         const canShoot = sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 4, 'shots');
         if (!canShoot || dist > def.attackRange) {
           // Reposition until there is a clear shot, walking around whatever is in the way.
-          navigate(sim, pos, radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
+          navigate(sim, m, pos, radius, tpos, owner.trail, speed * dt, def.attackRange * 0.8);
         } else if (dist < def.kiteDistance) {
           const away = { x: pos.x + (pos.x - tpos.x), y: pos.y + (pos.y - tpos.y) };
           const before = { x: pos.x, y: pos.y };
@@ -518,7 +705,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
       } else {
         // Packmates circle to their own side of the target instead of queueing behind the Leader.
         const goal = m.pack?.role === 'mate' ? flankPoint(sim, owner, m, pos, tpos, radius + (w.radius.get(target) ?? 0) + def.attackRange * 0.5) : tpos;
-        navigate(sim, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
+        navigate(sim, m, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
         const now = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
         if (now <= reach && m.attackCooldown <= 0) {
           m.attackCooldown = m.attackCooldownBase;
@@ -530,10 +717,11 @@ export function updateMinions(sim: Simulation, dt: number): void {
       }
     } else {
       m.state = 'follow';
-      const goal = packFollowPoint(sim, owner, m) ?? formationPoint(owner, opos, m.slot, m.behaviour === 'bodyguard');
+      const goal = followGoal(sim, owner, m, opos, radius);
       // Minions sprint to catch up when far behind, so they do not trail across the map.
       const catchUp = ownerDist2 > MINIONS.catchUpDistance ** 2 ? MINIONS.catchUpSpeedMultiplier : 1;
-      navigate(sim, pos, radius, goal, owner.trail, speed * catchUp * dt, ARRIVE_DISTANCE);
+      navigate(sim, m, pos, radius, goal.at, owner.trail, speed * catchUp * dt, goal.stopAt);
+      if (trackStuck(sim, m, owner, pos, opos, radius)) continue;
     }
     settle(sim, pos, radius);
   }

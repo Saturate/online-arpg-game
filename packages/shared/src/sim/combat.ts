@@ -36,6 +36,9 @@ export function isTargetable(sim: Simulation, id: EntityId): boolean {
   if (pos && inSafeZone(sim, pos.x, pos.y)) return false;
   const p = w.player.get(id);
   if (p) return p.respawnIn === null;
+  // A dead master's minions stand down: monsters drop them and nothing hurts them, so none dies with its master.
+  const m = w.minion.get(id);
+  if (m && w.player.get(m.ownerId)?.respawnIn !== null) return false;
   const h = w.health.get(id);
   // Burrowed monsters are underground: nothing can hit them until they surface.
   if (w.enemy.get(id)?.burrowed) return false;

@@ -10,6 +10,7 @@ import type { SigilCompile } from '../runes/v2/compile.js';
 import type { SpellNode } from './program.js';
 import type { GearSlot } from '../data/gear.js';
 import type { DashState } from './movement.js';
+import type { Vec2 } from './math.js';
 import type { PlayerStats } from './stats.js';
 
 export type EntityId = number;
@@ -233,6 +234,14 @@ export interface MinionComp {
   howled: number;
   /** Heading in radians, sent in the snapshot; see minionFacing. */
   facing: number;
+  /** The master is dead: the minion waits by the corpse, out of the fight (see sim/minions.ts). */
+  standingDown: boolean;
+  /** Stuck detection while following: where the current window started, and its ticks so far. */
+  stuck: { x: number; y: number; ownerDist: number; ticks: number };
+  /** A nav-grid route toward `pathGoal` (a nav cell), planned at `pathTick`; empty when unused. */
+  path: Vec2[];
+  pathGoal: number;
+  pathTick: number;
 }
 
 export interface ProjectileComp {
