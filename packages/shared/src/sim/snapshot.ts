@@ -85,9 +85,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
         const m = w.minion.get(id);
         const h = w.health.get(id);
         if (!m || !h) break;
-        const tpos = m.targetId === null ? undefined : w.position.get(m.targetId);
-        const a = tpos ? Math.atan2(tpos.y - pos.y, tpos.x - pos.x) : 0;
-        out.push({ ...base, k: 'minion', mt: m.typeId, owner: m.ownerId, ...(m.pack ? { pack: m.pack.role } : {}), life: Math.ceil(h.life), maxLife: h.maxLife, st, a: round2(a) });
+        out.push({ ...base, k: 'minion', mt: m.typeId, owner: m.ownerId, ...(m.pack ? { pack: m.pack.role } : {}), life: Math.ceil(h.life), maxLife: h.maxLife, st, a: round2(m.facing) });
         break;
       }
       case 'projectile': {

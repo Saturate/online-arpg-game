@@ -14,6 +14,13 @@ const TAUNT_PULSE_SECONDS = 1;
 const ARRIVE_DISTANCE = 12;
 /** The first howl comes soon after the pack engages, then on its cooldown. */
 const FIRST_HOWL_SECONDS = 1.5;
+/**
+ * A step shorter than this share of a tick's full stride does not turn a minion: arriving at a goal
+ * and wall resolution leave sub-unit nudges that would spin it on the spot.
+ */
+const TURN_STEP_SHARE = 0.25;
+/** Slack past strike reach within which a minion already looks at its target while closing in. */
+const FACE_TARGET_SLACK = 8;
 
 type LeapAbility = Extract<Ability, { kind: 'leap' }>;
 
@@ -103,6 +110,7 @@ function createMinion(sim: Simulation, ownerId: EntityId, slot: number, item: Ve
     leapDamage: leap ? leap.damage * damageMult : 0,
     howlCooldown: FIRST_HOWL_SECONDS,
     howled: 0,
+    facing: owner.heading,
   });
   return id;
 }
@@ -341,8 +349,25 @@ function interceptPoint(sim: Simulation, opos: Vec2): Vec2 | null {
   return best;
 }
 
+/**
+ * A minion's heading: at a target within striking distance, otherwise along the step it just took,
+ * otherwise unchanged so a minion that stops keeps looking where it went.
+ */
+export function minionFacing(facing: number, from: Vec2, to: Vec2, minStep: number, strikeAt: Vec2 | null): number {
+  if (strikeAt && (strikeAt.x !== to.x || strikeAt.y !== to.y)) return Math.atan2(strikeAt.y - to.y, strikeAt.x - to.x);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx * dx + dy * dy < minStep * minStep) return facing;
+  return Math.atan2(dy, dx);
+}
+
+/** Positions at the start of the tick, reused between ticks. */
+const tickStarts = new Map<EntityId, Vec2>();
+
 export function updateMinions(sim: Simulation, dt: number): void {
   const w = sim.world;
+  tickStarts.clear();
+  for (const [id, , pos] of w.query(w.minion, w.position)) tickStarts.set(id, { x: pos.x, y: pos.y });
   for (const [id, m, pos] of w.query(w.minion, w.position)) {
     const h = w.health.get(id);
     const owner = w.player.get(m.ownerId);
@@ -512,6 +537,20 @@ export function updateMinions(sim: Simulation, dt: number): void {
     }
     settle(sim, pos, radius);
   }
+  // Before separation, so being shoved by a packmate does not turn a dog around.
+  for (const [id, m, pos] of w.query(w.minion, w.position)) {
+    const from = tickStarts.get(id);
+    if (!from) continue;
+    const radius = w.radius.get(id) ?? m.def.radius;
+    let strikeAt: Vec2 | null = null;
+    const targetId = m.state === 'engage' ? m.targetId : null;
+    const tpos = targetId === null ? undefined : w.position.get(targetId);
+    if (targetId !== null && tpos && !m.leap) {
+      const reach = m.def.ranged ? m.def.attackRange : m.def.attackRange + radius + (w.radius.get(targetId) ?? 0);
+      if (distSq(pos.x, pos.y, tpos.x, tpos.y) <= (reach + FACE_TARGET_SLACK) ** 2) strikeAt = tpos;
+    }
+    m.facing = minionFacing(m.facing, from, pos, m.moveSpeed * dt * TURN_STEP_SHARE, strikeAt);
+  }
   separateMinions(sim);
 }
 
@@ -584,6 +623,7 @@ function startLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, tpos
   // Lands against the target, not on top of it.
   const reach = Math.max(0, Math.min(dist, a.range) - radius);
   m.leapCooldown = a.cooldown;
+  m.facing = angle;
   m.leap = {
     t: 0,
     windup: a.windup,

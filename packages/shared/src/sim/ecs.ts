@@ -224,6 +224,8 @@ export interface MinionComp {
   /** Seconds until the Leader howls again, and seconds left on this dog's howl buff. */
   howlCooldown: number;
   howled: number;
+  /** Heading in radians, sent in the snapshot; see minionFacing. */
+  facing: number;
 }
 
 export interface ProjectileComp {

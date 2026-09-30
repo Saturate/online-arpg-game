@@ -25,7 +25,7 @@ Status: Live. Vessels and minions since the first build (M5, 2026-09-28); the wa
 
 ### The Hound pack
 
-One Hound vessel binds a whole pack: a **Leader** and **1 to 6 packmates**, drawn with the Grave Hound's model (the owner's brother's dog) in the bound minions' green; the Leader is 1.25x the size and a darker green, packmates 0.78x.
+One Hound vessel binds a whole pack: a **Leader** and **1 to 6 packmates**, drawn with the Grave Hound's model (the owner's brother's dog) in its natural coat; the Leader is 1.25x the size and a darker grey-brown, packmates 0.78x. They read as allies, not enemy Grave Hounds, by the marking every minion has: a thin pale violet ring under them and a violet health bar (enemies have an orange bar and the cold night rim). The green ally tint went on 2026-09-30 at the owner's request.
 
 - **Pack size is a vessel roll by tier** (packmates beside the Leader, stored as `pack` on the vessel):
 
@@ -67,6 +67,7 @@ One Hound vessel binds a whole pack: a **Leader** and **1 to 6 packmates**, draw
 - Numbers: `MINIONS`, `HOUND_PACK`, `SPIRIT` and `NAV.minionTeleportDistance` in `packages/shared/src/config/sim.ts`.
 - The pack: `packmateCounts`, `packVesselCount`, `fillPack`, `howl`, `startLeap`, `flankPoint` in `sim/minions.ts`; `PlayerComp.packs` (live packmates and when dead ones fell, per warband slot) and `MinionComp.pack` in `sim/ecs.ts`; death hooks `onPackmateDeath` and `onPackLeaderDeath`, called from `kill` in `sim/combat.ts`; the pack roll and `vesselPackmates` in `items/items.ts`. The snapshot marks each dog `pack: 'leader' | 'mate'`; the client draws the Leader with `minion_hound_leader` and packmates with `minion_hound` (`render/assets.ts`, `render/characters.ts`), and the `howl` and `pounce` events as a dark ring of dust (`render/fxEvents.ts`).
 - Rendering: the Brute and Archer use model files; the Wraith is a procedural model (`apps/client/src/render/models.ts`, `minionModel`).
+- Facing: `MinionComp.facing` is the minion's heading, sent as the snapshot's `a` and applied to the model root like an enemy's. `minionFacing` (`sim/minions.ts`) sets it after each tick's movement: toward the target once it is within strike reach (plus 8 units), else along the step it took, and unchanged when the step is under a quarter of its stride, so arriving or wall nudges do not spin it. It is measured before `separateMinions`, so a shove from a packmate does not turn a dog, and the Leader faces its pounce from the start. Before 2026-09-30 the snapshot sent the angle to the current target, or 0 (east) without one, so minions only ever faced east while following and never faced where they walked.
 - Tuning: all eight numbers per type, and the model and height of the Brute and Archer, can be overridden on the admin page's Minions tab and apply to new spawns ([monsters.md](monsters.md), "Tuning overrides").
 
 ```ts
@@ -85,6 +86,7 @@ Tests:
 - `packages/shared/test/minions.test.ts`: minions focus the master's last hit, follow the breadcrumb trail around a wall, and archers do not fire without line of sight.
 - `packages/shared/test/systems.test.ts`: one minion per equipped vessel, respawn after the cooldown, vessels refused for other classes, follow stance never engages, refusing to equip past maximum spirit, interest management sends your own minions.
 - `packages/shared/test/tuning.test.ts`: minion overrides at spawn; minion shots always expire.
+- `packages/shared/test/minionFacing.test.ts`: `minionFacing` looks along a step, keeps its heading when still or nudged, and looks at a target in reach; a walking pack faces the way it walks (and the snapshot carries it), and packmates biting an enemy face it.
 - `packages/shared/test/houndPack.test.ts`: pack size by tier from the table, a Leader and packmates for one vessel of spirit, packmate scaling (six together about sqrt(6) times one, under 1.2 Leaders), the 12-dog cap and refill when a pack is unbound, the refusal at 12 Leaders, Leader death (survivors fight on without the howl, the dead return with the Leader), packmates take the Leader's target and poison, the pounce and howl, and Follow using neither; Brothers Creation fields the full pack.
 
 ## Limits and open questions
