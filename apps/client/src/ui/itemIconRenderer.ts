@@ -36,7 +36,12 @@ let renderer: WebGLRenderer | null = null;
 const loader = new GLTFLoader();
 const files = new Map<string, Promise<Group>>();
 const queued = new Set<string>();
-const queue: { key: string; model: IconModel }[] = [];
+/**
+ * An item model from its file, laid diagonally like a D2 inventory cell, or any object (a town
+ * piece for the editor's palette) seen from above at the game camera's angle.
+ */
+type IconJob = { key: string; model: IconModel } | { key: string; object: () => Promise<Object3D | null> };
+const queue: IconJob[] = [];
 let pumping = false;
 
 function load(url: string): Promise<Group> {
@@ -93,18 +98,41 @@ function extract(scene: Group, node: string | undefined): Object3D | null {
   return copy;
 }
 
-async function renderOne(key: string, model: IconModel): Promise<void> {
+function fail(key: string): void {
+  useModelIcons.setState((s) => ({ failed: { ...s.failed, [key]: true } }));
+}
+
+async function renderOne(job: IconJob): Promise<void> {
   const r = getRenderer();
-  if (!r) {
-    useModelIcons.setState((s) => ({ failed: { ...s.failed, [key]: true } }));
-    return;
+  if (!r) return fail(job.key);
+  if ('object' in job) {
+    const object = await job.object();
+    if (!object) return fail(job.key);
+    return snap(r, job.key, sceneView(object));
   }
-  const file = await load(model.url);
-  const object = extract(file, model.node);
-  if (!object) {
-    useModelIcons.setState((s) => ({ failed: { ...s.failed, [key]: true } }));
-    return;
-  }
+  const object = extract(await load(job.model.url), job.model.node);
+  if (!object) return fail(job.key);
+  return snap(r, job.key, itemView(object, job.model));
+}
+
+/** Frames a town piece from above at the game's camera angle (it looks from +x+z), filling the cell. */
+function sceneView(object: Object3D): { scene: Scene; camera: PerspectiveCamera } {
+  const scene = new Scene();
+  const pivot = new Group();
+  pivot.add(object);
+  scene.add(pivot);
+  pivot.updateMatrixWorld(true);
+  const box = new Box3().setFromObject(pivot);
+  pivot.position.sub(box.getCenter(new Vector3()));
+  const radius = (box.getSize(new Vector3()).length() / 2) * 0.85;
+  const camera = new PerspectiveCamera(30, 1, radius * 0.1, radius * 20);
+  const dist = radius / Math.sin((30 * Math.PI) / 360);
+  camera.position.set(0.55 * dist, 0.62 * dist, 0.55 * dist);
+  camera.lookAt(0, 0, 0);
+  return { scene, camera };
+}
+
+function itemView(object: Object3D, model: IconModel): { scene: Scene; camera: PerspectiveCamera } {
   const scene = new Scene();
   const pivot = new Group();
   pivot.add(object);
@@ -132,7 +160,10 @@ async function renderOne(key: string, model: IconModel): Promise<void> {
   const dist = radius / Math.sin((30 * Math.PI) / 360);
   camera.position.set(0.35 * dist, 0.25 * dist, dist);
   camera.lookAt(0, 0, 0);
+  return { scene, camera };
+}
 
+function snap(r: WebGLRenderer, key: string, { scene, camera }: { scene: Scene; camera: PerspectiveCamera }): void {
   scene.add(new AmbientLight(0xffffff, 1.6));
   const key1 = new DirectionalLight(0xfff2dd, 3.2);
   key1.position.set(2, 3, 4);
@@ -144,12 +175,13 @@ async function renderOne(key: string, model: IconModel): Promise<void> {
 
   r.render(scene, camera);
   const url = r.domElement.toDataURL('image/png');
+  // Collected first: removing meshes while traverse walks their parent's children skips and breaks it.
+  const meshes: Mesh[] = [];
   scene.traverse((o) => {
-    if (o instanceof Mesh) {
-      // Geometry and materials are shared with the cached file, so only the clone's wrapper goes.
-      o.removeFromParent();
-    }
+    if (o instanceof Mesh) meshes.push(o);
   });
+  // Geometry and materials are shared with the cached file, so only the clone's wrapper goes.
+  for (const m of meshes) m.removeFromParent();
   useModelIcons.setState((s) => ({ urls: { ...s.urls, [key]: url } }));
 }
 
@@ -162,8 +194,8 @@ function pump(): void {
       pumping = false;
       return;
     }
-    renderOne(next.key, next.model)
-      .catch(() => useModelIcons.setState((s) => ({ failed: { ...s.failed, [next.key]: true } })))
+    renderOne(next)
+      .catch(() => fail(next.key))
       .finally(() => requestAnimationFrame(step));
   };
   requestAnimationFrame(step);
@@ -174,6 +206,14 @@ export function requestModelIcon(key: string, model: IconModel): void {
   if (queued.has(key)) return;
   queued.add(key);
   queue.push({ key, model });
+  pump();
+}
+
+/** Asks for an icon of any object, drawn from above like the game sees it; `object` runs only once per key. */
+export function requestObjectIcon(key: string, object: () => Promise<Object3D | null>): void {
+  if (queued.has(key)) return;
+  queued.add(key);
+  queue.push({ key, object });
   pump();
 }
 

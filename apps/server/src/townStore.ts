@@ -11,14 +11,15 @@ const LAYOUT_PATH = resolve(process.env.TOWN_LAYOUT ?? 'data/town-layout.json');
 
 export function loadTownLayout(): TownLayout {
   try {
-    const layout = validateLayout(JSON.parse(readFileSync(LAYOUT_PATH, 'utf8')));
+    // A piece whose asset the game no longer has is dropped rather than losing the whole town.
+    const layout = validateLayout(JSON.parse(readFileSync(LAYOUT_PATH, 'utf8')), { unknownDecor: 'drop' });
     if (layout) return layout;
     console.warn(`${LAYOUT_PATH} is invalid, using the committed town`);
   } catch {
     // Nothing saved on this server yet.
   }
   // The committed town (pull the live one with `pnpm town:pull`) is bundled in, so a fresh server starts from it.
-  return validateLayout(committedTown) ?? DEFAULT_TOWN_LAYOUT;
+  return validateLayout(committedTown, { unknownDecor: 'drop' }) ?? DEFAULT_TOWN_LAYOUT;
 }
 
 export function saveTownLayout(layout: TownLayout): void {

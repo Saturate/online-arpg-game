@@ -1,6 +1,5 @@
-import { layoutHash, layoutToMap, PROP_DEFS, type Shape, type TownLayout, type TownProp, type TownPropKind, type Vec2 } from '@rune/shared';
+import { decorFootprint, layoutHash, layoutToMap, PROP_DEFS, TOWN_DECOR_ASSETS, type Shape, type TownDecor, type TownLayout, type TownProp, type Vec2 } from '@rune/shared';
 import { BufferGeometry, Line, LineBasicMaterial, LineLoop, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Object3D } from 'three';
-import { assetById } from '../render/assets.js';
 import { isLitDecor } from '../render/props.js';
 import type { WorldScene } from '../render/scene.js';
 import { create } from 'zustand';
@@ -22,6 +21,7 @@ import {
   type ObjectRef,
   type Station,
 } from './townEditorPick.js';
+import { decorInfo, type PlaceItem } from './townPalette.js';
 
 export type EditorTool = 'select' | 'place' | 'path' | 'plaza' | 'erase';
 
@@ -29,11 +29,14 @@ export type EditorTool = 'select' | 'place' | 'path' | 'plaza' | 'erase';
 interface EditorUiState {
   active: boolean;
   tool: EditorTool;
-  placeKind: TownPropKind;
+  /** What the place tool puts down: a layout prop kind or a decor asset from the palette. */
+  place: PlaceItem;
   brushWidth: number;
   snap: boolean;
   dirty: boolean;
   selection: string | null;
+  /** Whether the selected decor piece blocks walking; null when the selection is not decor. */
+  selectionSolid: boolean | null;
   /** Key of the selected object, so the layer list can mark its row. */
   selectedKey: string | null;
   canUndo: boolean;
@@ -64,11 +67,12 @@ export function activeTownEditor(): TownEditor | null {
 export const useTownEditor = create<EditorUiState>(() => ({
   active: false,
   tool: 'select',
-  placeKind: 'house',
+  place: { type: 'prop', kind: 'house' },
   brushWidth: 110,
   snap: true,
   dirty: false,
   selection: null,
+  selectionSolid: null,
   selectedKey: null,
   canUndo: false,
   layerVersion: 0,
@@ -87,10 +91,14 @@ const CYCLE_HINT_PX = 24;
 const DRAG_START_PX = 4;
 
 function decorLook(asset: string): DecorLook {
-  const def = assetById(asset);
-  const kind = isLitDecor(asset) ? 'light' : def?.category === 'nature' ? 'nature' : def?.category === 'building' ? 'building' : 'other';
-  const label = (def?.label ?? asset.replace(/_/g, ' ')).replace(/^./, (c) => c.toUpperCase());
-  return { label, kind, height: def?.height ?? 30 };
+  const info = decorInfo(asset);
+  const kind = isLitDecor(asset) ? 'light' : info.group === 'Nature' ? 'nature' : info.group === 'Buildings' ? 'building' : 'other';
+  return { label: info.label, kind, height: info.height };
+}
+
+/** A new decor piece blocks walking when its asset usually does (buildings, walls, big clutter). */
+function newDecor(asset: string, x: number, y: number, angle: number): TownDecor {
+  return TOWN_DECOR_ASSETS[asset]?.solid ? { asset, x, y, angle, scale: 1, solid: true } : { asset, x, y, angle, scale: 1 };
 }
 
 const SNAP = 20;
@@ -236,8 +244,21 @@ export class TownEditor {
     useTownEditor.setState({ tool });
   }
 
-  setPlaceKind(kind: TownPropKind): void {
-    useTownEditor.setState({ placeKind: kind, tool: 'place' });
+  setPlace(item: PlaceItem): void {
+    this.brush = null;
+    useTownEditor.setState({ place: item, tool: 'place' });
+  }
+
+  /** Makes the selected decor piece block walking, or stop blocking it (key B). */
+  toggleSolid(): void {
+    const sel = this.selection;
+    const d = sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
+    if (!d || !TOWN_DECOR_ASSETS[d.asset]) return;
+    this.pushUndo();
+    // The key is left out rather than set false, so the saved layout only grows for solid pieces.
+    if (d.solid) delete d.solid;
+    else d.solid = true;
+    this.changed();
   }
 
   undoLast(): void {
@@ -366,7 +387,10 @@ export class TownEditor {
   }
 
   private publishSelection(): void {
-    useTownEditor.setState({ selection: this.selectionLabel(), selectedKey: this.selection ? refKey(this.selection) : null });
+    const sel = this.selection;
+    const d = sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
+    const solid = d && TOWN_DECOR_ASSETS[d.asset] ? d.solid === true : null;
+    useTownEditor.setState({ selection: this.selectionLabel(), selectionSolid: solid, selectedKey: sel ? refKey(sel) : null });
   }
 
   private selectionLabel(): string | null {
@@ -476,10 +500,15 @@ export class TownEditor {
       }
       case 'place': {
         this.pushUndo();
-        const kind = ui.placeKind;
-        const prop: TownProp = { kind, x, y, angle: this.pendingAngle, scale: 1, length: PROP_DEFS[kind].line ? 200 : 0 };
-        this.layout.props.push(prop);
-        this.selection = { type: 'prop', index: this.layout.props.length - 1 };
+        const item = ui.place;
+        if (item.type === 'decor') {
+          this.layout.decor.push(newDecor(item.asset, x, y, this.pendingAngle));
+          this.selection = { type: 'decor', index: this.layout.decor.length - 1 };
+        } else {
+          const prop: TownProp = { kind: item.kind, x, y, angle: this.pendingAngle, scale: 1, length: PROP_DEFS[item.kind].line ? 200 : 0 };
+          this.layout.props.push(prop);
+          this.selection = { type: 'prop', index: this.layout.props.length - 1 };
+        }
         this.changed();
         return;
       }
@@ -599,6 +628,9 @@ export class TownEditor {
       case 'KeyG':
         useTownEditor.setState((s) => ({ snap: !s.snap }));
         return;
+      case 'KeyB':
+        this.toggleSolid();
+        return;
       case 'Digit1':
         this.setTool('select');
         return;
@@ -658,8 +690,14 @@ export class TownEditor {
       if (next && (!sel || refKey(next) !== refKey(sel)) && refKey(next) !== this.highlight) this.outlineOf(next, 0x6f7f8f);
     }
     if (h && ui.tool === 'place') {
-      const ghost: TownProp = { kind: ui.placeKind, x: this.snap(h.x), y: this.snap(h.y), angle: this.pendingAngle, scale: 1, length: 200 };
-      this.addOutline(PROP_DEFS[ui.placeKind].shape(ghost), 0x9fd0ff);
+      const x = this.snap(h.x);
+      const y = this.snap(h.y);
+      const item = ui.place;
+      if (item.type === 'prop') this.addOutline(PROP_DEFS[item.kind].shape({ kind: item.kind, x, y, angle: this.pendingAngle, scale: 1, length: 200 }), 0x9fd0ff);
+      else {
+        const foot = decorFootprint(newDecor(item.asset, x, y, this.pendingAngle));
+        this.addOutline(foot ?? { type: 'circle', x, y, r: 16 }, 0x9fd0ff);
+      }
     } else if (h && (ui.tool === 'path' || ui.tool === 'plaza')) {
       const ring = new Mesh(new RingGeometry(ui.tool === 'path' ? ui.brushWidth / 2 - 3 : 26, ui.tool === 'path' ? ui.brushWidth / 2 : 30, 32), new MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.8, depthTest: false }));
       ring.rotation.x = -Math.PI / 2;

@@ -1,4 +1,4 @@
-import { PROP_DEFS, type Shape, type TownLayout, type TownPropKind, type WorldMap } from '@rune/shared';
+import { decorCollision, decorFootprint, PROP_DEFS, type Shape, type TownLayout, type TownPropKind, type WorldMap } from '@rune/shared';
 
 /**
  * The town editor's picking and layer logic, kept free of three.js and the DOM so it can be tested:
@@ -161,6 +161,10 @@ export function pickShapes(layout: TownLayout, ref: ObjectRef, ctx: Pick<PickCon
     case 'decor': {
       const d = layout.decor[ref.index];
       if (!d) return [];
+      // A building or a wall placed as decor is clicked anywhere on its footprint; smaller pieces
+      // keep the round target sized from their height.
+      const foot = decorFootprint(d);
+      if (foot?.type === 'box' && Math.max(foot.hw, foot.hh) > PICK.decorMax) return [grow(foot, pad)];
       const r = Math.max(PICK.decorMin, Math.min(PICK.decorMax, ctx.look(d.asset).height * 0.45)) * d.scale;
       return [{ type: 'circle', x: d.x, y: d.y, r: r + pad }];
     }
@@ -403,6 +407,8 @@ export function hideInMap(map: WorldMap, layout: TownLayout, hidden: ReadonlySet
       const d = layout.decor[ref.index];
       if (!d) continue;
       dropFirst(out.decor, (e) => e.asset === d.asset && e.x === d.x && e.y === d.y && e.angle === d.angle && e.scale === d.scale);
+      const block = d.solid ? decorCollision(d) : null;
+      if (block) dropFirst(out.obstacles, (o) => o.kind === 'decor' && sameShape(o.shape, block));
       // The forge's fire is drawn at the station spot, so it goes with the rack.
       if (stations.get(key) === 'forge') delete out.forge;
     } else if (ref.type === 'plaza') {

@@ -25,9 +25,11 @@ import {
   Shape as ThreeShape,
   SRGBColorSpace,
   TorusGeometry,
+  Vector3,
   type Texture,
 } from 'three';
 import { COLORS } from './config.js';
+import { assetById } from './assets.js';
 import { mat } from './models.js';
 import { withOccluderFade } from './occluderFade.js';
 import { staticFlicker, type StaticLight } from './lights.js';
@@ -58,15 +60,31 @@ const FIRE: LightLook = { height: 40, color: 0xff9040, intensity: 3.2, radius: 5
 const LIT_DECOR: Record<string, LightLook> = {
   dungeon_torch_lit: TORCH,
   dungeon_candle_lit: CANDLE,
+  dungeon_candle_thin_lit: CANDLE,
   grave_lantern_standing: { ...LANTERN, height: 38, intensity: 1.4, radius: 300 },
   grave_post_lantern: LANTERN,
   grave_shrine_candles: { ...CANDLE, height: 30, intensity: 1.2, radius: 220 },
+  grave_candle: { ...CANDLE, height: 16 },
+  grave_candle_melted: CANDLE,
+  grave_candle_thin: { ...CANDLE, height: 16 },
+  grave_candle_triple: { ...CANDLE, height: 16, intensity: 1.1, radius: 200 },
+  grave_skull_candle: { ...CANDLE, height: 18 },
+  grave_plaque_candles: { ...CANDLE, height: 22, intensity: 1.3, radius: 230 },
+  campfire: FIRE,
+  // A brazier is a small fire held up at waist height: a little less light than a camp fire.
+  brazier: { ...FIRE, height: 44, intensity: 2.6, radius: 440 },
 };
 
 /** Whether a decor asset is a lamp or flame, for the town editor's layer groups. */
 export function isLitDecor(asset: string): boolean {
   return Object.hasOwn(LIT_DECOR, asset);
 }
+
+/** Decor built in code rather than loaded from a file: the fires. Placed like any other decor. */
+export const PROCEDURAL_DECOR: Readonly<Record<string, { label: string; height: number }>> = {
+  campfire: { label: 'Camp fire', height: 20 },
+  brazier: { label: 'Brazier', height: 44 },
+};
 
 function lightAt(look: LightLook, x: number, y: number, scale = 1): StaticLight {
   return { ...look, x, y, height: look.height * scale, radius: look.radius * Math.sqrt(scale) };
@@ -98,6 +116,29 @@ const FLAMES: Record<string, readonly FlameAt[]> = {
     { kind: 'candle', x: 0.7, h: 49.9, z: -2.9, size: 0.9, pull: 0 },
     { kind: 'candle', x: 2.7, h: 45.7, z: -0.3, size: 0.9, pull: 0 },
     { kind: 'candle', x: -2.5, h: 33.2, z: 8.8, size: 0.9, pull: 0 },
+  ],
+  // The Halloween candles have wicks but no flame; these sit on the wick tips (the top of each
+  // small separate wick mesh, measured at the registered heights).
+  dungeon_candle_thin_lit: [{ kind: 'candle', x: 0, h: 8, z: 0, size: 0.8, pull: 0 }],
+  grave_candle: [{ kind: 'candle', x: 0, h: 12, z: 0, size: 0.9, pull: 0 }],
+  grave_candle_melted: [{ kind: 'candle', x: 0.1, h: 10, z: 0, size: 0.9, pull: 0 }],
+  grave_candle_thin: [{ kind: 'candle', x: 0, h: 12, z: 0, size: 0.8, pull: 0 }],
+  grave_candle_triple: [
+    { kind: 'candle', x: 3.3, h: 12, z: -0.7, size: 0.8, pull: 0 },
+    { kind: 'candle', x: -0.1, h: 9.6, z: 0, size: 0.8, pull: 0 },
+    { kind: 'candle', x: 2.8, h: 8.7, z: 1.8, size: 0.8, pull: 0 },
+  ],
+  grave_skull_candle: [
+    { kind: 'candle', x: 1.2, h: 14, z: -2.8, size: 0.7, pull: 0 },
+    { kind: 'candle', x: -0.9, h: 12.2, z: -0.3, size: 0.7, pull: 0 },
+    { kind: 'candle', x: 1.7, h: 11.6, z: -0.1, size: 0.7, pull: 0 },
+  ],
+  grave_plaque_candles: [
+    { kind: 'candle', x: 6.3, h: 20, z: 1.9, size: 0.9, pull: 0 },
+    { kind: 'candle', x: -5.1, h: 18.1, z: -2.4, size: 0.9, pull: 0 },
+    { kind: 'candle', x: 2.4, h: 17.3, z: 2.7, size: 0.9, pull: 0 },
+    { kind: 'candle', x: 5.7, h: 16.2, z: 4.8, size: 0.9, pull: 0 },
+    { kind: 'candle', x: -14.4, h: 15.2, z: 3.8, size: 0.9, pull: 0 },
   ],
 };
 
@@ -446,7 +487,15 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') batch.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
   for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') batch.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
   for (const d of def.decor) {
-    batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
+    const fire = d.asset === 'campfire' ? campfire(d.x, d.y, false, d.scale, d.angle) : d.asset === 'brazier' ? brazier(d.x, d.y, d.scale, d.angle) : null;
+    if (fire) {
+      group.add(fire.group);
+      animated.push(fire.update);
+      lights.push(fire.light);
+      fires.push(fire.fire);
+      continue;
+    }
+    batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
     const look = LIT_DECOR[d.asset];
     const light = look ? lightAt(look, d.x, d.y, d.scale) : null;
     if (light) lights.push(light);
@@ -1034,8 +1083,15 @@ function emberCanvas(): HTMLCanvasElement {
   return c;
 }
 
+interface BuiltFire {
+  group: Group;
+  update: (t: number) => void;
+  light: StaticLight;
+  fire: FireSpot;
+}
+
 /** A camp fire (and the forge's fire): a ring of stones, crossed charred logs with glowing cracks, and the flames from worldFires. */
-function campfire(x: number, y: number, forge: boolean): { group: Group; update: (t: number) => void; light: StaticLight; fire: FireSpot } {
+function campfire(x: number, y: number, forge: boolean, scale = 1, angle = 0): BuiltFire {
   const g = new Group();
   const stones: Matrix4[] = [];
   for (let i = 0; i < 9; i++) {
@@ -1063,15 +1119,92 @@ function campfire(x: number, y: number, forge: boolean): { group: Group; update:
     g.add(lm);
   }
   g.position.set(x, 0, y);
-  const light = lightAt(FIRE, x, y);
+  g.rotation.y = -angle;
+  g.scale.setScalar(scale);
+  const light = lightAt(FIRE, x, y, scale);
   return {
     group: g,
     update: (t) => {
       bark.emissiveIntensity = 0.9 * staticFlicker(t, x, y, FIRE.flicker * 2);
     },
     light,
-    fire: { kind: 'bonfire', x, y, h: 3, size: forge ? 0.9 : 1, pull: 0, lightX: x, lightY: y, flicker: FIRE.flicker, forge },
+    fire: { kind: 'bonfire', x, y, h: 3 * scale, size: (forge ? 0.9 : 1) * scale, pull: 0, lightX: x, lightY: y, flicker: FIRE.flicker, forge },
   };
+}
+
+/** Where a brazier's fire burns, at scale 1: the coals in its bowl. */
+const BRAZIER_COALS = 33;
+
+/**
+ * An iron fire bowl on three splayed legs, for a square or a gate. Its coals glow through the same
+ * ember cracks as the camp fire's logs, and the world fires burn on top of them.
+ */
+function brazier(x: number, y: number, scale = 1, angle = 0): BuiltFire {
+  const g = new Group();
+  const iron = new MeshStandardMaterial({ color: 0x24211e, roughness: 0.75, metalness: 0.55, side: DoubleSide });
+  const legs: Matrix4[] = [];
+  for (let i = 0; i < 3; i++) {
+    const a = (Math.PI * 2 * i) / 3;
+    // Each leg leans out about its own tangent, so the bowl stands on a wide tripod.
+    const tilt = new Matrix4().makeRotationAxis(new Vector3(-Math.sin(a), 0, Math.cos(a)), -0.28);
+    legs.push(new Matrix4().makeTranslation(Math.cos(a) * 8, 15, Math.sin(a) * 8).multiply(tilt));
+  }
+  const lm = instanced(new CylinderGeometry(1.2, 1.6, 32, 5), iron, legs);
+  if (lm) g.add(lm);
+  const bowl = new Mesh(new CylinderGeometry(15, 7, 10, 12, 1, true), iron);
+  bowl.position.y = BRAZIER_COALS - 3;
+  bowl.castShadow = true;
+  const base = new Mesh(new CircleGeometry(7, 12), iron);
+  base.rotation.x = -Math.PI / 2;
+  base.position.y = BRAZIER_COALS - 8;
+  const rim = new Mesh(new TorusGeometry(15, 1.3, 5, 14), iron);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = BRAZIER_COALS + 2;
+  const embers = new CanvasTexture(emberCanvas());
+  embers.colorSpace = SRGBColorSpace;
+  const coalMat = new MeshStandardMaterial({ color: 0x1a120c, roughness: 1, emissive: 0xff5a1a, emissiveMap: embers, emissiveIntensity: 1, flatShading: true });
+  const coals = new Mesh(rockGeometry(11), coalMat);
+  coals.scale.set(12, 3, 12);
+  coals.position.y = BRAZIER_COALS - 1;
+  g.add(bowl, base, rim, coals);
+  g.position.set(x, 0, y);
+  g.rotation.y = -angle;
+  g.scale.setScalar(scale);
+  const look = LIT_DECOR.brazier ?? FIRE;
+  const light = lightAt(look, x, y, scale);
+  return {
+    group: g,
+    update: (t) => {
+      coalMat.emissiveIntensity = 0.9 * staticFlicker(t, x, y, look.flicker * 2);
+    },
+    light,
+    fire: { kind: 'bonfire', x, y, h: BRAZIER_COALS * scale, size: 0.55 * scale, pull: 0, lightX: x, lightY: y, flicker: look.flicker, forge: false },
+  };
+}
+
+/** Tall decor (a building, a wall, a crypt) cuts a see-through hole when it stands between the camera and the hero. */
+function fadesDecor(asset: string): boolean {
+  const def = assetById(asset);
+  if (!def) return false;
+  return def.category === 'building' || def.category === 'wall' || (def.category === 'graveyard' && def.height >= 90);
+}
+
+/**
+ * A model of something the town editor places that is built in code (the fires, the market stall,
+ * the procedural trees), standing at the origin, for the palette's thumbnails. Null for anything
+ * that comes from a model file.
+ */
+export function previewObject(id: string): Object3D | null {
+  if (id === 'campfire') return campfire(0, 0, false).group;
+  if (id === 'brazier') return brazier(0, 0).group;
+  if (id === 'prop:stall') return stall({ kind: 'stall', shape: { type: 'box', x: 0, y: 0, hw: 42, hh: 26, angle: 0 }, blocksMove: true, blocksShots: true, visual: 45 });
+  if (id === 'prop:pine' || id === 'prop:oak') {
+    const kind: TreeKind = id === 'prop:pine' ? 'pine' : 'oak';
+    const tree = new Mesh(treeGeometry(kind, 7), new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
+    tree.scale.setScalar(kind === 'pine' ? 63 : 77);
+    return tree;
+  }
+  return null;
 }
 
 /** True where the scenery outside the map should open up for a zone gate's road. */

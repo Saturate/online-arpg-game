@@ -1,10 +1,10 @@
-import { PROP_DEFS, TOWN_PROP_KINDS } from '@rune/shared';
 import { useMemo, useState } from 'react';
 import { activeTownEditor, useTownEditor, type EditorTool } from '../game/townEditor.js';
 import { filterRows, groupRows, type LayerRow } from '../game/townEditorPick.js';
 import { useMovablePanel } from './GamePanel.js';
 import { useSettings } from './settings.js';
 import { tip } from './Tip.js';
+import { TownPalette } from './TownPalette.js';
 import './townEditor.css';
 
 const TOOLS: { id: EditorTool; label: string; key: string }[] = [
@@ -38,18 +38,7 @@ export function TownEditorPanel() {
             </button>
           ))}
         </div>
-        {(s.tool === 'place' || s.tool === 'select') && (
-          <>
-            <h3>Props</h3>
-            <div className="palette-grid">
-              {TOWN_PROP_KINDS.map((k) => (
-                <button key={k} type="button" className={s.tool === 'place' && s.placeKind === k ? 'on' : ''} onClick={() => ed?.setPlaceKind(k)}>
-                  {PROP_DEFS[k].label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {(s.tool === 'place' || s.tool === 'select') && <TownPalette />}
         {s.tool === 'path' && (
           <label className="brush">
             Path width {s.brushWidth}
@@ -65,6 +54,11 @@ export function TownEditorPanel() {
             </span>
           )}
         </p>
+        {s.selectionSolid !== null && (
+          <label className="snap solid-toggle">
+            <input type="checkbox" checked={s.selectionSolid} onChange={() => ed?.toggleSolid()} /> Blocks walking <kbd>B</kbd>
+          </label>
+        )}
         <LayerList />
         <label className="snap">
           <input type="checkbox" checked={s.snap} onChange={(e) => useTownEditor.setState({ snap: e.target.checked })} /> Snap to grid <kbd>G</kbd>
@@ -84,7 +78,7 @@ export function TownEditorPanel() {
           </button>
         </div>
         <p className="muted small">
-          WASD pan, wheel zoom, drag to move, <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>[</kbd>/<kbd>]</kbd> scale or length, <kbd>Del</kbd> delete, <kbd>Ctrl Z</kbd> undo, <kbd>F2</kbd> exit. Click
+          WASD pan, wheel zoom, drag to move, <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>[</kbd>/<kbd>]</kbd> scale or length, <kbd>B</kbd> blocks walking, <kbd>Del</kbd> delete, <kbd>Ctrl Z</kbd> undo, <kbd>F2</kbd> exit. Click
           again to pick the next object underneath, <kbd>Alt</kbd>+click to list them. Double click a layer to centre on it. Paths make walking 10% faster.
         </p>
       </section>

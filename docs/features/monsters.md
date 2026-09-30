@@ -62,6 +62,7 @@ Code:
 - Admin UI: `apps/client/src/admin/monsters/` (`TuningTab.tsx`, `exportText.ts`, `ModelCheckTab.tsx`, `modelChecks.ts`, `ModelStage.tsx`, `monsterViewer.ts`); try-ons in `apps/client/src/render/tryOn.ts`.
 - Model files: `tools/blender/` is a headless Blender pipeline for fixing, rigging and animating a quadruped `.glb` (order, worked example and lessons in `tools/blender/README.md`); `pnpm model:check <file.glb> [--height N] [--static] [--floats]` runs the Model check on a local file from the terminal (`scripts/model-check.ts`, through `admin/monsters/checkGlb.ts`) and exits non-zero on a warning.
 - Rendering: model registry and the tint shader (`corruptMaterial`) in `apps/client/src/render/assets.ts`; procedural models in `render/models.ts`; corpses in `render/entities.ts`.
+- Scenery models (buildings, props, lights, graveyard and dungeon pieces) share the same registry; what was imported, what was left out and how they load is in [town.md](town.md#scenery-assets).
 
 The ability and monster shapes:
 

@@ -1,7 +1,10 @@
 import { Rng } from '../sim/rng.js';
 import type { Vec2 } from '../sim/math.js';
 import { emptyMap } from './gen.js';
+import { TOWN_DECOR_ASSETS, type TownDecorSpec } from './townDecorAssets.js';
 import type { Obstacle, ObstacleKind, PortalTarget, Shape, WorldMap } from './types.js';
+
+export { TOWN_DECOR_ASSETS, type TownDecorSpec } from './townDecorAssets.js';
 
 /**
  * Town layouts are data, edited in game with the town editor (like a PoE hideout) and saved by the
@@ -44,6 +47,12 @@ export interface TownDecor {
   y: number;
   angle: number;
   scale: number;
+  /**
+   * Blocks walking (and shots, if tall), with a footprint from `TOWN_DECOR_ASSETS`. Absent means
+   * visual only, which is what every layout saved before the palette has, so old towns keep
+   * exactly their old collision.
+   */
+  solid?: true;
 }
 
 export interface TownLayout {
@@ -101,6 +110,39 @@ export const PROP_DEFS: Record<TownPropKind, PropDef> = {
   wall: { label: 'Stone wall', obstacle: 'wall', blocksShots: true, shape: (p) => line(p, 16), visual: (p) => 50 * p.scale, line: true },
 };
 
+export function isTownDecorAsset(asset: string): boolean {
+  return Object.hasOwn(TOWN_DECOR_ASSETS, asset);
+}
+
+/** A point `(ox, oz)` of a placed piece's model, turned and scaled like the model is (PropBatch turns by -angle in three's frame, +angle on the map). */
+function placed(d: TownDecor, ox: number, oz: number): { x: number; y: number } {
+  const c = Math.cos(d.angle);
+  const s = Math.sin(d.angle);
+  return { x: d.x + (ox * c - oz * s) * d.scale, y: d.y + (ox * s + oz * c) * d.scale };
+}
+
+/** The ground a placed piece covers: its model's footprint box. Null for an asset with no spec. */
+export function decorFootprint(d: TownDecor): Shape | null {
+  const spec = TOWN_DECOR_ASSETS[d.asset];
+  if (!spec) return null;
+  const at = placed(d, spec.ox, spec.oz);
+  return { type: 'box', x: at.x, y: at.y, hw: (spec.w / 2) * d.scale, hh: (spec.d / 2) * d.scale, angle: d.angle };
+}
+
+/**
+ * What a solid piece blocks: a little inside its footprint (roofs and branches overhang), a circle
+ * for round things, and only the trunk for a tree, so heroes can walk under the canopy's edge.
+ */
+export function decorCollision(d: TownDecor): Shape | null {
+  const spec = TOWN_DECOR_ASSETS[d.asset];
+  if (!spec) return null;
+  const at = placed(d, spec.ox, spec.oz);
+  const inset = 0.85;
+  if (spec.shape === 'trunk') return { type: 'circle', x: at.x, y: at.y, r: Math.max(8, Math.min(spec.w, spec.d) * 0.2) * d.scale };
+  if (spec.shape === 'round') return { type: 'circle', x: at.x, y: at.y, r: (Math.min(spec.w, spec.d) / 2) * inset * d.scale };
+  return { type: 'box', x: at.x, y: at.y, hw: (spec.w / 2) * inset * d.scale, hh: (spec.d / 2) * inset * d.scale, angle: d.angle };
+}
+
 /** Oak versus pine is a render choice; the map only knows "tree". This hint rides on the visual size. */
 export function isOakAt(def: WorldMap, x: number, y: number): boolean {
   return def.oaks?.some((o) => Math.abs(o.x - x) < 0.5 && Math.abs(o.y - y) < 0.5) ?? false;
@@ -143,7 +185,12 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     map.obstacles.push(o);
     if (p.kind === 'oak') map.oaks.push({ x: p.x, y: p.y });
   }
-  map.decor = layout.decor.map((d) => ({ ...d }));
+  for (const d of layout.decor) {
+    const shape = d.solid ? decorCollision(d) : null;
+    const spec = TOWN_DECOR_ASSETS[d.asset];
+    if (shape && spec) map.obstacles.push({ kind: 'decor', shape, blocksMove: true, blocksShots: spec.h * d.scale >= 45, visual: spec.h * d.scale });
+  }
+  map.decor = layout.decor.map((d) => ({ asset: d.asset, x: d.x, y: d.y, angle: d.angle, scale: d.scale }));
   // The chest nearest the spawn is the stash; a town built without one gets one beside the spawn.
   const chests = layout.props.filter((p) => p.kind === 'chest').sort((a, b) => Math.hypot(a.x - layout.spawn.x, a.y - layout.spawn.y) - Math.hypot(b.x - layout.spawn.x, b.y - layout.spawn.y));
   const chest = chests[0];
@@ -260,7 +307,22 @@ export const DEFAULT_TOWN_LAYOUT: TownLayout = defaultLayout();
 // ---------------------------------------------------------------------------------------------
 // Validation: layouts come from a client editor, so the server checks every field.
 
-const LIMITS = { props: 600, paths: 80, pathPoints: 200, plazas: 20, portals: 20, decor: 800, minSize: 800, maxSize: 6000 } as const;
+/**
+ * Solid decor is collision the server steps against every tick; lit decor is a light and a fire
+ * each, which the light budget and the fire draw handle, but not without end.
+ */
+const LIMITS = { props: 600, paths: 80, pathPoints: 200, plazas: 20, portals: 20, decor: 800, solidDecor: 400, litDecor: 160, minSize: 800, maxSize: 6000 } as const;
+
+export const TOWN_LIMITS = LIMITS;
+
+export interface ValidateOptions {
+  /**
+   * What to do with decor whose asset the game does not know. A save from the editor is rejected
+   * (`reject`, the default); a town loaded from disk drops the piece instead (`drop`), so an asset
+   * removed from the game later cannot throw the whole live town away for the default one.
+   */
+  unknownDecor?: 'reject' | 'drop';
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -286,7 +348,7 @@ function isPortalTarget(v: unknown): v is TownPortalTarget {
 }
 
 /** Returns a clean layout, or null if anything is out of bounds or malformed. */
-export function validateLayout(v: unknown): TownLayout | null {
+export function validateLayout(v: unknown, opts: ValidateOptions = {}): TownLayout | null {
   if (!isRecord(v) || v.version !== 1) return null;
   const width = num(v.width, LIMITS.minSize, LIMITS.maxSize);
   const height = num(v.height, LIMITS.minSize, LIMITS.maxSize);
@@ -331,14 +393,28 @@ export function validateLayout(v: unknown): TownLayout | null {
   const decorIn = Array.isArray(v.decor) ? v.decor : [];
   if (decorIn.length > LIMITS.decor) return null;
   const decor: TownDecor[] = [];
+  let solid = 0;
+  let lit = 0;
   for (const d of decorIn) {
     const pos = point(d, width, height);
     if (!pos || !isRecord(d) || typeof d.asset !== 'string' || !/^[A-Za-z0-9_]{1,48}$/.test(d.asset)) return null;
     const angle = num(d.angle, -100, 100);
     const scale = num(d.scale, 0.2, 4);
     if (angle === null || scale === null) return null;
-    decor.push({ asset: d.asset, x: pos.x, y: pos.y, angle, scale });
+    if (d.solid !== undefined && typeof d.solid !== 'boolean') return null;
+    const spec: TownDecorSpec | undefined = TOWN_DECOR_ASSETS[d.asset];
+    if (!spec) {
+      if (opts.unknownDecor === 'drop') continue;
+      return null;
+    }
+    if (spec.lit) lit++;
+    // Only `true` is kept, so a layout without solid pieces serialises exactly as before.
+    if (d.solid === true) {
+      solid++;
+      decor.push({ asset: d.asset, x: pos.x, y: pos.y, angle, scale, solid: true });
+    } else decor.push({ asset: d.asset, x: pos.x, y: pos.y, angle, scale });
   }
+  if (solid > LIMITS.solidDecor || lit > LIMITS.litDecor) return null;
   const name = typeof v.name === 'string' ? v.name.replace(/[^\p{L}\p{N} '-]/gu, '').slice(0, 32) || 'Town' : 'Town';
   return { version: 1, name, width, height, spawn, props, paths, plazas, portals, decor };
 }
