@@ -1,7 +1,27 @@
-import { layoutToMap, PROP_DEFS, type Shape, type TownLayout, type TownProp, type TownPropKind, type Vec2 } from '@rune/shared';
+import { layoutHash, layoutToMap, PROP_DEFS, type Shape, type TownLayout, type TownProp, type TownPropKind, type Vec2 } from '@rune/shared';
 import { BufferGeometry, Line, LineBasicMaterial, LineLoop, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Object3D } from 'three';
+import { assetById } from '../render/assets.js';
+import { isLitDecor } from '../render/props.js';
 import type { WorldScene } from '../render/scene.js';
 import { create } from 'zustand';
+import {
+  cycleClick,
+  cycleKey,
+  hideInMap,
+  keyExists,
+  layerRows,
+  parseKey,
+  pickAll,
+  pickShapes,
+  refKey,
+  shiftKeys,
+  stationsOf,
+  type CycleState,
+  type DecorLook,
+  type LayerRow,
+  type ObjectRef,
+  type Station,
+} from './townEditorPick.js';
 
 export type EditorTool = 'select' | 'place' | 'path' | 'plaza' | 'erase';
 
@@ -14,7 +34,24 @@ interface EditorUiState {
   snap: boolean;
   dirty: boolean;
   selection: string | null;
+  /** Key of the selected object, so the layer list can mark its row. */
+  selectedKey: string | null;
   canUndo: boolean;
+  /** Bumped when objects are added or removed, so the layer list rebuilds its rows. */
+  layerVersion: number;
+  /**
+   * Editor-only flags, never part of the layout: hidden objects are left out of the preview and
+   * locked ones let clicks through. They live here rather than on the editor so they survive the
+   * editor reopening after a save.
+   */
+  hidden: ReadonlySet<string>;
+  locked: ReadonlySet<string>;
+  /** Hash of the layout the flags were set on; a different town clears them. */
+  flagsFor: string | null;
+  /** "2 of 4" after a click over stacked objects, at the click in client pixels. */
+  cycle: { index: number; total: number; x: number; y: number } | null;
+  /** The Alt+click list of everything under the cursor. */
+  pickMenu: { x: number; y: number; items: { key: string; label: string }[] } | null;
 }
 
 let current: TownEditor | null = null;
@@ -32,10 +69,29 @@ export const useTownEditor = create<EditorUiState>(() => ({
   snap: true,
   dirty: false,
   selection: null,
+  selectedKey: null,
   canUndo: false,
+  layerVersion: 0,
+  hidden: new Set(),
+  locked: new Set(),
+  flagsFor: null,
+  cycle: null,
+  pickMenu: null,
 }));
 
-type Selection = { type: 'prop'; index: number } | { type: 'path'; index: number } | { type: 'plaza'; index: number } | { type: 'portal'; index: number } | { type: 'spawn' };
+type Selection = ObjectRef;
+
+/** The hint follows the cursor only while it stays near the click that made it. */
+const CYCLE_HINT_PX = 24;
+/** Screen pixels the cursor must travel before a press on an object becomes a drag. */
+const DRAG_START_PX = 4;
+
+function decorLook(asset: string): DecorLook {
+  const def = assetById(asset);
+  const kind = isLitDecor(asset) ? 'light' : def?.category === 'nature' ? 'nature' : def?.category === 'building' ? 'building' : 'other';
+  const label = (def?.label ?? asset.replace(/_/g, ' ')).replace(/^./, (c) => c.toUpperCase());
+  return { label, kind, height: def?.height ?? 30 };
+}
 
 const SNAP = 20;
 const ROTATE_STEP = Math.PI / 12;
@@ -45,27 +101,6 @@ const UNDO_LIMIT = 80;
 
 function clone(layout: TownLayout): TownLayout {
   return structuredClone(layout);
-}
-
-function inside(s: Shape, x: number, y: number, pad: number): boolean {
-  switch (s.type) {
-    case 'circle':
-      return Math.hypot(x - s.x, y - s.y) <= s.r + pad;
-    case 'capsule': {
-      const dx = s.bx - s.ax;
-      const dy = s.by - s.ay;
-      const len2 = dx * dx + dy * dy || 1;
-      const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (y - s.ay) * dy) / len2));
-      return Math.hypot(x - (s.ax + dx * t), y - (s.ay + dy * t)) <= s.r + pad;
-    }
-    case 'box': {
-      const c = Math.cos(-s.angle);
-      const sn = Math.sin(-s.angle);
-      const lx = (x - s.x) * c - (y - s.y) * sn;
-      const ly = (x - s.x) * sn + (y - s.y) * c;
-      return Math.abs(lx) <= s.hw + pad && Math.abs(ly) <= s.hh + pad;
-    }
-  }
 }
 
 function outlinePoints(s: Shape): Vector3[] {
@@ -109,10 +144,17 @@ export class TownEditor {
   layout: TownLayout;
   camera: Vec2;
   private original: TownLayout;
-  private undo: string[] = [];
+  private undo: { layout: string; hidden: string[]; locked: string[] }[] = [];
   private selection: Selection | null = null;
   private pendingAngle = 0;
-  private drag: { offX: number; offY: number } | null = null;
+  /**
+   * A drag only starts once the cursor leaves the click spot, so the clicks of a cycle neither
+   * nudge the object onto the grid nor cost an undo step.
+   */
+  private drag: { offX: number; offY: number; sx: number; sy: number; moved: boolean } | null = null;
+  private cycleState: CycleState | null = null;
+  private highlight: string | null = null;
+  private stations: Map<string, Station> = new Map();
   private brush: { kind: 'path'; points: Vec2[] } | { kind: 'plaza'; x: number; y: number; r: number } | null = null;
   private hover: Vec2 | null = null;
   private keys = new Set<string>();
@@ -140,8 +182,14 @@ export class TownEditor {
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { ...opts, passive: false });
     window.addEventListener('keydown', (e) => this.onKey(e), opts);
     window.addEventListener('keyup', (e) => this.keys.delete(e.code), opts);
-    useTownEditor.setState({ active: true, dirty: false, selection: null, canUndo: false });
+    const hash = layoutHash(layout);
+    const keep = useTownEditor.getState().flagsFor === hash;
+    const prune = (keys: ReadonlySet<string>) => (keep ? new Set([...keys].filter((k) => keyExists(this.layout, k))) : new Set<string>());
+    const hidden = prune(useTownEditor.getState().hidden);
+    useTownEditor.setState({ active: true, dirty: false, selection: null, selectedKey: null, canUndo: false, hidden, locked: prune(useTownEditor.getState().locked), flagsFor: hash, cycle: null, pickMenu: null });
+    this.stations = stationsOf(this.layout);
     current = this;
+    if (hidden.size > 0) this.needsRebuild = true;
   }
 
   dispose(): void {
@@ -149,7 +197,10 @@ export class TownEditor {
     this.abort.abort();
     this.clearGizmos();
     this.world.setZoom(1);
-    useTownEditor.setState({ active: false });
+    // Flags carry over to the next editor only for this exact layout (the one just saved). Unsaved
+    // deletes have already shifted the flags onto indices the reopened town does not have.
+    const saved = layoutHash(this.original);
+    useTownEditor.setState({ active: false, flagsFor: layoutHash(this.layout) === saved ? saved : null, cycle: null, pickMenu: null });
   }
 
   /** Called every frame by the game loop while editing. */
@@ -172,7 +223,7 @@ export class TownEditor {
     const now = performance.now();
     if (this.needsRebuild && now >= this.rebuildAt) {
       this.needsRebuild = false;
-      this.world.rebuildWorld(layoutToMap(this.layout));
+      this.world.rebuildWorld(hideInMap(layoutToMap(this.layout), this.layout, useTownEditor.getState().hidden));
     }
     this.drawGizmos();
   }
@@ -192,7 +243,8 @@ export class TownEditor {
   undoLast(): void {
     const prev = this.undo.pop();
     if (!prev) return;
-    this.layout = JSON.parse(prev);
+    this.layout = JSON.parse(prev.layout);
+    useTownEditor.setState({ hidden: new Set(prev.hidden), locked: new Set(prev.locked) });
     this.selection = null;
     this.changed(false);
   }
@@ -200,6 +252,9 @@ export class TownEditor {
   revert(): void {
     this.pushUndo();
     this.layout = clone(this.original);
+    const s = useTownEditor.getState();
+    const prune = (keys: ReadonlySet<string>) => new Set([...keys].filter((k) => keyExists(this.layout, k)));
+    useTownEditor.setState({ hidden: prune(s.hidden), locked: prune(s.locked) });
     this.selection = null;
     this.changed(false);
   }
@@ -207,19 +262,79 @@ export class TownEditor {
   saveLayout(): void {
     this.save(clone(this.layout));
     this.original = clone(this.layout);
-    useTownEditor.setState({ dirty: false });
+    useTownEditor.setState({ dirty: false, flagsFor: layoutHash(this.layout) });
   }
 
   deleteSelected(): void {
     const sel = this.selection;
     if (!sel) return;
+    // Portals and the spawn point can be moved but never deleted: the town needs its exits.
+    if (sel.type === 'portal' || sel.type === 'spawn') return;
     this.pushUndo();
     if (sel.type === 'prop') this.layout.props.splice(sel.index, 1);
+    else if (sel.type === 'decor') this.layout.decor.splice(sel.index, 1);
     else if (sel.type === 'path') this.layout.paths.splice(sel.index, 1);
-    else if (sel.type === 'plaza') this.layout.plazas.splice(sel.index, 1);
-    // Portals and the spawn point can be moved but never deleted: the town needs its exits.
+    else this.layout.plazas.splice(sel.index, 1);
+    const s = useTownEditor.getState();
+    useTownEditor.setState({ hidden: shiftKeys(s.hidden, sel), locked: shiftKeys(s.locked, sel) });
     this.selection = null;
+    this.cycleState = null;
     this.changed();
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Layer list
+
+  /** Rows for the layer list; the panel rebuilds them when `layerVersion` changes. */
+  layers(): LayerRow[] {
+    return layerRows(this.layout, decorLook, this.stations);
+  }
+
+  /** Selects an object from the layer list or the Alt+click menu; locked ones too, on purpose. */
+  selectKey(key: string): void {
+    const ref = parseKey(key);
+    if (!ref || !keyExists(this.layout, key)) return;
+    this.selection = ref;
+    this.cycleState = null;
+    useTownEditor.setState({ tool: 'select', pickMenu: null, cycle: null });
+    this.publishSelection();
+  }
+
+  /** Double click in the layer list: centre the camera on the object. */
+  focusKey(key: string): void {
+    const ref = parseKey(key);
+    const a = ref ? this.anchor(ref) : null;
+    if (!a) return;
+    this.camera.x = a.x;
+    this.camera.y = a.y;
+  }
+
+  setHighlight(key: string | null): void {
+    this.highlight = key;
+  }
+
+  toggleHidden(key: string): void {
+    const s = useTownEditor.getState();
+    const hidden = new Set(s.hidden);
+    if (!hidden.delete(key)) hidden.add(key);
+    // A hidden object cannot be seen to be dragged, so it lets go of the selection.
+    if (hidden.has(key) && this.selection && refKey(this.selection) === key) this.selection = null;
+    useTownEditor.setState({ hidden });
+    this.cycleState = null;
+    this.needsRebuild = true;
+    this.rebuildAt = performance.now();
+    this.publishSelection();
+  }
+
+  toggleLocked(key: string): void {
+    const locked = new Set(useTownEditor.getState().locked);
+    if (!locked.delete(key)) locked.add(key);
+    useTownEditor.setState({ locked });
+    this.cycleState = null;
+  }
+
+  closePickMenu(): void {
+    useTownEditor.setState({ pickMenu: null });
   }
 
   // -------------------------------------------------------------------------------------------
@@ -234,23 +349,38 @@ export class TownEditor {
   }
 
   private pushUndo(): void {
-    this.undo.push(JSON.stringify(this.layout));
+    const s = useTownEditor.getState();
+    this.undo.push({ layout: JSON.stringify(this.layout), hidden: [...s.hidden], locked: [...s.locked] });
     if (this.undo.length > UNDO_LIMIT) this.undo.shift();
     useTownEditor.setState({ canUndo: true });
   }
 
-  private changed(dirty = true): void {
+  /** `rows` is false while dragging, so the layer list is not rebuilt on every mouse move. */
+  private changed(dirty = true, rows = true): void {
     this.needsRebuild = true;
     this.rebuildAt = performance.now() + REBUILD_MS;
-    useTownEditor.setState({ dirty: dirty || useTownEditor.getState().dirty, canUndo: this.undo.length > 0, selection: this.selectionLabel() });
+    this.stations = stationsOf(this.layout);
+    const s = useTownEditor.getState();
+    useTownEditor.setState({ dirty: dirty || s.dirty, canUndo: this.undo.length > 0, layerVersion: s.layerVersion + (rows ? 1 : 0) });
+    this.publishSelection();
+  }
+
+  private publishSelection(): void {
+    useTownEditor.setState({ selection: this.selectionLabel(), selectedKey: this.selection ? refKey(this.selection) : null });
   }
 
   private selectionLabel(): string | null {
     const sel = this.selection;
     if (!sel) return null;
+    const station = this.stations.get(refKey(sel));
+    const role = station ? ` (${station})` : '';
     if (sel.type === 'prop') {
       const p = this.layout.props[sel.index];
-      return p ? `${PROP_DEFS[p.kind].label}, scale ${p.scale.toFixed(2)}` : null;
+      return p ? `${PROP_DEFS[p.kind].label}${role}, scale ${p.scale.toFixed(2)}` : null;
+    }
+    if (sel.type === 'decor') {
+      const d = this.layout.decor[sel.index];
+      return d ? `${decorLook(d.asset).label}${role}, scale ${d.scale.toFixed(2)}` : null;
     }
     if (sel.type === 'path') return 'Path';
     if (sel.type === 'plaza') return 'Plaza';
@@ -258,35 +388,35 @@ export class TownEditor {
     return 'Spawn point';
   }
 
+  /** Everything a click at a ground point can pick, front to back; hidden and locked objects let it through. */
+  private candidates(x: number, y: number): Selection[] {
+    const { hidden, locked } = useTownEditor.getState();
+    return pickAll(this.layout, x, y, { look: decorLook, stations: this.stations, skip: (k) => hidden.has(k) || locked.has(k) });
+  }
+
   private pick(x: number, y: number): Selection | null {
-    const L = this.layout;
-    const i = L.portals.findIndex((p) => Math.hypot(p.x - x, p.y - y) < 50);
-    if (i >= 0) return { type: 'portal', index: i };
-    if (Math.hypot(L.spawn.x - x, L.spawn.y - y) < 30) return { type: 'spawn' };
-    for (let k = L.props.length - 1; k >= 0; k--) {
-      const p = L.props[k];
-      if (p && inside(PROP_DEFS[p.kind].shape(p), x, y, 6)) return { type: 'prop', index: k };
+    return this.candidates(x, y)[0] ?? null;
+  }
+
+  private outlineOf(ref: Selection, color: number): void {
+    if (ref.type === 'path') {
+      const path = this.layout.paths[ref.index];
+      if (path) this.addPathLine(path.points, color);
+      return;
     }
-    for (let k = L.paths.length - 1; k >= 0; k--) {
-      const path = L.paths[k];
-      if (!path) continue;
-      for (let j = 0; j < path.points.length - 1; j++) {
-        const a = path.points[j];
-        const b = path.points[j + 1];
-        if (a && b && inside({ type: 'capsule', ax: a.x, ay: a.y, bx: b.x, by: b.y, r: path.width / 2 }, x, y, 0)) return { type: 'path', index: k };
-      }
+    if (ref.type === 'prop') {
+      const p = this.layout.props[ref.index];
+      if (p) this.addOutline(PROP_DEFS[p.kind].shape(p), color);
+      return;
     }
-    for (let k = L.plazas.length - 1; k >= 0; k--) {
-      const p = L.plazas[k];
-      if (p && Math.hypot(p.x - x, p.y - y) <= p.r) return { type: 'plaza', index: k };
-    }
-    return null;
+    for (const s of pickShapes(this.layout, ref, { look: decorLook, stations: this.stations })) this.addOutline(s, color);
   }
 
   /** The anchor point of a selection, for dragging. */
   private anchor(sel: Selection): Vec2 | null {
     const L = this.layout;
     if (sel.type === 'prop') return L.props[sel.index] ?? null;
+    if (sel.type === 'decor') return L.decor[sel.index] ?? null;
     if (sel.type === 'plaza') return L.plazas[sel.index] ?? null;
     if (sel.type === 'portal') return L.portals[sel.index] ?? null;
     if (sel.type === 'spawn') return L.spawn;
@@ -318,17 +448,30 @@ export class TownEditor {
     const g = this.ground(e);
     if (!g) return;
     const ui = useTownEditor.getState();
+    if (ui.pickMenu) useTownEditor.setState({ pickMenu: null });
     const x = this.snap(g.x);
     const y = this.snap(g.y);
     switch (ui.tool) {
       case 'select': {
-        this.selection = this.pick(g.x, g.y);
-        const a = this.selection ? this.anchor(this.selection) : null;
-        if (a) {
-          this.pushUndo();
-          this.drag = { offX: a.x - g.x, offY: a.y - g.y };
+        const under = this.candidates(g.x, g.y);
+        if (e.altKey) {
+          e.preventDefault();
+          const rows = new Map(this.layers().map((r) => [r.key, r.label]));
+          const items = under.map((ref) => {
+            const key = refKey(ref);
+            return { key, label: rows.get(key) ?? key };
+          });
+          useTownEditor.setState({ pickMenu: items.length > 0 ? { x: e.clientX, y: e.clientY, items } : null, cycle: null });
+          return;
         }
-        useTownEditor.setState({ selection: this.selectionLabel() });
+        this.cycleState = cycleClick(this.cycleState, e.clientX, e.clientY, under.map(refKey), this.selection ? refKey(this.selection) : null);
+        const key = this.cycleState ? cycleKey(this.cycleState) : null;
+        this.selection = key ? parseKey(key) : null;
+        const a = this.selection ? this.anchor(this.selection) : null;
+        if (a) this.drag = { offX: a.x - g.x, offY: a.y - g.y, sx: e.clientX, sy: e.clientY, moved: false };
+        const c = this.cycleState;
+        useTownEditor.setState({ cycle: c && c.keys.length > 1 ? { index: c.index, total: c.keys.length, x: e.clientX, y: e.clientY } : null });
+        this.publishSelection();
         return;
       }
       case 'place': {
@@ -358,12 +501,19 @@ export class TownEditor {
   }
 
   private onMove(e: MouseEvent): void {
+    const hint = useTownEditor.getState().cycle;
+    if (hint && Math.hypot(e.clientX - hint.x, e.clientY - hint.y) > CYCLE_HINT_PX) useTownEditor.setState({ cycle: null });
     const g = this.ground(e);
     this.hover = g;
     if (!g) return;
-    if (this.drag && this.selection) {
-      this.moveSelection(this.selection, this.snap(g.x + this.drag.offX), this.snap(g.y + this.drag.offY));
-      this.changed();
+    const drag = this.drag;
+    if (drag && this.selection && (drag.moved || Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > DRAG_START_PX)) {
+      if (!drag.moved) {
+        drag.moved = true;
+        this.pushUndo();
+      }
+      this.moveSelection(this.selection, this.snap(g.x + drag.offX), this.snap(g.y + drag.offY));
+      this.changed(true, false);
     }
     const b = this.brush;
     if (b?.kind === 'path') {
@@ -376,6 +526,8 @@ export class TownEditor {
   }
 
   private onUp(): void {
+    // The layer list shows positions; it catches up once, when the drag ends.
+    if (this.drag?.moved) useTownEditor.setState((s) => ({ layerVersion: s.layerVersion + 1 }));
     this.drag = null;
     const b = this.brush;
     this.brush = null;
@@ -400,7 +552,12 @@ export class TownEditor {
     if (e.target instanceof HTMLInputElement) return;
     this.keys.add(e.code);
     const sel = this.selection;
-    const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
+    const p = sel?.type === 'prop' ? this.layout.props[sel.index] : sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
+    const line = sel?.type === 'prop' && p !== undefined && 'kind' in p && PROP_DEFS[p.kind].line;
+    if (e.code === 'Escape' && useTownEditor.getState().pickMenu) {
+      this.closePickMenu();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') {
       e.preventDefault();
       this.undoLast();
@@ -422,7 +579,7 @@ export class TownEditor {
         const up = e.code === 'BracketRight';
         if (p) {
           this.pushUndo();
-          if (PROP_DEFS[p.kind].line) p.length = Math.max(40, p.length + (up ? 40 : -40));
+          if (line && 'length' in p) p.length = Math.max(40, p.length + (up ? 40 : -40));
           else p.scale = Math.max(0.4, Math.min(2.5, p.scale * (up ? 1.1 : 0.9)));
           this.changed();
         } else if (sel?.type === 'plaza') {
@@ -486,21 +643,20 @@ export class TownEditor {
     this.addOutline({ type: 'circle', x: L.spawn.x, y: L.spawn.y, r: 24 }, 0x7dff8a);
 
     const sel = this.selection;
-    if (sel?.type === 'prop') {
-      const p = L.props[sel.index];
-      if (p) this.addOutline(PROP_DEFS[p.kind].shape(p), 0xffd36b);
-    } else if (sel?.type === 'plaza') {
-      const p = L.plazas[sel.index];
-      if (p) this.addOutline({ type: 'circle', x: p.x, y: p.y, r: p.r }, 0xffd36b);
-    } else if (sel?.type === 'path') {
-      const path = L.paths[sel.index];
-      if (path) this.addPathLine(path.points, 0xffd36b);
-    } else if (sel) {
+    if (sel?.type === 'spawn' || sel?.type === 'portal') {
       const a = this.anchor(sel);
       if (a) this.addOutline({ type: 'circle', x: a.x, y: a.y, r: 56 }, 0xffd36b);
-    }
+    } else if (sel) this.outlineOf(sel, 0xffd36b);
+
+    const lit = this.highlight ? parseKey(this.highlight) : null;
+    if (lit && (!sel || refKey(sel) !== this.highlight) && keyExists(L, refKey(lit))) this.outlineOf(lit, 0x7fd8ff);
 
     const h = this.hover;
+    if (h && ui.tool === 'select' && !this.drag) {
+      // What a click here would pick, so a station's larger target is visible before clicking.
+      const next = this.pick(h.x, h.y);
+      if (next && (!sel || refKey(next) !== refKey(sel)) && refKey(next) !== this.highlight) this.outlineOf(next, 0x6f7f8f);
+    }
     if (h && ui.tool === 'place') {
       const ghost: TownProp = { kind: ui.placeKind, x: this.snap(h.x), y: this.snap(h.y), angle: this.pendingAngle, scale: 1, length: 200 };
       this.addOutline(PROP_DEFS[ui.placeKind].shape(ghost), 0x9fd0ff);
@@ -513,10 +669,7 @@ export class TownEditor {
       this.gizmos.push(ring);
     } else if (h && ui.tool === 'erase') {
       const target = this.pick(h.x, h.y);
-      if (target?.type === 'prop') {
-        const p = L.props[target.index];
-        if (p) this.addOutline(PROP_DEFS[p.kind].shape(p), 0xff5a4a);
-      }
+      if (target && target.type !== 'portal' && target.type !== 'spawn') this.outlineOf(target, 0xff5a4a);
     }
     const b = this.brush;
     if (b?.kind === 'path') this.addPathLine(b.points, 0x9fd0ff);

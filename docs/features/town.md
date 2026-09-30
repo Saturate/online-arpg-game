@@ -107,6 +107,11 @@ Performance (headless Chrome on the dev Mac, 1280x720, GPU time from `EXT_disjoi
 - **Tools:** select and move, place prop, path brush, plaza brush, erase (keys 1 to 5). Q/E rotate, [ and ] scale (or line length, plaza radius or brush width), G snaps to 20 units, Ctrl+Z undoes (80 steps), Delete removes, WASD pans and the wheel zooms.
 - **Save sends the layout to the server,** which validates every field, writes `TOWN_LAYOUT` (default `apps/server/data/town-layout.json`, `/data/town-layout.json` in production) atomically, and rebuilds the home zone room in every world instance with everyone in it carried over.
 - **Portals and the spawn point can be moved but not deleted** in the editor, and a layout without a Wilds portal is rejected by the server.
+- **Decor can be selected, moved, rotated, scaled and deleted,** so the forge (the weapon rack nearest the spawn) moves like any prop. There is still no tool to place new decor.
+- **Click cycling:** clicking again at the same spot (within 6 px) over the same objects selects the next one underneath, front to back, and wraps; the panel and a small tag by the cursor show "2 of 4". A click elsewhere starts over, except that a click over the object already selected keeps it, so something picked in the layer list can be dragged out of a crowd. Alt+click lists everything under the cursor to pick from (Esc closes it). Front to back means stations, portals and the spawn first, then props and decor smallest first, then paths, then plazas. A press only becomes a drag after the cursor moves 4 px, so cycling clicks never nudge an object onto the grid or cost an undo step.
+- **Layer list** in the editor panel: every town object grouped as Stations (forge, stash, trader, portals and the Arena entrance, the spawn point with the waypoint beside it), Buildings, Props, Lights and decor, Nature and Ground (paths, plazas), with a search box (every word must match the name or group). Hovering a row outlines the object in the world, a click selects it (locked ones too), a double click centres the camera on it.
+- **Hide and lock** per row are editor-only: hidden objects are left out of the preview and cannot be clicked, locked ones let clicks pass through to what is under them. Neither is saved in the layout or sent to anyone; they follow their objects through deletes and undo, survive the editor reopening after a save, and are cleared when the town changed in between.
+- **Stations are easier to hit:** the forge, stash and trader take clicks 26 units beyond their footprint (other objects 6), and hovering in the select tool outlines what a click would pick. Their look and their gameplay reach are unchanged.
 - **Town in git:** `GET /api/town` serves the live town; `pnpm town:pull` writes it to `apps/server/data/town-layout.json`, which is bundled as the starting town. The daily `town-sync` workflow pushes a `town/live` branch when the live town changed (Actions cannot open PRs in this repo).
 
 ## How
@@ -116,7 +121,7 @@ Code:
 - Maps: `packages/shared/src/world/` (`town.ts` layout, stations, `validateLayout`; `maps.ts` `zoneMap`, `generateWilds`, `placePacks`, `placeEntrances`, gates, `loadMap`; `dungeon.ts` dungeons, the antechamber, the Arena gate and pit; `gamemap.ts` collision; `nav.ts` flow field; `gen.ts` rivers and obstacles; `types.ts` map descriptors). Zones: `packages/shared/src/data/zones.ts`.
 - Movement: `packages/shared/src/sim/movement.ts` (shared with client prediction).
 - Server: `apps/server/src/manager.ts` (instances, rooms, portals, waypoints, `replaceTown`, idle closing), `room.ts`, `staging.ts` (ready check), `townStore.ts`.
-- Client: `apps/client/src/game/townEditor.ts`; rendering in `apps/client/src/render/props.ts` (town, gates, the Arena building, the wild border, `addUnderground` for dungeons, the world's light sources); lighting in `scene.ts` (sun, moon, hero light), `lights.ts` (the light budget), `nightRim.ts` and `rigs/compile.ts` (enemy rim, albedo floor).
+- Client: `apps/client/src/game/townEditor.ts` (the editor), `townEditorPick.ts` (picking order, click cycling, layer rows and search, hide and lock bookkeeping), `apps/client/src/ui/TownEditorPanel.tsx` and `townEditor.css`; rendering in `apps/client/src/render/props.ts` (town, gates, the Arena building, the wild border, `addUnderground` for dungeons, the world's light sources); lighting in `scene.ts` (sun, moon, hero light), `lights.ts` (the light budget), `nightRim.ts` and `rigs/compile.ts` (enemy rim, albedo floor).
 - Numbers: `WILDS`, `ZONE_SIZE`, `DUNGEON`, `NAV`, `GROUND` in `packages/shared/src/config/sim.ts`.
 
 ```ts
@@ -135,6 +140,7 @@ Tests:
 - `packages/shared/test/world.test.ts`: no ending up inside rocks, no dash tunnelling, water blocks walking but not shots; Wilds is deterministic per seed with packs away from camp and a boss; packs wake together; items survive room changes; sliding around the well.
 - `packages/shared/test/dungeon.test.ts`: deterministic per seed and run; every pack and portal reachable, one boss; the antechamber is safe with a gate and a way back; the boss clears the run once and opens the cache; every bridge can be crossed.
 - `packages/shared/test/town.test.ts`: layout validation round trip, hostile layouts rejected, the map key changes with the layout, roads are faster.
+- `apps/client/test/townEditorPick.test.ts`: stations found by the game's rule; the pick order front to back; the larger station target; locked and hidden objects let clicks through; cycling steps, wraps, restarts elsewhere and keeps the current selection; layer groups and search; flags follow deletes; hiding leaves objects out of the preview without station fallbacks.
 - `apps/server/test/worlds.test.ts`, `staging.test.ts`: public worlds fill to capacity; old seed messages ignored; the ready-check countdown.
 - `apps/server/test/pause.test.ts`: a player alone in the home zone cannot pause it; alone in the Arena antechamber they can.
 - `apps/client/test/lights.test.ts`: the nearest sources get the real lights and the rest ground pools; dark by day unless a source asks to glow; a light fades out over frames instead of popping; priority wins a slot; off-screen sources cost nothing; a crowd of lights is scaled down and a lone torch is not.
@@ -143,7 +149,10 @@ Tests:
 ## Limits and open questions
 
 - **Pause is per room, not per spot:** a player alone in Mossy Barrens outside the town fence cannot pause either, since the town and the zone share one room. Pausing by position would need `canPause` in the snapshot rather than the welcome.
-- **The town editor has no decor tool,** although comments in `town.ts` mention one; decor such as the forge's weapon rack cannot be moved in game.
+- **The town editor cannot place new decor,** only move, rotate, scale and delete what the layout has. Deleting the forge's rack makes the game fall back to a rack beside the spawn.
+- **The town waypoint and the zone gates are not in the layout,** so they are not layer rows: the waypoint follows the spawn point (it stands at the nearest open spot 170 east and 90 north of it) and the gates belong to the zone map.
+- **Hide and lock are keyed by array position,** so they are cleared when the editor opens on a town that changed since they were set (another builder's save, or leaving without saving after a delete).
+- **Station labels in the world** ("Forge", "Stash") stay where they were until the town is saved, since the editor preview rebuilds only the geometry.
 - **The server does not stop deleting portals or the spawn;** only the editor does. A layout without a Wilds portal is rejected, but the home zone drops that portal from the town anyway.
 - **An invalid town save is dropped without a notice** to the builder.
 - **The standalone `wildsMap` and the `testground` map** are only used by tests and tools.

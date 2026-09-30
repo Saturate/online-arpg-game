@@ -60,6 +60,11 @@ const LIT_DECOR: Record<string, LightLook> = {
   grave_shrine_candles: { ...CANDLE, height: 30, intensity: 1.2, radius: 220 },
 };
 
+/** Whether a decor asset is a lamp or flame, for the town editor's layer groups. */
+export function isLitDecor(asset: string): boolean {
+  return Object.hasOwn(LIT_DECOR, asset);
+}
+
 function lightAt(look: LightLook, x: number, y: number, scale = 1): StaticLight {
   return { ...look, x, y, height: look.height * scale, radius: look.radius * Math.sqrt(scale) };
 }

@@ -1,0 +1,141 @@
+/* Town editor: layer list, click-cycle hint and the Alt+click pick menu. */
+.town-layers h3 {
+  margin-bottom: 4px;
+}
+.town-layers-toggle {
+  all: unset;
+  cursor: var(--cur-hover);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.town-layers-toggle:hover,
+.town-layers-toggle:focus-visible {
+  color: var(--gold);
+}
+.town-layers-search {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  background: #0c0a08;
+  color: var(--text);
+  border: 1px solid #3a2f20;
+  border-radius: 3px;
+}
+.town-layers-search:focus {
+  outline: none;
+  border-color: var(--panel-edge);
+}
+.town-layers-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #2a2117;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 2px 0;
+}
+.town-layers-group h4 {
+  margin: 4px 6px 2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a08a5f;
+  font-weight: 600;
+}
+.town-layers-empty {
+  font-size: 12px;
+  margin: 6px;
+}
+.town-layer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 6px;
+}
+.town-layer:hover {
+  background: rgba(127, 216, 255, 0.07);
+}
+.town-layer.on {
+  background: rgba(217, 181, 106, 0.14);
+}
+.town-layer.on .town-layer-name {
+  color: var(--gold);
+}
+.town-layer.is-hidden .town-layer-name {
+  opacity: 0.45;
+}
+.town-layer-name {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 0;
+  color: var(--text);
+  cursor: var(--cur-hover);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.town-layer-name .muted {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.town-layer-flag {
+  all: unset;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  color: #5a5042;
+  cursor: var(--cur-hover);
+  border-radius: 2px;
+}
+.town-layer-flag:hover,
+.town-layer-flag:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+.town-layer-flag.set {
+  color: var(--ember);
+}
+.town-cycle-hint {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  font-size: 12px;
+  padding: 2px 6px;
+  color: var(--gold);
+  background: rgba(12, 10, 8, 0.92);
+  border: 1px solid var(--panel-edge);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px #000a;
+}
+.panel.town-pick-menu {
+  position: fixed;
+  z-index: 41;
+  display: grid;
+  min-width: 170px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  gap: 1px;
+}
+.town-pick-menu button {
+  all: unset;
+  font-size: 12px;
+  padding: 4px 8px;
+  color: var(--text);
+  cursor: var(--cur-hover);
+  border-radius: 2px;
+}
+.town-pick-menu button:hover,
+.town-pick-menu button:focus-visible {
+  background: rgba(127, 216, 255, 0.1);
+}
+.town-pick-menu button.on {
+  color: var(--gold);
+}
