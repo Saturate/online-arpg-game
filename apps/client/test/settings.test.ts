@@ -18,6 +18,13 @@ describe('settings', () => {
     expect(s.options.uiScale).toBe(1);
   });
 
+  it('keeps the interface volume only inside 0 to 1', () => {
+    expect(parseSettings(JSON.stringify({ options: { uiVolume: 0.2 } })).options.uiVolume).toBe(0.2);
+    expect(parseSettings(JSON.stringify({ options: { uiVolume: 0 } })).options.uiVolume).toBe(0);
+    expect(parseSettings(JSON.stringify({ options: { uiVolume: 4 } })).options.uiVolume).toBe(DEFAULT_OPTIONS.uiVolume);
+    expect(parseSettings(JSON.stringify({ options: { uiVolume: '1' } })).options.uiVolume).toBe(DEFAULT_OPTIONS.uiVolume);
+  });
+
   it('swaps bindings on a clash so every action keeps a key', () => {
     const next = rebind(DEFAULT_BINDINGS, 'skill1', 'KeyW');
     expect(next.skill1).toBe('KeyW');

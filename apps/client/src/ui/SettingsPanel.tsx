@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ACTION_LABELS, ACTIONS, keyLabel, RESERVED_KEYS, UI_SCALES, useSettings, type Action, type ControlScheme, type Options } from './settings.js';
+import { GamePanel, usePanelLayout } from './GamePanel.js';
 import { useUi } from './store.js';
 
 const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
@@ -7,7 +8,7 @@ const SCHEMES: readonly { id: ControlScheme; label: string; hint: string }[] = [
   { id: 'click', label: 'Click to move', hint: 'Diablo style: click the ground to walk, a monster to attack. Shift attacks in place.' },
 ];
 
-const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls'>; label: string }[] = [
+const TOGGLES: readonly { key: Exclude<keyof Options, 'uiScale' | 'controls' | 'uiVolume'>; label: string }[] = [
   { key: 'wheelCyclesSkill', label: 'Scroll wheel picks the mouse skills (Shift for the left one)' },
   { key: 'damageNumbers', label: 'Damage numbers' },
   { key: 'screenShake', label: 'Screen shake' },
@@ -19,6 +20,8 @@ export function SettingsPanel() {
   const open = useUi((s) => s.settingsOpen);
   const { bindings, options, bind, setOption, reset } = useSettings();
   const [waiting, setWaiting] = useState<Action | null>(null);
+  const unlocked = usePanelLayout((s) => s.unlocked);
+  const moved = usePanelLayout((s) => Object.keys(s.positions).length > 0);
 
   useEffect(() => {
     if (!waiting) return;
@@ -36,13 +39,7 @@ export function SettingsPanel() {
   if (!open) return null;
   return (
     <div className="menu-backdrop" role="dialog" aria-label="Settings">
-      <section className="panel settings">
-        <header>
-          <h2>Settings</h2>
-          <button type="button" className="close" onClick={() => useUi.setState({ settingsOpen: false })} aria-label="Close settings">
-            x
-          </button>
-        </header>
+      <GamePanel id="settings" className="settings" title="Settings" onClose={() => useUi.setState({ settingsOpen: false })} closeLabel="Close settings">
         <div className="settings-cols">
           <div>
             <h3>Keys</h3>
@@ -87,12 +84,37 @@ export function SettingsPanel() {
                 </button>
               ))}
             </div>
+            <h3>Panels</h3>
+            <ul className="toggles">
+              <li>
+                <label>
+                  <input type="checkbox" checked={unlocked} onChange={(e) => usePanelLayout.getState().setUnlocked(e.target.checked)} /> Unlock panels: drag windows by their title bar
+                </label>
+              </li>
+            </ul>
+            <button type="button" onClick={() => usePanelLayout.getState().resetPositions()} disabled={!moved}>
+              Reset panel positions
+            </button>
+            <h3>Sound</h3>
+            <label className="volume-row">
+              <span>Interface sounds</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(options.uiVolume * 100)}
+                onChange={(e) => setOption('uiVolume', Number(e.target.value) / 100)}
+                aria-label="Interface sound volume"
+              />
+              <b>{options.uiVolume > 0 ? `${Math.round(options.uiVolume * 100)}%` : 'Off'}</b>
+            </label>
             <button type="button" className="reset" onClick={reset}>
               Reset to defaults
             </button>
           </div>
         </div>
-      </section>
+      </GamePanel>
     </div>
   );
 }

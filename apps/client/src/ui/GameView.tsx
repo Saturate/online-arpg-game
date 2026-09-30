@@ -19,6 +19,7 @@ import { ForgeEditor } from './ForgeEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
 import { WaypointPanel } from './WaypointPanel.js';
+import { GameTooltip } from './Tip.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 
 export function GameView({ token, character }: { token: string; character: CharacterSummary }) {
@@ -97,6 +98,7 @@ export function GameView({ token, character }: { token: string; character: Chara
         </div>
       )}
       <ItemTooltip />
+      <GameTooltip />
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
 } from '@rune/shared';
 import { cssColor, TIER_COLORS } from '../render/config.js';
 import { compileFor, useUi } from './store.js';
+import { tip } from './Tip.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
@@ -39,7 +40,16 @@ export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; ite
     <span
       className={`rune-chip cat-${kind === 'shape' ? 'form' : kind}${small ? ' small' : ''}`}
       style={style}
-      title={[`${runeName(id)} (${kind})`, ...rolls].join('\n')}
+      {...tip(
+        <div className="tip-lines">
+          <strong style={{ color: 'var(--rune)' }}>{runeName(id)}</strong> <span className="muted">({kind})</span>
+          {rolls.map((r, i) => (
+            <p key={i} className="tip-roll">
+              {r}
+            </p>
+          ))}
+        </div>,
+      )}
       onClick={onClick}
     >
       <b>{runeGlyph(id)}</b>

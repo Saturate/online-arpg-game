@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../net/api.js';
 import { cssColor } from '../render/config.js';
 import { LeaderboardTables, runTime, seasonName } from './ArenaBoard.js';
+import { useMovablePanel } from './GamePanel.js';
 import { useUi } from './store.js';
 
 function ordinal(n: number): string {
@@ -14,6 +15,7 @@ function ordinal(n: number): string {
 /** The champions' stone in the Arena gate: this season's boards, fetched fresh each time it opens. */
 export function LeaderboardPanel() {
   const open = useUi((s) => s.boardOpen);
+  const { ref: panelRef, handleProps } = useMovablePanel('leaderboard');
   const [board, setBoard] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -31,11 +33,11 @@ export function LeaderboardPanel() {
   }, [open]);
   if (!open) return null;
   return (
-    <section className="panel leaderboard-panel" aria-label="Arena leaderboard">
-      <header>
+    <section ref={panelRef} className="panel leaderboard-panel" aria-label="Arena leaderboard">
+      <header {...handleProps}>
         <h2>Champions of the Pit</h2>
         <button type="button" className="close" onClick={() => useUi.setState({ boardOpen: false })} aria-label="Close leaderboard">
-          x
+          ×
         </button>
       </header>
       {error ? <p className="error">{error}</p> : board ? <LeaderboardTables board={board} /> : <p className="muted">Reading the stone</p>}
@@ -47,6 +49,7 @@ export function LeaderboardPanel() {
 /** The score screen when a run ends. It outlasts the trip back to the gate, until closed. */
 export function ArenaResultPanel() {
   const result = useUi((s) => s.arenaResult);
+  const { ref: panelRef, handleProps } = useMovablePanel('arena-result');
   const [left, setLeft] = useState(0);
   useEffect(() => {
     if (!result) return;
@@ -58,8 +61,10 @@ export function ArenaResultPanel() {
   if (!result) return null;
   const place = result.rank === null ? 'Ended before the first wave, so it was not recorded.' : `${ordinal(result.rank)} on the ${result.board} board for ${seasonName(result.season)}.`;
   return (
-    <section className="panel arena-result" aria-label="Arena run over">
-      <h2>The pit has claimed you</h2>
+    <section ref={panelRef} className="panel arena-result" aria-label="Arena run over">
+      <header {...handleProps}>
+        <h2>The pit has claimed you</h2>
+      </header>
       <p className="arena-score">{result.score.toLocaleString()}</p>
       <dl>
         <div>

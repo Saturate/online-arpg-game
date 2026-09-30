@@ -1,6 +1,8 @@
 import { CLASSES, PROGRESSION } from '@rune/shared';
 import type { ReactNode } from 'react';
+import { GamePanel } from './GamePanel.js';
 import { useUi } from './store.js';
+import { tip } from './Tip.js';
 
 function pct(v: number): string {
   const n = Math.round((v - 1) * 100);
@@ -9,7 +11,7 @@ function pct(v: number): string {
 
 function Row({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="cs-row" title={hint}>
+    <div className="cs-row" {...tip(hint)}>
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>
@@ -30,18 +32,12 @@ export function CharacterPanel() {
   const ratio = xpNext > 0 ? Math.min(1, xp / xpNext) : 1;
 
   return (
-    <section className="panel cs-window" aria-label="Character">
-      <header className="inv-header">
-        <h2>{name}</h2>
-        <button type="button" className="close" onClick={() => useUi.setState({ characterOpen: false })} aria-label="Close character sheet">
-          ×
-        </button>
-      </header>
+    <GamePanel id="character" className="cs-window" headerClassName="inv-header" aria-label="Character" title={name} onClose={() => useUi.setState({ characterOpen: false })} closeLabel="Close character sheet">
       <div className="cs-identity">
         <span className="cs-level">{level}</span>
         <div>
           <strong>{cls.name}</strong>
-          <div className="cs-xp" title={`${xp.toLocaleString()} / ${xpNext.toLocaleString()} XP`}>
+          <div className="cs-xp" {...tip(`${xp.toLocaleString()} / ${xpNext.toLocaleString()} XP`)}>
             <div style={{ width: `${ratio * 100}%` }} />
           </div>
           <span className="muted small">{level >= PROGRESSION.maxLevel ? 'Maximum level' : `${Math.floor(ratio * 100)}% to level ${level + 1}`}</span>
@@ -79,6 +75,6 @@ export function CharacterPanel() {
           )}
         </>
       )}
-    </section>
+    </GamePanel>
   );
 }
