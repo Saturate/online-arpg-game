@@ -1,4 +1,4 @@
-import { Box3, Mesh, MeshStandardMaterial, Object3D, PropertyBinding, Quaternion, SkinnedMesh, Vector3, type AnimationClip, type Material } from 'three';
+import { Box3, Group, Mesh, MeshStandardMaterial, Object3D, PropertyBinding, Quaternion, SkinnedMesh, Vector3, type AnimationClip, type Material } from 'three';
 import type { AnimRole } from '../../render/assets.js';
 
 /**
@@ -184,21 +184,44 @@ function facingCheck(f: Facing): Check {
   return { id: 'facing', title, status: 'warn', detail: `Faces ${f.axis.toUpperCase()} going by its ${f.source}; the game expects +Z.`, fix: fix(f.axis) };
 }
 
+/**
+ * The glTF mesh node a drawn mesh belongs to. GLTFLoader draws each primitive (one per material)
+ * as its own Mesh and, when a mesh has several, groups them under a Group standing for the node;
+ * empty nodes load as plain Object3D and the scene root has no parent, so only that case is a Group
+ * below the root. Without this, feet with a material of their own read as a separate, stray part.
+ */
+function partOf(m: Mesh): Object3D {
+  const p = m.parent;
+  return p instanceof Group && p.parent !== null ? p : m;
+}
+
 function feetCheck(ms: readonly Mesh[], boxes: Map<Mesh, Box3>, overall: Box3, height: number): Check {
   const title = 'Feet';
-  const lows = ms.map((m) => ({ m, y: boxes.get(m)?.min.y ?? Number.POSITIVE_INFINITY })).filter((l) => Number.isFinite(l.y));
-  const stray = lows.filter((l) => {
-    const others = lows.filter((o) => o !== l);
-    if (others.length === 0) return false;
-    return l.y < Math.min(...others.map((o) => o.y)) - height * LIMITS.strayBelow;
-  });
-  if (stray.length > 0) {
-    const rest = Math.min(...lows.filter((l) => !stray.includes(l)).map((l) => l.y));
+  const parts = new Map<Object3D, { low: number; triangles: number }>();
+  for (const m of ms) {
+    const y = boxes.get(m)?.min.y;
+    if (y === undefined || !Number.isFinite(y)) continue;
+    const part = partOf(m);
+    const p = parts.get(part) ?? { low: Number.POSITIVE_INFINITY, triangles: 0 };
+    parts.set(part, { low: Math.min(p.low, y), triangles: p.triangles + triangleCount([m]) });
+  }
+  let lowest: Object3D | null = null;
+  let total = 0;
+  for (const [part, p] of parts) {
+    total += p.triangles;
+    if (lowest === null || p.low < (parts.get(lowest)?.low ?? p.low)) lowest = part;
+  }
+  let restLow = Number.POSITIVE_INFINITY;
+  for (const [part, p] of parts) if (part !== lowest) restLow = Math.min(restLow, p.low);
+  // Only the part holding the lowest point can float the rest. The main mesh (most of the
+  // triangles) standing below a separate head or tail is just a model whose feet are in that mesh.
+  const minor = lowest !== null && (parts.get(lowest)?.triangles ?? 0) * 2 < total;
+  if (lowest !== null && minor && Number.isFinite(restLow) && overall.min.y < restLow - height * LIMITS.strayBelow) {
     return {
       id: 'feet',
       title,
       status: 'warn',
-      detail: `${list(stray.map((s) => label(s.m)))} reaches ${round(rest - overall.min.y)} below the rest of the model. The game stands the lowest point on the ground, so everything else floats.`,
+      detail: `"${label(lowest)}" reaches ${round(restLow - overall.min.y)} below the rest of the model. The game stands the lowest point on the ground, so everything else floats.`,
       fix: 'Delete the stray part or move it up to the feet, then apply its transform.',
     };
   }

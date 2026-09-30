@@ -7,7 +7,8 @@
     "test": "vitest run",
     "typecheck": "pnpm -r typecheck",
     "town:pull": "pnpm --filter @rune/server town:pull",
-    "runes:convert-check": "apps/server/node_modules/.bin/tsx scripts/runes-convert-check.ts"
+    "runes:convert-check": "apps/server/node_modules/.bin/tsx scripts/runes-convert-check.ts",
+    "model:check": "apps/server/node_modules/.bin/tsx scripts/model-check.ts"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

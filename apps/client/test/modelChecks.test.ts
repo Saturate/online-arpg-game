@@ -2,6 +2,7 @@ import { Document, NodeIO, type Material, type Node } from '@gltf-transform/core
 import { MONSTER_MODEL_IDS } from '@rune/shared';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
+import { checkGlb } from '../src/admin/monsters/checkGlb.js';
 import { checkModel, guessRoles, type Check, type ModelReport } from '../src/admin/monsters/modelChecks.js';
 import { ASSETS } from '../src/render/assets.js';
 
@@ -14,6 +15,8 @@ interface Part {
   /** Linear RGB; omitted means the primitive has no material at all. */
   color?: Vec3;
   emissive?: Vec3;
+  /** More primitives in the same mesh, each with its own material (feet in their own colour, say). */
+  pieces?: { min: Vec3; max: Vec3; color: Vec3 }[];
 }
 
 interface Anim {
@@ -50,6 +53,16 @@ async function build(f: Fixture): Promise<{ bytes: Uint8Array; parsed: Awaited<R
   scene.addChild(root);
   const nodes = new Map<string, Node>();
   const materials = new Map<string, Material>();
+  const materialFor = (color: Vec3, emissive?: Vec3): Material => {
+    const key = `${color.join(',')}|${(emissive ?? [0, 0, 0]).join(',')}`;
+    let mat = materials.get(key);
+    if (!mat) {
+      mat = doc.createMaterial(`mat_${materials.size}`).setBaseColorFactor([...color, 1]).setMetallicFactor(0);
+      if (emissive) mat.setEmissiveFactor(emissive);
+      materials.set(key, mat);
+    }
+    return mat;
+  };
   f.parts.forEach((p, i) => {
     const { positions, indices } = boxData(p.min, p.max);
     let idx = indices;
@@ -63,16 +76,7 @@ async function build(f: Fixture): Promise<{ bytes: Uint8Array; parsed: Awaited<R
       .createPrimitive()
       .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(positions).setBuffer(buffer))
       .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buffer));
-    if (p.color) {
-      const key = `${p.color.join(',')}|${(p.emissive ?? [0, 0, 0]).join(',')}`;
-      let mat = materials.get(key);
-      if (!mat) {
-        mat = doc.createMaterial(`mat_${materials.size}`).setBaseColorFactor([...p.color, 1]).setMetallicFactor(0);
-        if (p.emissive) mat.setEmissiveFactor(p.emissive);
-        materials.set(key, mat);
-      }
-      prim.setMaterial(mat);
-    }
+    if (p.color) prim.setMaterial(materialFor(p.color, p.emissive));
     if (i === 0 && f.skinned) {
       const n = positions.length / 3;
       prim.setAttribute('JOINTS_0', doc.createAccessor().setType('VEC4').setArray(new Uint16Array(n * 4)).setBuffer(buffer));
@@ -80,7 +84,18 @@ async function build(f: Fixture): Promise<{ bytes: Uint8Array; parsed: Awaited<R
       for (let v = 0; v < n; v++) weights[v * 4] = 1;
       prim.setAttribute('WEIGHTS_0', doc.createAccessor().setType('VEC4').setArray(weights).setBuffer(buffer));
     }
-    const node = doc.createNode(p.name).setMesh(doc.createMesh(p.name).addPrimitive(prim));
+    const mesh = doc.createMesh(p.name).addPrimitive(prim);
+    for (const piece of p.pieces ?? []) {
+      const box = boxData(piece.min, piece.max);
+      mesh.addPrimitive(
+        doc
+          .createPrimitive()
+          .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(box.positions).setBuffer(buffer))
+          .setIndices(doc.createAccessor().setType('SCALAR').setArray(box.indices).setBuffer(buffer))
+          .setMaterial(materialFor(piece.color)),
+      );
+    }
+    const node = doc.createNode(p.name).setMesh(mesh);
     root.addChild(node);
     nodes.set(p.name, node);
   });
@@ -170,6 +185,58 @@ describe('model checks', () => {
     expect(check(r, 'roles')).toMatchObject({ status: 'warn', detail: 'No clip for hit, death.' });
     expect(check(r, 'rig')).toMatchObject({ status: 'pass', detail: expect.stringMatching(/Rigid/) });
     expect(r.animation).toBe('rigid');
+  });
+
+  it('reads feet with their own material as part of the mesh they belong to', async () => {
+    const pads: Vec3 = [0.05, 0.045, 0.04];
+    const r = await report({
+      ...GOOD,
+      parts: [
+        {
+          name: 'wolf',
+          min: [-0.3, 0.2, -0.8],
+          max: [0.3, 0.9, 0.8],
+          color: GREY,
+          pieces: [
+            { min: [-0.2, 0, 0.5], max: [-0.1, 0.2, 0.6], color: pads },
+            { min: [0.1, 0, -0.6], max: [0.2, 0.2, -0.5], color: pads },
+          ],
+        },
+        { name: 'head', min: [-0.2, 0.7, 0.8], max: [0.2, 1.1, 1.2], color: GREY },
+      ],
+      anims: ['Idle', 'Walk', 'Run', 'Attack', 'Hit', 'Death'].map((n) => loopAnim(n, 'head')),
+    });
+    expect(check(r, 'feet')).toMatchObject({ status: 'pass', detail: 'Lowest point in the rest pose is at y = 0.' });
+    expect(r.checks.filter((c) => c.status === 'warn')).toEqual([]);
+  });
+
+  it('still flags a separate part hanging below the feet', async () => {
+    const r = await report({
+      ...GOOD,
+      parts: [...GOOD.parts, { name: 'stray', min: [-0.1, -0.3, -0.1], max: [0.1, -0.2, 0.1], color: GREY }],
+    });
+    expect(check(r, 'feet')).toMatchObject({ status: 'warn', detail: expect.stringMatching(/^"stray" reaches 0.3 below/) });
+  });
+
+  it('reads a textured file from disk bytes in node', async () => {
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (ch) => ch.charCodeAt(0));
+    const doc = new Document();
+    const buffer = doc.createBuffer();
+    const { positions, indices } = boxData([-0.5, 0, -0.5], [0.5, 1, 0.5]);
+    const tex = doc.createTexture('skin').setImage(png).setMimeType('image/png');
+    // Black base colour under a texture: the texture decides the colour, so it must not warn.
+    const mat = doc.createMaterial('textured').setBaseColorFactor([0, 0, 0, 1]).setBaseColorTexture(tex);
+    const prim = doc
+      .createPrimitive()
+      .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(positions).setBuffer(buffer))
+      .setAttribute('TEXCOORD_0', doc.createAccessor().setType('VEC2').setArray(new Float32Array(16)).setBuffer(buffer))
+      .setIndices(doc.createAccessor().setType('SCALAR').setArray(indices).setBuffer(buffer))
+      .setMaterial(mat);
+    doc.createScene('Scene').addChild(doc.createNode('blob').setMesh(doc.createMesh('blob').addPrimitive(prim)));
+    const { report: r, clips } = await checkGlb(await new NodeIO().writeBinary(doc));
+    expect(clips).toEqual([]);
+    expect(check(r, 'colours').status).toBe('pass');
+    expect(check(r, 'feet').status).toBe('pass');
   });
 
   it('warns about heavy meshes and big files', async () => {
