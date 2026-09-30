@@ -69,6 +69,16 @@ export interface StaticLight {
   day: number;
 }
 
+/**
+ * How much a world light's flicker lifts or dims it at time `t`: two slow, unrelated sines seeded
+ * by its position, a living flame and never a strobe. The flames drawn for a torch or fire read the
+ * same value, so the fire and its light pulse together.
+ */
+export function staticFlicker(t: number, x: number, y: number, amount: number): number {
+  const seed = x * 0.013 + y * 0.029;
+  return 1 + amount * (Math.sin(t * 5.3 + seed) * 0.6 + Math.sin(t * 11.7 + seed * 2.3) * 0.4);
+}
+
 export class LightBudget {
   /** Add to the scene once; holds the pool lights and the ground pools. */
   readonly group = new Group();
@@ -105,6 +115,8 @@ export class LightBudget {
   private crowd = 1;
   /** How many real lights and ground pools the last frame drew, for the perf readout and tests. */
   readonly stats = { real: 0, pools: 0, sources: 0, crowd: 1, poolLight: 0 };
+  /** The clock of the last update, which the static flicker follows; world flames read it to match. */
+  time = 0;
 
   constructor() {
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -169,13 +181,12 @@ export class LightBudget {
    * world's own lights (the admin's lamp setting) and leaves emitted ones alone.
    */
   update(t: number, dt: number, focusX: number, focusY: number, dark: number, staticGain = 1): void {
+    this.time = t;
     const statics = this.statics;
     for (let i = 0; i < statics.length; i++) {
       const s = statics[i];
       if (!s) continue;
-      const seed = s.x * 0.013 + s.y * 0.029;
-      // Two slow, unrelated sines: a living flame, never a strobe.
-      const f = 1 + s.flicker * (Math.sin(t * 5.3 + seed) * 0.6 + Math.sin(t * 11.7 + seed * 2.3) * 0.4);
+      const f = staticFlicker(t, s.x, s.y, s.flicker);
       this.write(i, this.staticKeys[i] ?? -1, s.x, s.y, s.height, s.color, s.intensity * f * staticGain, s.radius, s.priority, s.day);
     }
     const n = statics.length + this.emitted;

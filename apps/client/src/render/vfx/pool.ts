@@ -33,6 +33,11 @@ export interface ParticleSpec {
   shape: number;
   /** Stretch along the screen-space velocity, for sparks and streaks. 0 draws a round sprite. */
   stretch: number;
+  /**
+   * Sideways swirl, world units per second squared: embers and smoke drift on a slow turbulence
+   * instead of flying straight. 0 (every spell particle) skips it.
+   */
+  wobble: number;
 }
 
 export const SHAPE = {
@@ -51,7 +56,7 @@ export const SHAPE = {
 } as const;
 
 export function emptySpec(): ParticleSpec {
-  return { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, size0: 1, size1: 1, r0: 1, g0: 1, b0: 1, a0: 1, r1: 1, g1: 1, b1: 1, a1: 0, gravity: 0, drag: 0, shape: 0, stretch: 0 };
+  return { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, size0: 1, size1: 1, r0: 1, g0: 1, b0: 1, a0: 1, r1: 1, g1: 1, b1: 1, a1: 0, gravity: 0, drag: 0, shape: 0, stretch: 0, wobble: 0 };
 }
 
 /** Floats per particle written for the GPU: position 3, size 1, colour 4, velocity 3, stretch, shape, seed. */
@@ -75,7 +80,8 @@ const DRAG = 19;
 const SHAPE_AT = 20;
 const STRETCH = 21;
 const SEED = 22;
-const FIELDS = 23;
+const WOBBLE = 23;
+const FIELDS = 24;
 
 export class ParticlePool {
   readonly capacity: number;
@@ -126,6 +132,7 @@ export class ParticlePool {
     d[b + SHAPE_AT] = s.shape;
     d[b + STRETCH] = s.stretch;
     d[b + SEED] = this.random();
+    d[b + WOBBLE] = s.wobble;
     return true;
   }
 
@@ -146,6 +153,13 @@ export class ParticlePool {
       let vx = this.at(b + VX) * damp;
       let vz = this.at(b + VZ) * damp;
       let vy = this.at(b + VY) * damp - this.at(b + GRAVITY) * dt;
+      const wobble = this.at(b + WOBBLE);
+      if (wobble !== 0) {
+        // Two unrelated sines per particle, phased by its seed: a lazy curl, never the same path twice.
+        const ph = age * 2.3 + this.at(b + SEED) * 40;
+        vx += Math.sin(ph) * wobble * dt;
+        vz += Math.cos(ph * 1.37 + 1.1) * wobble * dt;
+      }
       const y = this.at(b + PY) + vy * dt;
       // Particles settle on the ground instead of sinking through it.
       if (y < 0.5) {

@@ -92,6 +92,8 @@ export const RENDER_ORDER = {
   /** Light pools, over the effects they light. */
   groundLight: 3,
   ribbons: 4,
+  /** Torch, lamp and camp fire flames: under the smoke and embers they give off. */
+  worldFire: 4.5,
   smoke: 5,
   glow: 6,
 } as const;

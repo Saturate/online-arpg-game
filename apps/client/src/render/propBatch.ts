@@ -1,4 +1,4 @@
-import { Box3, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3, type Group, type Material } from 'three';
+import { Box3, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3, type Group, type Material } from 'three';
 import { assetById, instantiate } from './assets.js';
 import { withOccluderFade } from './occluderFade.js';
 
@@ -14,6 +14,50 @@ export interface Placement {
   jitter?: number;
   /** Tall things (buildings, walls): cut a see-through hole when they stand between camera and hero. */
   fade?: boolean;
+}
+
+/** A rectangle of the texture atlas, in UV units. */
+export interface UvRect {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+/**
+ * The fire gradient of the KayKit dungeon atlas. The lit torch and candle model their flame as
+ * solid triangles painted from it; the world fires draw real flames there instead (props.ts
+ * FLAMES), so those triangles are cut out.
+ */
+const KAYKIT_FIRE: UvRect = { u0: 0.9, u1: 0.96, v0: 0.5, v1: 0.7 };
+const BAKED_FLAMES: Record<string, UvRect> = { dungeon_torch_lit: KAYKIT_FIRE, dungeon_candle_lit: KAYKIT_FIRE };
+
+/**
+ * A copy of `geometry` without the triangles whose UV centre falls inside `rect`. Attributes are
+ * shared with the source; only the index is new. Returns the source when nothing matches.
+ */
+export function withoutUvRect(geometry: BufferGeometry, rect: UvRect): BufferGeometry {
+  const uv = geometry.getAttribute('uv');
+  if (!uv) return geometry;
+  const index = geometry.getIndex();
+  const count = index ? index.count : geometry.getAttribute('position').count;
+  const at = (i: number): number => (index ? index.getX(i) : i);
+  const kept: number[] = [];
+  for (let i = 0; i + 2 < count; i += 3) {
+    const a = at(i);
+    const b = at(i + 1);
+    const c = at(i + 2);
+    const u = (uv.getX(a) + uv.getX(b) + uv.getX(c)) / 3;
+    const v = (uv.getY(a) + uv.getY(b) + uv.getY(c)) / 3;
+    if (u >= rect.u0 && u <= rect.u1 && v >= rect.v0 && v <= rect.v1) continue;
+    kept.push(a, b, c);
+  }
+  if (kept.length === count) return geometry;
+  const out = new BufferGeometry();
+  for (const [name, attr] of Object.entries(geometry.attributes)) out.setAttribute(name, attr);
+  out.setIndex(kept);
+  out.computeBoundingSphere();
+  return out;
 }
 
 const tmpPos = new Vector3();
@@ -45,9 +89,10 @@ export class PropBatch {
         inst.root.updateMatrixWorld(true);
         const size = new Box3().setFromObject(inst.root).getSize(new Vector3());
         const meshes: { geometry: Mesh['geometry']; material: Material; local: Matrix4 }[] = [];
+        const baked = BAKED_FLAMES[id];
         inst.root.traverse((o) => {
           if (!(o instanceof Mesh) || !o.visible || Array.isArray(o.material)) return;
-          meshes.push({ geometry: o.geometry, material: o.material, local: o.matrixWorld.clone() });
+          meshes.push({ geometry: baked ? withoutUvRect(o.geometry, baked) : o.geometry, material: o.material, local: o.matrixWorld.clone() });
         });
         // Segment assets are not all modelled along x; turn them so their long side follows the line.
         const alongZ = size.z > size.x;

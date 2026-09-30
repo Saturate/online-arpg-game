@@ -30,9 +30,10 @@ import {
 import { COLORS } from './config.js';
 import { mat } from './models.js';
 import { withOccluderFade } from './occluderFade.js';
-import type { StaticLight } from './lights.js';
+import { staticFlicker, type StaticLight } from './lights.js';
 import { PropBatch } from './propBatch.js';
 import { treeGeometry, type TreeKind } from './trees.js';
+import type { FireKind, FireSpot } from './vfx/worldFires.js';
 
 export interface BuiltWorld {
   group: Group;
@@ -42,6 +43,8 @@ export interface BuiltWorld {
   dispose(): void;
   /** Torches, lanterns, fires, portals and waypoints, for the scene's light budget. */
   lights: readonly StaticLight[];
+  /** Every flame in the world, drawn by the effects system (`vfx/worldFires.ts`). */
+  fires: readonly FireSpot[];
 }
 
 type LightLook = Omit<StaticLight, 'x' | 'y'>;
@@ -67,6 +70,58 @@ export function isLitDecor(asset: string): boolean {
 
 function lightAt(look: LightLook, x: number, y: number, scale = 1): StaticLight {
   return { ...look, x, y, height: look.height * scale, radius: look.radius * Math.sqrt(scale) };
+}
+
+/** A flame on a lit asset, in world units at scale 1 of the placed model (x and z before its turn). */
+interface FlameAt {
+  kind: FireKind;
+  x: number;
+  h: number;
+  z: number;
+  size: number;
+  /** Toward the camera, past the glass of a lantern. */
+  pull: number;
+}
+
+/**
+ * Where the flames sit on each lit asset, measured from the KayKit meshes: the torch bowl's rim,
+ * the candle wicks and the lantern glass. The models' own baked flames are cut out when they are
+ * batched (`BAKED_FLAMES` in propBatch.ts), so these replace them.
+ */
+const FLAMES: Record<string, readonly FlameAt[]> = {
+  dungeon_torch_lit: [{ kind: 'torch', x: 0, h: 40, z: 0, size: 1, pull: 0 }],
+  dungeon_candle_lit: [{ kind: 'candle', x: 0, h: 8, z: 0, size: 1, pull: 0 }],
+  grave_lantern_standing: [{ kind: 'lantern', x: 0, h: 9, z: 0, size: 1, pull: 16 }],
+  grave_post_lantern: [{ kind: 'lantern', x: 0, h: 40.5, z: 21.2, size: 0.6, pull: 12 }],
+  grave_shrine_candles: [
+    { kind: 'candle', x: -1.4, h: 46.9, z: 0.75, size: 0.9, pull: 0 },
+    { kind: 'candle', x: 0.7, h: 49.9, z: -2.9, size: 0.9, pull: 0 },
+    { kind: 'candle', x: 2.7, h: 45.7, z: -0.3, size: 0.9, pull: 0 },
+    { kind: 'candle', x: -2.5, h: 33.2, z: 8.8, size: 0.9, pull: 0 },
+  ],
+};
+
+/** The flames of one placed lit asset, turned and scaled like the model; `light` is the lamp's light, for a shared flicker. */
+function flamesOf(asset: string, x: number, y: number, angle: number, scale: number, light: StaticLight | null, out: FireSpot[]): void {
+  const list = FLAMES[asset];
+  if (!list) return;
+  // PropBatch turns models by -angle about the vertical.
+  const c = Math.cos(-angle);
+  const s = Math.sin(-angle);
+  for (const f of list) {
+    out.push({
+      kind: f.kind,
+      x: x + (f.x * c + f.z * s) * scale,
+      y: y + (-f.x * s + f.z * c) * scale,
+      h: f.h * scale,
+      size: f.size * scale,
+      pull: f.pull * scale,
+      lightX: light?.x ?? x,
+      lightY: light?.y ?? y,
+      flicker: light?.flicker ?? 0.1,
+      forge: false,
+    });
+  }
 }
 
 const dummy = new Object3D();
@@ -291,6 +346,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const animated: ((t: number, px: number, py: number) => void)[] = [];
   const disposers: (() => void)[] = [];
   const lights: StaticLight[] = [];
+  const fires: FireSpot[] = [];
   const { width, height } = def;
 
   // The Arena pit is an underground colosseum carved like a dungeon, lit the same way by torches.
@@ -392,11 +448,17 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const d of def.decor) {
     batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
     const look = LIT_DECOR[d.asset];
-    if (look) lights.push(lightAt(look, d.x, d.y, d.scale));
+    const light = look ? lightAt(look, d.x, d.y, d.scale) : null;
+    if (light) lights.push(light);
+    flamesOf(d.asset, d.x, d.y, d.angle, d.scale, light, fires);
   }
   for (const l of def.lamps ?? []) {
-    batch.add(underground ? 'dungeon_torch_lit' : 'grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
-    lights.push(lightAt(underground ? TORCH : LANTERN, l.x, l.y));
+    const asset = underground ? 'dungeon_torch_lit' : 'grave_post_lantern';
+    batch.add(asset, { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
+    const light = lightAt(underground ? TORCH : LANTERN, l.x, l.y);
+    lights.push(light);
+    // The asset heights are 50 (torch) and 70 (post lantern); lamps are fitted to 50 and 80.
+    flamesOf(asset, l.x, l.y, 0, underground ? 1 : 80 / 70, light, fires);
   }
   if (!underground) addBorder(group, batch, def);
   let cancelled = false;
@@ -415,20 +477,23 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     group.add(built.group);
     animated.push(built.update);
     lights.push(...built.lights);
+    fires.push(...built.fires);
   }
   // The forge's fire, beside its weapon rack, so the spot reads as a smithy at night too.
   if (def.forge) {
-    const forgeFire = campfire(def.forge.x + 38, def.forge.y + 22);
+    const forgeFire = campfire(def.forge.x + 38, def.forge.y + 22, true);
     group.add(forgeFire.group);
     animated.push(forgeFire.update);
-    lights.push(lightAt(FIRE, def.forge.x + 38, def.forge.y + 22));
+    lights.push(forgeFire.light);
+    fires.push(forgeFire.fire);
   }
   // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
   if (def.theme === 'wilds' && !def.safeZones?.length) {
-    const fire = campfire(def.spawn.x + 40, def.spawn.y + 60);
+    const fire = campfire(def.spawn.x + 40, def.spawn.y + 60, false);
     group.add(fire.group);
     animated.push(fire.update);
-    lights.push(lightAt(FIRE, def.spawn.x + 40, def.spawn.y + 60));
+    lights.push(fire.light);
+    fires.push(fire.fire);
   }
   if (!underground) addDecor(group, def);
 
@@ -441,6 +506,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
       for (const d of disposers) d();
     },
     lights,
+    fires,
   };
 }
 
@@ -448,6 +514,7 @@ interface Landmark {
   group: Group;
   update: (t: number) => void;
   lights: StaticLight[];
+  fires: FireSpot[];
 }
 
 const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D', 'rock_single_E'];
@@ -809,6 +876,7 @@ function portal(x: number, y: number, r: number, color: number): Landmark {
       floor.rotation.z = t * 0.5;
     },
     lights: [{ x, y, height: r + 14, color, intensity: 1.4, radius: 300, flicker: 0.08, priority: 0, day: 0 }],
+    fires: [],
   };
 }
 
@@ -867,6 +935,7 @@ function waypoint(x: number, y: number, r: number): Landmark {
     },
     // Cold and low: it marks the spot without lighting up the night.
     lights: [{ x, y, height: 30, color: glow, intensity: 0.9, radius: 260, flicker: 0.04, priority: 0, day: 0 }],
+    fires: [],
   };
 }
 
@@ -879,6 +948,7 @@ function arenaBuilding(x: number, y: number, r: number): Landmark {
   const g = new Group();
   const stone = mat(0x5a544e, { rough: 0.95 });
   const dark = mat(0x3c3833, { rough: 1 });
+  const iron = new MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.7, metalness: 0.6, side: DoubleSide });
   const radius = r * 1.55;
   const segments = 12;
   // The archway faces down the screen (the camera looks from +x+z), so the way in is visible.
@@ -915,8 +985,8 @@ function arenaBuilding(x: number, y: number, r: number): Landmark {
   lintel.rotation.y = -facing + Math.PI / 2;
   lintel.castShadow = true;
   g.add(lintel);
-  const flames: Mesh[] = [];
   const lights: StaticLight[] = [];
+  const fires: FireSpot[] = [];
   // Across the archway: perpendicular to the direction it faces.
   const sideX = -Math.sin(facing);
   const sideZ = Math.cos(facing);
@@ -925,24 +995,47 @@ function arenaBuilding(x: number, y: number, r: number): Landmark {
     const bz = Math.sin(facing) * (radius + 14) + sideZ * s * r * 0.95;
     const post = new Mesh(new CylinderGeometry(2.5, 3, 40, 6), dark);
     post.position.set(bx, 20, bz);
-    const flame = new Mesh(new ConeGeometry(5, 14, 6), mat(0xffa040, { emissive: 0xff7020, intensity: 2.5 }));
-    flame.position.set(bx, 46, bz);
-    g.add(post, flame);
-    flames.push(flame);
-    lights.push({ ...TORCH, x: x + bx, y: y + bz, height: 46, radius: 340 });
+    // An iron cup on the post holds the pitch the flame burns from.
+    const cup = new Mesh(new CylinderGeometry(5, 3, 5, 7, 1, true), iron);
+    cup.position.set(bx, 41.5, bz);
+    g.add(post, cup);
+    const light: StaticLight = { ...TORCH, x: x + bx, y: y + bz, height: 46, radius: 340 };
+    lights.push(light);
+    fires.push({ kind: 'torch', x: x + bx, y: y + bz, h: 40, size: 0.75, pull: 0, lightX: light.x, lightY: light.y, flicker: light.flicker, forge: false });
   }
   g.position.set(x, 0, y);
-  return {
-    group: g,
-    update: (t) => {
-      const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
-      for (const fl of flames) fl.scale.set(1, f, 1);
-    },
-    lights,
-  };
+  return { group: g, update: () => {}, lights, fires };
 }
 
-function campfire(x: number, y: number): { group: Group; update: (t: number) => void } {
+/**
+ * Charred bark split by glowing cracks, for the logs of a camp fire; the cracks are the emissive
+ * map, so the fire's flicker only has to move the emissive intensity.
+ */
+function emberCanvas(): HTMLCanvasElement {
+  const { c, g } = canvas(64);
+  if (!g) return c;
+  const rand = lcg(31);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 14; i++) {
+    g.strokeStyle = `rgba(255, ${120 + Math.floor(rand() * 80)}, 40, ${0.5 + rand() * 0.5})`;
+    g.lineWidth = 1 + rand() * 1.5;
+    g.beginPath();
+    let px = rand() * 64;
+    let py = rand() * 64;
+    g.moveTo(px, py);
+    for (let k = 0; k < 4; k++) {
+      px += (rand() - 0.5) * 18;
+      py += rand() * 10;
+      g.lineTo(px, py);
+    }
+    g.stroke();
+  }
+  return c;
+}
+
+/** A camp fire (and the forge's fire): a ring of stones, crossed charred logs with glowing cracks, and the flames from worldFires. */
+function campfire(x: number, y: number, forge: boolean): { group: Group; update: (t: number) => void; light: StaticLight; fire: FireSpot } {
   const g = new Group();
   const stones: Matrix4[] = [];
   for (let i = 0; i < 9; i++) {
@@ -951,19 +1044,33 @@ function campfire(x: number, y: number): { group: Group; update: (t: number) => 
   }
   const sm = instanced(rockGeometry(3), mat(0x6a6460), stones);
   if (sm) g.add(sm);
-  const flame = new Mesh(new ConeGeometry(12, 34, 6), mat(0xffa040, { emissive: 0xff7020, intensity: 2.5 }));
-  flame.position.y = 17;
-  const inner = new Mesh(new ConeGeometry(7, 24, 6), mat(0xffe080, { emissive: 0xffd060, intensity: 3 }));
-  inner.position.y = 12;
-  g.add(flame, inner);
+  const embers = new CanvasTexture(emberCanvas());
+  embers.colorSpace = SRGBColorSpace;
+  const bark = new MeshStandardMaterial({ color: 0x1e1510, roughness: 1, emissive: 0xff5a1a, emissiveMap: embers, emissiveIntensity: 1 });
+  const logs: Matrix4[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (Math.PI * i) / 4 + 0.3;
+    // Crossed and propped on each other, each tipped a little so the heap is not flat.
+    dummy.position.set(Math.cos(a) * 2, 3.5 + i * 1.2, Math.sin(a) * 2);
+    dummy.rotation.set(0, a, Math.PI / 2 + (i % 2 ? 0.12 : -0.1));
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    logs.push(dummy.matrix.clone());
+  }
+  const lm = instanced(new CylinderGeometry(2.4, 2.9, 30, 6), bark, logs);
+  if (lm) {
+    lm.castShadow = false;
+    g.add(lm);
+  }
   g.position.set(x, 0, y);
+  const light = lightAt(FIRE, x, y);
   return {
     group: g,
     update: (t) => {
-      const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
-      flame.scale.set(1, f, 1);
-      inner.scale.set(1, 1.1 - f * 0.2, 1);
+      bark.emissiveIntensity = 0.9 * staticFlicker(t, x, y, FIRE.flicker * 2);
     },
+    light,
+    fire: { kind: 'bonfire', x, y, h: 3, size: forge ? 0.9 : 1, pull: 0, lightX: x, lightY: y, flicker: FIRE.flicker, forge },
   };
 }
 

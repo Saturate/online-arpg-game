@@ -9,6 +9,7 @@ import { ParticleLayer } from './particleLayer.js';
 import { emptySpec, SHAPE, type ParticleSpec } from './pool.js';
 import { QUALITY, type QualityLevel, type VfxQuality } from './quality.js';
 import { RibbonBatch } from './ribbons.js';
+import { WorldFires, type FireHost } from './worldFires.js';
 
 interface Wave {
   mesh: Mesh<PlaneGeometry | RingGeometry, ShaderMaterial | MeshBasicMaterial>;
@@ -65,7 +66,7 @@ function rand(a: number, b: number): number {
  * particle budget and the quality level. Spell views and events call the emitters below; nothing
  * here allocates per frame.
  */
-export class Vfx {
+export class Vfx implements FireHost {
   quality: VfxQuality;
   level: QualityLevel;
   readonly shared: SharedUniforms = { uTime: { value: 0 }, uNight: { value: 0 } };
@@ -74,6 +75,8 @@ export class Vfx {
   private smoke: ParticleLayer;
   private groundDark: ParticleLayer;
   ribbons: RibbonBatch;
+  /** Torches, lamps and camp fires of the world on screen; kept across quality changes. */
+  readonly fires: WorldFires;
   private readonly waves: Wave[] = [];
   private readonly spec: ParticleSpec = emptySpec();
   private readonly waveGeo = new PlaneGeometry(2, 2);
@@ -111,6 +114,8 @@ export class Vfx {
     this.smoke = layers.smoke;
     this.groundDark = layers.groundDark;
     this.ribbons = new RibbonBatch(this.level.ribbons ? 256 : 1, this.shared.uTime);
+    this.fires = new WorldFires(camera, this.shared.uTime);
+    this.scene.add(this.fires.mesh);
     this.addLayers();
   }
 
@@ -211,6 +216,7 @@ export class Vfx {
     this.updateFocus();
     this.updateWaves(dt);
     this.updateFlashes(dt);
+    this.fires.update(dt, this);
     // Glows are brighter at night, where they are the light; by day they back off so they never clip.
     const gain = 0.55 + 0.3 * this.night;
     this.glow.uniforms.uGain.value = gain;
@@ -229,6 +235,22 @@ export class Vfx {
 
   get time(): number {
     return this.shared.uTime.value;
+  }
+
+  get focusX(): number {
+    return this.focus.x;
+  }
+
+  get focusY(): number {
+    return this.focus.y;
+  }
+
+  spawnGlow(s: ParticleSpec): boolean {
+    return this.glow.pool.spawn(s);
+  }
+
+  spawnSmoke(s: ParticleSpec): boolean {
+    return this.smoke.pool.spawn(s);
   }
 
   get particleCount(): number {
@@ -938,6 +960,8 @@ export class Vfx {
 
   dispose(): void {
     this.removeLayers();
+    this.scene.remove(this.fires.mesh);
+    this.fires.dispose();
     for (const w of this.waves) {
       this.scene.remove(w.mesh);
       w.mesh.material.dispose();

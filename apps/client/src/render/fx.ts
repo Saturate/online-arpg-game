@@ -198,6 +198,8 @@ export class Effects {
   }
 
   update(dt: number): void {
+    // Read each frame: the town editor rebuilds the world under a running scene.
+    this.vfx.fires.setSpots(this.world.fires);
     this.vfx.begin(dt);
     this.vfx.commit();
 

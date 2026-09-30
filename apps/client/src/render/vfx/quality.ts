@@ -26,14 +26,16 @@ export interface QualityLevel {
   statusParticles: boolean;
   /** Spell light through the shared light budget (real lights for the strongest, pools for the rest). */
   groundLight: boolean;
+  /** Embers, sparks, smoke and heat shimmer on the world's torches and fires; off keeps only their flames. */
+  fireParticles: boolean;
   /** Smoothed frame time the budget starts cutting ambient particles above: about 48 fps, so a 60 Hz display never throttles. */
   frameBudgetMs: number;
 }
 
 export const QUALITY: Record<VfxQuality, QualityLevel> = {
-  low: { glowCapacity: 400, smokeCapacity: 120, groundCapacity: 0, spawnScale: 0.35, maxSpawnPerFrame: 40, shaders: false, ribbons: false, statusParticles: false, groundLight: false, frameBudgetMs: 21 },
-  medium: { glowCapacity: 1600, smokeCapacity: 500, groundCapacity: 160, spawnScale: 0.6, maxSpawnPerFrame: 120, shaders: true, ribbons: true, statusParticles: true, groundLight: true, frameBudgetMs: 21 },
-  high: { glowCapacity: 3200, smokeCapacity: 1000, groundCapacity: 320, spawnScale: 1, maxSpawnPerFrame: 240, shaders: true, ribbons: true, statusParticles: true, groundLight: true, frameBudgetMs: 21 },
+  low: { glowCapacity: 400, smokeCapacity: 120, groundCapacity: 0, spawnScale: 0.35, maxSpawnPerFrame: 40, shaders: false, ribbons: false, statusParticles: false, groundLight: false, fireParticles: false, frameBudgetMs: 21 },
+  medium: { glowCapacity: 1600, smokeCapacity: 500, groundCapacity: 160, spawnScale: 0.6, maxSpawnPerFrame: 120, shaders: true, ribbons: true, statusParticles: true, groundLight: true, fireParticles: true, frameBudgetMs: 21 },
+  high: { glowCapacity: 3200, smokeCapacity: 1000, groundCapacity: 320, spawnScale: 1, maxSpawnPerFrame: 240, shaders: true, ribbons: true, statusParticles: true, groundLight: true, fireParticles: true, frameBudgetMs: 21 },
 };
 
 export function isVfxQuality(v: unknown): v is VfxQuality {

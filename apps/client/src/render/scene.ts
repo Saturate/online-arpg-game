@@ -25,6 +25,7 @@ import { darkness, lighting, nightFactor, nightModeOf, overcast, type NightMode 
 import { sceneLights } from './lights.js';
 import { NIGHT_RIM, nightRim } from './nightRim.js';
 import { buildWorld, type BuiltWorld } from './props.js';
+import type { FireSpot } from './vfx/worldFires.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
 
@@ -169,6 +170,11 @@ export class WorldScene {
       this.sizeDirty = true;
     });
     this.resizeObserver.observe(host);
+  }
+
+  /** The world's torches, lamps and fires, drawn by the effects system. */
+  get fires(): readonly FireSpot[] {
+    return this.world.fires;
   }
 
   get canvas(): HTMLCanvasElement {

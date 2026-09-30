@@ -500,6 +500,8 @@ export class Game {
         return;
       case 'inscribed':
         useUi.getState().inscribed(msg);
+        // The forge's fire flares for the smith's own inscribe; nobody else's reply reaches this client.
+        if (msg.ok) this.room?.fx.vfx.fires.flareForge();
         return;
       case 'banner': {
         const id = performance.now();
