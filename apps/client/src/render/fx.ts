@@ -5,6 +5,7 @@ import { cssColor, FX, RENDER_ORDER } from './config.js';
 import type { WorldScene } from './scene.js';
 import { styleOf, type VfxStyle } from './vfx/palette.js';
 import { Vfx } from './vfx/vfx.js';
+import type { VfxQuality } from './vfx/quality.js';
 import { HOSTILE, hostileMaterial, type HostileUniforms } from './vfx/materials.js';
 
 /** A monster wind-up: the ring shows where, the fill growing to the edge shows when. */
@@ -74,7 +75,13 @@ export class Effects {
     this.vfx = new Vfx(scene, world.camera, useSettings.getState().options.vfxQuality);
     // One rule for day and night everywhere a world is drawn: the game, the Spell Studio and the bench.
     this.vfx.setNightMode(world.nightMode);
-    this.unsubscribe = useSettings.subscribe((st) => this.vfx.setQuality(st.options.vfxQuality));
+    this.vfx.warm(world.renderer);
+    this.unsubscribe = useSettings.subscribe((st) => this.setQuality(st.options.vfxQuality));
+  }
+
+  /** Switches the effect quality and compiles the new level's shaders ahead of the fight. */
+  setQuality(q: VfxQuality): void {
+    if (this.vfx.setQuality(q)) this.vfx.warm(this.world.renderer);
   }
 
   /** A coloured burst, for callers that only know a colour. */

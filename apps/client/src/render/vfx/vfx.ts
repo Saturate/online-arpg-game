@@ -1,10 +1,10 @@
-import { Color, DoubleSide, Mesh, MeshBasicMaterial, AdditiveBlending, PlaneGeometry, RingGeometry, Vector3, type Camera, type IUniform, type Scene, type ShaderMaterial } from 'three';
+import { Color, DoubleSide, Group, Mesh, MeshBasicMaterial, AdditiveBlending, PlaneGeometry, RingGeometry, SphereGeometry, Vector3, type Camera, type IUniform, type Material, type Scene, type ShaderMaterial, type WebGLRenderer } from 'three';
 import { RENDER_ORDER } from '../config.js';
 import { darkness, type NightMode } from '../daylight.js';
 import { emitLight, entityLightKey, lightKey } from '../lights.js';
 import { ParticleBudget } from './budget.js';
-import { novaMaterial, type NovaUniforms, type SharedUniforms } from './materials.js';
-import { PALETTE, type StylePalette, type VfxStyle } from './palette.js';
+import { auraMaterial, hostileMaterial, novaMaterial, orbMaterial, plainAreaMaterial, tetherMaterial, zoneMaterial, type NovaUniforms, type SharedUniforms } from './materials.js';
+import { PALETTE, STYLES, type StylePalette, type VfxStyle } from './palette.js';
 import { ParticleLayer } from './particleLayer.js';
 import { emptySpec, SHAPE, type ParticleSpec } from './pool.js';
 import { QUALITY, type QualityLevel, type VfxQuality } from './quality.js';
@@ -71,6 +71,7 @@ export class Vfx {
   private readonly spec: ParticleSpec = emptySpec();
   private readonly waveGeo = new PlaneGeometry(2, 2);
   private readonly ringGeo = new RingGeometry(0.8, 1, 48);
+  private readonly warmGeo = new SphereGeometry(1, 4, 3);
   private begun = false;
   private nightMode: NightMode = 'outdoors';
   /** Ground point the camera looks at and a generous radius around it, for skipping off-screen emitters. */
@@ -83,6 +84,12 @@ export class Vfx {
   private readonly flashes = new Float64Array(MAX_FLASHES * FLASH_FIELDS);
   private readonly flashKeys = Array.from({ length: MAX_FLASHES }, () => lightKey());
   private flashCursor = 0;
+  /**
+   * Materials that compiled this level's programs ahead of time. Kept alive, never drawn: three
+   * frees a program when the last material using it is disposed, and the next spell would then
+   * compile it again mid-fight.
+   */
+  private warmMats: Material[] = [];
 
   constructor(
     private readonly scene: Scene,
@@ -119,9 +126,12 @@ export class Vfx {
     this.ribbons.dispose();
   }
 
-  /** Rebuilds the pools for a new quality. Live particles are dropped; spell views rebuild themselves. */
-  setQuality(q: VfxQuality): void {
-    if (q === this.quality) return;
+  /**
+   * Rebuilds the pools for a new quality. Live particles are dropped; spell views rebuild themselves.
+   * Returns whether the quality changed.
+   */
+  setQuality(q: VfxQuality): boolean {
+    if (q === this.quality) return false;
     this.removeLayers();
     this.quality = q;
     this.level = QUALITY[q];
@@ -137,6 +147,38 @@ export class Vfx {
       w.mesh.material.dispose();
     }
     this.waves.length = 0;
+    return true;
+  }
+
+  /**
+   * Compiles every spell shader this quality can draw, by kind and style, before the fight needs
+   * them: each first appearance of a (kind, style) otherwise stalled a frame for its compile. Call
+   * when a room is built and after a quality change. Throwaway meshes are added for the compile
+   * only; their materials are kept (see warmMats).
+   */
+  warm(renderer: WebGLRenderer): void {
+    for (const m of this.warmMats) m.dispose();
+    const mats: Material[] = [];
+    if (this.level.shaders) {
+      for (const style of STYLES) {
+        mats.push(zoneMaterial(style, this.shared).material, novaMaterial(style, this.shared).material, orbMaterial(style, this.shared).material, auraMaterial(style, this.shared).material);
+      }
+      mats.push(tetherMaterial(this.shared).material);
+    } else {
+      mats.push(plainAreaMaterial(0xffffff, 0.9).material);
+    }
+    mats.push(hostileMaterial('circle', 0xffffff).material, hostileMaterial('line', 0xffffff).material);
+    this.warmMats = mats;
+    const group = new Group();
+    // Tiny and under the ground, in case a frame draws before the compile finishes.
+    group.position.set(this.focus.x, -50, this.focus.y);
+    group.scale.setScalar(1e-3);
+    for (const m of mats) group.add(new Mesh(this.warmGeo, m));
+    this.scene.add(group);
+    const done = (): void => {
+      this.scene.remove(group);
+    };
+    renderer.compileAsync(this.scene, this.camera).then(done, done);
   }
 
   /** Day and night for the map on screen (`nightModeOf`); set by Effects from the world scene. */
@@ -878,6 +920,9 @@ export class Vfx {
     this.waves.length = 0;
     this.waveGeo.dispose();
     this.ringGeo.dispose();
+    for (const m of this.warmMats) m.dispose();
+    this.warmMats = [];
+    this.warmGeo.dispose();
   }
 }
 

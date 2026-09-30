@@ -382,7 +382,7 @@ export class VfxBench {
   }
 
   setQuality(q: VfxQuality): void {
-    this.fx.vfx.setQuality(q);
+    this.fx.setQuality(q);
   }
 
   /** Jumps the playback to a recorded second, for screenshots. */
