@@ -6,9 +6,11 @@
 
 /**
  * `grantItems` makes real, tradeable items out of nothing, so like `manageRoles` only the owner has
- * it: an admin account taken over could otherwise mint items for anyone.
+ * it: an admin account taken over could otherwise mint items for anyone. `backup` is owner only for
+ * the same reason: the copy holds every account's password hash. `apiTokens` makes admin API tokens
+ * and `serverLog` reads the server's recent events.
  */
-export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles', 'grantItems'] as const;
+export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles', 'grantItems', 'apiTokens', 'serverLog', 'backup'] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** Lowest to highest; the index is the rank. */
@@ -22,7 +24,7 @@ const GRANTS: Record<Role, readonly Permission[]> = {
   player: [],
   builder: ['viewAdmin', 'townEdit', 'devTools'],
   moderator: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport'],
-  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools'],
+  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'apiTokens', 'serverLog'],
   owner: PERMISSIONS,
 };
 
@@ -30,7 +32,7 @@ export const ROLE_INFO: Record<Role, { name: string; blurb: string }> = {
   player: { name: 'Player', blurb: 'No staff powers' },
   builder: { name: 'Builder', blurb: 'Town editor and F3 dev tools; can look at the admin page' },
   moderator: { name: 'Moderator', blurb: 'Announce, kick, ban and teleport to players' },
-  admin: { name: 'Admin', blurb: 'Everything except handing out roles and granting items' },
+  admin: { name: 'Admin', blurb: 'Everything except handing out roles, granting items and backups' },
   owner: { name: 'Owner', blurb: 'Everything; set with ADMIN_USERS on the server' },
 };
 

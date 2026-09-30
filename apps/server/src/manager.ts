@@ -45,6 +45,7 @@ import { ArenaRun } from './arena.js';
 import { LiveTuning } from './liveTuning.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
+import { events } from './eventLog.js';
 import { Room } from './room.js';
 import { Staging, type StagingTarget } from './staging.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
@@ -52,6 +53,9 @@ import { loadTownLayout, saveTownLayout } from './townStore.js';
 const startedAt = Date.now();
 const TOWN_SAVE_COOLDOWN_MS = 3000;
 const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
+
+/** How often joins and leaves are summed up in the server log. */
+const PLAYER_REPORT_MINUTES = 5;
 
 /** Bounds what a crash can lose; room changes and disconnects save straight away. */
 const AUTOSAVE_SECONDS = 30;
@@ -237,7 +241,7 @@ export class RoomManager implements AdminHooks {
       const inst = this.instanceOf(target);
       if (inst) this.sendWorldToAll(inst);
     }
-    console.log(`[admin] ${staff.accountName}: teleported to ${this.playerName(target)}`);
+    events.log('staff', `[admin] ${staff.accountName}: teleported to ${this.playerName(target)}`);
     return null;
   }
 
@@ -328,6 +332,8 @@ export class RoomManager implements AdminHooks {
   }
 
   start(): void {
+    this.playerReport = setInterval(() => this.reportPlayers(), PLAYER_REPORT_MINUTES * 60_000);
+    this.playerReport.unref();
     const startedAt = performance.now();
     let ticks = 0;
     const loop = (): void => {
@@ -339,7 +345,7 @@ export class RoomManager implements AdminHooks {
         ticks++;
       }
       if (ticks < target) {
-        console.warn(`fell behind by ${target - ticks} ticks, skipping`);
+        events.warn('server', `fell behind by ${target - ticks} ticks, skipping`);
         ticks = target;
       }
       this.timer = setTimeout(loop, Math.max(0, startedAt + (ticks + 1) * SIM.tickMs - performance.now()));
@@ -347,8 +353,11 @@ export class RoomManager implements AdminHooks {
     loop();
   }
 
+  private playerReport: ReturnType<typeof setInterval> | null = null;
+
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
+    if (this.playerReport) clearInterval(this.playerReport);
   }
 
   private readonly roomErrors = new Map<string, number>();
@@ -358,7 +367,7 @@ export class RoomManager implements AdminHooks {
     const now = performance.now();
     if (now - (this.roomErrors.get(room.id) ?? -Infinity) < 60_000) return;
     this.roomErrors.set(room.id, now);
-    console.error(`[room ${room.id}] tick failed`, err);
+    events.error('error', `[room ${room.id}] tick failed`, err);
   }
 
   /** One server tick for every room. Public so tests can drive the world without timers. */
@@ -494,7 +503,7 @@ export class RoomManager implements AdminHooks {
     run.broadcast(true);
     for (const m of run.room.members.values()) m.client.send(result);
     run.returnIn = ARENA.resultSeconds * SIM.tickRate;
-    if (recorded) console.log(`[arena] ${run.party.map((p) => p.name).join(', ')}: ${score} points, wave ${sim.wave}, ${board} #${rank ?? '?'} in ${season}`);
+    if (recorded) events.log('server', `[arena] ${run.party.map((p) => p.name).join(', ')}: ${score} points, wave ${sim.wave}, ${board} #${rank ?? '?'} in ${season}`);
   }
 
   connect(socket: GameSocket): void {
@@ -502,6 +511,7 @@ export class RoomManager implements AdminHooks {
     this.clients.set(client.id, client);
     socket.on('message', (data, isBinary) => this.onMessage(client, data, isBinary));
     socket.on('close', () => {
+      if (client.characterId !== null) this.leaves++;
       const room = client.room;
       if (room) this.persist(client, room.remove(client));
       this.clients.delete(client.id);
@@ -536,7 +546,7 @@ export class RoomManager implements AdminHooks {
     try {
       this.handle(client, msg);
     } catch (err) {
-      console.error(`[client ${client.id}] ${msg.t} failed`, err);
+      events.error('error', `[client ${client.id}] ${msg.t} failed`, err);
     }
   }
 
@@ -604,11 +614,11 @@ export class RoomManager implements AdminHooks {
         try {
           saveTownLayout(msg.layout);
         } catch (err) {
-          console.error('saving the town layout failed', err);
+          events.error('error', 'saving the town layout failed', err);
           client.send({ t: 'notice', text: 'Could not save the town on the server' });
           return;
         }
-        console.log(`[town] saved by ${client.accountName}`);
+        events.log('staff', `[town] saved by ${client.accountName}`);
         this.replaceTown(msg.layout);
         client.send({ t: 'notice', text: 'Town saved' });
         return;
@@ -1021,7 +1031,7 @@ export class RoomManager implements AdminHooks {
     const stash = this.store.loadStash(account.id);
     if (stash === 'unreadable') {
       // Joining would save an empty stash over it; leave the row alone for a human to look at.
-      console.error(`account ${account.id} has an unreadable stash; the join is refused and the row kept`);
+      events.error('save', `account ${account.id} has an unreadable stash; the join is refused and the row kept`);
       this.endSession(client, 'Your stash could not be loaded. Nothing was lost; ask the server owner to look at it.');
       return;
     }
@@ -1045,6 +1055,19 @@ export class RoomManager implements AdminHooks {
     this.sendWorldToAll(inst);
     if (party) this.sendParty(party);
     client.send({ t: 'lighting', lighting: this.lighting() });
+    this.joins++;
+  }
+
+  private joins = 0;
+  private leaves = 0;
+
+  /** Counts rather than a line per join, so a busy evening does not push everything else out of the log. */
+  private reportPlayers(): void {
+    if (this.joins === 0 && this.leaves === 0) return;
+    const online = [...this.clients.values()].filter((c) => c.characterId !== null).length;
+    events.log('players', `[players] ${this.joins} joined, ${this.leaves} left in the last ${PLAYER_REPORT_MINUTES} min; ${online} online`);
+    this.joins = 0;
+    this.leaves = 0;
   }
 
 
@@ -1068,7 +1091,7 @@ export class RoomManager implements AdminHooks {
           const { character, stash } = splitStash(save);
           saves.push({ characterId, save: character, accountId, stash });
         } catch (err) {
-          console.error(`[room ${room.id}] could not export ${m.client.accountName ?? m.client.id} for saving`, err);
+          events.error('error', `[room ${room.id}] could not export ${m.client.accountName ?? m.client.id} for saving`, err);
         }
       }
     }
@@ -1077,6 +1100,7 @@ export class RoomManager implements AdminHooks {
 
   /** Saves, removes and disconnects. Used for duplicate logins and deleted characters. */
   endSession(client: Client, reason: string): void {
+    if (client.characterId !== null) this.leaves++;
     const room = client.room;
     if (room) this.persist(client, room.remove(client));
     client.characterId = null;

@@ -7,29 +7,53 @@ import {
   isAssignableRole,
   isSeason,
   isSessionToken,
+  isAdminToken,
   parseCredentials,
+  parseNewAdminToken,
+  TOKEN_RULES,
   parseNewCharacter,
   parseSettingsPatch,
   rank,
   seasonOf,
   type AdminAccount,
   type AdminOverview,
+  type AdminTokenInfo,
   type CharactersResponse,
+  type CreatedAdminToken,
   type Permission,
   type Role,
   type ServerSettings,
   type TownLayout,
 } from '@rune/shared';
 import { randomInt } from 'node:crypto';
+import { createReadStream, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, AccountStore } from './accounts.js';
+import type { TokenCaller } from './adminTokens.js';
+import { events } from './eventLog.js';
 import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
 const MAX_BODY_BYTES = 4096;
 
 /** Sliding one-minute window per IP. Auth is tight because every attempt costs a 32 MiB scrypt hash. */
-const LIMITS = { auth: 10, other: 120 } as const;
+const LIMITS = { auth: 10, other: 120, token: TOKEN_RULES.perMinute } as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A file sent as a download instead of a JSON body; `done` runs once, however the response ends. */
+class Download {
+  constructor(
+    readonly file: string,
+    readonly filename: string,
+    readonly done: () => void,
+  ) {}
+}
+
+type Reply = [number, unknown] | Download;
+
+/** Who is calling an admin route: a logged-in staff member, or a script with an admin token. */
+type Caller = { account: Account; token: null } | { account: Account; token: TokenCaller };
 
 export class RateLimiter {
   private readonly hits = new Map<string, number[]>();
@@ -149,19 +173,64 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function bearer(req: IncomingMessage): string | null {
+/** Only the Authorization header is read, never cookies or the query string, so no browser sends a token by itself. */
+function bearerValue(req: IncomingMessage): string | null {
   const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  return header?.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
+function bearer(req: IncomingMessage): string | null {
+  const token = bearerValue(req);
   return isSessionToken(token) ? token : null;
+}
+
+function sendFile(res: ServerResponse, download: Download): void {
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    download.done();
+  };
+  let size: number;
+  try {
+    size = statSync(download.file).size;
+  } catch (err) {
+    done();
+    events.error('error', 'backup: the copy could not be read', err);
+    send(res, 500, { error: 'Backup failed' });
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'application/vnd.sqlite3',
+    'content-length': size,
+    'content-disposition': `attachment; filename="${download.filename}"`,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  const stream = createReadStream(download.file);
+  stream.on('error', () => {
+    done();
+    res.destroy();
+  });
+  // 'close' fires however the response ends, including a client that hangs up halfway.
+  res.on('close', () => {
+    stream.destroy();
+    done();
+  });
+  stream.pipe(res);
 }
 
 export class AccountApi {
   private readonly authLimit = new RateLimiter(LIMITS.auth);
-  private readonly otherLimit = new RateLimiter(LIMITS.other);
+  private readonly otherLimit: RateLimiter;
+  private readonly tokenLimit: RateLimiter;
   private readonly sweepTimer = setInterval(() => {
     this.authLimit.sweep();
     this.otherLimit.sweep();
+    this.tokenLimit.sweep();
   }, 60_000);
+  /** One backup at a time: each is a full copy of the database on the data volume. */
+  private backupRunning = false;
 
   constructor(
     private readonly store: AccountStore,
@@ -170,10 +239,14 @@ export class AccountApi {
     private readonly admin: AdminHooks,
     /** Lower-cased owner usernames, from ADMIN_USERS. Empty means nobody. */
     private readonly owners: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
+    /** Tests lower these to reach the limits in a few calls. */
+    limits: { other?: number; token?: number } = {},
   ) {
+    this.otherLimit = new RateLimiter(limits.other ?? LIMITS.other);
+    this.tokenLimit = new RateLimiter(limits.token ?? LIMITS.token);
     this.sweepTimer.unref();
     for (const name of owners) {
-      if (!store.usernameExists(name)) console.warn(`[admin] ADMIN_USERS lists "${name}" but no such account exists; it cannot be registered while listed`);
+      if (!store.usernameExists(name)) events.warn('server', `[admin] ADMIN_USERS lists "${name}" but no such account exists; it cannot be registered while listed`);
     }
   }
 
@@ -186,18 +259,18 @@ export class AccountApi {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return false;
     this.route(req, url.pathname, url.searchParams)
-      .then(([status, body]) => send(res, status, body))
+      .then((reply) => (reply instanceof Download ? sendFile(res, reply) : send(res, reply[0], reply[1])))
       .catch((err: unknown) => {
         if (err instanceof HttpError) send(res, err.status, { error: err.message });
         else {
-          console.error(err);
+          events.error('error', `${req.method ?? 'GET'} ${url.pathname} failed`, err);
           send(res, 500, { error: 'Server error' });
         }
       });
     return true;
   }
 
-  private async route(req: IncomingMessage, path: string, query: URLSearchParams): Promise<[number, unknown]> {
+  private async route(req: IncomingMessage, path: string, query: URLSearchParams): Promise<Reply> {
     const ip = clientIp(req);
     const method = req.method ?? 'GET';
     const isAuth = path === '/api/register' || path === '/api/login' || path === '/api/guest';
@@ -234,6 +307,14 @@ export class AccountApi {
       return [200, this.store.leaderboard(season)];
     }
 
+    // Admin tokens work on the admin routes only; everywhere else they are not a login.
+    const raw = bearerValue(req);
+    if (path.startsWith('/api/admin/') && isAdminToken(raw)) {
+      const caller = this.store.adminTokens.authenticate(raw);
+      if (!caller) throw new HttpError(401, 'Invalid, expired or revoked token');
+      if (!this.tokenLimit.allow(caller.tokenId)) throw new HttpError(429, 'Too many requests for this token, wait a minute');
+      return this.adminRoute(req, method, path, query, { account: caller.account, token: caller });
+    }
     const token = bearer(req);
     const account = token ? this.store.accountForToken(token) : null;
     if (!token || !account) throw new HttpError(401, 'Not logged in');
@@ -263,7 +344,7 @@ export class AccountApi {
       if (result === 'not_guest') throw new HttpError(400, 'This account already has a name and password');
       return [200, { username: creds.username }];
     }
-    if (path.startsWith('/api/admin/')) return this.adminRoute(req, method, path, account);
+    if (path.startsWith('/api/admin/')) return this.adminRoute(req, method, path, query, { account, token: null });
     const match = /^\/api\/characters\/(\d{1,9})$/.exec(path);
     if (match && method === 'DELETE') {
       const id = Number(match[1]);
@@ -280,17 +361,41 @@ export class AccountApi {
   }
 
   /** Admin actions are logged with who did them, since they change other players' accounts and the live server. */
-  private async adminRoute(req: IncomingMessage, method: string, path: string, account: Account): Promise<[number, unknown]> {
+  private async adminRoute(req: IncomingMessage, method: string, path: string, query: URLSearchParams, caller: Caller): Promise<Reply> {
+    const { account, token } = caller;
+    // The role is read on every call, so a token loses what its creator loses.
     const role = this.roleOf(account);
     // 404 rather than 403 for non-staff, so the admin API is not advertised to everyone else.
     if (!can(role, 'viewAdmin')) throw new HttpError(404, 'Not found');
+    /** A token may do what both its scopes and its creator's current role allow. */
+    const allowed = (permission: Permission) => can(role, permission) && (token === null || token.scopes.some((s) => s === permission));
     const need = (permission: Permission) => {
-      if (!can(role, permission)) throw new HttpError(403, 'Your role cannot do that');
+      if (!allowed(permission)) throw new HttpError(403, token ? 'This token cannot do that' : 'Your role cannot do that');
     };
+    need('viewAdmin');
     /** Staff act only on accounts ranked below them, so a moderator cannot ban or kick an admin. */
     const outranks = (target: Account) => rank(role) > rank(this.roleOf(target));
-    const log = (what: string) => console.log(`[admin] ${account.username} (${role}): ${what}`);
+    const who = token ? `${account.username} (${role}) token "${token.name}"` : `${account.username} (${role})`;
+    const log = (what: string) => events.log('staff', `[admin] ${who}: ${what}`);
+    if (token) {
+      // Every token call is in the staff log, reads too. Polling the log itself goes to stdout only,
+      // or a script following it would push the events it came for out of the buffer.
+      const line = `[admin] ${who}: ${method} ${path}`;
+      if (path === '/api/admin/log') console.log(line);
+      else events.log('staff', line);
+    }
     if (method === 'GET' && path === '/api/admin/overview') return [200, this.admin.overview()];
+    if (path === '/api/admin/tokens' || path.startsWith('/api/admin/tokens/')) return this.tokenRoute(req, method, path, caller, role, log);
+    if (method === 'GET' && path === '/api/admin/log') {
+      need('serverLog');
+      const since = query.get('since') ?? '0';
+      if (!/^\d{1,15}$/.test(since)) throw new HttpError(400, 'since must be a whole number (the last response\'s next)');
+      return [200, events.since(Number(since))];
+    }
+    if (method === 'GET' && path === '/api/admin/backup') {
+      need('backup');
+      return this.backup(log);
+    }
     if (method === 'GET' && path === '/api/admin/accounts') {
       const list: AdminAccount[] = this.store.listAccounts().map((a) => ({ ...a, role: roleOf(a, this.owners) }));
       return [200, list];
@@ -305,7 +410,7 @@ export class AccountApi {
         return [200, this.admin.updateSettings(patch)];
       }
     }
-    const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: can(role, 'settings'), log }, this.admin);
+    const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: allowed('settings'), log }, this.admin);
     if (tuning) return tuning;
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');
@@ -389,5 +494,69 @@ export class AccountApi {
       return [200, { ok: true }];
     }
     throw new HttpError(404, 'Not found');
+  }
+
+  /**
+   * Token management is for a logged-in owner or admin only: a token can never list, make or revoke
+   * tokens, so a leaked one cannot mint more. The owner sees and revokes everyone's; an admin their own.
+   */
+  private async tokenRoute(req: IncomingMessage, method: string, path: string, caller: Caller, role: Role, log: (what: string) => void): Promise<Reply> {
+    if (caller.token) throw new HttpError(403, 'Tokens cannot manage tokens; use the admin page');
+    if (!can(role, 'apiTokens')) throw new HttpError(403, 'Your role cannot do that');
+    const { account } = caller;
+    const scope = role === 'owner' ? null : account.id;
+    if (path === '/api/admin/tokens') {
+      if (method === 'GET') {
+        const list: AdminTokenInfo[] = this.store.adminTokens.list(scope);
+        return [200, list];
+      }
+      if (method === 'POST') {
+        const input = parseNewAdminToken(await readJson(req));
+        if (typeof input === 'string') throw new HttpError(400, input);
+        const over = input.scopes.find((s) => !can(role, s));
+        if (over) throw new HttpError(403, `Your role cannot hand out ${over}`);
+        if (this.store.adminTokens.count(account.id) >= TOKEN_RULES.maxPerAccount) throw new HttpError(409, `At most ${TOKEN_RULES.maxPerAccount} tokens per account; revoke one first`);
+        const expiresAt = Date.now() + input.days * DAY_MS;
+        const { token, id } = this.store.adminTokens.create(account.id, input.name, input.scopes, expiresAt);
+        const info = this.store.adminTokens.list(account.id).find((t) => t.id === id);
+        if (!info) throw new Error('token row missing right after insert');
+        log(`token "${input.name}" (${id}) created: ${input.scopes.join(', ')}; expires in ${input.days} days`);
+        const created: CreatedAdminToken = { token, info };
+        return [201, created];
+      }
+    }
+    const revoke = /^\/api\/admin\/tokens\/([0-9a-f]{16})$/.exec(path);
+    if (revoke?.[1] && method === 'DELETE') {
+      const gone = this.store.adminTokens.revoke(revoke[1], scope);
+      if (!gone) throw new HttpError(404, 'No such token');
+      log(`token "${gone.name}" (${revoke[1]}) of ${gone.createdBy} revoked`);
+      return [200, { ok: true }];
+    }
+    throw new HttpError(404, 'Not found');
+  }
+
+  /**
+   * A consistent copy of the database, sent as a download and deleted afterwards. The temp file's
+   * path never leaves the server: errors answer with a fixed message and the log names no path.
+   */
+  private backup(log: (what: string) => void): Reply {
+    if (this.backupRunning) throw new HttpError(409, 'A backup is already running; try again when it is done');
+    this.backupRunning = true;
+    const file = this.store.backupPath();
+    const cleanup = () => {
+      rmSync(file, { force: true });
+      this.backupRunning = false;
+    };
+    const started = performance.now();
+    try {
+      this.store.backupTo(file);
+    } catch (err) {
+      cleanup();
+      events.error('error', `backup failed: ${err instanceof Error ? err.message.split(file).join('<temp file>') : 'unknown error'}`);
+      throw new HttpError(500, 'Backup failed');
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    log(`backup (${Math.round(performance.now() - started)} ms to copy)`);
+    return new Download(file, `rune-${stamp}.db`, cleanup);
   }
 }

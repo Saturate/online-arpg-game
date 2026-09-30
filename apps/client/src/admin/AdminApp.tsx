@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
@@ -6,6 +6,7 @@ import { LeaderboardTables } from '../ui/ArenaBoard.js';
 import { ModelCheckTab } from './monsters/ModelCheckTab.js';
 import { TuningTab } from './monsters/TuningTab.js';
 import { GrantTab } from './GrantTab.js';
+import { TokensTab } from './TokensTab.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -13,9 +14,11 @@ import { GrantTab } from './GrantTab.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck' | 'grant';
+type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck' | 'grant' | 'tokens';
 
-const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item' };
+const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item', tokens: 'API tokens' };
+/** Tabs only some roles see; the server checks the same permission on every call. */
+const TAB_PERMISSION: Partial<Record<Tab, Permission>> = { grant: 'grantItems', tokens: 'apiTokens' };
 /** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
 const WIDE_TABS: ReadonlySet<Tab> = new Set(['monsters', 'minions', 'modelCheck']);
 
@@ -580,7 +583,12 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck', 'grant'] as const).filter((t) => t !== 'grant' || can(role, 'grantItems')).map((t) => (
+          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck', 'grant', 'tokens'] as const)
+            .filter((t) => {
+              const p = TAB_PERMISSION[t];
+              return p === undefined || can(role, p);
+            })
+            .map((t) => (
             <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
               {TAB_NAMES[t]}
             </button>
@@ -603,6 +611,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
         {tab === 'minions' && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} />}
         {tab === 'modelCheck' && <ModelCheckTab notify={notify} />}
         {tab === 'grant' && can(role, 'grantItems') && <GrantTab token={token} notify={notify} />}
+        {tab === 'tokens' && can(role, 'apiTokens') && <TokensTab token={token} role={role} notify={notify} />}
       </main>
       {toast && (
         <div className="adm-toast" role="status">

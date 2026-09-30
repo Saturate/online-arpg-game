@@ -1,8 +1,11 @@
 import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { AdminTokenStore } from './adminTokens.js';
+import { events } from './eventLog.js';
 import { TuningStore } from './tuningStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
@@ -101,8 +104,8 @@ export interface LoadedStash {
 /** A single-grid stash split into tabs on load; logged so the server log shows where things went. */
 function logTabsConversion(accountId: number, r: StashTabsReport): void {
   const stayed = r.stayed.map((x) => `${x.count} ${x.reason}`).join(', ') || 'none';
-  console.log(`account ${accountId} stash converted to tabs: ${r.runesToTab} rune items (${r.runeUnitsToTab} runes) to the rune tab, ${r.sigilsToTab} sigils to the sigil tab; runes and sigils left in tab 1: ${stayed}`);
-  for (const w of r.warnings) console.log(`  account ${accountId} stash tabs: ${w}`);
+  events.log('conversion', `account ${accountId} stash converted to tabs: ${r.runesToTab} rune items (${r.runeUnitsToTab} runes) to the rune tab, ${r.sigilsToTab} sigils to the sigil tab; runes and sigils left in tab 1: ${stayed}`);
+  for (const w of r.warnings) events.log('conversion', `  account ${accountId} stash tabs: ${w}`);
 }
 
 /** A v1 row converted on load; logged so the server log shows what each account got. */
@@ -110,8 +113,8 @@ function logConversion(what: string, r: ConversionReport): void {
   const mapped = r.runesMapped.map((m) => `${m.from}->${m.to} x${m.count}`).join(', ') || 'none';
   const refunded = r.runesRefunded.map((m) => `${m.from} x${m.count}`).join(', ') || 'none';
   const replaced = r.runesReplaced.map((m) => `${m.from} x${m.count}`).join(', ') || 'none';
-  console.log(`v1 ${what} converted: ${r.starterSigils.length} starter sigils (replacing v1 runes ${replaced}), runes ${mapped}, refunded ${refunded} for ${r.gold} gold, ${r.runesReturned} returned (${r.runesPending} pending), ${r.testSigilsUnpacked} test sigils taken apart`);
-  for (const w of r.warnings) console.log(`  v1 ${what}: ${w}`);
+  events.log('conversion', `v1 ${what} converted: ${r.starterSigils.length} starter sigils (replacing v1 runes ${replaced}), runes ${mapped}, refunded ${refunded} for ${r.gold} gold, ${r.runesReturned} returned (${r.runesPending} pending), ${r.testSigilsUnpacked} test sigils taken apart`);
+  for (const w of r.warnings) events.log('conversion', `  v1 ${what}: ${w}`);
 }
 
 function parseSave(json: string, classId: ClassId): PlayerSave | null {
@@ -142,7 +145,7 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
       runeFormat: 2,
     };
   } catch (err) {
-    console.error(`save could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    events.error('save', 'save could not be read', err);
     return null;
   }
 }
@@ -203,11 +206,21 @@ export interface CharacterSaveRow {
   stash: StashSave;
 }
 
+/** Temp copies made for `GET /api/admin/backup`; any left by a crash mid-download are removed at startup. */
+const BACKUP_FILE = /^\.backup-[0-9a-f]{16}\.db$/;
+
 export class AccountStore {
   private readonly db: DatabaseSync;
+  /** Where backup copies are made: next to the database, so they land on the same volume. */
+  readonly dataDir: string;
+  readonly adminTokens: AdminTokenStore;
 
   constructor(path = process.env.DB_PATH ?? 'data/rune.db') {
-    if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
+    this.dataDir = path === ':memory:' ? tmpdir() : dirname(resolve(path));
+    if (path !== ':memory:') {
+      mkdirSync(this.dataDir, { recursive: true });
+      for (const f of readdirSync(this.dataDir)) if (BACKUP_FILE.test(f)) rmSync(join(this.dataDir, f), { force: true });
+    }
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
@@ -266,6 +279,21 @@ export class AccountStore {
     const arenaCols = this.db.prepare('PRAGMA table_info(arena_runs)').all().map((c) => str(row(c)?.name));
     if (!arenaCols.includes('staff')) this.db.exec('ALTER TABLE arena_runs ADD COLUMN staff INTEGER NOT NULL DEFAULT 0');
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+    this.adminTokens = new AdminTokenStore(this.db);
+  }
+
+  /** A new temp file name for a backup, in the data directory. */
+  backupPath(): string {
+    return join(this.dataDir, `.backup-${randomBytes(8).toString('hex')}.db`);
+  }
+
+  /**
+   * A consistent copy of the whole database: VACUUM INTO reads one snapshot, so a save committing
+   * meanwhile is either all in or all out. It runs on the main thread and blocks the game while it
+   * copies (a few ms for a few MB); nothing else is mid-transaction, since every write is synchronous.
+   */
+  backupTo(file: string): void {
+    this.db.prepare('VACUUM INTO ?').run(file);
   }
 
   close(): void {
@@ -379,7 +407,10 @@ export class AccountStore {
   setBanned(accountId: number, banned: boolean): boolean {
     const found = num(this.db.prepare('UPDATE accounts SET banned = ? WHERE id = ?').run(banned ? 1 : 0, accountId).changes) > 0;
     // Dropped rather than just hidden, so an unban does not bring old (possibly leaked) tokens back.
-    if (found && banned) this.db.prepare('DELETE FROM sessions WHERE account_id = ?').run(accountId);
+    if (found && banned) {
+      this.db.prepare('DELETE FROM sessions WHERE account_id = ?').run(accountId);
+      this.adminTokens.deleteForAccount(accountId);
+    }
     return found;
   }
 
@@ -443,7 +474,7 @@ export class AccountStore {
     const out = { ...defaults };
     for (const key of Object.keys(DEFAULT_SERVER_SETTINGS)) {
       const patch = parseSettingsPatch({ [key]: stored[key] });
-      if (typeof patch === 'string') console.warn(`[settings] ignoring stored ${key}: ${patch}`);
+      if (typeof patch === 'string') events.warn('server', `[settings] ignoring stored ${key}: ${patch}`);
       else Object.assign(out, patch);
     }
     return out;
@@ -493,7 +524,7 @@ export class AccountStore {
     const json = r.save_json;
     const save = typeof json === 'string' ? parseSave(json, classId) : null;
     const saveUnreadable = typeof json === 'string' && !save;
-    if (saveUnreadable) console.error(`character ${characterId} has an unreadable save; it is kept as is and the character cannot join`);
+    if (saveUnreadable) events.error('save', `character ${characterId} has an unreadable save; it is kept as is and the character cannot join`);
     return { id: num(r.id), accountId: num(r.account_id), name: str(r.name), classId, createdAt: num(r.created_at), playedAt: num(r.played_at), save, saveUnreadable };
   }
 
@@ -516,7 +547,7 @@ export class AccountStore {
       if (!tabs.stash.items.every(isStoredItem)) return 'unreadable';
       return { stash: tabs.stash, refundGold: conversion?.report.gold ?? 0 };
     } catch (err) {
-      console.error(`account ${accountId} stash could not be read: ${err instanceof Error ? err.message : String(err)}`);
+      events.error('save', `account ${accountId} stash could not be read`, err);
       return 'unreadable';
     }
   }
@@ -615,7 +646,7 @@ export class AccountStore {
     // Shelf items belong to nobody (their sellers were paid), so a damaged row may start a fresh
     // shelf; it is logged first, since the next trade writes over it.
     const fresh = (why: string): Market => {
-      console.error(`trader shelf unreadable (${why}); starting an empty one. Old row: ${raw.slice(0, 200)}`);
+      events.error('save', `trader shelf unreadable (${why}); starting an empty one. Old row: ${raw.slice(0, 200)}`);
       return { nextId: 1, stock: [], runeFormat: 2 };
     };
     let stored: unknown;
@@ -631,7 +662,7 @@ export class AccountStore {
     const v: unknown = conversion ? conversion.shelf : stored;
     if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
     const stock = v.stock.flatMap((e: unknown) => (isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : []));
-    if (stock.length !== v.stock.length) console.error(`trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
+    if (stock.length !== v.stock.length) events.error('save', `trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
     // Never hand out an id already on the shelf, whatever the stored counter says.
     const nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
     return { nextId, stock, runeFormat: 2 };

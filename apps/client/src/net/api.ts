@@ -1,4 +1,4 @@
-import { isClassId, isItemShape, isLeaderboardResponse, isRole, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isItemShape, isLeaderboardResponse, isRole, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -119,6 +119,28 @@ function isGrantResponse(v: unknown): v is GrantResponse {
   return isRecord(v) && isItemShape(v.item) && typeof v.character === 'string';
 }
 
+function isTokenInfo(v: unknown): v is AdminTokenInfo {
+  return (
+    isRecord(v) &&
+    typeof v.id === 'string' &&
+    typeof v.name === 'string' &&
+    Array.isArray(v.scopes) &&
+    v.scopes.every(isTokenScope) &&
+    typeof v.createdBy === 'string' &&
+    typeof v.createdAt === 'number' &&
+    typeof v.expiresAt === 'number' &&
+    (v.lastUsedAt === null || typeof v.lastUsedAt === 'number')
+  );
+}
+
+function isTokenList(v: unknown): v is AdminTokenInfo[] {
+  return Array.isArray(v) && v.every(isTokenInfo);
+}
+
+function isCreatedToken(v: unknown): v is CreatedAdminToken {
+  return isRecord(v) && typeof v.token === 'string' && isTokenInfo(v.info);
+}
+
 export function narrow<T>(r: ApiResult<unknown>, guard: (v: unknown) => v is T): ApiResult<T> {
   if (!r.ok) return r;
   return guard(r.data) ? { ok: true, data: r.data } : { ok: false, status: 502, error: 'Unexpected server response' };
@@ -148,4 +170,7 @@ export const adminApi = {
   kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
   announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),
   grant: async (token: string, req: GrantRequest) => narrow(await call('POST', '/api/admin/grant', token, req), isGrantResponse),
+  tokens: async (token: string) => narrow(await call('GET', '/api/admin/tokens', token), isTokenList),
+  createToken: async (token: string, req: NewAdminToken) => narrow(await call('POST', '/api/admin/tokens', token, req), isCreatedToken),
+  revokeToken: async (token: string, id: string) => narrow(await call('DELETE', `/api/admin/tokens/${encodeURIComponent(id)}`, token), isOk),
 };

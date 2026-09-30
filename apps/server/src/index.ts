@@ -2,6 +2,7 @@ import { NET } from '@rune/shared';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { AccountStore } from './accounts.js';
+import { events } from './eventLog.js';
 import { AccountApi, parseAdminUsers } from './http.js';
 import { RoomManager } from './manager.js';
 import { staticHandler } from './static.js';
@@ -18,7 +19,7 @@ rooms.start();
 const GUEST_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
 const sweepGuests = (): void => {
   const n = store.deleteIdleGuests(GUEST_IDLE_MS, rooms.onlineAccounts());
-  if (n > 0) console.log(`[guests] removed ${n} guest account${n === 1 ? '' : 's'} idle for 90 days`);
+  if (n > 0) events.log('server', `[guests] removed ${n} guest account${n === 1 ? '' : 's'} idle for 90 days`);
 };
 sweepGuests();
 setInterval(sweepGuests, 6 * 60 * 60 * 1000).unref();
@@ -58,7 +59,7 @@ const wss = new WebSocketServer({
   perMessageDeflate: { zlibDeflateOptions: { level: 1 }, threshold: 1024 },
 });
 wss.on('connection', (socket) => rooms.connect(socket));
-http.listen(port, () => console.log(`rune server listening on http://localhost:${port} (api and websocket)`));
+http.listen(port, () => events.log('server', `rune server listening on http://localhost:${port} (api and websocket), build ${process.env.BUILD_ID ?? 'dev'}`));
 
 function shutdown(): void {
   rooms.stop();
@@ -74,7 +75,7 @@ process.on('SIGTERM', shutdown);
 // ground) could be lost or duplicated. Then Kubernetes restarts the process rather than it running
 // on in an unknown state.
 process.on('uncaughtException', (err) => {
-  console.error('uncaught exception, saving and exiting', err);
+  events.error('error', 'uncaught exception, saving and exiting', err);
   try {
     rooms.stop();
     rooms.saveAll();

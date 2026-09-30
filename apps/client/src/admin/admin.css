@@ -231,3 +231,13 @@ body {
 .adm select {
   padding: 3px 6px;
 }
+.adm-secret {
+  padding: 10px 14px;
+  margin: 12px 0;
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  background: #15110b;
+}
+.adm-secret p {
+  margin: 0;
+}

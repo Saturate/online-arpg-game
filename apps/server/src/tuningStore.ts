@@ -1,5 +1,6 @@
 import { parseTuningOverrides, type TuningKind, type TuningOverrides } from '@rune/shared';
 import type { DatabaseSync } from 'node:sqlite';
+import { events } from './eventLog.js';
 
 /**
  * Admin monster and minion overrides, one row per type. Its own table and file so the account and
@@ -30,10 +31,10 @@ export class TuningStore {
         const patch: unknown = JSON.parse(json);
         raw[kind][typeId] = patch;
       } catch {
-        console.warn(`[tuning] ignoring unreadable ${kind} override for ${typeId}`);
+        events.warn('server', `[tuning] ignoring unreadable ${kind} override for ${typeId}`);
       }
     }
-    return parseTuningOverrides(raw, (why) => console.warn(`[tuning] ignoring stored override: ${why}`));
+    return parseTuningOverrides(raw, (why) => events.warn('server', `[tuning] ignoring stored override: ${why}`));
   }
 
   /** `null` resets the type to its code defaults. */

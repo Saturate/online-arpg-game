@@ -14,6 +14,7 @@ export * from './items/grid.js';
 export * from './items/grants.js';
 export * from './items/prices.js';
 export * from './protocol/accounts.js';
+export * from './protocol/adminTokens.js';
 export * from './protocol/arena.js';
 export * from './protocol/roles.js';
 export * from './protocol/codec.js';
