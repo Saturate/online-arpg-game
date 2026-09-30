@@ -4,7 +4,8 @@
  *   pnpm runes:convert-check <path-to-db-copy>
  *
  * Converts every character, every account stash and the trader shelf in memory, prints what each
- * one gets, and checks nothing is lost or doubled. It never writes: the file is copied to a temp
+ * one gets, and checks nothing is lost or doubled. Account stashes then go through the second
+ * one-time conversion, from one grid to tabs (convertStashTabs), which is checked the same way. It never writes: the file is copied to a temp
  * directory first and that copy is opened read-only. Exits non-zero when any check fails.
  */
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -15,7 +16,13 @@ import {
   compileSigilItem,
   convertCharacterSave,
   convertStash,
+  convertStashTabs,
   convertTraderShelf,
+  isStashFormat2,
+  placements,
+  STASH,
+  stashItemUids,
+  type StashSaveV1,
   isClassId,
   isRuneFormat2,
   isV1RuneId,
@@ -238,6 +245,63 @@ function report(title: string, rawItems: readonly unknown[], goldBefore: number,
   } else console.log('  checks: ok');
 }
 
+const tabTotals = { stashes: 0, runeItems: 0, runeUnits: 0, sigils: 0, stayed: 0 };
+
+/**
+ * Checks one stash's grid-to-tabs conversion against the single-grid stash it came from: the same
+ * items (whole, by stable JSON), every uid in exactly one tab, items left in tab 1 at their old
+ * cells, nothing bound in a list, and converting the result again changes nothing.
+ */
+function reportTabs(title: string, before: StashSaveV1): void {
+  const problems: string[] = [];
+  let converted;
+  try {
+    converted = convertStashTabs(JSON.parse(JSON.stringify(before)));
+  } catch (err) {
+    failures++;
+    console.log(`  FAIL tabs: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  const { stash, report: r } = converted;
+  tabTotals.stashes++;
+  tabTotals.runeItems += r.runesToTab;
+  tabTotals.runeUnits += r.runeUnitsToTab;
+  tabTotals.sigils += r.sigilsToTab;
+  const stayed = r.stayed.reduce((n, x) => n + x.count, 0);
+  tabTotals.stayed += stayed;
+  const tab1 = stash.general[0];
+  console.log(`  tabs: ${r.runesToTab} rune items (${r.runeUnitsToTab} runes) to the rune tab, ${r.sigilsToTab} sigils to the sigil tab, ${tab1 ? placements(tab1.cells, STASH).length : 0} items stay in tab 1${stayed > 0 ? ` (${r.stayed.map((x) => `${x.count} ${x.reason}`).join(', ')})` : ''}`);
+  const a = before.items.map(stable).sort();
+  const b = stash.items.map(stable).sort();
+  check(problems, a.length === b.length && a.every((x, i) => x === b[i]), `items changed: ${a.length} before, ${b.length} after`);
+  const places = [...(tab1 ? placements(tab1.cells, STASH).map((p) => p.uid) : []), ...stash.runes.list, ...stash.sigils.list];
+  const dup = places.filter((u, i) => places.indexOf(u) !== i);
+  check(problems, dup.length === 0, `uid in two tabs: ${[...new Set(dup)].join(', ')}`);
+  const beforePlaced = new Set(placements(before.cells.length === STASH.w * STASH.h ? before.cells : [], STASH).map((p) => p.uid));
+  const afterPlaced = new Set(stashItemUids(stash));
+  const lost = [...beforePlaced].filter((u) => !afterPlaced.has(u));
+  check(problems, lost.length === 0, `placed items without a place now: ${lost.join(', ')}`);
+  if (tab1 && before.cells.length === STASH.w * STASH.h) {
+    const was = new Map(placements(before.cells, STASH).map((p) => [p.uid, `${p.x},${p.y}`]));
+    const moved = placements(tab1.cells, STASH).filter((p) => was.get(p.uid) !== `${p.x},${p.y}`);
+    check(problems, moved.length === 0, `${moved.length} items left in tab 1 moved cells`);
+  }
+  const byUid = new Map(stash.items.map((i) => [i.uid, i]));
+  const boundListed = [...stash.runes.list, ...stash.sigils.list].filter((u) => {
+    const it = byUid.get(u);
+    return it?.bound === true || (it?.kind === 'sigil' && it.slots.some((x) => x.bound === true));
+  });
+  check(problems, boundListed.length === 0, `bound items in a list: ${boundListed.join(', ')}`);
+  check(problems, stash.runes.list.every((u) => byUid.get(u)?.kind === 'rune') && stash.sigils.list.every((u) => byUid.get(u)?.kind === 'sigil'), 'a list holds the wrong kind of item');
+  const again = convertStashTabs(JSON.parse(JSON.stringify(stash)));
+  check(problems, stable(again.stash) === stable(stash) && again.report.runesToTab === 0, 'converting again changed it');
+  for (const w of r.warnings) console.log(`  warning (tabs): ${w}`);
+  if (problems.length > 0) {
+    failures += problems.length;
+    for (const p of problems) console.log(`  FAIL tabs: ${p}`);
+  } else console.log('  tab checks: ok');
+}
+
 function rows(db: DatabaseSync, sql: string): Record<string, unknown>[] {
   return db.prepare(sql).all().filter(isRecord);
 }
@@ -288,9 +352,14 @@ function main(): void {
       const title = `stash of account ${String(row.id)} "${String(row.username)}"`;
       try {
         const raw: unknown = JSON.parse(row.stash_json);
+        if (isStashFormat2(raw)) {
+          console.log(`\n${title}\n  already in tabs; left as it is`);
+          continue;
+        }
         const { stash, report: r } = convertStash(raw);
         const rawItems = isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
         report(title, rawItems, 0, null, stash.items, r, classByAccount.get(Number(row.id)) ?? 'mage', { alreadyV2: isRuneFormat2(raw) });
+        reportTabs(title, stash);
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -315,6 +384,7 @@ function main(): void {
   console.log(
     `\nsummary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,
   );
+  console.log(`tabs: ${tabTotals.stashes} stashes to tabs, ${tabTotals.runeItems} rune items (${tabTotals.runeUnits} runes) to rune tabs, ${tabTotals.sigils} sigils to sigil tabs, ${tabTotals.stayed} runes or sigils left in tab 1`);
   process.exit(failures === 0 ? 0 : 1);
 }
 
