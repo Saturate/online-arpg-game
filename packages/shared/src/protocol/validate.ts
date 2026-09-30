@@ -1,5 +1,9 @@
 import { MINIONS } from '../config/sim.js';
-import { SIGIL_MAX_SLOTS } from '../items/items.js';
+import { RUNE_STACK, SIGIL_MAX_SLOTS } from '../items/items.js';
+import { BAG, STASH } from '../items/grid.js';
+import { isStashColorId, isStashTabName, STASH_TABS } from '../config/stash.js';
+import { isRuneAffixId, isRuneSortKey, isSigilSortKey, type StashSortKey, type StashTabRef } from '../items/stash.js';
+import type { AffixId } from '../data/affixes.js';
 import { isRuneId } from '../runes/v2/runes.js';
 import { GEAR_SLOTS, type GearSlot } from '../data/gear.js';
 
@@ -10,7 +14,7 @@ import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken } from './accounts.js';
 import { isZoneId } from '../data/zones.js';
-import { BUTTON_MASK, type ClientMessage, type InscribeReply, type RuneRef, type ServerMessage } from './messages.js';
+import { BUTTON_MASK, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type RuneRef, type ServerMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
 function isWarbandSlot(value: unknown): value is number {
@@ -82,6 +86,40 @@ function parseBase(value: unknown): number[] | null {
     out.push(v);
   }
   return out;
+}
+
+/** General tab ids run from 1 and one more per tab bought, so none is ever above the cap. */
+function isGeneralTabId(v: unknown): v is number {
+  return isNonNegativeInt(v) && v >= 1 && v <= STASH_TABS.maxGeneral;
+}
+
+function parseGridDest(v: unknown): GridDest | null {
+  if (!isRecord(v) || !isNonNegativeInt(v.x) || !isNonNegativeInt(v.y)) return null;
+  if (v.at === 'bag') return v.x < BAG.w && v.y < BAG.h ? { at: 'bag', x: v.x, y: v.y } : null;
+  if (v.at === 'tab') return isGeneralTabId(v.tab) && v.x < STASH.w && v.y < STASH.h ? { at: 'tab', tab: v.tab, x: v.x, y: v.y } : null;
+  return null;
+}
+
+function parseItemDest(v: unknown): ItemDest | null {
+  if (isRecord(v) && (v.at === 'runes' || v.at === 'sigils')) return { at: v.at };
+  return parseGridDest(v);
+}
+
+function parseTabRef(v: unknown): StashTabRef | null {
+  return v === 'runes' || v === 'sigils' ? v : isGeneralTabId(v) ? v : null;
+}
+
+/**
+ * A list tab sorts by one of its own keys; a general tab has one order and takes none. Sorting the
+ * rune tab by affix names a rune affix; every other sort names none.
+ */
+function parseSort(tab: StashTabRef, key: unknown, affix: unknown): { key: StashSortKey | null; affix: AffixId | null } | null {
+  if (tab === 'runes' && isRuneSortKey(key)) {
+    if (key === 'affix') return isRuneAffixId(affix) ? { key, affix } : null;
+    return affix === null ? { key, affix: null } : null;
+  }
+  if (tab === 'sigils') return isSigilSortKey(key) && affix === null ? { key, affix: null } : null;
+  return typeof tab === 'number' && key === null && affix === null ? { key: null, affix: null } : null;
 }
 
 export const CHAT_MAX_LENGTH = 200;
@@ -166,10 +204,27 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return isNonNegativeInt(value.id) ? { t: 'buy', id: value.id } : null;
     case 'pickup':
       return isNonNegativeInt(value.id) ? { t: 'pickup', id: value.id } : null;
-    case 'moveItem':
-      return isNonNegativeInt(value.uid) && (value.to === 'bag' || value.to === 'stash') && isNonNegativeInt(value.x) && isNonNegativeInt(value.y) && value.x < 64 && value.y < 64
-        ? { t: 'moveItem', uid: value.uid, to: value.to, x: value.x, y: value.y }
-        : null;
+    case 'moveItem': {
+      const to = parseItemDest(value.to);
+      return isNonNegativeInt(value.uid) && to ? { t: 'moveItem', uid: value.uid, to } : null;
+    }
+    case 'quickMove':
+      return isNonNegativeInt(value.uid) && (value.tab === null || isGeneralTabId(value.tab)) ? { t: 'quickMove', uid: value.uid, tab: value.tab } : null;
+    case 'takeRunes': {
+      const { uid, count } = value;
+      const to = value.to === null ? null : parseGridDest(value.to);
+      if (!isNonNegativeInt(uid) || !isNonNegativeInt(count) || count < 1 || count > RUNE_STACK) return null;
+      return to !== null || value.to === null ? { t: 'takeRunes', uid, count, to } : null;
+    }
+    case 'sortStash': {
+      const tab = parseTabRef(value.tab);
+      const sort = tab === null ? null : parseSort(tab, value.key, value.affix);
+      return tab !== null && sort ? { t: 'sortStash', tab, key: sort.key, affix: sort.affix } : null;
+    }
+    case 'buyStashTab':
+      return { t: 'buyStashTab' };
+    case 'editStashTab':
+      return isGeneralTabId(value.tab) && isStashTabName(value.name) && isStashColorId(value.color) ? { t: 'editStashTab', tab: value.tab, name: value.name, color: value.color } : null;
     case 'discard':
       return isNonNegativeInt(value.uid) ? { t: 'discard', uid: value.uid } : null;
     case 'cycleStance':

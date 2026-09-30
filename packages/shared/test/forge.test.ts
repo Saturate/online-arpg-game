@@ -19,6 +19,7 @@ import {
   sellItem,
   Simulation,
 } from '../src/index.js';
+import { tab1 } from './helpers/stash.js';
 import { addItem } from '../src/sim/inventory.js';
 import { applyDev, parseDevCommand } from '../src/sim/dev.js';
 
@@ -62,7 +63,7 @@ describe('forge', () => {
     addItem(p, createRune(sim.newItemUid(), 'bolt', 1));
     const stashed = createRune(sim.newItemUid(), 'bolt', 3);
     p.items.set(stashed.uid, stashed);
-    p.stash[0] = stashed.uid;
+    tab1(p)[0] = stashed.uid;
     expect(sim.inscribe(pid, blank.uid, [{ from: 'plain', rune: 'bolt' }, { from: 'plain', rune: 'bolt' }])).toBeNull();
     expect(blank.slots.map((r) => r.rune)).toEqual(['bolt', 'bolt']);
     expect(ownedRunes(p).get('bolt') ?? 0).toBe(0);

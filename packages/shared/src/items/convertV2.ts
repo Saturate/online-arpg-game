@@ -6,7 +6,7 @@ import { createStarterSigil, starterSigilById } from '../data/starterSigils.js';
 import { isZoneId } from '../data/zones.js';
 import type { TraderEntry } from '../protocol/messages.js';
 import type { RuneId } from '../runes/v2/runes.js';
-import type { StashSave } from '../sim/inventory.js';
+import { legacyLayout, saveStashLayout, type StashSaveV1 } from './stash.js';
 import type { PlayerSave } from '../sim/simulation.js';
 import { BAG, emptyGrid, findSpot, itemSize, place, STASH, type GridSize } from './grid.js';
 import {
@@ -65,7 +65,7 @@ export interface CharacterConversion {
 }
 
 export interface StashConversion {
-  stash: StashSave;
+  stash: StashSaveV1;
   report: ConversionReport;
 }
 
@@ -502,7 +502,8 @@ function drop(cells: readonly (ItemUid | null)[], removed: ReadonlySet<ItemUid>)
 
 // v2 shape guards (for idempotency) ----------------------------------------------------------
 
-function isV2Save(v: unknown): v is PlayerSave {
+/** The stash field is left open: saves from before tabs hold a grid there, read by saveStashLayout. */
+function isV2Save(v: unknown): v is Omit<PlayerSave, 'stash'> & { stash: unknown } {
   return (
     isRecord(v) &&
     v.runeFormat === 2 &&
@@ -510,7 +511,6 @@ function isV2Save(v: unknown): v is PlayerSave {
     typeof v.name === 'string' &&
     Array.isArray(v.items) &&
     Array.isArray(v.inventory) &&
-    Array.isArray(v.stash) &&
     Array.isArray(v.sigils) &&
     Array.isArray(v.warband) &&
     isRecord(v.gear) &&
@@ -522,7 +522,7 @@ function isV2Save(v: unknown): v is PlayerSave {
   );
 }
 
-function isV2Stash(v: unknown): v is StashSave {
+function isV2Stash(v: unknown): v is StashSaveV1 {
   return isRecord(v) && v.runeFormat === 2 && Array.isArray(v.items) && Array.isArray(v.cells);
 }
 
@@ -535,7 +535,7 @@ function isV2Shelf(v: unknown): v is TraderShelfSave {
 export function convertCharacterSave(raw: unknown): CharacterConversion {
   if (isRuneFormat2(raw)) {
     if (!isV2Save(raw)) fail('character save', 'marked runeFormat 2 but not a v2 save');
-    return { save: raw, report: emptyReport() };
+    return { save: { ...raw, stash: saveStashLayout(raw.stash) }, report: emptyReport() };
   }
   if (!isRecord(raw)) fail('character save', 'not an object');
   const classId = raw.classId;
@@ -570,7 +570,7 @@ export function convertCharacterSave(raw: unknown): CharacterConversion {
     name,
     items,
     inventory,
-    stash,
+    stash: legacyLayout(stash),
     sigils: drop(uidList(raw.sigils, 'sigils'), removed),
     warband: drop(uidList(raw.warband, 'warband'), removed),
     gear,

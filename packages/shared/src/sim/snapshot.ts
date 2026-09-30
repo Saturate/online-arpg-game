@@ -1,4 +1,6 @@
 import { CLASSES } from '../data/classes.js';
+import { cloneLayout } from '../items/stash.js';
+import { stashTabPrice } from '../config/stash.js';
 import { xpToNext } from './progression.js';
 import { SIM } from '../config/sim.js';
 import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot, SpellSnap } from '../protocol/messages.js';
@@ -286,7 +288,8 @@ export function inventoryMessage(sim: Simulation, pid: EntityId): InventoryMessa
     t: 'inventory',
     items: [...p.items.values()],
     inventory: [...p.inventory],
-    stash: [...p.stash],
+    stash: cloneLayout(p.stash),
+    stashTabPrice: stashTabPrice(p.stash.general.length),
     gold: p.gold,
     sigils: p.sigils.map((s) => s?.uid ?? null),
     warband: [...p.warband],

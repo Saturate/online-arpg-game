@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
-import { addItem, discard, moveItem, pickupLoot, spawnBag } from '../src/sim/inventory.js';
+import { addItem, discard, pickupLoot, spawnBag } from '../src/sim/inventory.js';
+import { moveItem } from '../src/sim/stash.js';
+import { inStash, stashOf, tab1 } from './helpers/stash.js';
 import {
   BAG,
   buyItem,
@@ -63,10 +65,10 @@ function rolledRune(sim: Simulation, rune: RuneId): RuneItem {
 /** Puts an item straight into the account stash grid, as a loaded stash would hold it. */
 function putInStash<T extends Item>(p: PlayerComp, item: T): T {
   const size = itemSize(item);
-  const spot = findSpot(p.stash, STASH, size);
+  const spot = findSpot(tab1(p), STASH, size);
   if (!spot) throw new Error('stash full');
   p.items.set(item.uid, item);
-  place(p.stash, STASH, item.uid, size, spot.x, spot.y);
+  place(tab1(p), STASH, item.uid, size, spot.x, spot.y);
   return item;
 }
 
@@ -113,7 +115,7 @@ describe('item safety', () => {
     expect(discard(sim, pid, bound.uid)).toBe('Bound items stay with this character');
     expect(discard(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
     standAt(pos, sim.mapDef.stash);
-    expect(moveItem(sim, pid, bound.uid, 'stash', 0, 0)).toBe('Bound items stay with this character');
+    expect(moveItem(sim, pid, bound.uid, { at: 'tab', tab: 1, x: 0, y: 0 })).toBe('Bound items stay with this character');
     standAt(pos, sim.mapDef.trader);
     expect(sellItem(sim, pid, carrier.uid)).toBe('Take the bound runes out first');
   });
@@ -131,7 +133,7 @@ describe('item safety', () => {
     if (!p) throw new Error('setup');
     const ring = [...p.items.values()].find((i) => i.kind === 'gear' && i.bound === true && i.category === 'ring');
     if (!ring) throw new Error('ring lost');
-    expect(p.stash.includes(ring.uid)).toBe(false);
+    expect(inStash(p, ring.uid)).toBe(false);
     expect(p.inventory.includes(ring.uid)).toBe(true);
   });
 
@@ -236,7 +238,7 @@ describe('item safety', () => {
     addItem(p, sigil);
     const inBag = rolledRune(sim, 'orb');
     addItem(p, inBag);
-    const inStash = putInStash(p, rolledRune(sim, 'bolt'));
+    const stashedRune = putInStash(p, rolledRune(sim, 'bolt'));
     const twice: RuneRef[] = [{ from: 'rolled', uid: inBag.uid }, { from: 'rolled', uid: inBag.uid }];
     expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, base: [], slots: [{ from: 'rolled', uid: inBag.uid }], attempt: 0 })).not.toBeNull();
     expect(parseClientMessage({ t: 'inscribe', uid: sigil.uid, base: [], slots: twice, attempt: 0 })).toBeNull();
@@ -244,10 +246,10 @@ describe('item safety', () => {
     const before = state(p);
     expect(sim.inscribe(pid, sigil.uid, twice)).toBe('A rune can only fill one slot');
     expect(state(p)).toBe(before);
-    expect(sim.inscribe(pid, sigil.uid, [{ from: 'rolled', uid: inStash.uid }, { from: 'rolled', uid: inBag.uid }])).toBeNull();
-    expect(sigil.slots.map((r) => r.uid)).toEqual([inStash.uid, inBag.uid]);
-    expect(p.stash.includes(inStash.uid)).toBe(false);
-    expect(p.items.has(inStash.uid)).toBe(false);
+    expect(sim.inscribe(pid, sigil.uid, [{ from: 'rolled', uid: stashedRune.uid }, { from: 'rolled', uid: inBag.uid }])).toBeNull();
+    expect(sigil.slots.map((r) => r.uid)).toEqual([stashedRune.uid, inBag.uid]);
+    expect(inStash(p, stashedRune.uid)).toBe(false);
+    expect(p.items.has(stashedRune.uid)).toBe(false);
     expect(p.items.has(inBag.uid)).toBe(false);
     // A kept slot named twice would copy the rune.
     expect(sim.inscribe(pid, sigil.uid, [{ from: 'keep', index: 0 }, { from: 'keep', index: 0 }])).toBe('A rune can only fill one slot');
@@ -297,7 +299,7 @@ describe('item safety', () => {
     const pending = pendingItems(p);
     expect(pending).toContain(a.uid);
     expect(pending).toContain(c.uid);
-    expect(p.stash.includes(a.uid) || p.stash.includes(c.uid)).toBe(false);
+    expect(inStash(p, a.uid) || inStash(p, c.uid)).toBe(false);
   });
 
   it('inscribe is all or nothing: not enough gold, a missing rune or too many runes leaves everything unchanged', () => {
@@ -472,13 +474,13 @@ describe('item safety', () => {
     standAt(pos, sim.mapDef.stash);
     const r = rolledRune(sim, 'nova');
     addItem(p, r);
-    expect(moveItem(sim, pid, r.uid, 'stash', 3, 3)).toBeNull();
-    expect(p.stash.includes(r.uid)).toBe(true);
-    expect(moveItem(sim, pid, r.uid, 'bag', 5, 5)).toBeNull();
+    expect(moveItem(sim, pid, r.uid, { at: 'tab', tab: 1, x: 3, y: 3 })).toBeNull();
+    expect(inStash(p, r.uid)).toBe(true);
+    expect(moveItem(sim, pid, r.uid, { at: 'bag', x: 5, y: 5 })).toBeNull();
     const b = rolledRune(sim, 'nova');
     b.bound = true;
     addItem(p, b);
-    expect(moveItem(sim, pid, b.uid, 'stash', 0, 0)).toBe('Bound items stay with this character');
+    expect(moveItem(sim, pid, b.uid, { at: 'tab', tab: 1, x: 0, y: 0 })).toBe('Bound items stay with this character');
     expect(discard(sim, pid, b.uid)).toBe('Bound items stay with this character');
     expect(discard(sim, pid, r.uid)).toBeNull();
     expect(p.items.has(r.uid)).toBe(false);
@@ -508,9 +510,9 @@ describe('item safety', () => {
     sigil.slots = [rolledRune(sim, 'orb'), createRune(sim.newItemUid(), 'fire', 1)];
     const cells = emptyGrid(STASH);
     cells[0] = sigil.uid;
-    restoreStash(sim, pid, { items: [sigil], cells, runeFormat: 2 });
+    restoreStash(sim, pid, stashOf([sigil], cells));
     const p = sim.world.player.get(pid);
-    const loaded = p ? [...p.items.values()].find((i) => i.kind === 'sigil' && p.stash.includes(i.uid)) : undefined;
+    const loaded = p ? [...p.items.values()].find((i) => i.kind === 'sigil' && inStash(p, i.uid)) : undefined;
     if (loaded?.kind !== 'sigil') throw new Error('not loaded');
     const old = [sigil.uid, ...sigil.slots.map((r) => r.uid)];
     for (const u of [loaded.uid, ...loaded.slots.map((r) => r.uid)]) expect(old).not.toContain(u);

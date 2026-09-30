@@ -6,6 +6,8 @@ import { starterSigilById } from '../src/data/starterSigils.js';
 import { compileSigilItem } from '../src/runes/v2/compile.js';
 import { restoreStash } from '../src/sim/inventory.js';
 import { Simulation } from '../src/sim/simulation.js';
+import { convertStashTabs, emptyStash } from '../src/items/stash.js';
+import { inStash } from './helpers/stash.js';
 
 /** v1 items and saves, written the way the v1 server stored them. */
 function v1Sigil(uid: number, runes: string[], skill: string | null, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -143,7 +145,7 @@ describe('v1 character conversion', () => {
       ['split', true, 1],
       ['onhit', false, 1],
     ]);
-    const placed = new Set([...cellsOf(save.inventory), ...cellsOf(save.stash)]);
+    const placed = new Set([...cellsOf(save.inventory), ...save.stash.general.flatMap((t) => [...cellsOf(t.cells)])]);
     for (const r of back) expect(placed.has(r.uid)).toBe(false);
   });
 
@@ -165,7 +167,7 @@ describe('v1 character conversion', () => {
     const nova = runes(save.items).find((r) => r.rune === 'nova');
     expect(nova && cellsOf(save.inventory).has(nova.uid)).toBe(true);
     expect(cellsOf(save.inventory).has(1) && cellsOf(save.inventory).has(2)).toBe(true);
-    expect(save).toMatchObject({ gold: 0, level: 1, xp: 0, waypoints: [], stash: [], runeFormat: 2 });
+    expect(save).toMatchObject({ gold: 0, level: 1, xp: 0, waypoints: [], stash: emptyStash(), runeFormat: 2 });
   });
 
   it('takes an old Test Sigil apart, its runes kept bound unless a slot says otherwise', () => {
@@ -209,7 +211,7 @@ describe('v1 character conversion', () => {
     const raw = v1Save([v1Sigil(1, ['aura', 'ward'], 'iron_skin', { bound: true }), v1Rune(2, 'linger', 1)]);
     const first = convertCharacterSave(raw);
     const again = convertCharacterSave(first.save);
-    expect(again.save).toBe(first.save);
+    expect(again.save).toEqual(first.save);
     expect(again.report.gold).toBe(0);
     expect(again.report.starterSigils).toEqual([]);
     expect(convertCharacterSave(JSON.parse(JSON.stringify(raw))).save).toEqual(first.save);
@@ -266,12 +268,12 @@ describe('v1 stash conversion', () => {
     const { stash } = convertStash(raw);
     const sim = new Simulation(5);
     const pid = sim.addPlayer('a', 'mage');
-    restoreStash(sim, pid, stash);
+    restoreStash(sim, pid, convertStashTabs(stash).stash);
     const p = sim.world.player.get(pid);
     if (!p) throw new Error('setup');
     const restore = [...p.items.values()].find((i) => i.kind === 'rune' && i.rune === 'restore');
     expect(restore?.bound).toBe(true);
-    expect(restore && p.stash.includes(restore.uid)).toBe(false);
+    expect(restore && inStash(p, restore.uid)).toBe(false);
     expect(restore && p.inventory.includes(restore.uid)).toBe(true);
   });
 });

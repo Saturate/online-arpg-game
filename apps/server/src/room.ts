@@ -208,7 +208,22 @@ export class Room {
         error = this.sim.pickup(pid, msg.id);
         break;
       case 'moveItem':
-        error = this.sim.moveItem(pid, msg.uid, msg.to, msg.x, msg.y);
+        error = this.sim.moveItem(pid, msg.uid, msg.to);
+        break;
+      case 'quickMove':
+        error = this.sim.quickMove(pid, msg.uid, msg.tab);
+        break;
+      case 'takeRunes':
+        error = this.sim.takeRunes(pid, msg.uid, msg.count, msg.to);
+        break;
+      case 'sortStash':
+        error = this.sim.sortStash(pid, msg.tab, msg.key, msg.affix);
+        break;
+      case 'buyStashTab':
+        error = this.sim.buyStashTab(pid);
+        break;
+      case 'editStashTab':
+        error = this.sim.editStashTab(pid, msg.tab, msg.name, msg.color);
         break;
       case 'cycleStance':
         this.sim.cycleStance(pid);

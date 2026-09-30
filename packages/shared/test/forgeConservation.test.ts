@@ -26,6 +26,8 @@ import {
   type RuneItem,
   type RuneRef,
 } from '../src/index.js';
+import { stashItemUids } from '../src/items/stash.js';
+import { tab1 } from './helpers/stash.js';
 
 /**
  * Random inscribe sequences against the one promise the forge makes: runes only move. Every plain
@@ -122,20 +124,29 @@ function checkUids(p: PlayerComp): void {
       else expect(it.count).toBeLessThanOrEqual(20);
     }
   }
-  for (const u of [...p.inventory, ...p.stash]) if (u !== null) expect(p.items.has(u), `grid points at missing ${u}`).toBe(true);
+  const stashed = stashItemUids(p.stash);
+  for (const u of [...p.inventory, ...stashed]) if (u !== null) expect(p.items.has(u), `grid points at missing ${u}`).toBe(true);
   // Bound items never reach the account's stash.
-  for (const u of new Set(p.stash)) {
+  for (const u of stashed) {
     const it = u === null ? undefined : p.items.get(u);
     if (it) expect(it.bound === true || (it.kind === 'sigil' && it.slots.some((r) => r.bound === true)), `bound ${it.name} in stash`).toBe(false);
   }
 }
 
+/** Into the stash as a loaded one holds it: runes alternate between the rune tab and tab 1. */
+let stashTurn = 0;
 function stash(p: PlayerComp, item: Item): void {
+  stashTurn++;
+  if (item.kind === 'rune' && stashTurn % 2 === 0) {
+    p.items.set(item.uid, item);
+    p.stash.runes.list.push(item.uid);
+    return;
+  }
   const size = itemSize(item);
-  const spot = findSpot(p.stash, STASH, size);
+  const spot = findSpot(tab1(p), STASH, size);
   if (!spot) return;
   p.items.set(item.uid, item);
-  place(p.stash, STASH, item.uid, size, spot.x, spot.y);
+  place(tab1(p), STASH, item.uid, size, spot.x, spot.y);
 }
 
 interface World {
@@ -263,14 +274,18 @@ function expectedCost(p: PlayerComp, refs: readonly RuneRef[], free: boolean): n
   const draws = new Map<RuneId, boolean[]>();
   const drawOrder = (rune: RuneId): boolean[] => {
     const order: boolean[] = [];
-    for (const cells of [p.inventory, p.stash]) {
+    const stacksIn = (cells: readonly (ItemUid | null)[]): void => {
       const stacks = [...new Set(cells)].flatMap((u) => {
         const it = u === null ? undefined : p.items.get(u);
         return it?.kind === 'rune' && it.affixes.length === 0 && it.rune === rune ? [it] : [];
       });
       stacks.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
       for (const st of stacks) for (let i = 0; i < st.count; i++) order.push(st.bound === true);
-    }
+    };
+    // Bag stacks, then the rune tab's, then stacks in general tabs.
+    stacksIn(p.inventory);
+    stacksIn(p.stash.runes.list);
+    for (const tab of p.stash.general) stacksIn(tab.cells);
     return order;
   };
   for (const r of refs) {

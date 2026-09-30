@@ -6,6 +6,7 @@ import {
   createGear,
   createSigil,
   emptyGrid,
+  emptyStash,
   findSpot,
   itemSize,
   pendingItems,
@@ -17,6 +18,7 @@ import {
   type Item,
 } from '../src/index.js';
 import { addItem, spawnBag } from '../src/sim/inventory.js';
+import { stashOf, tab1 } from './helpers/stash.js';
 
 function setup(desc: ConstructorParameters<typeof Simulation>[1] = { kind: 'flat' }) {
   const sim = new Simulation(5, desc);
@@ -80,7 +82,7 @@ describe('item grid', () => {
     const items: Item[] = Array.from({ length: 20 }, (_, i) => createGear(100 + i, sim.rand.loot, 'common', 1, { category: 'body' }));
     const save = sim.exportPlayer(pid);
     if (!save) throw new Error('no save');
-    const old = { ...save, items: [...save.items, ...items], inventory: items.map((i) => i.uid), stash: [] };
+    const old = { ...save, items: [...save.items, ...items], inventory: items.map((i) => i.uid), stash: emptyStash() };
     const sim2 = new Simulation(6, { kind: 'flat' });
     const pid2 = sim2.addPlayer('c', 'warrior', 'Old', old);
     const p2 = sim2.world.player.get(pid2);
@@ -88,7 +90,7 @@ describe('item grid', () => {
     const armour = (cells: readonly (number | null)[], size: typeof BAG) =>
       placements(cells, size).filter(({ uid }) => { const it = p2.items.get(uid); return it?.kind === 'gear' && it.category === 'body'; }).length;
     const inBag = armour(p2.inventory, BAG);
-    const inStash = armour(p2.stash, STASH);
+    const inStash = armour(tab1(p2), STASH);
     // As many 2x3 armours as the bag holds stay in it; the rest go to the stash, so none is lost.
     const bagHolds = Math.floor(BAG.w / 2) * Math.floor(BAG.h / 3);
     expect(inBag).toBe(bagHolds);
@@ -107,10 +109,10 @@ describe('stash', () => {
     if (!pos) throw new Error('no pos');
     pos.x = stashAt.x + 2000;
     pos.y = stashAt.y;
-    expect(sim.moveItem(pid, ring.uid, 'stash', 0, 0)).toBe('Stand at the stash to use it');
+    expect(sim.moveItem(pid, ring.uid, { at: 'tab', tab: 1, x: 0, y: 0 })).toBe('Stand at the stash to use it');
     pos.x = stashAt.x + 60;
-    expect(sim.moveItem(pid, ring.uid, 'stash', 3, 2)).toBeNull();
-    expect(anchorOf(p.stash, STASH, ring.uid)).toEqual({ x: 3, y: 2 });
+    expect(sim.moveItem(pid, ring.uid, { at: 'tab', tab: 1, x: 3, y: 2 })).toBeNull();
+    expect(anchorOf(tab1(p), STASH, ring.uid)).toEqual({ x: 3, y: 2 });
     expect(p.inventory.includes(ring.uid)).toBe(false);
   });
 
@@ -118,7 +120,7 @@ describe('stash', () => {
     const { sim, pid, p } = setup();
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'rare', 4, { category: 'ring' });
     p.items.set(ring.uid, ring);
-    p.stash[STASH.w + 1] = ring.uid;
+    tab1(p)[STASH.w + 1] = ring.uid;
     const save = sim.exportPlayer(pid);
     if (!save) throw new Error('no save');
     const { character, stash } = splitStash(save);
@@ -129,7 +131,7 @@ describe('stash', () => {
     const other = sim2.addPlayer('d', 'mage');
     restoreStash(sim2, other, stash);
     const p2 = sim2.world.player.get(other);
-    const landed = p2 ? placements(p2.stash, STASH) : [];
+    const landed = p2 ? placements(tab1(p2), STASH) : [];
     expect(landed).toHaveLength(1);
     expect(landed[0]).toMatchObject({ x: 1, y: 1 });
   });
@@ -149,16 +151,16 @@ describe('stash', () => {
     const base = new Simulation(2, { kind: 'flat' });
     const save0 = base.exportPlayer(base.addPlayer('x', 'warrior'));
     if (!save0) throw new Error('no save');
-    const old = { ...save0, items: [...save0.items, ...bagItems], inventory: bagItems.map((i) => i.uid), stash: [] };
+    const old = { ...save0, items: [...save0.items, ...bagItems], inventory: bagItems.map((i) => i.uid), stash: emptyStash() };
 
     const sim2 = new Simulation(3, { kind: 'flat' });
     const pid = sim2.addPlayer('c', 'warrior', 'Second', old);
-    restoreStash(sim2, pid, { items: stashItems, cells: stashCells, runeFormat: 2 });
+    restoreStash(sim2, pid, stashOf(stashItems, stashCells));
     const p = sim2.world.player.get(pid);
     if (!p) throw new Error('no player');
     const isArmour = (uid: number) => { const it = p.items.get(uid); return it?.kind === 'gear' && it.category === 'body'; };
     const inBag = placements(p.inventory, BAG).filter(({ uid }) => isArmour(uid)).length;
-    const inStash = placements(p.stash, STASH).filter(({ uid }) => isArmour(uid)).length;
+    const inStash = placements(tab1(p), STASH).filter(({ uid }) => isArmour(uid)).length;
     const waiting = pendingItems(p).filter(isArmour).length;
     // All 32 armours are accounted for: the account's 12 keep their cells, the rest fill up, 4 wait.
     expect(inBag + inStash + waiting).toBe(32);

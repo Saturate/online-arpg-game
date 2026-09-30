@@ -17,6 +17,8 @@ import type { DevCommand } from '../sim/dev.js';
 import type { TownLayout } from '../world/town.js';
 import type { MapDescriptor } from '../world/types.js';
 import type { ModelOverrides } from '../data/tuning.js';
+import type { StashColorId } from '../config/stash.js';
+import type { StashLayout, StashSortKey, StashTabRef } from '../items/stash.js';
 
 /**
  * One slot of a sigil in an inscribe request, left to right.
@@ -26,6 +28,12 @@ import type { ModelOverrides } from '../data/tuning.js';
  * Every current slot not kept is refunded to the bag, else pending.
  */
 export type RuneRef = { from: 'keep'; index: number } | { from: 'plain'; rune: RuneId } | { from: 'rolled'; uid: ItemUid };
+
+/** A cell of the bag or of a general stash tab, for an item's top-left corner. */
+export type GridDest = { at: 'bag'; x: number; y: number } | { at: 'tab'; tab: number; x: number; y: number };
+
+/** Where a moved item goes: a cell, or the rune or sigil tab (which place it themselves). */
+export type ItemDest = GridDest | { at: 'runes' } | { at: 'sigils' };
 
 export const BUTTON = {
   primary: 1 << 0,
@@ -83,8 +91,24 @@ export type ClientMessage =
   | { t: 'traderList' }
   | { t: 'sell'; uid: ItemUid }
   | { t: 'buy'; id: number }
-  /** Move a bag or stash item so its top-left corner lands on cell (x, y) of the target grid. */
-  | { t: 'moveItem'; uid: ItemUid; to: 'bag' | 'stash'; x: number; y: number }
+  /** Move a bag or stash item: to a cell of the bag or a general tab, or into the rune or sigil tab. */
+  | { t: 'moveItem'; uid: ItemUid; to: ItemDest }
+  /**
+   * Ctrl+click at the stash. From the bag the item goes to the tab that takes it (runes to the rune
+   * tab, sigils to the sigil tab, the rest to general tab `tab` if it has room, else the first that
+   * does); from the stash it goes to the bag.
+   */
+  | { t: 'quickMove'; uid: ItemUid; tab: number | null }
+  /** Take `count` runes off a plain stack in the stash: to a cell, or null for anywhere in the bag. */
+  | { t: 'takeRunes'; uid: ItemUid; count: number; to: GridDest | null }
+  /**
+   * General tabs pack in bag sort order (key null); the rune and sigil tabs sort their lists by
+   * `key`. `affix` names the rune affix when the rune tab sorts by 'affix', and is null otherwise.
+   */
+  | { t: 'sortStash'; tab: StashTabRef; key: StashSortKey | null; affix: AffixId | null }
+  /** Buy the next general tab with this character's gold. */
+  | { t: 'buyStashTab' }
+  | { t: 'editStashTab'; tab: number; name: string; color: StashColorId }
   | { t: 'sortInventory' }
   | { t: 'cycleStance' }
   /** Antechamber ready check (a dungeon's or the Arena gate). */
@@ -279,8 +303,10 @@ export interface InventoryMessage {
   items: Item[];
   /** Bag grid cells (BAG); see items/grid.ts. */
   inventory: (ItemUid | null)[];
-  /** Account stash grid cells (STASH). */
-  stash: (ItemUid | null)[];
+  /** The account stash: general tabs, the rune tab's counts and rolled runes, the sigil list. */
+  stash: StashLayout;
+  /** Gold for the next general tab, or null once the account owns every one. */
+  stashTabPrice: number | null;
   gold: number;
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];

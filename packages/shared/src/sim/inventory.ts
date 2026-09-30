@@ -28,6 +28,8 @@ import type { RuneRef } from '../protocol/messages.js';
 import { rollDrops } from '../items/drops.js';
 import { forgeInsertPrice, sellPrice, TRADER } from '../items/prices.js';
 import { anchorOf, BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
+import { STASH_TABS } from '../config/stash.js';
+import { cloneLayout, emptyStash, isListableRune, locateInStash, newGeneralTab, removeFromStash, stashItemUids, stashRefuses, type StashLayout, type StashSave } from '../items/stash.js';
 import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
 import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
@@ -36,8 +38,6 @@ import { despawnMinion } from './minions.js';
 import type { PlayerSave, Simulation } from './simulation.js';
 import { computeStats } from './stats.js';
 
-/** How close to the stash chest a player must stand to use it; like waypoints, checked on the server. */
-export const STASH_REACH = 150;
 export const FORGE_REACH = 170;
 
 
@@ -49,7 +49,7 @@ function spiritMax(p: PlayerComp): number {
   return p.stats.spiritMax;
 }
 
-function changed(p: PlayerComp): void {
+export function changed(p: PlayerComp): void {
   p.inventoryVersion++;
 }
 
@@ -58,7 +58,7 @@ function inBag(p: PlayerComp, uid: ItemUid): boolean {
 }
 
 /** Puts an item into the bag, preferring `at` (where the item it replaces was); false when it does not fit. */
-function stow(p: PlayerComp, uid: ItemUid, at: { x: number; y: number } | null = null): boolean {
+export function stow(p: PlayerComp, uid: ItemUid, at: { x: number; y: number } | null = null): boolean {
   const item = p.items.get(uid);
   if (!item) return false;
   const size = itemSize(item);
@@ -85,12 +85,12 @@ function matchingStacks(p: PlayerComp, rune: RuneId, bound: boolean, cells: read
   return out;
 }
 
-function stackSpace(p: PlayerComp, rune: RuneId, bound: boolean): number {
+export function stackSpace(p: PlayerComp, rune: RuneId, bound: boolean): number {
   return matchingStacks(p, rune, bound).reduce((n, s) => n + RUNE_STACK - s.count, 0);
 }
 
 /** Moves as much of a plain rune item as fits into existing stacks of a grid. `item` shrinks by what moved. */
-function topUpStacks(p: PlayerComp, item: RuneItem, cells: readonly (ItemUid | null)[] = p.inventory): void {
+export function topUpStacks(p: PlayerComp, item: RuneItem, cells: readonly (ItemUid | null)[] = p.inventory): void {
   if (!isPlainRune(item)) return;
   for (const stack of matchingStacks(p, item.rune, item.bound === true, cells)) {
     const moved = Math.min(item.count, RUNE_STACK - stack.count);
@@ -161,6 +161,46 @@ function layOut(saved: readonly (ItemUid | null)[], size: GridSize, items: Map<I
   return cells;
 }
 
+/**
+ * Lays a stored stash layout back out over items already in `p.items`, under their new uids. Each
+ * item takes the first place that names it; a list only takes items of its kind and up to its cap.
+ * Anything left over (a second place for one uid, a bound item, an item past a cap) is not placed,
+ * so it waits as pending and placePending lays it in wherever there is room: never dropped.
+ */
+function relayStash(p: PlayerComp, saved: StashLayout, re: (u: ItemUid | null) => ItemUid | null): StashLayout {
+  const out = emptyStash();
+  out.general = [];
+  const used = new Set<ItemUid>();
+  const takes = (uid: ItemUid | null): Item | null => {
+    const item = uid === null ? undefined : p.items.get(uid);
+    return item && !used.has(item.uid) && !stashRefuses(item) ? item : null;
+  };
+  for (const tab of saved.general) {
+    if (out.general.length >= STASH_TABS.maxGeneral || out.general.some((t) => t.id === tab.id)) continue;
+    const mine = tab.cells.map(re).map((u) => (takes(u) ? u : null));
+    const cells = layOut(mine, STASH, p.items);
+    for (const u of cells) if (u !== null) used.add(u);
+    out.general.push({ ...tab, cells });
+  }
+  if (out.general.length === 0) out.general.push(newGeneralTab(1));
+  for (const u of saved.runes.list) {
+    const item = takes(re(u));
+    // A plain stack over RUNE_STACK (damaged data) is left out, so pending splits it into bag stacks.
+    if (item && isListableRune(item) && item.count <= RUNE_STACK && out.runes.list.length < STASH_TABS.runeCap) {
+      out.runes.list.push(item.uid);
+      used.add(item.uid);
+    }
+  }
+  for (const u of saved.sigils.list) {
+    const item = takes(re(u));
+    if (item?.kind === 'sigil' && out.sigils.list.length < STASH_TABS.sigilCap) {
+      out.sigils.list.push(item.uid);
+      used.add(item.uid);
+    }
+  }
+  return out;
+}
+
 /** Class starting weapons, so gear exists from the first minute. */
 const STARTER_WEAPONS = { warrior: 'rusty_axe', ranger: 'short_bow', mage: 'gnarled_staff', priest: 'gnarled_staff', binder: 'bone_wand' } as const;
 
@@ -210,7 +250,7 @@ export function restoreSave(sim: Simulation, pid: EntityId, stored: PlayerSave):
   }
   const re = (u: ItemUid | null): ItemUid | null => (u === null ? null : (remap.get(u) ?? null));
   p.inventory = layOut(save.inventory.map(re), BAG, p.items);
-  p.stash = layOut(save.stash.map(re), STASH, p.items);
+  p.stash = relayStash(p, save.stash, re);
   // Saves from when the warband had four slots are padded out to the current size.
   p.warband = Array.from({ length: MINIONS.warbandSlots }, (_, i) => re(save.warband[i] ?? null));
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
@@ -246,26 +286,33 @@ export function nearForge(sim: Simulation, pid: EntityId): boolean {
   return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= FORGE_REACH * FORGE_REACH;
 }
 
-/** Where a rune the forge takes lives: a grid it covers cells of. */
+/** Where a rolled rune the forge takes lives: the bag, or any stash tab. */
 type RuneSource = 'bag' | 'stash';
 
 function runeSource(p: PlayerComp, uid: ItemUid): RuneSource | null {
-  return p.inventory.includes(uid) ? 'bag' : p.stash.includes(uid) ? 'stash' : null;
+  return p.inventory.includes(uid) ? 'bag' : locateInStash(p.stash, uid) ? 'stash' : null;
 }
 
-/** Plain stacks of a rune the forge may spend: the bag's first, bound ones first within each grid. */
-function plainStacks(p: PlayerComp, rune: RuneId): { stack: RuneItem; from: RuneSource }[] {
-  const out: { stack: RuneItem; from: RuneSource }[] = [];
-  for (const [from, cells] of [['bag', p.inventory], ['stash', p.stash]] as const) {
+/**
+ * Where the forge takes a plain rune from, in order: bag stacks (bound ones first), then the rune
+ * tab's stacks, then stacks in general tabs.
+ */
+function plainSources(p: PlayerComp, rune: RuneId): RuneItem[] {
+  const stacksIn = (cells: readonly (ItemUid | null)[]): RuneItem[] => {
     const here: RuneItem[] = [];
     for (const uid of new Set(cells)) {
       const it = uid === null ? undefined : p.items.get(uid);
       if (it?.kind === 'rune' && isPlainRune(it) && it.rune === rune && it.count > 0) here.push(it);
     }
-    here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
-    for (const stack of here) out.push({ stack, from });
-  }
-  return out;
+    return here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+  };
+  return [...stacksIn(p.inventory), ...stacksIn(p.stash.runes.list), ...p.stash.general.flatMap((tab) => stacksIn(tab.cells))];
+}
+
+/** Takes an item out of the bag and every stash place. */
+function unplace(p: PlayerComp, uid: ItemUid): void {
+  removeFrom(p.inventory, uid);
+  removeFromStash(p.stash, uid);
 }
 
 /** One rune for a sigil slot, split off a plain stack: same rune, tier and binding, count 1. */
@@ -299,7 +346,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
   if (!item || item.kind !== 'sigil') return 'Not a sigil you own';
   const slot = p.sigils.findIndex((s) => s?.uid === uid);
   // Only a sigil the character carries: one in the shared stash could carry bound runes to another.
-  if (!inBag(p, uid) && slot < 0) return p.stash.includes(uid) ? 'Take the sigil out of the stash first' : 'That sigil is not in your bag';
+  if (!inBag(p, uid) && slot < 0) return locateInStash(p.stash, uid) ? 'Take the sigil out of the stash first' : 'That sigil is not in your bag';
   if (base && (base.length !== item.slots.length || item.slots.some((r, i) => r.uid !== base[i]))) return 'The sigil changed; look again';
   // The validator refuses these too; checked again because nothing else stops one rune filling two slots.
   const keptIdx = new Set<number>();
@@ -339,10 +386,10 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
         slots.push(made);
         continue;
       }
-      const source = plainStacks(p, r.rune).find(({ stack }) => stack.count > (spend.get(stack.uid) ?? 0));
+      const source = plainSources(p, r.rune).find((stack) => stack.count > (spend.get(stack.uid) ?? 0));
       if (!source) return `You need a ${runeName(r.rune)} Rune`;
-      spend.set(source.stack.uid, (spend.get(source.stack.uid) ?? 0) + 1);
-      const one = oneOf(sim.newItemUid(), source.stack);
+      spend.set(source.uid, (spend.get(source.uid) ?? 0) + 1);
+      const one = oneOf(sim.newItemUid(), source);
       cost += forgeInsertPrice(one);
       slots.push(one);
       continue;
@@ -376,13 +423,12 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
     if (stack?.kind !== 'rune') continue;
     stack.count -= n;
     if (stack.count <= 0) {
-      removeFrom(p.inventory, stackUid);
-      removeFrom(p.stash, stackUid);
+      unplace(p, stackUid);
       p.items.delete(stackUid);
     }
   }
   for (const t of taken) {
-    removeFrom(t.from === 'bag' ? p.inventory : p.stash, t.uid);
+    unplace(p, t.uid);
     p.items.delete(t.uid);
   }
   item.slots = slots;
@@ -736,118 +782,88 @@ export function updateLoot(sim: Simulation, dt: number): void {
 }
 
 
-export function nearStash(sim: Simulation, pid: EntityId): boolean {
-  const at = sim.mapDef.stash;
-  const pos = sim.world.position.get(pid);
-  return !!at && !!pos && distSq(at.x, at.y, pos.x, pos.y) <= STASH_REACH * STASH_REACH;
-}
-
-/**
- * Moves an item within or between the bag and the stash, to the given top-left cell. The stash can
- * only be touched standing at its chest. The target cells must be free (the item itself aside).
- */
-export function moveItem(sim: Simulation, pid: EntityId, uid: ItemUid, to: 'bag' | 'stash', x: number, y: number): string | null {
-  const p = sim.world.player.get(pid);
-  const item = p?.items.get(uid);
-  if (!p || !item) return 'No such item';
-  const from = p.inventory.includes(uid) ? 'bag' : p.stash.includes(uid) ? 'stash' : null;
-  if (!from) return 'Take it off first';
-  if ((from === 'stash' || to === 'stash') && !nearStash(sim, pid)) return 'Stand at the stash to use it';
-  // The stash is shared by the account; a bound item put there would reach every other character.
-  if (to === 'stash' && from === 'bag' && isBound(item)) return 'Bound items stay with this character';
-  if (to === 'stash' && from === 'bag' && holdsBoundRunes(item)) return 'Take the bound runes out first';
-  const size = itemSize(item);
-  const target = to === 'bag' ? p.inventory : p.stash;
-  const dims = to === 'bag' ? BAG : STASH;
-  if (!canPlace(target, dims, size, x, y, from === to ? uid : null)) return 'No room there';
-  removeFrom(from === 'bag' ? p.inventory : p.stash, uid);
-  place(target, dims, uid, size, x, y);
-  settlePending(p);
-  changed(p);
-  return null;
-}
-
 /** Items the character owns that sit in no grid and no slot, waiting for room. */
 export function pendingItems(p: PlayerComp): ItemUid[] {
-  const placed = new Set<ItemUid | null>([...p.inventory, ...p.stash, ...p.warband, ...Object.values(p.gear), ...p.sigils.map((s) => s?.uid ?? null)]);
+  const placed = new Set<ItemUid | null>([...p.inventory, ...stashItemUids(p.stash), ...p.warband, ...Object.values(p.gear), ...p.sigils.map((s) => s?.uid ?? null)]);
   return [...p.items.keys()].filter((uid) => !placed.has(uid));
 }
 
 /**
- * Lays pending items out as far as there is room. A plain rune first tops up matching stacks, the
- * bag's then the stash's, so a refund never takes a cell a stack could hold. Then, on load
- * (`withStash`), what is left goes to the stash first and the bag second; otherwise only to the bag,
- * since the stash is not at hand.
+ * Lays pending items out as far as there is room. A plain rune first tops up matching bag stacks,
+ * so a refund never takes a cell a stack could hold. Then, on load (`withStash`), what is left goes
+ * to the stash, each kind to its tab (plain runes into their rune slot up to its cap, rolled runes and
+ * sigils into their lists while there is room, the rest into the first general tab with room), and
+ * only then to the bag; otherwise only to the bag, since the stash is not at hand.
  */
 function placePending(p: PlayerComp, withStash = true): void {
   for (const uid of pendingItems(p)) {
     const item = p.items.get(uid);
     if (!item) continue;
     // Bound items stay with the character: bag or pending, never the account's shared stash.
-    const bound = isBound(item) || holdsBoundRunes(item);
-    const stash = withStash && !bound;
+    const stash = withStash && stashRefuses(item) === null;
     if (item.kind === 'rune' && isPlainRune(item)) {
       topUpStacks(p, item);
-      if (stash) topUpStacks(p, item, p.stash);
+      if (stash) topUpStacks(p, item, p.stash.runes.list);
       if (item.count <= 0) {
         p.items.delete(uid);
         continue;
       }
     }
+    // A stack past RUNE_STACK (damaged data) is kept out of the rune tab, which never holds one.
+    if (stash && isListableRune(item) && item.count <= RUNE_STACK && p.stash.runes.list.length < STASH_TABS.runeCap) {
+      p.stash.runes.list.push(uid);
+      continue;
+    }
+    if (stash && item.kind === 'sigil' && p.stash.sigils.list.length < STASH_TABS.sigilCap) {
+      p.stash.sigils.list.push(uid);
+      continue;
+    }
     const s = itemSize(item);
-    const inStash = stash ? findSpot(p.stash, STASH, s) : null;
-    if (inStash) place(p.stash, STASH, uid, s, inStash.x, inStash.y);
-    else stow(p, uid);
+    let placed = false;
+    for (const tab of stash ? p.stash.general : []) {
+      const spot = findSpot(tab.cells, STASH, s);
+      if (!spot) continue;
+      place(tab.cells, STASH, uid, s, spot.x, spot.y);
+      placed = true;
+      break;
+    }
+    if (!placed) stow(p, uid);
   }
 }
 
 /** After anything that can free bag room: pending items move in by themselves. */
-function settlePending(p: PlayerComp): void {
+export function settlePending(p: PlayerComp): void {
   if (pendingItems(p).length === 0) return;
   placePending(p, false);
   changed(p);
 }
 
-/** The account stash as stored, apart from any character. */
-export interface StashSave {
-  items: Item[];
-  cells: (ItemUid | null)[];
-  runeFormat: 2;
-}
-
 /** Splits the stash off a character save, so it can be stored once per account. */
 export function splitStash(save: PlayerSave): { character: PlayerSave; stash: StashSave } {
-  const inStash = new Set(save.stash.filter((u): u is ItemUid => u !== null));
+  const inStash = new Set(stashItemUids(save.stash));
   return {
-    character: { ...save, items: save.items.filter((i) => !inStash.has(i.uid)), stash: emptyGrid(STASH) },
-    stash: { items: save.items.filter((i) => inStash.has(i.uid)), cells: [...save.stash], runeFormat: 2 },
+    character: { ...save, items: save.items.filter((i) => !inStash.has(i.uid)), stash: emptyStash() },
+    stash: { ...cloneLayout(save.stash), runeFormat: 2, items: save.items.filter((i) => inStash.has(i.uid)) },
   };
 }
 
-/** Loads the account stash into a character that just joined. Uids (sigil slots too) are reissued for this room. */
+/**
+ * Loads the account stash into a character that just joined. Uids (sigil slots too) are reissued
+ * for this room. The stash converts to tabs (convertStashTabs) before it gets here.
+ */
 export function restoreStash(sim: Simulation, pid: EntityId, stored: StashSave): void {
   const p = sim.world.player.get(pid);
   if (!p) return;
-  const stash = stored.runeFormat === 2 ? stored : convertStash(stored).stash;
+  // The character's own stash layout (anything restoreSave laid into it) gives way to the
+  // account's: its items become pending and are laid in around the account's below.
   const remap = new Map<ItemUid, ItemUid>();
-  for (const item of stash.items) {
+  for (const item of stored.items) {
     const copy = reissueUids(item, () => sim.newItemUid());
     remap.set(item.uid, copy.uid);
     p.items.set(copy.uid, copy);
   }
-  // The account's own items keep their cells, so whatever the character spilled in from an old bag
-  // is taken out first and laid in around them afterwards.
-  p.stash = emptyGrid(STASH);
-  const cells = stash.cells.length === STASH.w * STASH.h ? stash.cells : emptyGrid(STASH);
-  for (const { uid, x, y } of placements(cells, STASH)) {
-    const mine = remap.get(uid);
-    const item = mine === undefined ? undefined : p.items.get(mine);
-    if (!item || mine === undefined) continue;
-    const s = itemSize(item);
-    const spot = canPlace(p.stash, STASH, s, x, y) ? { x, y } : findSpot(p.stash, STASH, s);
-    if (spot) place(p.stash, STASH, mine, s, spot.x, spot.y);
-  }
-  // Account items that lost their cell, then the character's spill, go wherever there is room;
+  p.stash = relayStash(p, stored, (u) => (u === null ? null : (remap.get(u) ?? null)));
+  // Account items that lost their place, then the character's spill, go wherever there is room;
   // anything left over stays pending with the character rather than vanishing.
   placePending(p);
   changed(p);

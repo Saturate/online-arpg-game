@@ -5,8 +5,11 @@ import { STANCES, type Stance } from '../data/minions.js';
 import { BASE_TUNING, type MonsterTuning } from '../data/tuning.js';
 import type { GearSlot } from '../data/gear.js';
 import type { Item, ItemUid } from '../items/items.js';
-import type { RuneRef } from '../protocol/messages.js';
-import { BAG, emptyGrid, STASH } from '../items/grid.js';
+import type { GridDest, ItemDest, RuneRef } from '../protocol/messages.js';
+import type { StashColorId } from '../config/stash.js';
+import type { AffixId } from '../data/affixes.js';
+import { BAG, emptyGrid } from '../items/grid.js';
+import { cloneLayout, emptyStash, type StashLayout, type StashSortKey, type StashTabRef } from '../items/stash.js';
 import { BUTTON, SKILL_BUTTONS, type GameEvent, type InputFrame } from '../protocol/messages.js';
 import type { GameMap } from '../world/gamemap.js';
 import { loadMap } from '../world/maps.js';
@@ -17,6 +20,7 @@ import type { ArenaState } from './arena.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
 import * as inv from './inventory.js';
+import * as stash from './stash.js';
 import { distSq, type Vec2 } from './math.js';
 import { despawnMinion } from './minions.js';
 import { stepPlayer } from './movement.js';
@@ -38,7 +42,7 @@ export interface PlayerSave {
   items: Item[];
   inventory: (ItemUid | null)[];
   /** Account stash. The server stores it per account, apart from the character. */
-  stash: (ItemUid | null)[];
+  stash: StashLayout;
   sigils: (ItemUid | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
@@ -195,7 +199,7 @@ export class Simulation {
       dashSpell: null,
       items: new Map(),
       inventory: emptyGrid(BAG),
-      stash: emptyGrid(STASH),
+      stash: emptyStash(),
       sigils: [null, null, null, null],
       warband: new Array<ItemUid | null>(MINIONS.warbandSlots).fill(null),
       gear: { weapon: null, helmet: null, body: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
@@ -238,7 +242,7 @@ export class Simulation {
       name: p.name,
       items: [...p.items.values()],
       inventory: [...p.inventory],
-      stash: [...p.stash],
+      stash: cloneLayout(p.stash),
       sigils: p.sigils.map((s) => s?.uid ?? null),
       warband: [...p.warband],
       gear: { ...p.gear },
@@ -367,8 +371,28 @@ export class Simulation {
     return inv.pickupLoot(this, id, lootId);
   }
 
-  moveItem(id: EntityId, uid: ItemUid, to: 'bag' | 'stash', x: number, y: number): string | null {
-    return inv.moveItem(this, id, uid, to, x, y);
+  moveItem(id: EntityId, uid: ItemUid, to: ItemDest): string | null {
+    return stash.moveItem(this, id, uid, to);
+  }
+
+  quickMove(id: EntityId, uid: ItemUid, openTab: number | null): string | null {
+    return stash.quickMove(this, id, uid, openTab);
+  }
+
+  takeRunes(id: EntityId, uid: ItemUid, count: number, to: GridDest | null): string | null {
+    return stash.takeRunes(this, id, uid, count, to);
+  }
+
+  sortStash(id: EntityId, tab: StashTabRef, key: StashSortKey | null, affix: AffixId | null): string | null {
+    return stash.sortStash(this, id, tab, key, affix);
+  }
+
+  buyStashTab(id: EntityId): string | null {
+    return stash.buyStashTab(this, id);
+  }
+
+  editStashTab(id: EntityId, tab: number, name: string, color: StashColorId): string | null {
+    return stash.editStashTab(this, id, tab, name, color);
   }
 
   cycleStance(id: EntityId): void {

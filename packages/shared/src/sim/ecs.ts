@@ -5,6 +5,7 @@ import type { EnemyDef, EnemyTypeId } from '../data/enemies.js';
 import type { MinionDef, MinionTypeId, Stance } from '../data/minions.js';
 import type { ElementId } from './program.js';
 import type { AffixRoll, Item, ItemUid } from '../items/items.js';
+import type { StashLayout } from '../items/stash.js';
 import type { SigilCompile } from '../runes/v2/compile.js';
 import type { SpellNode } from './program.js';
 import type { GearSlot } from '../data/gear.js';
@@ -73,8 +74,8 @@ export interface PlayerComp {
   items: Map<ItemUid, Item>;
   /** Bag grid (BAG), one entry per cell; see items/grid.ts. */
   inventory: (ItemUid | null)[];
-  /** The account's shared stash grid (STASH), loaded with the character and saved per account. */
-  stash: (ItemUid | null)[];
+  /** The account's shared stash in tabs, loaded with the character and saved per account. */
+  stash: StashLayout;
   sigils: (EquippedSigil | null)[];
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;

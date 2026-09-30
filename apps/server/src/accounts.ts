@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertTraderShelf, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -93,6 +93,13 @@ export interface LoadedStash {
   refundGold: number;
 }
 
+/** A single-grid stash split into tabs on load; logged so the server log shows where things went. */
+function logTabsConversion(accountId: number, r: StashTabsReport): void {
+  const stayed = r.stayed.map((x) => `${x.count} ${x.reason}`).join(', ') || 'none';
+  console.log(`account ${accountId} stash converted to tabs: ${r.runesToTab} rune items (${r.runeUnitsToTab} runes) to the rune tab, ${r.sigilsToTab} sigils to the sigil tab; runes and sigils left in tab 1: ${stayed}`);
+  for (const w of r.warnings) console.log(`  account ${accountId} stash tabs: ${w}`);
+}
+
 /** A v1 row converted on load; logged so the server log shows what each account got. */
 function logConversion(what: string, r: ConversionReport): void {
   const mapped = r.runesMapped.map((m) => `${m.from}->${m.to} x${m.count}`).join(', ') || 'none';
@@ -116,11 +123,12 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     // Saves from before levels existed start at level 1.
     const level: unknown = Reflect.get(v, 'level');
     const xp: unknown = Reflect.get(v, 'xp');
-    // Saves from before the stash have none; the account's stash is loaded separately anyway.
-    const stash: unknown = Reflect.get(v, 'stash');
+    // Saves from before the stash have none, and saves from before tabs hold a grid; the account's
+    // stash is loaded separately anyway. A layout that cannot be read throws, so the save is kept.
+    const stash = saveStashLayout(Reflect.get(v, 'stash'));
     return {
       ...v,
-      stash: Array.isArray(stash) ? stash.map((c: unknown) => (typeof c === 'number' ? c : null)) : [],
+      stash,
       // Saves from before gold have none.
       gold: typeof Reflect.get(v, 'gold') === 'number' && Number.isFinite(Reflect.get(v, 'gold')) ? Math.max(0, Math.floor(Number(Reflect.get(v, 'gold')))) : 0,
       waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
@@ -487,14 +495,15 @@ export class AccountStore {
     if (typeof raw !== 'string') return null;
     try {
       const stored: unknown = JSON.parse(raw);
+      // Two one-time conversions, in order: v1 runes to v2 items, then the single grid to tabs. Either
+      // throws on data it cannot read, which lands below and refuses the join.
       const conversion = isRuneFormat2(stored) ? null : convertStash(stored);
       if (conversion) logConversion(`account ${accountId} stash`, conversion.report);
-      const v: unknown = conversion ? conversion.stash : stored;
-      if (!isRecord(v) || !Array.isArray(v.items) || !Array.isArray(v.cells)) return 'unreadable';
-      const items = v.items.filter(isStoredItem);
-      if (items.length !== v.items.length) return 'unreadable';
-      const cells = v.cells.map((c: unknown) => (typeof c === 'number' ? c : null));
-      return { stash: { items, cells, runeFormat: 2 }, refundGold: conversion?.report.gold ?? 0 };
+      const runes: unknown = conversion ? conversion.stash : stored;
+      const tabs = convertStashTabs(runes);
+      if (!isStashFormat2(runes)) logTabsConversion(accountId, tabs.report);
+      if (!tabs.stash.items.every(isStoredItem)) return 'unreadable';
+      return { stash: tabs.stash, refundGold: conversion?.report.gold ?? 0 };
     } catch (err) {
       console.error(`account ${accountId} stash could not be read: ${err instanceof Error ? err.message : String(err)}`);
       return 'unreadable';

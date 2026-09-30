@@ -1,4 +1,4 @@
-import { createRolledRune, createRune, createSigil, emptyGrid, forgeInsertPrice, Rng, STASH, type PlayerSave, type StashSave } from '@rune/shared';
+import { createRolledRune, createRune, createSigil, emptyStash, forgeInsertPrice, Rng, stashItemUids, type PlayerSave, type StashSave } from '@rune/shared';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,14 +35,14 @@ describe('inscribe on the server', () => {
     const rng = new Rng(5);
     const sigil = createSigil(90_001, rng, 'rare');
     const rolled = createRolledRune(90_002, rng, 'rare', 6, 'orb');
-    const fire = createRune(90_003, 'fire', 3);
     const save: PlayerSave = { ...stored, items: [...stored.items, sigil], inventory: [...stored.inventory], gold: 1000 };
     const free = save.inventory.indexOf(null);
     save.inventory[free] = sigil.uid;
-    const cells = emptyGrid(STASH);
-    cells[0] = rolled.uid;
-    cells[1] = fire.uid;
-    const stash: StashSave = { items: [rolled, fire], cells, runeFormat: 2 };
+    // The rolled rune and a stack of three Fire in the rune tab.
+    const fire = createRune(90_003, 'fire', 3);
+    const layout = emptyStash();
+    layout.runes.list.push(rolled.uid, fire.uid);
+    const stash: StashSave = { ...layout, items: [rolled, fire], runeFormat: 2 };
     store.saveCharacterAndStash(characterId, save, accountId, stash);
 
     const socket = join1(rooms, store, accountId, characterId);
@@ -59,10 +59,9 @@ describe('inscribe on the server', () => {
     room.tick();
     const inv = socket.last('inventory');
     if (!inv) throw new Error('no inventory sent');
-    const { items, stash: stashCells } = inv;
-    const find = (pred: (i: (typeof items)[number]) => boolean) => items.find((i) => pred(i) && stashCells.includes(i.uid));
-    const stashedRolled = find((i) => i.kind === 'rune' && i.affixes.length > 0);
-    const stashedFire = find((i) => i.kind === 'rune' && i.rune === 'fire');
+    const stashed = new Set(stashItemUids(inv.stash));
+    const stashedRolled = inv.items.find((i) => i.kind === 'rune' && i.affixes.length > 0 && stashed.has(i.uid));
+    const stashedFire = inv.items.find((i) => i.kind === 'rune' && i.rune === 'fire' && inv.stash.runes.list.includes(i.uid));
     const bagSigil = inv.items.find((i) => i.kind === 'sigil' && i.slots.length === 0 && inv.inventory.includes(i.uid));
     if (!stashedRolled || !stashedFire || !bagSigil) throw new Error('stash not sent');
 
@@ -74,6 +73,7 @@ describe('inscribe on the server', () => {
     if (!after || after === 'unreadable') throw new Error('stash lost');
     const runes = after.stash.items.flatMap((i) => (i.kind === 'rune' ? [[i.rune, i.count, i.affixes.length > 0]] : []));
     expect(runes).toEqual([['fire', 2, false]]);
+    expect(after.stash.runes.list).toHaveLength(1);
     const character2 = store.loadCharacter(accountId, characterId)?.save;
     const inscribed = character2?.items.find((i) => i.kind === 'sigil' && i.name === sigil.name);
     expect(inscribed?.kind === 'sigil' && inscribed.slots.map((r) => [r.rune, r.affixes.length > 0])).toEqual([
