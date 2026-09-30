@@ -25,7 +25,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 ### Affixes and rolls
 
 - **One affix engine** serves gear, sigils, vessels, runes and rare monsters, with tiers, weights, allowed item kinds and prefix or suffix (SPEC).
-- **Affix counts:** common 0, magic 1 to 2, rare 3 to 4, relic 4 to 5, with at most 3 prefixes and 3 suffixes. Affixes in the same group are mutually exclusive, so a vessel has at most one behaviour and a rune at most one release.
+- **Affix counts:** common 0, magic 1 to 2, rare 3 to 4, relic 4 to 5, with at most 3 prefixes and 3 suffixes. Affixes in the same group are mutually exclusive, so a vessel has at most one behaviour and a rune at most one release. The one exception is Brothers Creation, a hand-made item only the owner's Grant item tool creates: its four fixed top-tier affixes are all prefixes, which no drop can roll.
 - **Item level** is the monster level an item dropped from, and it gates affix tiers: T2 from item level 3, T3 from 5. The tier's own cap also applies, so magic items never get T3.
 - **Level requirement:** item level minus 2, checked on the server when equipping ([characters.md](characters.md)).
 - **Corruption:** magic or better sigil drops have an 8% chance. A corrupted sigil gets +1 rune slot and 1.5x misfire chance.
