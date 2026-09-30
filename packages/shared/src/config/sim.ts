@@ -218,6 +218,8 @@ export const ARENA = {
 export const LOOT = {
   bagLifetimeSeconds: 90,
   bagRadius: 16,
+  /** How far a dropper walks from where they dropped a bag before they can take it back: about two strides. */
+  dropStepAway: 70,
   /** Slowed on purpose (was 0.14): drops should feel like an event, and gear should last a while. */
   normalDropChance: 0.08,
   gearShareOfDrops: 0.5,

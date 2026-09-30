@@ -220,8 +220,12 @@ export interface LootComp {
   /** Gold on the ground; picked up by walking over it, unlike items which need a click. */
   gold: number;
   lifetime: number;
-  /** A dropped item is not picked back up by the same player until they walk away. */
-  ignoreFor: EntityId | null;
+  /**
+   * Who dropped the bag and where they stood. They cannot take it back until they have walked
+   * LOOT.dropStepAway from that spot, measured from the spot rather than the bag because a crowded
+   * floor scatters a drop up to a few bag widths away.
+   */
+  dropper: { id: EntityId; x: number; y: number } | null;
 }
 
 export interface StatusComp {

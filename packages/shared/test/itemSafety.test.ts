@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
-import { addItem, discard, pickupLoot, spawnBag } from '../src/sim/inventory.js';
+import { addItem, discard, pickupLoot, spawnBag, spawnGold, updateLoot } from '../src/sim/inventory.js';
 import { moveItem } from '../src/sim/stash.js';
 import { inStash, stashOf, tab1 } from './helpers/stash.js';
 import {
@@ -17,6 +17,7 @@ import {
   forgeInsertPrice,
   holdsBoundRunes,
   itemSize,
+  LOOT,
   parseClientMessage,
   pendingItems,
   placements,
@@ -47,6 +48,15 @@ function standAt(pos: { x: number; y: number }, at: { x: number; y: number } | u
   if (!at) throw new Error('no such spot');
   pos.x = at.x + 50;
   pos.y = at.y;
+}
+
+/** Walks the dropper far enough from where they dropped for the bag to let them take it back. */
+function stepAwayAndBack(sim: Simulation, pos: { x: number; y: number }): void {
+  const home = { x: pos.x, y: pos.y };
+  pos.x += LOOT.dropStepAway + 10;
+  updateLoot(sim, 0);
+  pos.x = home.x;
+  pos.y = home.y;
 }
 
 function blankSigil(sim: Simulation) {
@@ -486,9 +496,61 @@ describe('item safety', () => {
     expect(p.items.has(r.uid)).toBe(false);
     const bagId = [...sim.world.loot.keys()].at(-1);
     if (bagId === undefined) throw new Error('no bag');
+    stepAwayAndBack(sim, pos);
     fillBag(sim, p);
     expect(pickupLoot(sim, pid, bagId)).toBe('No room in your bag');
     expect(sim.world.loot.get(bagId)?.items.length).toBe(1);
+  });
+
+  it('the dropper cannot click their own drop back up until they step away', () => {
+    const { sim, pid, p, pos } = town();
+    const ring = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1, { category: 'ring' });
+    addItem(p, ring);
+    expect(discard(sim, pid, ring.uid)).toBeNull();
+    const bagId = [...sim.world.loot.keys()].at(-1);
+    if (bagId === undefined) throw new Error('no bag');
+    const before = state(p);
+    expect(pickupLoot(sim, pid, bagId)).toBe('Step away before taking back your own drop');
+    // Standing still, or shuffling on the spot, keeps the bag on the ground.
+    pos.x += 20;
+    updateLoot(sim, 0);
+    expect(pickupLoot(sim, pid, bagId)).toBe('Step away before taking back your own drop');
+    expect(state(p)).toBe(before);
+    expect(sim.world.loot.get(bagId)?.items.map((i) => i.uid)).toEqual([ring.uid]);
+
+    pos.x -= 20;
+    stepAwayAndBack(sim, pos);
+    expect(pickupLoot(sim, pid, bagId)).toBeNull();
+    expect(p.inventory.includes(ring.uid)).toBe(true);
+    expect(p.items.get(ring.uid)).toBe(ring);
+    expect(sim.world.isAlive(bagId)).toBe(false);
+  });
+
+  it('another player can take a fresh drop straight away, whole and once', () => {
+    const { sim, pid, p, pos } = town();
+    const ring = createGear(sim.newItemUid(), sim.rand.loot, 'magic', 1, { category: 'ring' });
+    addItem(p, ring);
+    expect(discard(sim, pid, ring.uid)).toBeNull();
+    const bagId = [...sim.world.loot.keys()].at(-1);
+    if (bagId === undefined) throw new Error('no bag');
+    const other = sim.addPlayer('d', 'warrior');
+    const q = sim.world.player.get(other);
+    const opos = sim.world.position.get(other);
+    if (!q || !opos) throw new Error('setup');
+    opos.x = pos.x;
+    opos.y = pos.y;
+    expect(pickupLoot(sim, other, bagId)).toBeNull();
+    expect(q.inventory.includes(ring.uid)).toBe(true);
+    expect(p.items.has(ring.uid)).toBe(false);
+    expect(sim.world.isAlive(bagId)).toBe(false);
+  });
+
+  it('gold is still picked up by walking over it, whoever stands there', () => {
+    const { sim, p, pos } = town();
+    const gold = p.gold;
+    spawnGold(sim, pos.x, pos.y, 25);
+    updateLoot(sim, 0);
+    expect(p.gold).toBe(gold + 25);
   });
 
   it('sort keeps runes grouped by rune, rolled ahead of plain', () => {

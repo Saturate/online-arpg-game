@@ -686,13 +686,13 @@ function freeBagSpot(sim: Simulation, x: number, y: number, radius: number): { x
   return { x, y };
 }
 
-export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, ignoreFor: EntityId | null): void {
+export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, dropper: EntityId | null): void {
   const w = sim.world;
   const spot = freeBagSpot(sim, x, y, radius);
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, radius);
-  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, ignoreFor });
+  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, dropper: dropper === null ? null : { id: dropper, x, y } });
 }
 
 export function spawnGold(sim: Simulation, x: number, y: number, amount: number): void {
@@ -702,7 +702,7 @@ export function spawnGold(sim: Simulation, x: number, y: number, amount: number)
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, LOOT.bagRadius);
-  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, ignoreFor: null });
+  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, dropper: null });
 }
 
 /** A click on a ground bag: takes what fits if the player is close enough. Returns why not, or null. */
@@ -718,6 +718,9 @@ export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): st
   const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach + LOOT.pickupLagSlack;
   if (distSq(pos.x, pos.y, at.x, at.y) > reach * reach) return 'Too far away';
   if (!sim.map.lineClear(pos.x, pos.y, at.x, at.y, 0, 'shots')) return 'Out of reach';
+  // A drop is meant to leave the bag: a click on the item just dropped would put it straight back.
+  // updateLoot lifts this once the dropper steps away.
+  if (bag.dropper?.id === pid && bag.items.length > 0) return 'Step away before taking back your own drop';
   const before = bag.items.length;
   bag.items = bag.items.filter((item) => !takeFromGround(p, item));
   const taken = before - bag.items.length;
@@ -747,7 +750,10 @@ export function bestTier(items: readonly Item[]): (typeof ITEM_TIERS)[number] {
   return ITEM_TIERS[best] ?? 'common';
 }
 
-/** Walking over gold picks it up; items wait for a click (pickupLoot), D2 style. */
+/**
+ * Walking over gold picks it up; items wait for a click (pickupLoot), D2 style. A bag's dropper is
+ * ignored until they step away, for gold and clicks alike.
+ */
 export function updateLoot(sim: Simulation, dt: number): void {
   const w = sim.world;
   for (const [id, bag] of w.loot) {
@@ -758,16 +764,19 @@ export function updateLoot(sim: Simulation, dt: number): void {
       continue;
     }
     const r = w.radius.get(id) ?? LOOT.bagRadius;
+    const dropper = bag.dropper;
+    if (dropper) {
+      const dpos = w.position.get(dropper.id);
+      // A dropper who left the room, or died, has stepped away as far as the bag is concerned.
+      if (!dpos || w.player.get(dropper.id)?.respawnIn !== null || distSq(dpos.x, dpos.y, dropper.x, dropper.y) > LOOT.dropStepAway ** 2) bag.dropper = null;
+    }
     for (const [pid, p] of w.player) {
       if (p.respawnIn !== null) continue;
       const ppos = w.position.get(pid);
       const reach = r + (w.radius.get(pid) ?? 0);
       if (!ppos) continue;
+      if (bag.dropper?.id === pid) continue;
       const d2 = distSq(pos.x, pos.y, ppos.x, ppos.y);
-      if (bag.ignoreFor === pid) {
-        if (d2 > (reach + 40) ** 2) bag.ignoreFor = null;
-        continue;
-      }
       if (d2 > reach * reach || bag.gold === 0) continue;
       p.gold += bag.gold;
       bag.gold = 0;

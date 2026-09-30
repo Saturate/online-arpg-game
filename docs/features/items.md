@@ -15,7 +15,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 - **New items** (picked up, bought, a rune stack that grew) get an ember mark until hovered.
 - **Sort** packs the bag on the server: gear by slot, then sigils, vessels, runes; within each, tier, item level and name.
 - **The trader** at the stall nearest the town spawn buys anything unbound for gold and sells from one shelf shared by the whole server.
-- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first).
+- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first). A dropped item lands as a bag at your feet that you cannot click back up until you step away; others can take it ([loot.md](loot.md)).
 
 ## Why
 

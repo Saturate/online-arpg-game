@@ -7,6 +7,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles a
 - **Monsters drop bags.** A bag lies on the ground for 90 s. Rare and relic item names always show over it; hold Alt to show every label.
 - **Click a bag or its label to pick it up.** The hero walks there first. Any other click cancels the walk, and so do movement keys or a bag with no path to it.
 - **Gold** drops as its own pile and is picked up by walking over it.
+- **Your own drop stays down until you step away.** A bag you drop from the inventory cannot be clicked back up by you until you have walked `LOOT.dropStepAway` (70 units, about two strides) from where you stood; the click answers "Step away before taking back your own drop". Anyone else can take it at once. Leaving the room or dying lifts the rule too.
 - **Bosses drop 4 items, rares 1 or 2, normal monsters one item 8% of the time.**
 - **Clearing a dungeon** (killing its boss) opens a cache of 3 rare-or-better items one level up, on top of the boss's own drops.
 - **Nothing drops in the Arena** ([arena.md](arena.md)).
@@ -15,6 +16,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles a
 ## Why
 
 - **Items wait on the ground until clicked,** instead of being picked up on walk-over, so the bag does not fill with things you did not want. Gold still goes on walk-over, since it takes no room.
+- **The dropper rule** makes a drop mean "leave it here": without it, a stray click on the bag you just dropped (it lands at your feet) put the item straight back. It is measured from where the dropper stood, not from the bag, because a crowded floor scatters a drop up to a few bag widths away, which would lift a bag-distance rule at once.
 - **Loot pace:** normal monsters drop 8% of the time (slowed from 14%, so drops feel like an event and gear lasts a while). Tier weights lean common and magic: a relic is about 1 in 300 normal drops.
 
 | Source | Items | common | magic | rare | relic |
@@ -42,7 +44,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles a
 - Loot simulator: `apps/client/src/dev/LootTab.tsx`, `dev/loot/lootStats.ts`.
 
 ```ts
-interface LootComp { items: Item[]; gold: number; lifetime: number; ignoreFor: number | null }
+interface LootComp { items: Item[]; gold: number; lifetime: number; dropper: { id: number; x: number; y: number } | null }
 ```
 
 Admin tunable: `lootRate` (0 to 20, default 1) multiplies the normal drop chance and the gold chance, and scales rare and boss item counts, up to 24 items a bag. It does not scale gold amounts or the dungeon cache.
@@ -51,7 +53,7 @@ Tests:
 
 - `packages/shared/test/drops.test.ts`: `rollDrops` matches the simulation item for item, is deterministic, and handles loot rates of 1, 0, scaled and capped.
 - `packages/shared/test/progression.test.ts`: dropped bags scatter so they never stack on one spot.
-- `packages/shared/test/itemSafety.test.ts`: no pickup through walls; dev monsters, splitter children and raised monsters pay nothing.
+- `packages/shared/test/itemSafety.test.ts`: no pickup through walls; dev monsters, splitter children and raised monsters pay nothing; the dropper cannot click their own drop back until they step away, another player can take it at once, and gold still goes on walk-over.
 - `packages/shared/test/systems.test.ts`: rare enemies drop items to click up and gold to walk over.
 - `packages/shared/test/dungeon.test.ts`: the boss clears the run once and opens the cache.
 - `apps/client/test/loot.test.ts`: the loot simulator is deterministic and respects share overrides and item-level affix caps.
@@ -71,6 +73,6 @@ Owner decisions from 2026-09-30. Not built.
 
 ## Limits and open questions
 
-- **The dropper rule does not hold for items today.** A dropped bag carries `ignoreFor` (the dropper) until they step away, but only the gold walk-over loop reads it; click pickup does not, so you can click your own drop straight back up. The rule dates from walk-over item pickup. Loot piles need to decide whether it still matters.
+- **Loot piles and the dropper rule:** when drops merge into piles, the rule has to hold per item (your own drop inside a shared pile), not per bag.
 - `lootRate` does not scale gold amounts, which an admin raising loot for an event might expect.
 - The loot simulator does not simulate gold or the dungeon cache.
