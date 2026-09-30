@@ -3,6 +3,7 @@ import { ASSETS, type AssetCategory } from '../render/assets.js';
 import { AssetViewer } from './assetViewer.js';
 import { readLink, writeLink } from './deepLink.js';
 import { BUILTIN_MODELS, bakeClips, buildBuiltin, exportBuiltin } from './builtinModels.js';
+import { exportAsset } from './modelExport.js';
 
 /** `built-in` is the monsters models.ts builds in code; the rest are model files in the registry. */
 type Category = AssetCategory | 'built-in';
@@ -52,6 +53,7 @@ export function AssetsTab() {
 
   const builtin = category === 'built-in';
   const list = builtin ? [] : ASSETS.filter((a) => a.category === category);
+  const shownAsset = builtin ? undefined : list.find((a) => a.id === selected);
   const shownBuiltin = builtin ? (BUILTIN_MODELS.find((b) => b.id === selected) ?? BUILTIN_MODELS[0]) : undefined;
   return (
     <div className="dev-split">
@@ -73,7 +75,7 @@ export function AssetsTab() {
         </div>
         {builtin ? (
           <>
-            <p className="muted small">Built in code (models.ts), not from a file. Export saves a .glb in metres for Blender, with Idle, Walk and Attack baked from the game's code.</p>
+            <p className="muted small">Built in code (models.ts), not from a file. Export saves a .glb for Blender (metres, facing the Front view, feet at the origin) with every animation role baked from the game's rig driver.</p>
             {shownBuiltin && (
               <button
                 type="button"
@@ -94,9 +96,25 @@ export function AssetsTab() {
             </ul>
           </>
         ) : (
-          <button type="button" className={selected === null ? 'on wide' : 'wide'} onClick={() => setSelected(null)}>
-            Gallery: all {list.length}
-          </button>
+          <>
+            <button type="button" className={selected === null ? 'on wide' : 'wide'} onClick={() => setSelected(null)}>
+              Gallery: all {list.length}
+            </button>
+            {shownAsset && (
+              <button
+                type="button"
+                className="wide"
+                onClick={() => {
+                  setStatus('Exporting...');
+                  exportAsset(shownAsset)
+                    .then(() => setStatus(''))
+                    .catch((e: unknown) => setStatus(e instanceof Error ? e.message : 'Export failed'));
+                }}
+              >
+                Export {shownAsset.label} as .glb
+              </button>
+            )}
+          </>
         )}
         <ul className="dev-list">
           {list.map((a) => (
