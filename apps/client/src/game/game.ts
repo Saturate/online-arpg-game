@@ -948,7 +948,9 @@ export class Game {
           if (ev.id === this.playerId) this.lastFizzle = ev.why === 'misfire' ? 'misfire' : `dud: ${ev.reason ?? '?'}`;
           break;
         case 'pickup':
-          if (ev.id === this.playerId) useUi.getState().notify(`Picked up ${ev.count} item${ev.count > 1 ? 's' : ''}`);
+          if (ev.id !== this.playerId) break;
+          if (ev.gold !== undefined && ev.gold > 0) useUi.getState().notify(`Picked up ${ev.gold} gold`);
+          else if (ev.count > 0) useUi.getState().notify(`Picked up ${ev.count} item${ev.count > 1 ? 's' : ''}`);
           break;
         default:
           break;

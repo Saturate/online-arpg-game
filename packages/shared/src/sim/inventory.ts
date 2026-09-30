@@ -782,10 +782,11 @@ export function updateLoot(sim: Simulation, dt: number): void {
       if (bag.dropper?.id === pid) continue;
       const d2 = distSq(pos.x, pos.y, ppos.x, ppos.y);
       if (d2 > reach * reach || bag.gold === 0) continue;
-      p.gold += bag.gold;
+      const gold = bag.gold;
+      p.gold += gold;
       bag.gold = 0;
       changed(p);
-      sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: 0 }, pos.x, pos.y);
+      sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: 0, gold }, pos.x, pos.y);
       if (bag.items.length === 0) {
         w.destroy(id);
         break;

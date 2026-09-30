@@ -222,7 +222,7 @@ export type GameEvent =
   | { e: 'death'; id: EntityId; x: number; y: number; k: 'enemy' | 'player' | 'minion'; color: number; big: boolean }
   | { e: 'fizzle'; id: EntityId; x: number; y: number; why: 'dud' | 'misfire'; reason: RuleId | null }
   | { e: 'explode'; x: number; y: number; r: number }
-  | { e: 'pickup'; id: EntityId; x: number; y: number; count: number }
+  | { e: 'pickup'; id: EntityId; x: number; y: number; count: number; gold?: number }
   | { e: 'cast'; id: EntityId; x: number; y: number; el: ElementId | null }
   /** A monster or minion attacking, so clients can play the attack animation. */
   | { e: 'attack'; id: EntityId }
