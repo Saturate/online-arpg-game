@@ -4,6 +4,7 @@ import { takeResume } from '../game/update.js';
 import { api } from '../net/api.js';
 import { cssColor } from '../render/config.js';
 import { useUi } from './store.js';
+import { patternHint } from './validity.js';
 
 function lastPlayed(at: number): string {
   if (at === 0) return 'Never played';
@@ -62,7 +63,7 @@ function CreateCharacter({ token, onCreated, onCancel }: { token: string; onCrea
           maxLength={16}
           name="character-name"
           pattern={ACCOUNT_RULES.characterNamePattern.source}
-          title="3 to 16 characters, starting with a letter"
+          {...patternHint('3 to 16 characters, starting with a letter')}
           placeholder="Wanderer"
           required
           autoFocus
@@ -117,7 +118,7 @@ function ClaimGuest({ token, onClaimed }: { token: string; onClaimed: () => void
           {error && <p className="error">{error}</p>}
           <label>
             Username
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" maxLength={16} pattern={ACCOUNT_RULES.usernamePattern.source} title="3 to 16 letters, digits or underscores" required autoFocus />
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" maxLength={16} pattern={ACCOUNT_RULES.usernamePattern.source} {...patternHint('3 to 16 letters, digits or underscores')} required autoFocus />
           </label>
           <label>
             Password

@@ -2,6 +2,7 @@ import { ACCOUNT_RULES } from '@rune/shared';
 import { useState, type FormEvent } from 'react';
 import { api } from '../net/api.js';
 import { useUi } from './store.js';
+import { patternHint } from './validity.js';
 
 export function Login() {
   const setSession = useUi((s) => s.setSession);
@@ -38,7 +39,7 @@ export function Login() {
             autoComplete="username"
             maxLength={16}
             pattern={ACCOUNT_RULES.usernamePattern.source}
-            title="3 to 16 letters, digits or underscores"
+            {...patternHint('3 to 16 letters, digits or underscores')}
             required
             autoFocus
           />
