@@ -392,6 +392,7 @@ export function corruptTint(m: MeshStandardMaterial): Color | null {
 
 const GLB_MAGIC = 0x46546c67;
 const CHUNK_JSON = 0x4e4f534a;
+const CHUNK_BIN = 0x004e4942;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -428,10 +429,144 @@ export function writeGlbJson(glb: ArrayBuffer, json: Record<string, unknown>): A
   return out.buffer;
 }
 
+/** Both chunks of a binary glTF; `bin` is empty when the file has none. */
+export function readGlb(glb: ArrayBuffer): { json: Record<string, unknown>; bin: Uint8Array } {
+  const json = readGlbJson(glb);
+  const view = new DataView(glb);
+  const at = 20 + view.getUint32(12, true);
+  if (at + 8 > glb.byteLength || view.getUint32(at + 4, true) !== CHUNK_BIN) return { json, bin: new Uint8Array(0) };
+  return { json, bin: new Uint8Array(glb, at + 8, view.getUint32(at, true)) };
+}
+
+/** A binary glTF from its JSON and binary chunk, each padded to 4 bytes as the format requires. */
+export function writeGlb(json: Record<string, unknown>, bin: Uint8Array): ArrayBuffer {
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const jl = Math.ceil(text.length / 4) * 4;
+  const bl = Math.ceil(bin.length / 4) * 4;
+  const out = new Uint8Array(12 + 8 + jl + (bin.length > 0 ? 8 + bl : 0));
+  const w = new DataView(out.buffer);
+  w.setUint32(0, GLB_MAGIC, true);
+  w.setUint32(4, 2, true);
+  w.setUint32(8, out.length, true);
+  w.setUint32(12, jl, true);
+  w.setUint32(16, CHUNK_JSON, true);
+  out.fill(0x20, 20, 20 + jl);
+  out.set(text, 20);
+  if (bin.length > 0) {
+    w.setUint32(20 + jl, bl, true);
+    w.setUint32(24 + jl, CHUNK_BIN, true);
+    out.set(bin, 28 + jl);
+  }
+  return out.buffer;
+}
+
+function records(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? v.filter(isRecord) : [];
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Every texture reference in a material, wherever an extension keeps it: `{ index, texCoord? }` under a key ending in Texture. */
+function textureRefs(v: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (Array.isArray(v)) for (const x of v) textureRefs(x, out);
+  else if (isRecord(v)) {
+    for (const [k, x] of Object.entries(v)) {
+      if (k.endsWith('Texture') && isRecord(x) && typeof x.index === 'number') out.push(x);
+      else textureRefs(x, out);
+    }
+  }
+  return out;
+}
+
+/**
+ * Drops images whose bytes repeat an earlier one, and textures left identical by that, then packs
+ * the binary chunk without the dropped bytes. A skeleton and its weapon come from two KayKit files
+ * that share one texture atlas; the exporter sees two textures and writes the image twice.
+ * Compressed geometry keeps its own bufferView references in extensions, so such a file is left
+ * as it is.
+ */
+export function dedupeImages(glb: ArrayBuffer): ArrayBuffer {
+  const { json, bin } = readGlb(glb);
+  const used = Array.isArray(json.extensionsUsed) ? json.extensionsUsed : [];
+  if (used.includes('KHR_draco_mesh_compression') || used.includes('EXT_meshopt_compression')) return glb;
+  const images = records(json.images);
+  const views = records(json.bufferViews);
+  const bytesOf = (img: Record<string, unknown>): Uint8Array | null => {
+    const view = typeof img.bufferView === 'number' ? views[img.bufferView] : undefined;
+    if (!view || typeof view.byteLength !== 'number') return null;
+    const offset = typeof view.byteOffset === 'number' ? view.byteOffset : 0;
+    return bin.subarray(offset, offset + view.byteLength);
+  };
+
+  // Image i is replaced by the first image with the same bytes and type.
+  const imageTo: number[] = images.map((img, i) => {
+    const bytes = bytesOf(img);
+    if (!bytes) return i;
+    const first = images.findIndex((o, j) => j < i && o.mimeType === img.mimeType && sameBytes(bytesOf(o) ?? new Uint8Array(0), bytes));
+    return first >= 0 ? first : i;
+  });
+  if (imageTo.every((to, i) => to === i)) return glb;
+
+  const textures = records(json.textures);
+  for (const t of textures) if (typeof t.source === 'number') t.source = imageTo[t.source] ?? t.source;
+  const textureKey = (t: Record<string, unknown>) => JSON.stringify([t.source, t.sampler, t.extensions]);
+  const textureTo = textures.map((t) => textures.findIndex((o) => textureKey(o) === textureKey(t)));
+  for (const ref of textureRefs(json.materials)) if (typeof ref.index === 'number') ref.index = textureTo[ref.index] ?? ref.index;
+
+  // Keep what is still referenced, in order, and number it again.
+  const keptImages = images.map((_, i) => i).filter((i) => imageTo[i] === i);
+  const keptTextures = textures.map((_, i) => i).filter((i) => textureTo[i] === i);
+  const newImage = new Map(keptImages.map((old, i) => [old, i]));
+  const newTexture = new Map(keptTextures.map((old, i) => [old, i]));
+  json.images = keptImages.map((i) => images[i]);
+  json.textures = keptTextures.map((i) => textures[i]);
+  for (const t of records(json.textures)) if (typeof t.source === 'number') t.source = newImage.get(t.source) ?? t.source;
+  for (const ref of textureRefs(json.materials)) if (typeof ref.index === 'number') ref.index = newTexture.get(ref.index) ?? ref.index;
+
+  // Views only a dropped image used go; the rest are copied into a fresh chunk at 4-byte steps.
+  const dropped = new Set(images.filter((_, i) => imageTo[i] !== i).map((img) => img.bufferView));
+  for (const img of records(json.images)) dropped.delete(img.bufferView);
+  for (const a of records(json.accessors)) {
+    dropped.delete(a.bufferView);
+    if (isRecord(a.sparse)) for (const part of [a.sparse.indices, a.sparse.values]) if (isRecord(part)) dropped.delete(part.bufferView);
+  }
+  const keptViews = views.map((_, i) => i).filter((i) => !dropped.has(i));
+  const newView = new Map(keptViews.map((old, i) => [old, i]));
+  let size = 0;
+  for (const i of keptViews) size = Math.ceil(size / 4) * 4 + Number(views[i]?.byteLength ?? 0);
+  const packed = new Uint8Array(Math.ceil(size / 4) * 4);
+  let at = 0;
+  for (const i of keptViews) {
+    const v = views[i];
+    if (!v || typeof v.byteLength !== 'number') continue;
+    at = Math.ceil(at / 4) * 4;
+    const from = typeof v.byteOffset === 'number' ? v.byteOffset : 0;
+    packed.set(bin.subarray(from, from + v.byteLength), at);
+    v.byteOffset = at;
+    at += v.byteLength;
+  }
+  json.bufferViews = keptViews.map((i) => views[i]);
+  const remap = (o: Record<string, unknown>) => {
+    if (typeof o.bufferView === 'number') o.bufferView = newView.get(o.bufferView) ?? o.bufferView;
+  };
+  for (const img of records(json.images)) remap(img);
+  for (const a of records(json.accessors)) {
+    remap(a);
+    if (isRecord(a.sparse)) for (const part of [a.sparse.indices, a.sparse.values]) if (isRecord(part)) remap(part);
+  }
+  const buffers = records(json.buffers);
+  if (buffers[0]) buffers[0].byteLength = packed.length;
+  return writeGlb(json, packed);
+}
+
 /**
  * Final touches three's exporter cannot make: node names back to the file's originals (animation
- * channels point at node indices, so renaming is safe) and the scene named after the model
- * instead of three's "AuxScene".
+ * channels point at node indices, so renaming is safe), the scene named after the model instead
+ * of three's "AuxScene", and each texture image stored once.
  */
 export function finishGlb(glb: ArrayBuffer, names: ReadonlyMap<string, string>, sceneName: string): ArrayBuffer {
   const json = readGlbJson(glb);
@@ -443,5 +578,5 @@ export function finishGlb(glb: ArrayBuffer, names: ReadonlyMap<string, string>, 
   }
   const scenes: unknown[] = Array.isArray(json.scenes) ? json.scenes : [];
   for (const s of scenes) if (isRecord(s)) s.name = sceneName;
-  return writeGlbJson(glb, json);
+  return dedupeImages(writeGlbJson(glb, json));
 }

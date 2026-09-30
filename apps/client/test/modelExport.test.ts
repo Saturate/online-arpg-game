@@ -17,18 +17,21 @@ import {
   VectorKeyframeTrack,
   QuaternionKeyframeTrack,
 } from 'three';
+import { Document, NodeIO } from '@gltf-transform/core';
 import { describe, expect, it } from 'vitest';
 import {
   applyLeafTransforms,
   bakeExportTransform,
   cleanForExport,
   corruptColour,
+  dedupeImages,
   corruptPixels,
   exportFrame,
   finishGlb,
   mergeMaterials,
   originalNames,
   pushDownScales,
+  readGlb,
   readGlbJson,
   TO_GLTF_FORWARD,
   UNITS_PER_METRE,
@@ -327,6 +330,72 @@ describe('GLB post-processing', () => {
     c.userData.name = 'Knife';
     root.add(a, b, c);
     expect([...originalNames(root)]).toEqual([['handslotr', 'handslot.r']]);
+  });
+});
+
+describe('dedupeImages', () => {
+  const png = (b64: string) => Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const RED = png('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==');
+  const GREY_PX = png('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+
+  /** A body and a weapon, each with its own copy of the same atlas, and a shield with another image. */
+  async function file(): Promise<Uint8Array> {
+    const doc = new Document();
+    const buffer = doc.createBuffer();
+    const scene = doc.createScene('Scene');
+    const parts: [string, Uint8Array][] = [['body', RED], ['weapon', RED.slice()], ['shield', GREY_PX]];
+    parts.forEach(([name, image], i) => {
+      const tex = doc.createTexture(`${name}_atlas`).setImage(image).setMimeType('image/png');
+      const mat = doc.createMaterial(name).setBaseColorTexture(tex).setEmissiveTexture(i === 0 ? tex : null);
+      const prim = doc
+        .createPrimitive()
+        .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(new Float32Array([i, 0, 0, i + 1, 0, 0, i, 1, 0])).setBuffer(buffer))
+        .setAttribute('TEXCOORD_0', doc.createAccessor().setType('VEC2').setArray(new Float32Array([0, 0, 1, 0, 0, 1])).setBuffer(buffer))
+        .setMaterial(mat);
+      scene.addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim)));
+    });
+    return new NodeIO().writeBinary(doc);
+  }
+
+  const ab = (u: Uint8Array): ArrayBuffer => {
+    const out = new ArrayBuffer(u.byteLength);
+    new Uint8Array(out).set(u);
+    return out;
+  };
+
+  it('stores an image repeated byte for byte once, with the file still reading the same', async () => {
+    const before = await file();
+    const images = readGlb(ab(before)).json.images;
+    expect(Array.isArray(images) && images.length).toBe(3);
+    const out = dedupeImages(ab(before));
+    expect(out.byteLength).toBeLessThan(before.byteLength);
+    const { json } = readGlb(out);
+    expect(Array.isArray(json.images) && json.images.length).toBe(2);
+    expect(Array.isArray(json.textures) && json.textures.length).toBe(2);
+
+    const doc = await new NodeIO().readBinary(new Uint8Array(out));
+    const byName = (n: string) => doc.getRoot().listMaterials().find((m) => m.getName() === n);
+    const body = byName('body')?.getBaseColorTexture();
+    expect(body).toBeTruthy();
+    expect(byName('weapon')?.getBaseColorTexture()).toBe(body);
+    expect(byName('body')?.getEmissiveTexture()).toBe(body);
+    expect(byName('shield')?.getBaseColorTexture()?.getImage()).toEqual(GREY_PX);
+    expect(body?.getImage()).toEqual(RED);
+    // Geometry survives the repacked binary chunk.
+    const positions = doc.getRoot().listNodes().map((n) => [n.getName(), [...(n.getMesh()?.listPrimitives()[0]?.getAttribute('POSITION')?.getArray() ?? [])]]);
+    expect(positions).toEqual([
+      ['body', [0, 0, 0, 1, 0, 0, 0, 1, 0]],
+      ['weapon', [1, 0, 0, 2, 0, 0, 1, 1, 0]],
+      ['shield', [2, 0, 0, 3, 0, 0, 2, 1, 0]],
+    ]);
+  });
+
+  it('leaves a file with no repeated image untouched', async () => {
+    const doc = new Document();
+    doc.createBuffer();
+    doc.createTexture('only').setImage(RED).setMimeType('image/png');
+    const bytes = ab(await new NodeIO().writeBinary(doc));
+    expect(dedupeImages(bytes)).toBe(bytes);
   });
 });
 
