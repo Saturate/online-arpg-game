@@ -25,10 +25,18 @@ interface Wave {
 const MAX_WAVES = 32;
 /** Short light bursts alive at once; the oldest is replaced. */
 const MAX_FLASHES = 24;
-/** x, y, height, colour, intensity, radius, age, duration. */
-const FLASH_FIELDS = 8;
+/** x, y, height, colour, intensity, radius, age, duration, day share. */
+const FLASH_FIELDS = 9;
 /** Share of a spell's light kept by full day, so a fireball still lights the ground at noon. */
-const SPELL_DAY_LIGHT = 0.35;
+export const SPELL_DAY_LIGHT = 0.35;
+/** Lightning keeps less: its pale yellow light washed the sunlit ground out. */
+export const LIGHTNING_DAY_LIGHT = 0.2;
+/** Chill glints are pale grey ice, not the cold body blue, which read as sparks. */
+const CHILL_GLINT = new Color(0xbfd8e8);
+
+export function dayLightOf(style: VfxStyle | null): number {
+  return style === 'lightning' ? LIGHTNING_DAY_LIGHT : SPELL_DAY_LIGHT;
+}
 /** Zones remembered per frame for sharing glow between stacked copies. */
 const MAX_ZONE_CLAIMS = 128;
 const TAU = Math.PI * 2;
@@ -246,13 +254,13 @@ export class Vfx {
    * same for a source across frames (entityLightKey) so its light fades instead of popping. Spells
    * keep a third of their light by day. Low quality sends none.
    */
-  light(key: number, x: number, y: number, height: number, color: Color, intensity: number, radius: number): void {
+  light(key: number, x: number, y: number, height: number, color: Color, intensity: number, radius: number, style: VfxStyle | null = null): void {
     if (!this.level.groundLight || intensity <= 0.01) return;
-    emitLight(key, x, y, height, color.getHex(), intensity, radius, 0, SPELL_DAY_LIGHT);
+    emitLight(key, x, y, height, color.getHex(), intensity, radius, 0, dayLightOf(style));
   }
 
   /** A short burst of light that dies out over `duration`: impacts, explosions, lightning. */
-  flash(x: number, y: number, height: number, color: Color, intensity: number, radius: number, duration: number): void {
+  flash(x: number, y: number, height: number, color: Color, intensity: number, radius: number, duration: number, style: VfxStyle | null = null): void {
     if (!this.level.groundLight) return;
     const i = this.flashCursor;
     this.flashCursor = (i + 1) % MAX_FLASHES;
@@ -266,6 +274,7 @@ export class Vfx {
     f[o + 5] = radius;
     f[o + 6] = 0;
     f[o + 7] = duration;
+    f[o + 8] = dayLightOf(style);
   }
 
   private updateFlashes(dt: number): void {
@@ -281,7 +290,7 @@ export class Vfx {
       }
       f[o + 6] = age;
       const k = 1 - age / dur;
-      emitLight(this.flashKeys[i] ?? 0, f[o] ?? 0, f[o + 1] ?? 0, f[o + 2] ?? 0, f[o + 3] ?? 0xffffff, (f[o + 4] ?? 0) * k * k, f[o + 5] ?? 100, 0, SPELL_DAY_LIGHT);
+      emitLight(this.flashKeys[i] ?? 0, f[o] ?? 0, f[o + 1] ?? 0, f[o + 2] ?? 0, f[o + 3] ?? 0xffffff, (f[o + 4] ?? 0) * k * k, f[o + 5] ?? 100, 0, f[o + 8] ?? SPELL_DAY_LIGHT);
     }
   }
 
@@ -439,7 +448,7 @@ export class Vfx {
         this.puff(p.smoke, x, h, y, 1.5 * scale, 0.28, 0.7, 10, 24, 0);
         break;
       case 'lightning':
-        this.flash(x, y, 30, p.body, 2.2 * scale, 140, 0.1);
+        this.flash(x, y, 30, p.body, 2.2 * scale, 140, 0.1, style);
         this.spray(p, x, h, y, 8 * scale, 120, 260, SHAPE.spark, 0.1, 0.22, 2, 3, 200, 1.8);
         if (this.budget.take(1, true) > 0) {
           this.motion(x, h, y, 0, 0, 0, 0, 0);
@@ -458,7 +467,7 @@ export class Vfx {
     const k = big ? 2 : 1;
     const h = 16;
     this.shockwave(x, y, big ? 120 : 60, style ?? 'plain', big ? 0.55 : 0.4);
-    if (style !== null && style !== 'plain') this.flash(x, y, 30, PALETTE[style].body, (style === 'cold' ? 1 : 2.4) * k, 150 + 40 * k, style === 'lightning' ? 0.2 : 0.35);
+    if (style !== null && style !== 'plain') this.flash(x, y, 30, PALETTE[style].body, (style === 'cold' ? 1 : 2.4) * k, 150 + 40 * k, style === 'lightning' ? 0.2 : 0.35, style);
     if (style === 'fire') {
       this.spray(PALETTE.fire, x, h, y, 22 * k, 60, 200, SHAPE.glow, 0.4, 0.9, 3, 5, 200, 0);
       this.puff(PALETTE.fire.smoke, x, h, y, 8 * k, 0.4, 1.4, 14, 40, -25);
@@ -504,7 +513,7 @@ export class Vfx {
   /** The flash at a caster's hands. */
   cast(style: VfxStyle, x: number, y: number): void {
     const p = PALETTE[style];
-    if (style !== 'plain') this.flash(x, y, 34, p.body, 1, 110, 0.14);
+    if (style !== 'plain') this.flash(x, y, 34, p.body, 1, 110, 0.14, style);
     this.spray(p, x, 26, y, 7, 30, 80, style === 'lightning' ? SHAPE.spark : style === 'cold' ? SHAPE.shard : SHAPE.mote, 0.25, 0.45, 2.5, 3.5, -30, style === 'lightning' ? 1.5 : 0);
   }
 
@@ -709,7 +718,9 @@ export class Vfx {
         this.colours(p.smoke, 1, 0.28, p.smoke, 1, 0);
         this.smoke.pool.spawn(this.spec);
       }
-      this.light(entityLightKey(id, 1), x, y, height * 0.6, p.body, 0.9 + Math.random() * 0.3, 110 + r * 3);
+      // Two slow sines, not a per-frame random: a burning body flickers like a torch, never strobes.
+      const t = this.time + id * 0.37;
+      this.light(entityLightKey(id, 1), x, y, height * 0.6, p.body, 1.05 + Math.sin(t * 7.3) * 0.09 + Math.sin(t * 12.9) * 0.06, 110 + r * 3, 'fire');
     }
     if (chill) {
       const p = PALETTE.cold;
@@ -720,10 +731,10 @@ export class Vfx {
         this.colours(p.smoke, 1.1, 0.24, p.smoke, 1, 0);
         this.smoke.pool.spawn(this.spec);
       }
-      for (let n = this.budget.take(4 * size * dt); n > 0; n--) {
+      for (let n = this.budget.take(2 * size * dt); n > 0; n--) {
         this.motion(x + rand(-r, r) * 0.6, height * rand(0.2, 0.9), y + rand(-r, r) * 0.6, 0, rand(-10, 0), 0, 30, 0.5);
         this.look(rand(0.4, 0.7), rand(2, 3.2), 0.6, SHAPE.shard);
-        this.colours(p.core, 1.2, 1, p.body, 1, 0);
+        this.colours(CHILL_GLINT, 1, 1, CHILL_GLINT, 0.8, 0);
         this.glow.pool.spawn(this.spec);
       }
     }
@@ -739,7 +750,7 @@ export class Vfx {
       }
       if (this.budget.chance(3 * dt)) {
         this.glowSprite(x, height * 0.6, y, r * 2.4, p.core, 0.9, SHAPE.core);
-        this.flash(x, y, height, p.body, 1.6, 120, 0.12);
+        this.flash(x, y, height, p.body, 1.6, 120, 0.12, 'lightning');
       }
     }
   }

@@ -109,18 +109,23 @@ void main() {
   // Frost creeping in veins from the rim, with a pale mist over the whole patch.
   float n = vfxFbm(w * 0.03 + vec2(t * 0.05, 0.0));
   float veins = pow(ridge(vfxNoise(w * 0.05 + n * 3.0)), 6.0);
+  // Feathery rime: fine ridges broken into short barbs, so the frost reads as ice crystals and not
+  // as the bright continuous arcs of a storm.
+  float barbs = pow(ridge(vfxNoise(w * 0.16 + n * 2.0)), 3.0) * smoothstep(0.35, 0.75, vfxNoise(w * 0.09 + 5.3));
+  veins = max(veins * 0.7, barbs * 0.45);
   float creep = smoothstep(0.2, 1.0, r + n * 0.5);
   float frost = max(veins * 0.9, creep * 0.55);
   // Rime is only a little lighter than the ground: at the world's exposure a pale colour at full
   // strength turned the whole patch white.
   dark = frost * 0.5 * inner + 0.1;
   darkCol = mix(uDeep, vec3(0.07, 0.085, 0.1), 0.7);
-  glow = uBody * veins * 0.35 + uCore * pow(veins, 3.0) * 0.25;
-  // Crystal shards around the rim: bright spikes pointing inward.
+  // Half the brightness it had: at night the veins were the brightest thing on screen.
+  glow = uBody * veins * 0.175 + uCore * pow(veins, 3.0) * 0.12;
+  // Crystal shards around the rim: spikes pointing inward, in the body colour so they stay ice.
   float spikes = pow(abs(sin(ang * 13.0 + uSeed * 20.0)), 14.0) * smoothstep(0.7, 0.95, r);
   float glint = 0.5 + 0.5 * sin(t * 4.0 + ang * 7.0);
-  glow += mix(uBody, uCore, 0.5) * spikes * (0.3 + glint * 0.35);
-  glow += mix(uDeep, uBody, 0.85) * edge * 1.1;
+  glow += uBody * spikes * (0.2 + glint * 0.2);
+  glow += uBody * edge * 1.0;
 #elif STYLE == S_LIGHTNING
   // Arcs crawling over scorched ground: thin ridges of noise that jump every few frames.
   float jump = floor(t * 11.0);
@@ -129,9 +134,10 @@ void main() {
   vec2 q2 = w * 0.045 + vec2(-jump * 1.3, jump * 2.1);
   float n1 = vfxNoise(q1 + (vfxNoise(q1 * 6.0) - 0.5) * 0.35);
   float n2 = vfxNoise(q2 + (vfxNoise(q2 * 7.0) - 0.5) * 0.35);
-  float gate1 = step(0.4, vfxHash(vec2(jump, 3.0) + floor(w * 0.015)));
+  // Fewer arcs by day: in sunlight a dense web of them read as a white net over the ground.
+  float gate1 = step(mix(0.7, 0.4, uNight), vfxHash(vec2(jump, 3.0) + floor(w * 0.015)));
   float arc = smoothstep(0.014, 0.0, abs(n1 - 0.5)) * gate1;
-  arc += smoothstep(0.01, 0.0, abs(n2 - 0.5)) * step(0.5, vfxHash(vec2(jump, 7.0)));
+  arc += smoothstep(0.01, 0.0, abs(n2 - 0.5)) * step(mix(0.85, 0.5, uNight), vfxHash(vec2(jump, 7.0)));
   float halo = (smoothstep(0.06, 0.0, abs(n1 - 0.5)) * gate1) * 0.25;
   glow = (uCore * 1.6 * arc + uBody * halo) * inner;
   float flicker = 0.75 + 0.25 * vfxHash(vec2(jump, 1.0));
@@ -166,11 +172,17 @@ void main() {
   glow += uCore * pow(1.0 - r, 4.0) * 0.08 * breathe;
   dark = 0.1 * inner;
   darkCol = uDeep * 0.4;
-  glow += tone * edge * 0.9;
+  // The pale green and teal rims glared at night, where every other zone's rim is dimmer.
+  glow += tone * edge * 0.9 * mix(1.0, 0.8, uNight);
 #endif
   // The world is drawn at an exposure of about 1.5, so body colours at full strength clip to yellow
   // white; about half keeps embers orange by day.
+#if STYLE == S_COLD
+  // Pale blue glowing on a dark night ground went neon: cold lifts to 0.7 of what the others do.
+  float nightGain = mix(0.5, 0.56, uNight);
+#else
   float nightGain = mix(0.5, 0.8, uNight);
+#endif
   float a = clamp(dark * mix(1.0, 0.6, uNight), 0.0, 0.9) * uFade;
   gl_FragColor = vec4(glow * nightGain * uGlow + darkCol * a, a);
   ${OUTPUT_GLSL}
@@ -440,9 +452,11 @@ void main() {
   vec2 p = vUv * 2.0 - 1.0;
   float r = length(p);
   if (r > 1.0) discard;
-  float ring = step(uInner, r);
-  float k = ring > 0.5 ? uRing : uFill;
-  gl_FragColor = vec4(uColor * k, 0.0);
+  // Premultiplied normal blending: the fill is a thin coat that covers a little of the ground (alpha
+  // equals its strength), while the ring adds light (alpha 0), so the area's edge stays crisp.
+  // An additive fill lifted monsters standing in it into a flat pastel.
+  if (step(uInner, r) > 0.5) gl_FragColor = vec4(uColor * uRing, 0.0);
+  else gl_FragColor = vec4(uColor * uFill, uFill);
   ${OUTPUT_GLSL}
 }
 `;
@@ -450,7 +464,7 @@ void main() {
 export type PlainAreaUniforms = { uColor: IUniform<Color>; uFill: IUniform<number>; uRing: IUniform<number>; uInner: IUniform<number> };
 
 export function plainAreaMaterial(color: number, inner: number): Shaded<PlainAreaUniforms> {
-  const uniforms: PlainAreaUniforms = { uColor: { value: new Color(color) }, uFill: { value: 0.2 }, uRing: { value: 0.8 }, uInner: { value: inner } };
+  const uniforms: PlainAreaUniforms = { uColor: { value: new Color(color) }, uFill: { value: 0.07 }, uRing: { value: 0.8 }, uInner: { value: inner } };
   const material = new ShaderMaterial({
     uniforms,
     vertexShader: FLAT_VERTEX,
@@ -458,7 +472,7 @@ export function plainAreaMaterial(color: number, inner: number): Shaded<PlainAre
     transparent: true,
     depthWrite: false,
     side: DoubleSide,
-    blending: AdditiveBlending,
+    blending: NormalBlending,
     premultipliedAlpha: true,
   });
   return { material, u: uniforms };

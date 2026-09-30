@@ -19,6 +19,7 @@ import { orbMaterial, novaMaterial, plainAreaMaterial, zoneMaterial, type NovaUn
 import { PALETTE, STYLE_INDEX, styleOf, type StylePalette, type VfxStyle } from './palette.js';
 import { entityLightKey } from '../lights.js';
 import { SHAPE } from './pool.js';
+import { HeldJitter } from './jitter.js';
 import type { Vfx } from './vfx.js';
 
 export type SpellSnapKind = Extract<EntitySnap, { k: 'projectile' | 'nova' | 'zone' }>;
@@ -56,6 +57,11 @@ function sharedBasic(color: number, opacity = 1, additive = false): MeshBasicMat
   }
   return m;
 }
+
+/** The Low fill of zones and novas; low enough that monsters inside keep their colours. */
+const LOW_FILL = 0.07;
+/** Spell light reaches this far past a zone's edge, as a share of its radius, and no further. */
+const ZONE_LIGHT_REACH = 1.2;
 
 function flat(mesh: Mesh, y: number): Mesh {
   mesh.rotation.x = -Math.PI / 2;
@@ -220,7 +226,7 @@ class PlainSpellView implements SpellView {
       const k = s.maxR > 0 ? s.r / s.maxR : 1;
       this.fill?.scale.setScalar(Math.max(1, s.r));
       area.uRing.value = 0.9 * (1 - k * 0.6);
-      area.uFill.value = 0.2 * (1 - k * 0.6);
+      area.uFill.value = LOW_FILL * (1 - k * 0.6);
       return;
     }
     const fade = Math.min(1, s.left * 4);
@@ -228,7 +234,7 @@ class PlainSpellView implements SpellView {
     const share = this.vfx ? this.vfx.zoneShare(this.styleIndex, x, y, s.r, fade) : 1;
     this.root.visible = share > 0.02;
     this.fill?.scale.setScalar(s.r);
-    area.uFill.value = (0.18 + Math.sin(t * 5) * 0.05) * fade * share;
+    area.uFill.value = LOW_FILL * (1 + Math.sin(t * 5) * 0.2) * fade * share;
     area.uRing.value = 0.85 * fade * share;
   }
 
@@ -242,6 +248,7 @@ class BoltView implements SpellView {
   readonly root = new Group();
   private readonly ribbon: number;
   private readonly p: StylePalette;
+  private readonly jitter = new HeldJitter();
 
   constructor(
     s: SpellSnapKind,
@@ -257,10 +264,10 @@ class BoltView implements SpellView {
   update(s: SpellSnapKind, x: number, y: number, dt: number): void {
     const v = this.vfx;
     const h = 18;
-    const flicker = this.style === 'lightning' ? 0.75 + Math.random() * 0.5 : this.style === 'fire' ? 0.9 + Math.random() * 0.15 : 1;
+    const flicker = this.style === 'lightning' || this.style === 'fire' ? this.jitter.next(dt) : 1;
     v.glowSprite(x, h, y, s.r * 2.8, this.p.body, 0.85 * flicker, SHAPE.core);
     v.glowSprite(x, h, y, s.r * 6, this.p.deep, 0.35 * flicker, SHAPE.glow);
-    v.light(entityLightKey(s.id), x, y, h, this.p.body, 1.3 * flicker, 150);
+    v.light(entityLightKey(s.id), x, y, h, this.p.body, 1.3 * flicker, 150, this.style);
     v.trail(this.style, x, y, h, s.r, dt, false);
     v.ribbons.push(this.ribbon, x, h, y, v.time);
   }
@@ -279,6 +286,7 @@ class OrbView implements SpellView {
   private readonly p: StylePalette;
   private lastX = NaN;
   private lastY = NaN;
+  private readonly jitter = new HeldJitter();
 
   constructor(
     s: SpellSnapKind,
@@ -307,9 +315,9 @@ class OrbView implements SpellView {
     this.lastX = x;
     this.lastY = y;
     this.ball.scale.setScalar(s.r * 0.82);
-    const flicker = this.style === 'lightning' ? 0.7 + Math.random() * 0.6 : 0.92 + Math.random() * 0.1;
+    const flicker = this.jitter.next(dt);
     v.glowSprite(x, 20, y, s.r * 2.8, this.p.body, 0.45 * flicker, SHAPE.glow);
-    v.light(entityLightKey(s.id), x, y, 24, this.p.body, 2 * flicker, 220);
+    v.light(entityLightKey(s.id), x, y, 24, this.p.body, 2 * flicker, 220, this.style);
     v.trail(this.style, x, y, 20, s.r, dt, true);
     v.ribbons.push(this.ribbon, x, 20, y, v.time);
   }
@@ -343,7 +351,7 @@ class NovaView implements SpellView {
     this.mesh.scale.setScalar(Math.max(1, s.r * 1.15));
     this.u.uProgress.value = k;
     this.vfx.novaFront(this.style, x, y, s.r, dt, 1 - k);
-    this.vfx.light(entityLightKey(s.id), x, y, 20, PALETTE[this.style].body, 2.4 * (1 - k), s.r * 1.4 + 60);
+    this.vfx.light(entityLightKey(s.id), x, y, 20, PALETTE[this.style].body, 2.4 * (1 - k), s.r * 1.4 + 60, this.style);
   }
 
   dispose(): void {
@@ -358,6 +366,7 @@ class ZoneView implements SpellView {
   private readonly mesh: Mesh;
   private readonly u: ZoneUniforms;
   private age = 0;
+  private readonly jitter = new HeldJitter();
 
   constructor(
     private readonly style: VfxStyle,
@@ -385,11 +394,13 @@ class ZoneView implements SpellView {
     this.vfx.zone(this.style, x, y, s.r, dt, glow);
     const p = PALETTE[this.style];
     const key = entityLightKey(s.id);
-    // Burning ground is a campfire; a storm patch flickers; runic light is a soft steady glow.
-    if (this.style === 'fire') this.vfx.light(key, x, y, 30, p.body, (1.4 + Math.sin(this.age * 9) * 0.15 + Math.random() * 0.15) * glow, s.r * 1.5 + 40);
-    else if (this.style === 'lightning') this.vfx.light(key, x, y, 30, p.body, (Math.random() < 0.2 ? 2.4 : 0.6) * glow, s.r * 1.6 + 40);
-    else if (this.style === 'cold') this.vfx.light(key, x, y, 30, p.body, 0.7 * glow, s.r * 1.5);
-    else if (this.style !== 'plain') this.vfx.light(key, x, y, 30, p.body, 0.8 * glow, s.r * 1.5);
+    // Burning ground is a campfire; a storm patch crackles; runic light is a soft steady glow. The
+    // light stops a little past the edge, so a zone does not light ground it does not cover.
+    const reach = s.r * ZONE_LIGHT_REACH;
+    if (this.style === 'fire') this.vfx.light(key, x, y, 30, p.body, (1.4 + Math.sin(this.age * 9) * 0.1) * this.jitter.next(dt) * glow, reach, this.style);
+    else if (this.style === 'lightning') this.vfx.light(key, x, y, 30, p.body, 1.1 * this.jitter.next(dt) * glow, reach, this.style);
+    else if (this.style === 'cold') this.vfx.light(key, x, y, 30, p.body, 0.7 * glow, reach, this.style);
+    else if (this.style !== 'plain') this.vfx.light(key, x, y, 30, p.body, 0.8 * glow, reach, this.style);
   }
 
   dispose(): void {
