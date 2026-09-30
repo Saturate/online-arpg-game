@@ -71,7 +71,9 @@ Back, mouse side buttons and swipes do not leave the game; reload and close ask 
 
 **Dark and gritty (D2 Act 1 / PoE), not cute:** sunny days under a gritty grade (see Weather), a vignette, a global canvas grade (desaturate, contrast, a little sepia) and a shared-shader grime pass (world-space blotches, soot near the ground) over the KayKit models. Dungeons are torch-lit dark. Nights must stay playable.
 
-**Day and night:** visual only, from the wall clock so everyone sees the same sky; the admin sets day length, night brightness and the clock. `?time=0.75` pins the time locally for testing.
+**Day and night:** visual only, from the wall clock so everyone sees the same sky; the admin sets day length, night brightness, the clock and the night lights. `?time=0.75` pins the time locally for testing.
+
+**Night is lit by its lights, not by lifting the night:** torches, lanterns, fires, portals and the hero cast warm pools at night and enemies get a faint cold rim, while the global night brightness stays low, so the ground and sky away from the lights stay dark. Every light (world and spells) goes through one budget: a fixed pool of 8 real point lights for the sources that matter most and cheap ground pools for the rest, because the light count is compiled into every shader. Details in [town.md](docs/features/town.md), Lighting.
 
 **Weather:** a clear day is sunny; the gloom comes from the colour grade, the night and overcast spells. The sky's cloud cover also follows the wall clock (a new value every 9 minutes, blended), mostly clear; cloud dims and greys the sun and flattens the light rather than making it dark. `?weather=0..1` pins it for testing.
 

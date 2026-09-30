@@ -60,7 +60,7 @@ Status: Live. Wilds maps, the town editor and dungeons since 2026-09-28; public 
 - **Killing the boss marks the run cleared once:** it opens the cache ([loot.md](loot.md)), everyone inside gets a banner, and the antechamber shows "Last run cleared".
 - **Each run is its own room** with a fresh layout, seeded from the dungeon seed, the run number and the level.
 - **Generation:** rooms sit in a 4 by 3 slot grid, joined by a randomised DFS spanning tree plus 3 extra corridors, so there are loops without a maze. Carving uses the 40-unit nav cell, so walls line up exactly with pathfinding. Only rock cells touching floor become wall boxes, merged into rectangles, which keeps collision in the hundreds of shapes. Packs get harder with graph depth (up to +2 levels), and the boss room is the deepest room and holds the exit. Dungeons are crypts (even seeds) or caves (odd).
-- **Rendering:** floors and walls are each one merged mesh with world-space UVs. Walls are drawn 44 units tall rather than 70, so a south wall does not hide the hero. A pool of 6 point lights follows the torches nearest the player, because light count is part of every shader and one light per torch would force recompiles. Underground lights use windowed falloff (decay 0); physical decay at these distances made a torch contribute almost nothing.
+- **Rendering:** floors and walls are each one merged mesh with world-space UVs. Walls are drawn 44 units tall rather than 70, so a south wall does not hide the hero. Torches are lit by the shared light budget (see Lighting below); underground it is always night for them.
 
 ### Collision and pathing
 
@@ -69,6 +69,35 @@ Status: Live. Wilds maps, the town editor and dungeons since 2026-09-28; public 
 - **Players pass through monsters and each other;** only map obstacles block them. This keeps prediction exact, because the predicted step depends only on input and the static map.
 - **Roads give +10% movement speed** to players, minions and monsters, computed in shared movement so prediction stays exact.
 - **Map edges:** grass runs 1500 units past the edge under an instanced forest with rocks and mountain rings, so the camera never sees void.
+
+### Lighting
+
+- **Every flame and lamp casts light at night:** lamp posts, zone-gate lanterns, dungeon torches, candles, standing and post lanterns and shrine candles from decor, the forge fire, the camp fire, the Arena building's torches, portals (in their own colour) and waypoints (a low cold light). Each gets a pool of light on the ground with a slow two-sine flicker (never a strobe). They fade in at dusk and out at dawn with the night factor; by day outdoors they cast nothing, so the day look is unchanged. Underground they are always lit.
+- **The light budget** (`apps/client/src/render/lights.ts`) is shared by world lights and spells. A fixed pool of 8 real point lights goes to the sources that score highest (priority first, then brightness and distance to the camera focus); every other visible source is drawn as a ground pool, one instanced draw call for all of them. A source that wins or loses its real light fades over 0.45 s, and its ground pool fades the other way, so nothing pops. The pool size never changes because the light count is compiled into every material's shader; switching lights on and off as you walk would recompile shaders mid-fight. No shadows: they would cost a shadow map per light.
+- **Why pools of light and not flat discs:** real lights fall off with height^1.2 scaled into the intensity, so a source's `intensity` is the light straight below it and it thins out over its radius. The old per-lamp lights used physical decay at these distances (hundreds of units), which left a lamp contributing about 0.1% of its intensity at its own base: the lamps outdoors lit nothing.
+- **Crowding:** when many lights pile up where the hero stands (a volley of spells, a ring of torches), every light is scaled down together so the total near the hero stays at about 4 (a single torch is 3). The ground pools use screen blending, so overlapping pools saturate softly instead of burning white. In a test with 64 spell lights around the hero the scale settles near 0.2.
+- **The hero's light** at night is a warm pool around them (decay 1.4, 120 units up, 2.2 at their feet at the default), reaching `heroLightRadius`. Party members carry a faint one (0.55 of the hero's setting, priority 1). By day the hero's light is as before; underground only the admin multiplier applies.
+- **Enemies at night:** a cold moonlight rim on enemies only (`nightRim.ts`), `0.28 * nightFactor()` on the procedural rigs and 0.8 of that on KayKit monsters (their materials are cached apart for the enemy copy of a def, so a minion on the same model stays unrimmed). Heroes and minions get no rim. Procedural rig parts darker than sRGB 0x30 (non-glowing) are lifted to it, keeping their hue. Before this, 23 of 53 procedural monster types showed only their eyes at night.
+- **Keeping the mood:** the global night brightness is untouched, so the ground and sky away from lights stay as dark as before. Measured on the town square at `?time=0.9` (mean 0 to 255 luminance): the 300 px round the hero went from 9.5 to 60, the screen edges from 1.5 to 8; day (`?time=0.3`) differs by 0.15 on average (the flames' flicker).
+- **Admin settings:** `heroLight`, `heroLightRadius` and `lampLight` ([accounts-admin.md](accounts-admin.md)), sent to clients with the rest of the lighting.
+
+Light API, for torches and spells alike. Allocation-free per frame; emits are read by the next frame's budget update (in `WorldScene.follow`) and then cleared, so a source that stops emitting fades out:
+
+```ts
+import { emitLight, entityLightKey, lightKey } from '../render/lights.js';
+
+const key = lightKey(); // once per source (a projectile, a zone); never reused
+// or entityLightKey(entityId, channel 0..7): the same key from any client, no table needed
+
+// Every frame the source is alive: ground x/y, height above ground, 0xRRGGBB, intensity (the light
+// straight below; a torch is 3), radius (world units), priority (0 world, 1 party, higher for big
+// spells), day (0 night only, 1 as bright by day; spells mostly 0.2 to 0.4).
+emitLight(key, x, y, height, color, intensity, radius, priority, day);
+```
+
+World lights are `StaticLight` records that `buildWorld` returns in `BuiltWorld.lights`; `sceneLights.stats` has `{ real, pools, sources, crowd }` for the last frame.
+
+Performance (headless Chrome on the dev Mac, 1280x720, GPU time from `EXT_disjoint_timer_query`, 5 s samples, noisy to about 1 ms): town square at night 9.45 ms mean before and 8.63 ms after, 275 draw calls both; a dungeon corridor 3.65 ms before and 4.32 ms after (54 to 55 draw calls: 6 real torch lights became 8); the town with 64 extra spell lights 6.29 ms and 276 draw calls. CPU per frame stays 1 to 2 ms.
 
 ### The town editor
 
@@ -85,7 +114,7 @@ Code:
 - Maps: `packages/shared/src/world/` (`town.ts` layout, stations, `validateLayout`; `maps.ts` `zoneMap`, `generateWilds`, `placePacks`, `placeEntrances`, gates, `loadMap`; `dungeon.ts` dungeons, the antechamber, the Arena gate and pit; `gamemap.ts` collision; `nav.ts` flow field; `gen.ts` rivers and obstacles; `types.ts` map descriptors). Zones: `packages/shared/src/data/zones.ts`.
 - Movement: `packages/shared/src/sim/movement.ts` (shared with client prediction).
 - Server: `apps/server/src/manager.ts` (instances, rooms, portals, waypoints, `replaceTown`, idle closing), `room.ts`, `staging.ts` (ready check), `townStore.ts`.
-- Client: `apps/client/src/game/townEditor.ts`; rendering in `apps/client/src/render/props.ts` (town, gates, the Arena building, the wild border, `addUnderground` for dungeons).
+- Client: `apps/client/src/game/townEditor.ts`; rendering in `apps/client/src/render/props.ts` (town, gates, the Arena building, the wild border, `addUnderground` for dungeons, the world's light sources); lighting in `scene.ts` (sun, moon, hero light), `lights.ts` (the light budget), `nightRim.ts` and `rigs/compile.ts` (enemy rim, albedo floor).
 - Numbers: `WILDS`, `ZONE_SIZE`, `DUNGEON`, `NAV`, `GROUND` in `packages/shared/src/config/sim.ts`.
 
 ```ts
@@ -106,6 +135,8 @@ Tests:
 - `packages/shared/test/town.test.ts`: layout validation round trip, hostile layouts rejected, the map key changes with the layout, roads are faster.
 - `apps/server/test/worlds.test.ts`, `staging.test.ts`: public worlds fill to capacity; old seed messages ignored; the ready-check countdown.
 - `apps/server/test/pause.test.ts`: a player alone in the home zone cannot pause it; alone in the Arena antechamber they can.
+- `apps/client/test/lights.test.ts`: the nearest sources get the real lights and the rest ground pools; dark by day unless a source asks to glow; a light fades out over frames instead of popping; priority wins a slot; off-screen sources cost nothing; a crowd of lights is scaled down and a lone torch is not.
+- `apps/client/test/nightLook.test.ts`: the albedo floor lifts near-black parts to 0x30 and keeps hue; the rim goes into enemy rigs after the emissive include and not into heroes or minions; it follows the night; KayKit rims keep their own program key.
 
 ## Limits and open questions
 
@@ -114,3 +145,4 @@ Tests:
 - **The server does not stop deleting portals or the spawn;** only the editor does. A layout without a Wilds portal is rejected, but the home zone drops that portal from the town anyway.
 - **An invalid town save is dropped without a notice** to the builder.
 - **The standalone `wildsMap` and the `testground` map** are only used by tests and tools.
+- **Lighting:** party lights were only checked in code, not with two players on screen. The town has only 4 lamp posts, so the square is lit mostly by the hero, the forge and the Arena torches; houses have no light of their own (windows or door lanterns would need a spot per building model). Ground pools draw over the ground only at a fixed height, so a pool under a torch on a wall does not climb the wall. The sandbox (`flat` theme) has no night. `?time=0.75` is already full night; dusk is about 0.55 to 0.65.
