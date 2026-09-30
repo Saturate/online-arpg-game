@@ -1,0 +1,42 @@
+{
+  "colours": {
+    "coat": [0.118, 0.116, 0.108],
+    "saddle": [0.066, 0.066, 0.064],
+    "chest": [0.235, 0.222, 0.192],
+    "belly": [0.15, 0.142, 0.126],
+    "muzzle": [0.215, 0.2, 0.17],
+    "nose": [0.04, 0.038, 0.038],
+    "ear": [0.072, 0.07, 0.066],
+    "ear_inner": [0.09, 0.06, 0.056],
+    "leg": [0.09, 0.088, 0.082],
+    "paw": [0.05, 0.048, 0.046],
+    "pad": [0.044, 0.042, 0.04],
+    "tail_tip": [0.06, 0.058, 0.056],
+    "eye": [0.1, 0.3, 0.18]
+  },
+  "emission": {
+    "eye": {"colour": [0.45, 1.0, 0.62], "strength": 2.5}
+  },
+  "roughness": 0.92,
+  "default": "coat",
+  "regions": [
+    {"colour": "ear_inner", "up": [1.04, null], "normal_forward": [0.35, null], "abs_left": [null, 0.13]},
+    {"colour": "ear", "up": [1.04, null]},
+    {"colour": "nose", "forward": [0.757, null]},
+    {"colour": "muzzle", "forward": [0.617, null], "normal_up": [null, 0.55]},
+    {"colour": "coat", "forward": [0.617, null]},
+    {"colour": "pad", "up": [null, 0.12], "normal_up": [null, -0.7]},
+    {"colour": "paw", "up": [null, 0.12]},
+    {"colour": "leg", "up": [null, 0.5], "abs_left": [0.05, null]},
+    {"colour": "tail_tip", "forward": [null, -0.723]},
+    {"colour": "chest", "forward": [0.227, 0.617], "normal_forward": [0.2, null], "up": [null, 0.86]},
+    {"colour": "belly", "normal_up": [null, -0.55], "forward": [-0.473, 0.377]},
+    {"colour": "saddle", "normal_up": [0.55, null], "forward": [-0.473, 0.277]}
+  ],
+  "eyes": {
+    "colour": "eye",
+    "radius": 0.024,
+    "from": [0.777, 0.24, 0.94],
+    "to": [0.592, 0.085, 0.925]
+  }
+}

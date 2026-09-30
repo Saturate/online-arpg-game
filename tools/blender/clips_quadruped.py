@@ -3,7 +3,7 @@ Key Idle, Walk, Run, Attack, Hit and Death on a rig from rig_quadruped.py, at 30
 paws planted by a small two-bone IK and the walk and run strides matched to the game speed.
 
     blender -b --python clips_quadruped.py -- <in.blend> <out.blend> --speed 170
-        [--run-speed U] [--game-height U] [--walk-gait trot|gallop]
+        [--run-speed U] [--game-height U] [--walk-gait trot|gallop] [--walk-crouch M]
         [--walk-frames N | --walk-stride M] [--run-frames N | --run-stride M]
         [--idle-frames 72] [--attack-frames 24] [--hit-frames 9] [--death-frames 30]
 
@@ -20,6 +20,10 @@ frames follow, at least 6. A planted paw then moves back exactly as fast as the 
 monster. The script prints the numbers and warns when the stride the speed needs is past the
 legs' reach, which is common for small monsters with fast move speeds: switch the walk to a
 gallop, raise --game-height, or accept the slide.
+
+--walk-crouch is how far the trot lowers the body, in metres at a 0.57 m hip (default 0.025; the
+gallop keeps its own 0.055). Straight legs barely reach ahead of the hip, so a lower, stalking
+trot is what lets a big monster take long, slow strides instead of pattering.
 
 Pose amounts (body bob, lunge, the fall) are authored for a hip height of 0.57 m and scale with
 the rig's own hip height.
@@ -86,7 +90,9 @@ def cycle(name, ground_speed, duty, crouch, frames_opt, stride_opt, min_frames):
 
 
 WALK_GAIT = option(args, '--walk-gait', 'trot')
-WALK_DUTY, WALK_CROUCH = (0.36, 0.055 * K) if WALK_GAIT == 'gallop' else (0.56, 0.025 * K)
+WALK_DUTY = 0.36 if WALK_GAIT == 'gallop' else 0.56
+WALK_DROP = 0.055 if WALK_GAIT == 'gallop' else option(args, '--walk-crouch', 0.025, float)
+WALK_CROUCH = WALK_DROP * K
 walk_scale = max(0.6, min(1.8, SPEED / 110))
 WALK_FRAMES, WALK_STRIDE = cycle('walk', SPEED / walk_scale, WALK_DUTY, WALK_CROUCH, option(args, '--walk-frames'), option(args, '--walk-stride', None, float), 6)
 print(f'      in game it plays at {walk_scale:.2f}x: {walk_scale * FPS / WALK_FRAMES:.2f} strides a second at {SPEED:g} units/s')
@@ -314,7 +320,7 @@ def walk(p, t):
         pose[f'paw_{k}'] = {'fwd': fw, 'up': up}
     bob = math.cos(TAU * 2 * (p - 0.03 - WALK_DUTY / 2))
     pose.update({
-        'body': {'up': -0.025 + 0.009 * bob, 'roll': 1.6 * math.sin(TAU * (p - 0.06)), 'yaw': 2.0 * math.sin(TAU * (p + 0.2)), 'pitch': 0.8 * math.sin(TAU * 2 * p)},
+        'body': {'up': -WALK_DROP + 0.009 * bob, 'roll': 1.6 * math.sin(TAU * (p - 0.06)), 'yaw': 2.0 * math.sin(TAU * (p + 0.2)), 'pitch': 0.8 * math.sin(TAU * 2 * p)},
         'chest': {'yaw': -2.5 * math.sin(TAU * (p + 0.2)), 'roll': -0.8 * math.sin(TAU * p)},
         'neck': {'pitch': 9 + 2.5 * math.cos(TAU * 2 * (p - 0.4)), 'yaw': 1.5 * math.sin(TAU * p)},
         'head': {'pitch': 3 - 1.5 * math.cos(TAU * 2 * (p - 0.4))},

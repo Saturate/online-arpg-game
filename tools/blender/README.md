@@ -67,6 +67,22 @@ What it prints: the template dropped (12 meshes), 722 vertices welded to 179, 39
 
 The speed of 170 is `dire_wolf`'s `moveSpeed` in `packages/shared/src/data/enemies.ts`; 34 is the model's 1.143 m at 30 units a metre, about 63% of a hero.
 
+### The same dog as the Grave Hound
+
+The `grave_hound` monster (`apps/client/public/assets/monsters/grave_hound.glb`) is the same dog, rebuilt bigger and slower so it trots: an ashen coat and green eyes (`examples/grave_hound/`), 50 units tall, moving at 115 with a low stalking trot.
+
+```sh
+b $T/import_clean.py -- "$HOME/Downloads/Dog thing.glb" $S/1_clean.blend --name grave_hound
+b $T/orient_ground.py -- $S/1_clean.blend $S/2_oriented.blend --turn -90
+b $T/recolour.py -- $S/2_oriented.blend $S/3_coloured.blend --palette $T/examples/grave_hound/palette.json
+b $T/rig_quadruped.py -- $S/3_coloured.blend $S/4_rigged.blend --joints $T/examples/grave_hound/joints.json
+b $T/clips_quadruped.py -- $S/4_rigged.blend $S/5_animated.blend --speed 115 --game-height 50 --walk-crouch 0.075
+b $T/export_glb.py -- $S/5_animated.blend $S/grave_hound.glb
+pnpm model:check $S/grave_hound.glb --height 50
+```
+
+Walk 10 frames, half-stride 0.235 m (the legs reach 0.232), 3.14 strides a second in game at 115; Run 8 frames for 190 (about 3% past the reach; rarely seen, since the game runs only above 188 and even a Hasted rare tops out at 184). With the default crouch the same trot needs a 6-frame cycle, 5.7 strides a second.
+
 ## Lessons
 
 - Headless Blender with scripts works without the Blender MCP, and every step can be rerun.
@@ -77,6 +93,7 @@ The speed of 170 is `dire_wolf`'s `moveSpeed` in `packages/shared/src/data/enemi
 - Game scale is about 30 units a metre (a hero is 54 units); the model is scaled to its AssetDef height.
 - The walk must match the move speed or the feet slide: the client plays the walk at speed / 110, clamped 0.6 to 1.8 (`render/characters.ts`), so between 66 and 198 units a second the authored walk covers 110 units a second. The run plays at 1 and must cover the run speed.
 - Small monsters with fast move speeds cannot trot that fast: 110 units a second is 3.7 m/s at game scale, past a 0.57 m leg's trot reach. Use `--walk-gait gallop`, a larger game height, or accept the slide.
+- The legs of this rig are nearly straight at rest, so how far a planted paw reaches ahead depends on how low the body goes. For a big monster that should trot rather than patter, lower the trot with `--walk-crouch` (0.075 m takes the dog's trot reach from 0.138 to 0.232 m against the default 0.025).
 - Side and front Workbench contact sheets per clip are the quickest check on motion: sliding paws, popping loops, bad bends.
 - Blender's night lighting is not the game's night grade; check night readability in the game (`?time=0.9`).
 - Feet with their own material used to trip the Model check's stray-part warning; it now judges parts by mesh node.
