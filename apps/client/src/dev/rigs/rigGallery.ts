@@ -67,8 +67,10 @@ const NIGHT = {
   heroDecay: 0.9,
 };
 
+/** Ground disc radius in collision radii: wide enough that a death view never sees past its edge. */
+const GROUND = 16;
 /** Cells sit this far apart in the one shared scene, so no model's light or reach spills over. */
-const SPACING = 600;
+const SPACING = 1200;
 const DEG = Math.PI / 180;
 
 interface Cell {
@@ -179,11 +181,11 @@ export class RigGallery {
     rig.root.rotation.y = -Math.PI * 0.08;
     this.scene.add(rig.root);
     const groundMat = new MeshStandardMaterial({ map: this.dirt.clone(), roughness: 1 });
-    const ground = new Mesh(new CircleGeometry(entry.radius * 8, 32), groundMat);
+    const ground = new Mesh(new CircleGeometry(entry.radius * GROUND, 32), groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(x, 0, 0);
     const map = groundMat.map;
-    if (map) map.repeat.set(entry.radius / 6, entry.radius / 6);
+    if (map) map.repeat.set((entry.radius * GROUND) / 48, (entry.radius * GROUND) / 48);
     this.scene.add(ground);
     const stored: unknown = rig.root.userData.extent;
     const e = Array.isArray(stored) ? stored.filter((v): v is number => typeof v === 'number') : [];
@@ -298,7 +300,7 @@ export class RigGallery {
     driveRig(c.rig, d);
     const map = c.groundMat.map;
     // The ground slides back under the model at its speed, like the world passing a walker.
-    if (map) map.offset.x -= ((d.speed * dt) / (c.entry.radius * 8 * 2)) * map.repeat.x;
+    if (map) map.offset.x -= ((d.speed * dt) / (c.entry.radius * GROUND * 2)) * map.repeat.x;
     if (c.labelEl) c.labelEl.textContent = c.rig.motion?.label ?? c.role;
   }
 
