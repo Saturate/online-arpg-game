@@ -1,0 +1,326 @@
+import { AdditiveBlending, Color, DataTexture, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, LinearFilter, MeshBasicMaterial, PlaneGeometry, PointLight, RGBAFormat } from 'three';
+
+/**
+ * The light budget shared by torches, lanterns, fires and spells. Any number of sources ask for
+ * light each frame; the few that matter most (priority, brightness, distance to the camera) get one
+ * of a fixed pool of real point lights and everything else is drawn as a cheap additive pool of
+ * light on the ground. The pool size never changes, because the light count is compiled into every
+ * material's shader: adding or removing lights as you walk would recompile shaders mid-fight.
+ *
+ * Per frame, callers use `emitLight` with a stable key from `lightKey()`; the key is what lets a
+ * source keep its real light across frames and fade it in or out instead of popping. Emits are read
+ * by the next `LightBudget.update` and then cleared, so a source that stops emitting fades out.
+ * Nothing here allocates per frame.
+ */
+
+/** Real point lights in the pool. Each one costs a loop iteration in every lit fragment. */
+export const POOL_SIZE = 8;
+/** Sources beyond this many per frame are dropped: statics plus emits. */
+export const MAX_SOURCES = 512;
+/** Seconds for a real light to fade fully in or out when a source wins or loses its slot. */
+const FADE_SECONDS = 0.45;
+/** Beyond this ground distance from the camera focus a source is off screen: no light, no pool. */
+const CULL_RANGE = 1000;
+/**
+ * Falloff exponent of the real lights. Their intensity is scaled by height^DECAY, so `intensity`
+ * is the light straight below the source and it falls off into a pool rather than a flat disc.
+ */
+const DECAY = 1.2;
+/** How bright a ground pool is for a source of intensity 1: additive, so it stays small. */
+const POOL_GAIN = 0.07;
+
+let nextKey = 1;
+/** A fresh key for one light source. Keep it for the source's life; keys are never reused. */
+export function lightKey(): number {
+  return nextKey++;
+}
+
+/** A light that belongs to the world: lamps, torches, fires, waypoints. Flickers on its own. */
+export interface StaticLight {
+  x: number;
+  y: number;
+  height: number;
+  color: number;
+  intensity: number;
+  radius: number;
+  /** 0 steady, 0.1 a gentle torch flicker. */
+  flicker: number;
+  /** Tiers above brightness: a higher priority always wins a real light first. */
+  priority: number;
+  /** Share of the light kept by full day outdoors, 0 for lamps that are only lit at night. */
+  day: number;
+}
+
+export class LightBudget {
+  /** Add to the scene once; holds the pool lights and the ground pools. */
+  readonly group = new Group();
+  private readonly pool: PointLight[] = [];
+  private readonly slotKey = new Int32Array(POOL_SIZE).fill(-1);
+  private readonly slotWeight = new Float32Array(POOL_SIZE);
+  private readonly slotLevel = new Float32Array(POOL_SIZE);
+  /** Whether the slot's source was chosen this frame, so it fades toward 1 instead of 0. */
+  private readonly slotChosen = new Uint8Array(POOL_SIZE);
+  // Sources for this frame, statics first, then emits, as parallel arrays.
+  private readonly key = new Int32Array(MAX_SOURCES);
+  private readonly sx = new Float32Array(MAX_SOURCES);
+  private readonly sy = new Float32Array(MAX_SOURCES);
+  private readonly sh = new Float32Array(MAX_SOURCES);
+  private readonly color = new Uint32Array(MAX_SOURCES);
+  private readonly intensity = new Float32Array(MAX_SOURCES);
+  private readonly radius = new Float32Array(MAX_SOURCES);
+  private readonly priority = new Float32Array(MAX_SOURCES);
+  private readonly day = new Float32Array(MAX_SOURCES);
+  /** Effective intensity after day/night and flicker, and its score, filled in by update. */
+  private readonly level = new Float32Array(MAX_SOURCES);
+  private readonly score = new Float32Array(MAX_SOURCES);
+  private readonly best = new Int32Array(POOL_SIZE);
+  private statics: readonly StaticLight[] = [];
+  private staticKeys = new Int32Array(0);
+  private emitted = 0;
+  private readonly pools: InstancedMesh;
+  private readonly poolColor: InstancedBufferAttribute;
+  private readonly tmp = new Color();
+  /** How many real lights and ground pools the last frame drew, for the perf readout and tests. */
+  readonly stats = { real: 0, pools: 0, sources: 0 };
+
+  constructor() {
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const light = new PointLight(0xffffff, 0, 1, DECAY);
+      light.castShadow = false;
+      this.pool.push(light);
+      this.group.add(light);
+    }
+    const geo = new PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new MeshBasicMaterial({ map: poolTexture(), blending: AdditiveBlending, transparent: true, depthWrite: false, fog: false, toneMapped: false });
+    this.pools = new InstancedMesh(geo, mat, MAX_SOURCES);
+    this.pools.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.poolColor = new InstancedBufferAttribute(new Float32Array(MAX_SOURCES * 3), 3);
+    this.poolColor.setUsage(DynamicDrawUsage);
+    this.pools.instanceColor = this.poolColor;
+    this.pools.count = 0;
+    // Bounds change every frame and the pools cover the view anyway.
+    this.pools.frustumCulled = false;
+    // After the opaque world, before the transparent effects that sit on top of the ground.
+    this.pools.renderOrder = -1;
+    this.group.add(this.pools);
+  }
+
+  /** The world's own lights; replaces the previous set when the map is rebuilt. */
+  setStatic(lights: readonly StaticLight[]): void {
+    this.statics = lights.slice(0, MAX_SOURCES);
+    this.staticKeys = new Int32Array(this.statics.length);
+    for (let i = 0; i < this.staticKeys.length; i++) this.staticKeys[i] = lightKey();
+  }
+
+  /**
+   * Asks for light this frame. `x, y` are ground coordinates, `height` above the ground; `radius`
+   * is how far the light reaches. `priority` puts a source ahead of brighter ones (the hero's party,
+   * big spells). `day` is the share it keeps by full daylight outdoors: 0 for night-only light, 1
+   * for a spell that glows the same by day.
+   */
+  emit(key: number, x: number, y: number, height: number, color: number, intensity: number, radius: number, priority = 0, day = 0): void {
+    const i = this.statics.length + this.emitted;
+    if (i >= MAX_SOURCES) return;
+    this.write(i, key, x, y, height, color, intensity, radius, priority, day);
+    this.emitted++;
+  }
+
+  /**
+   * Picks the real lights and draws the pools. `dark` is how dark it is where the lights shine, 0
+   * full day to 1 night (always 1 underground), from the night factor.
+   */
+  update(t: number, dt: number, focusX: number, focusY: number, dark: number): void {
+    const statics = this.statics;
+    for (let i = 0; i < statics.length; i++) {
+      const s = statics[i];
+      if (!s) continue;
+      const seed = s.x * 0.013 + s.y * 0.029;
+      // Two slow, unrelated sines: a living flame, never a strobe.
+      const f = 1 + s.flicker * (Math.sin(t * 5.3 + seed) * 0.6 + Math.sin(t * 11.7 + seed * 2.3) * 0.4);
+      this.write(i, this.staticKeys[i] ?? -1, s.x, s.y, s.height, s.color, s.intensity * f, s.radius, s.priority, s.day);
+    }
+    const n = statics.length + this.emitted;
+    this.emitted = 0;
+    this.stats.sources = n;
+
+    // Score every source and keep the top POOL_SIZE by insertion into a short sorted list.
+    let bestCount = 0;
+    const cull2 = CULL_RANGE * CULL_RANGE;
+    for (let i = 0; i < n; i++) {
+      const dayShare = this.day[i] ?? 0;
+      const lv = (this.intensity[i] ?? 0) * (dayShare + (1 - dayShare) * dark);
+      const dx = (this.sx[i] ?? 0) - focusX;
+      const dy = (this.sy[i] ?? 0) - focusY;
+      const d2 = dx * dx + dy * dy;
+      if (lv <= 0.001 || d2 > cull2) {
+        this.level[i] = 0;
+        this.score[i] = -1;
+        continue;
+      }
+      this.level[i] = lv;
+      const r = this.radius[i] ?? 1;
+      const sc = (this.priority[i] ?? 0) * 1000 + (lv * r * r) / (d2 + r * r);
+      this.score[i] = sc;
+      let at: number;
+      if (bestCount < POOL_SIZE) at = bestCount++;
+      else if (sc <= (this.score[this.best[POOL_SIZE - 1] ?? 0] ?? 0)) continue;
+      else at = POOL_SIZE - 1;
+      while (at > 0 && (this.score[this.best[at - 1] ?? 0] ?? 0) < sc) {
+        this.best[at] = this.best[at - 1] ?? 0;
+        at--;
+      }
+      this.best[at] = i;
+    }
+
+    // Slots keep their source while it stays chosen; others fade out on their last settings.
+    this.slotChosen.fill(0);
+    for (let b = 0; b < bestCount; b++) {
+      const i = this.best[b] ?? 0;
+      const slot = this.slotKey.indexOf(this.key[i] ?? -1);
+      if (slot >= 0) {
+        this.slotChosen[slot] = 1;
+        this.setLight(slot, i);
+      }
+    }
+    for (let b = 0; b < bestCount; b++) {
+      const i = this.best[b] ?? 0;
+      const k = this.key[i] ?? -1;
+      if (this.slotKey.indexOf(k) >= 0) continue;
+      const free = this.slotKey.indexOf(-1);
+      // No free slot yet: it waits (drawn as a pool) while a losing light fades out.
+      if (free < 0) break;
+      this.slotKey[free] = k;
+      this.slotWeight[free] = 0;
+      this.slotChosen[free] = 1;
+      this.setLight(free, i);
+    }
+    const step = dt / FADE_SECONDS;
+    let real = 0;
+    for (let s = 0; s < POOL_SIZE; s++) {
+      const light = this.pool[s];
+      if (!light) continue;
+      if (this.slotKey[s] === -1) {
+        light.intensity = 0;
+        continue;
+      }
+      const w = Math.min(1, Math.max(0, (this.slotWeight[s] ?? 0) + (this.slotChosen[s] ? step : -step)));
+      this.slotWeight[s] = w;
+      if (w <= 0 && !this.slotChosen[s]) {
+        this.slotKey[s] = -1;
+        light.intensity = 0;
+        continue;
+      }
+      light.intensity = (this.slotLevel[s] ?? 0) * w * Math.pow(Math.max(1, light.position.y), DECAY);
+      real++;
+    }
+    this.stats.real = real;
+
+    // Every visible source not fully covered by a real light gets a ground pool for the rest.
+    const m = this.pools.instanceMatrix.array;
+    const c = this.poolColor.array;
+    let pools = 0;
+    for (let i = 0; i < n; i++) {
+      const lv = this.level[i] ?? 0;
+      if (lv <= 0) continue;
+      const slot = this.slotKey.indexOf(this.key[i] ?? -1);
+      const share = 1 - (slot >= 0 ? (this.slotWeight[slot] ?? 0) : 0);
+      const strength = lv * share * POOL_GAIN;
+      if (strength < 0.002) continue;
+      const r = (this.radius[i] ?? 1) * 0.7;
+      const o = pools * 16;
+      m[o] = r;
+      m[o + 1] = 0;
+      m[o + 2] = 0;
+      m[o + 3] = 0;
+      m[o + 4] = 0;
+      m[o + 5] = 1;
+      m[o + 6] = 0;
+      m[o + 7] = 0;
+      m[o + 8] = 0;
+      m[o + 9] = 0;
+      m[o + 10] = r;
+      m[o + 11] = 0;
+      m[o + 12] = this.sx[i] ?? 0;
+      m[o + 13] = 1.6;
+      m[o + 14] = this.sy[i] ?? 0;
+      m[o + 15] = 1;
+      this.tmp.setHex(this.color[i] ?? 0xffffff);
+      c[pools * 3] = this.tmp.r * strength;
+      c[pools * 3 + 1] = this.tmp.g * strength;
+      c[pools * 3 + 2] = this.tmp.b * strength;
+      pools++;
+    }
+    this.pools.count = pools;
+    this.pools.instanceMatrix.needsUpdate = true;
+    this.poolColor.needsUpdate = true;
+    this.stats.pools = pools;
+  }
+
+  /** The key holding each pool slot, -1 for free; for tests. */
+  slotKeys(): readonly number[] {
+    return Array.from(this.slotKey);
+  }
+
+  /** Forgets every source, for a new scene. The pool objects are kept and reused. */
+  reset(): void {
+    this.setStatic([]);
+    this.emitted = 0;
+    this.slotKey.fill(-1);
+    this.slotWeight.fill(0);
+    for (const light of this.pool) light.intensity = 0;
+    this.pools.count = 0;
+  }
+
+  private write(i: number, key: number, x: number, y: number, height: number, color: number, intensity: number, radius: number, priority: number, day: number): void {
+    this.key[i] = key;
+    this.sx[i] = x;
+    this.sy[i] = y;
+    this.sh[i] = height;
+    this.color[i] = color;
+    this.intensity[i] = intensity;
+    this.radius[i] = radius;
+    this.priority[i] = priority;
+    this.day[i] = day;
+  }
+
+  private setLight(slot: number, i: number): void {
+    const light = this.pool[slot];
+    if (!light) return;
+    light.position.set(this.sx[i] ?? 0, this.sh[i] ?? 0, this.sy[i] ?? 0);
+    light.color.setHex(this.color[i] ?? 0xffffff);
+    light.distance = this.radius[i] ?? 1;
+    this.slotLevel[slot] = this.level[i] ?? 0;
+  }
+}
+
+/** A soft round falloff, brightest in the middle; data rather than canvas so it builds anywhere. */
+function poolTexture(): DataTexture {
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x - size / 2 + 0.5, y - size / 2 + 0.5) / (size / 2);
+      const a = Math.max(0, 1 - d);
+      const v = Math.round(255 * a * a * (3 - 2 * a) * a);
+      const o = (y * size + x) * 4;
+      data[o] = v;
+      data[o + 1] = v;
+      data[o + 2] = v;
+      data[o + 3] = 255;
+    }
+  }
+  const tex = new DataTexture(data, size, size, RGBAFormat);
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** The budget of the scene on screen. Only one world scene exists at a time. */
+export const sceneLights = new LightBudget();
+
+/** Shorthand for `sceneLights.emit`: ask for light this frame. See `LightBudget.emit`. */
+export function emitLight(key: number, x: number, y: number, height: number, color: number, intensity: number, radius: number, priority = 0, day = 0): void {
+  sceneLights.emit(key, x, y, height, color, intensity, radius, priority, day);
+}
