@@ -31,6 +31,7 @@ Status: Live. The roster since 2026-09-28 (two batches); the admin Monsters, Min
 - **Telegraphs on everything big** keep the action layer fair: skill decides whether you get hit, not reaction to an instant attack.
 - **Pools by biome and level:** zones draw packs from `monsterPool(biome, level)`, and harder families appear deeper in (from level 1 for rats and boars to level 8 for iron golems and hellspawn). Pack size scales by family (swarms 2.2x, golems 0.45x, bosses 0.2x). Each zone's far end is its biome boss with an escort. Dungeons are crypts or caves, picked by seed ([town.md](town.md)).
 - **Waking:** packs idle until a target is within 460 units in line of sight, or one of them is hit; a hit also wakes idle monsters within 320. Burrowers aggro without line of sight; dormant types (gargoyle, mimic) stay still until something comes within their wake range.
+- **Sleep:** idle monsters more than about 2000 units from every player and minion are not simulated at all until someone comes near ([world-streaming.md](world-streaming.md)).
 - **Leash:** outside wave maps, a monster dragged more than 1300 units from home gives up, walks home and heals fully.
 - **Pathing:** a monster that sees its target walks straight at it. Otherwise it follows a flow field, a multi-source BFS from every targetable player and minion, rebuilt every 5 ticks.
 - **Safe zone:** `isTargetable` is the one check both aggro and damage go through, so monsters lose their target at the town gate.

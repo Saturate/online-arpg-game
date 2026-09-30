@@ -334,6 +334,21 @@ export const NET = {
   interestRadius: 1100,
 } as const;
 
+/**
+ * World streaming, step 1: monsters far from every player sleep (see docs/features/world-streaming.md).
+ * A chunk is awake when a player or minion is within `awakeChunks * chunkSize` of it, so a sleeping
+ * monster is always at least 2000 units from every player: 900 beyond the interest radius, which
+ * covers anything a player can travel between two recomputes.
+ */
+export const STREAMING = {
+  chunkSize: 1000,
+  awakeChunks: 2,
+  /** 4 Hz: a player at 220 units per second covers 55 units between recomputes. */
+  recomputeEveryTicks: 5,
+  /** A player or minion that moved this far since the last recompute (a portal, a teleport) forces one at once. */
+  jumpDistance: 250,
+} as const;
+
 export const NAV = {
   cellSize: 40,
   /** Cells are walkable when a circle this size fits at their centre. */

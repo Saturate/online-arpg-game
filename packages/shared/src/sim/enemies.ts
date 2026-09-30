@@ -8,6 +8,7 @@ import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';
 import { angleDiff, clamp, distSq, type Vec2 } from './math.js';
 import type { Simulation } from './simulation.js';
 import { spawnProjectile } from './spells.js';
+import { isAsleep, sleepingEnemies } from './streaming.js';
 
 /** Fraction of knockback velocity kept each tick. */
 const KNOCK_DECAY = 0.85;
@@ -229,7 +230,10 @@ export function updateEnemies(sim: Simulation, dt: number): void {
   flushPendingSpawns(sim);
   updateHazards(sim, dt);
   steerHomingShots(sim, dt);
+  // Asleep means untouched: no timers, drift or AI, so waking resumes exactly where it stopped.
+  const asleep = sleepingEnemies(sim);
   for (const [id, e, pos] of w.query(w.enemy, w.position)) {
+    if (isAsleep(asleep, id, e)) continue;
     const def = e.def;
     const st = w.status.get(id);
     if (e.contactCooldown > 0) e.contactCooldown -= dt;
@@ -345,6 +349,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
   // burrowers are the exception: passing through the terrain is their whole point.
   for (const [id, e, pos] of w.query(w.enemy, w.position)) {
     const def = e.def;
+    if (isAsleep(asleep, id, e)) continue;
     if (e.burrowed || (def.behaviour === 'monster' && def.movement === 'ghost')) continue;
     // Flyers are stopped by rocks and walls but not by water, which only blocks walking.
     const flying = def.behaviour === 'monster' && def.movement === 'fly';
@@ -969,12 +974,15 @@ function separateEnemies(sim: Simulation): void {
   const w = sim.world;
   const bodies: { pos: { x: number; y: number }; r: number; cx: number; cy: number; order: number }[] = [];
   let maxR = 0;
-  for (const id of w.enemy.keys()) {
+  const asleep = sleepingEnemies(sim);
+  for (const [id, e] of w.enemy) {
     const pos = w.position.get(id);
     if (!pos) continue;
     const r = w.radius.get(id) ?? 0;
+    // Sleepers still size the cells: the cell size sets the order pairs are pushed in, and near
+    // players that order must not change with who sleeps far away.
     maxR = Math.max(maxR, r);
-    bodies.push({ pos, r, cx: 0, cy: 0, order: bodies.length });
+    if (!isAsleep(asleep, id, e)) bodies.push({ pos, r, cx: 0, cy: 0, order: bodies.length });
   }
   const cell = Math.max(32, maxR * 2);
   const cells = new Map<number, typeof bodies>();

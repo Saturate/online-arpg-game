@@ -9,6 +9,7 @@ import { updateMinionRespawns, updateMinions } from './minions.js';
 import { updatePlayers } from './players.js';
 import type { Simulation } from './simulation.js';
 import { updateNovas, updateProjectiles, updateZones } from './spells.js';
+import { updateStreaming } from './streaming.js';
 
 export interface System {
   name: string;
@@ -36,6 +37,7 @@ function updateNav(sim: Simulation): void {
 }
 
 export const SYSTEMS: readonly System[] = [
+  { name: 'streaming', run: updateStreaming },
   { name: 'nav', run: updateNav },
   { name: 'players', run: updatePlayers },
   { name: 'auras', run: updateAuras },
