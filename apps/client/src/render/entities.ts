@@ -505,6 +505,11 @@ export class EntityRenderer {
     if (v.rig && !v.character) rigHit(v.rig, v.bob);
   }
 
+  /** What kind of entity a view draws, or null if it is not on screen. */
+  kindOf(key: string): EntitySnap['k'] | null {
+    return this.views.get(key)?.kind ?? null;
+  }
+
   /** Plays the attack swing on an entity's model. */
   attack(key: string): void {
     const v = this.views.get(key);

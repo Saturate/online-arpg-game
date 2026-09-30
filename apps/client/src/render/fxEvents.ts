@@ -74,7 +74,10 @@ export function playFxEvent(ev: GameEvent, ctx: FxEventContext): void {
       break;
     case 'cast':
       entities.attack(`s${ev.id}`);
-      fx.vfx.cast(ev.el ?? 'plain', ev.x, ev.y);
+      // A monster's cast gets a neutral puff: the element flash and its light are the player's
+      // spell look, and a shaman's fire cast read as an ally's fireball.
+      if (entities.kindOf(`s${ev.id}`) === 'enemy') fx.vfx.enemyCast(ev.x, ev.y);
+      else fx.vfx.cast(ev.el ?? 'plain', ev.x, ev.y);
       break;
     case 'waypoint':
       break;

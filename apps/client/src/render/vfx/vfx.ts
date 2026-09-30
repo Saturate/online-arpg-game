@@ -517,6 +517,11 @@ export class Vfx {
     this.spray(p, x, 26, y, 7, 30, 80, style === 'lightning' ? SHAPE.spark : style === 'cold' ? SHAPE.shard : SHAPE.mote, 0.25, 0.45, 2.5, 3.5, -30, style === 'lightning' ? 1.5 : 0);
   }
 
+  /** A monster casting: a small dark puff at its hands, no light. */
+  enemyCast(x: number, y: number): void {
+    this.puff(PALETTE.plain.smoke, x, 26, y, 3, 0.3, 0.6, 8, 20, -20);
+  }
+
   /** Healing motes rising off a target. */
   heal(x: number, y: number): void {
     this.spray(PALETTE.restore, x, 12, y, 6, 10, 40, SHAPE.mote, 0.5, 0.9, 2.5, 4, -80, 0);
