@@ -795,11 +795,11 @@ export class Vfx {
     }
     if (poison) {
       // Drops run off the body and fall to the ground; gravity and a short life keep them drips, not sparks.
-      for (let n = this.budget.take(9 * size * dt); n > 0; n--) {
+      for (let n = this.budget.take(14 * size * dt); n > 0; n--) {
         const a = Math.random() * TAU;
         const d = r * rand(0.2, 0.7);
         this.motion(x + Math.cos(a) * d, height * rand(0.35, 0.8), y + Math.sin(a) * d, 0, rand(-6, 4), 0, 220, 0.2);
-        this.look(rand(0.35, 0.6), rand(1.8, 2.8), 1.2, SHAPE.mote, 1.4);
+        this.look(rand(0.35, 0.6), rand(3, 4.5), 1.8, SHAPE.mote, 1.4);
         this.colours(POISON_DRIP, 0.75, 0.9, POISON_DRIP_DEEP, 0.7, 0);
         this.glow.pool.spawn(this.spec);
       }
@@ -807,7 +807,7 @@ export class Vfx {
         const a = Math.random() * TAU;
         this.motion(x + Math.cos(a) * r * 0.5, rand(3, height * 0.4), y + Math.sin(a) * r * 0.5, Math.cos(a) * 6, rand(3, 9), Math.sin(a) * 6, -2, 0.7);
         this.look(rand(1, 1.6), r * 0.8, r * 1.9, SHAPE.smoke);
-        this.colours(POISON_MIST, 1, 0.3, POISON_MIST, 1, 0);
+        this.colours(POISON_MIST, 1.2, 0.36, POISON_MIST, 1, 0);
         this.smoke.pool.spawn(this.spec);
       }
     }
