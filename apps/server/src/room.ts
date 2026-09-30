@@ -121,6 +121,13 @@ export class Room {
     return { cls: p.classId, level: p.level, x: pos.x, y: pos.y, life: h.life, maxLife: h.maxLife, dead: p.respawnIn !== null, castCooldown: p.castCooldown, dashing: p.dash !== null };
   }
 
+  /** The member's party, for sharing kill XP; see RoomManager.syncParties. */
+  setParty(client: Client, party: string | null): void {
+    const m = this.members.get(client.id);
+    const p = m ? this.sim.world.player.get(m.playerId) : undefined;
+    if (p) p.party = party;
+  }
+
   /** Moves a member within this room, onto open ground near the spot. */
   placeMember(client: Client, x: number, y: number): void {
     const m = this.members.get(client.id);

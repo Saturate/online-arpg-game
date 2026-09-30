@@ -1,5 +1,6 @@
-import { DUNGEON, loadMap, SIM, type PartyMemberStatus, type ServerMessage } from '@rune/shared';
+import { DUNGEON, INSTANCE_CAPACITY, loadMap, SIM, type PartyMemberStatus, type ServerMessage } from '@rune/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { dealDamage } from '../../../packages/shared/src/sim/combat.js';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
 import { channelBreak, TELEPORT_CHANNEL_SECONDS, type ChannelWatch } from '../src/partyTravel.js';
@@ -8,13 +9,17 @@ import { FakeSocket } from './fakeSocket.js';
 
 type Welcome = Extract<ServerMessage, { t: 'welcome' }>;
 
-/** Everyone is an owner, for the dev teleport onto portals and god mode against stray monsters. */
-async function setup(players: number) {
+/**
+ * Everyone is an owner, for the dev teleport onto portals and god mode against stray monsters.
+ * `join` brings in more players later, up to `total`, so a test can fill a world copy after the fact.
+ */
+async function setup(players: number, total = players) {
   const store = new AccountStore(':memory:');
-  const owners = new Set(Array.from({ length: players }, (_, i) => `player${i}`));
+  const owners = new Set(Array.from({ length: total }, (_, i) => `player${i}`));
   const rooms = new RoomManager(1, store, owners);
   const sockets: FakeSocket[] = [];
-  for (let i = 0; i < players; i++) {
+  const join = async (): Promise<FakeSocket> => {
+    const i = sockets.length;
     const acc = await store.register(`player${i}`, 'password123');
     if (acc === 'taken') throw new Error('taken');
     const ch = store.createCharacter(acc.id, `Hero${i}`, 'warrior');
@@ -24,8 +29,10 @@ async function setup(players: number) {
     socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
     socket.emit({ t: 'dev', cmd: { c: 'god', on: true } });
     sockets.push(socket);
-  }
-  return { store, rooms, sockets };
+    return socket;
+  };
+  for (let i = 0; i < players; i++) await join();
+  return { store, rooms, sockets, join };
 }
 
 function pair(sockets: FakeSocket[]): [FakeSocket, FakeSocket] {
@@ -248,6 +255,94 @@ describe('teleport to a party member', () => {
     c.close();
     a.emit({ t: 'partyTeleport', name: 'Hero1' });
     expect(a.last('teleportChannel')?.to).toBe('Hero1');
+  });
+});
+
+describe('teleport across world copies', () => {
+  /** Hero0 waits in the party's own world; Hero1 is back in Public world 1, which strangers then fill. */
+  async function split() {
+    const { rooms, sockets, join } = await setup(2, 2 + 2 * (INSTANCE_CAPACITY - 1));
+    const [a, b] = pair(sockets);
+    party(a, b);
+    a.emit({ t: 'partyWorld' });
+    b.emit({ t: 'publicWorld' });
+    expect(a.worldName()).toBe("Hero0's party world");
+    expect(b.worldName()).toBe('Public world 1');
+    const strangers: FakeSocket[] = [];
+    for (let i = 1; i < INSTANCE_CAPACITY; i++) strangers.push(await join());
+    for (const s of strangers) expect(s.worldName()).toBe('Public world 1');
+    expect(b.last('world')?.world.players).toBe(INSTANCE_CAPACITY);
+    return { rooms, a, b, strangers, join };
+  }
+
+  it('moves a member into the other copy even when it counts as full, past its soft capacity', async () => {
+    const { rooms, a, b } = await split();
+    ticks(rooms, 1);
+    expect(status(a, 'Hero1')?.no).toBeUndefined();
+    a.emit({ t: 'partyTeleport', name: 'Hero1' });
+    expect(a.last('teleportChannel')?.to).toBe('Hero1');
+    ticks(rooms, TELEPORT_CHANNEL_SECONDS + 0.1);
+    expect(ended(a)?.reason).toBeNull();
+    expect(a.worldName()).toBe('Public world 1');
+    expect(welcome(a).roomId).toBe(welcome(b).roomId);
+    expect(b.last('world')?.world.players).toBe(INSTANCE_CAPACITY + 1);
+  });
+
+  it('still sends strangers to another copy once one is over its soft capacity', async () => {
+    const { rooms, a, join } = await split();
+    a.emit({ t: 'partyTeleport', name: 'Hero1' });
+    ticks(rooms, TELEPORT_CHANNEL_SECONDS + 0.1);
+    const late = await join();
+    expect(late.worldName()).toBe('Public world 2');
+  });
+
+  it('refuses at the hard cap, which only a second party overflowing the same copy can reach', async () => {
+    const { a, strangers, join } = await split();
+    const host = strangers[0];
+    if (!host) throw new Error('no stranger');
+    // A stranger's party of the most members there can be, all joining from Public world 2.
+    for (let i = 1; i < INSTANCE_CAPACITY; i++) {
+      const guest = await join();
+      expect(guest.worldName()).toBe('Public world 2');
+      host.emit({ t: 'partyInvite', name: `Hero${INSTANCE_CAPACITY + i}` });
+      guest.emit({ t: 'partyAnswer', accept: true });
+      expect(guest.worldName()).toBe('Public world 1');
+    }
+    expect(host.last('world')?.world.players).toBe(2 * INSTANCE_CAPACITY - 1);
+    a.emit({ t: 'partyTeleport', name: 'Hero1' });
+    expect(notices(a).at(-1)).toBe("Hero1's world is full");
+  });
+});
+
+describe('party XP', () => {
+  it('tells the simulation who is in which party, so a kill pays the party and not a stranger beside it', async () => {
+    const { rooms, sockets } = await setup(3);
+    const [a, b] = pair(sockets);
+    const c = sockets[2];
+    if (!c) throw new Error('no socket');
+    party(a, b);
+    walkInto(rooms, [a, b, c], 'zone');
+    const room = roomOf(rooms, a);
+    expect(roomOf(rooms, c)).toBe(room);
+    a.emit({ t: 'dev', cmd: { c: 'killAll' } });
+    ticks(rooms, 0.1);
+    const [me, mate, stranger] = [a, b, c].map((s) => self(rooms, s));
+    if (!me || !mate || !stranger) throw new Error('no players');
+    expect(me.p.party).not.toBeNull();
+    expect(mate.p.party).toBe(me.p.party);
+    expect(stranger.p.party).toBeNull();
+    const xp = [me, mate, stranger].map((x) => x.p.xp);
+    const eid = room.sim.spawnEnemy('chaser', me.pos.x + 60, me.pos.y);
+    dealDamage(room.sim, eid, 1e9, welcome(a).playerId, []);
+    expect(me.p.xp).toBeGreaterThan(xp[0] ?? 0);
+    expect(mate.p.xp).toBeGreaterThan(xp[1] ?? 0);
+    expect(stranger.p.xp).toBe(xp[2]);
+
+    // Leaving the party takes effect on the next tick.
+    b.emit({ t: 'partyLeave' });
+    ticks(rooms, 0.1);
+    expect(me.p.party).toBeNull();
+    expect(mate.p.party).toBeNull();
   });
 });
 

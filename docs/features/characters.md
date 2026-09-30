@@ -26,7 +26,8 @@ Each class starts with its four starter sigils, bound ([runes.md](runes.md), "St
 - **XP curve:** XP from level L to L+1 is `90 * L^1.9`: 90 for the first level, about 7.1k at 10, about 99k at 40. It was slowed from `60 * L^1.75` so level requirements on gear gate longer.
 - **Monster XP:** a level-m monster is worth `6 * m^1.35`, times 4 for rares and 18 for bosses. Summoned adds (necromancer and shaman raises) give a quarter, so they cannot be farmed.
 - **Low-level penalty, D2 style:** monsters more than 5 levels below you lose 15% of their XP per extra level, down to a 5% floor, so farming the first zone at level 30 pays almost nothing.
-- **Party XP:** every living player within 1500 units shares a kill. The pool grows 35% per extra member, so a group levels faster than the same players alone.
+- **Party XP, D2 style (owner decision, 2026-09-30):** a kill's XP goes to the killer's party members alive within 1500 units of the kill, or to the killer alone when not in a party. Other players nearby get nothing, so strangers cannot ride along on each other's fights. The pool grows 35% per party member present, so a party levels faster than the same players alone, and each share takes its own low-level penalty. Until 2026-09-30 the code shared with every living player in range, party or not, while this doc already said "party members".
+- **Who the killer is:** the player who dealt the killing blow, with minions counting for their master (spells, shots and hazards already carry their caster's id). When no player is behind the last hit (a monster's hazard, another monster, a reflected shot, a burn from a player who has left the room), the kill goes to the player still in the room who dealt it the most damage, or to nobody if no player touched it. Damage counts only up to the life it took, so one huge overkill hit does not win the fallback.
 - **Level growth:** per level, +6% of the class's base life, +12 Force, +1 spirit and +1.5% damage. Level damage adds to gear's "increased damage", as in PoE. Level-up refills life and Force.
 - **Item requirements:** item level minus 2, so drops are usable a little early. The server checks it when equipping. Gear worn from before levels existed stays on, but cannot be re-equipped until the character reaches its level. Saves from before levels start at level 1.
 - **Spawn:** the best of 12 random points, picked by distance from enemies. It started at the arena centre, which caused a respawn-death loop when enemies camped the corpse.
@@ -42,13 +43,14 @@ heatMax: forceMax + PROGRESSION.forcePerLevel * (level - 1)  // forceMax is the 
 damageMult: 1 + PROGRESSION.damagePerLevel * (level - 1) + gearDamage / 100
 ```
 
+- Kill XP: `grantKillXp`, `killerOf` and `creditDamage` in `packages/shared/src/sim/progression.ts`. `dealDamage` in `sim/combat.ts` tallies each hit on a monster into `EnemyComp.damageBy` (by player, minions resolved to their master) and passes the last hit's source to the kill. The party is `PlayerComp.party`, which the simulation cannot know by itself: the server's `RoomManager.syncParties` writes each player's party id into their room's simulation every tick (`Room.setParty`), one map lookup per player, so no room change or leave can leave it stale.
 - Numbers: `PROGRESSION`, `ARMOR` and `SIM` (`playerRespawnSeconds` 3, `playerSpawnCandidates` 12) in `packages/shared/src/config/sim.ts`.
 - Admin tunables ([accounts-admin.md](accounts-admin.md)): the XP rate multiplies kill XP; the level-1 Force bar (`forceMax`, 50 to 5000) replaces `HEAT.max` in `baseStats`.
 - Characters are saved per account, 12 per account, with names unique server-wide ([accounts-admin.md](accounts-admin.md)).
 
 Tests:
 
-- `packages/shared/test/progression.test.ts`: level-ups grow life and Force and refill them; party XP sharing and the bonus; the server XP rate; the low-level penalty; gear refused above your level; level and progress survive a save.
+- `packages/shared/test/progression.test.ts`: level-ups grow life and Force and refill them; kill XP shared only with the killer's party nearby, with the bonus (a stranger beside the kill, a far member and a dead member get nothing); the killer alone outside a party; a minion's kill counted for its master; the most-damage fallback when a monster lands the last hit, and nobody when no player touched it; the server XP rate; the low-level penalty; gear refused above your level; level and progress survive a save.
 - `packages/shared/test/simulation.test.ts`: players die and respawn with full life; respawn away from enemies camping the previous spawn; no basic attack.
 
 ## Limits and open questions

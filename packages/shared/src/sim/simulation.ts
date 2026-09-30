@@ -186,6 +186,7 @@ export class Simulation {
     w.player.set(id, {
       clientId,
       name,
+      party: null,
       classId,
       aimAngle: 0,
       castCooldown: 0,

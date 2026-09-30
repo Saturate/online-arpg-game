@@ -32,16 +32,56 @@ function grayFactor(playerLevel: number, monsterLevel: number): number {
   return gap <= 0 ? 1 : Math.max(PROGRESSION.grayFloor, 1 - gap * PROGRESSION.grayPenaltyPerLevel);
 }
 
+/** The player a hit counts for: the player itself, or a minion's master. Monsters and hazards count for nobody. */
+function creditedPlayer(sim: Simulation, sourceId: EntityId | null): EntityId | null {
+  if (sourceId === null) return null;
+  const w = sim.world;
+  if (w.player.has(sourceId)) return sourceId;
+  const owner = w.minion.get(sourceId)?.ownerId;
+  return owner !== undefined && w.player.has(owner) ? owner : null;
+}
+
+/** Tallies a hit on a monster for whoever it counts for, for the kill fallback in grantKillXp. */
+export function creditDamage(sim: Simulation, e: EnemyComp, sourceId: EntityId, amount: number): void {
+  const pid = creditedPlayer(sim, sourceId);
+  if (pid === null || amount <= 0) return;
+  e.damageBy.set(pid, (e.damageBy.get(pid) ?? 0) + amount);
+}
+
 /**
- * Splits a kill's XP among living players near it. Everyone in range gets a share of the pool,
- * and the pool grows per member, so a party levels faster than the same players alone.
+ * Who a kill belongs to: the player who dealt the killing blow, their minions counting for them.
+ * With no player behind the last hit, the player still here who dealt the most damage, or nobody.
  */
-export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number): void {
+export function killerOf(sim: Simulation, e: EnemyComp, sourceId: EntityId | null): EntityId | null {
+  const direct = creditedPlayer(sim, sourceId);
+  if (direct !== null) return direct;
+  let best: EntityId | null = null;
+  let most = 0;
+  for (const [pid, dealt] of e.damageBy) {
+    if (dealt > most && sim.world.player.has(pid)) {
+      best = pid;
+      most = dealt;
+    }
+  }
+  return best;
+}
+
+/**
+ * Pays a kill's XP the D2 way: to the killer's party members alive within partyRange of the kill,
+ * or to the killer alone outside a party. Anyone else nearby gets nothing, so strangers cannot
+ * leech off each other's fights. The pool grows per member present, so a party levels faster than
+ * the same players alone, and each share takes its own low-level penalty.
+ */
+export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number, sourceId: EntityId | null = null): void {
   if (!e.rewards) return;
   const w = sim.world;
+  const killer = killerOf(sim, e, sourceId);
+  if (killer === null) return;
+  const party = w.player.get(killer)?.party ?? null;
   const r2 = PROGRESSION.partyRange ** 2;
   const near: EntityId[] = [];
   for (const [id, p] of w.player) {
+    if (id !== killer && (party === null || p.party !== party)) continue;
     const pos = w.position.get(id);
     if (p.respawnIn === null && pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) near.push(id);
   }

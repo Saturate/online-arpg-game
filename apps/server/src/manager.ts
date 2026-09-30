@@ -68,6 +68,15 @@ const AUTOSAVE_SECONDS = 30;
 const CHAT_PER_WINDOW = 6;
 const CHAT_WINDOW_MS = 5000;
 
+/**
+ * Most players a world copy takes when the newcomer is joining a party member there. The public
+ * world stops sending strangers at INSTANCE_CAPACITY, and a party holds at most INSTANCE_CAPACITY
+ * members, so a copy that was full when a party's first member got in can still take the other 7:
+ * 8 + 7 = 15. Only two parties overflowing the same copy at once can reach it. Zones are rooms of
+ * their own, so 15 players rarely share one simulation; the cap stops a copy from growing without end.
+ */
+const INSTANCE_HARD_CAP = INSTANCE_CAPACITY * 2 - 1;
+
 /** Waypoint travel is only allowed while standing on one; a little slack covers movement since the menu opened. */
 const WAYPOINT_REACH = 120;
 
@@ -403,6 +412,7 @@ export class RoomManager implements AdminHooks {
       this.ticksSinceSave = 0;
       this.saveAll();
     }
+    this.syncParties();
     for (const room of [...this.rooms.values()]) {
       // One broken room must not stop every other room, or kill the process before anyone is saved.
       try {
@@ -793,7 +803,7 @@ export class RoomManager implements AdminHooks {
     for (const c of this.onlineMembers(party)) if (c !== client) this.system(c, `${this.playerName(client)} joined the party`);
     // Joining a party means playing together, so go to where the inviter is if there is room.
     const there = inviter ? this.instanceOf(inviter) : null;
-    if (there && there !== this.instanceOf(client) && this.membersOf(there).length < INSTANCE_CAPACITY) this.enterInstance(client, there);
+    if (there && there !== this.instanceOf(client) && this.membersOf(there).length < INSTANCE_HARD_CAP) this.enterInstance(client, there);
   }
 
   private partyLeave(client: Client): void {
@@ -1075,10 +1085,25 @@ export class RoomManager implements AdminHooks {
     if (target.instanceId !== client.instanceId) {
       const inst = this.instanceOf(target);
       if (!inst) return `${name} is between areas, try again`;
-      if (inst.kind === 'party' && inst.partyId !== party.id) return `${name} is in another party's world`;
-      if (this.membersOf(inst).length >= INSTANCE_CAPACITY) return `${name}'s world is full`;
+      // A copy left behind by a party that broke up is nobody's any more, so only a live party's world is closed.
+      if (inst.kind === 'party' && inst.partyId !== null && inst.partyId !== party.id) return `${name} is in another party's world`;
+      // Party members always fit: the soft capacity only turns strangers away.
+      if (this.membersOf(inst).length >= INSTANCE_HARD_CAP) return `${name}'s world is full`;
     }
     return null;
+  }
+
+  /**
+   * Tells every room's simulation which party each player is in, since kill XP is shared only
+   * inside the killer's party. Every tick rather than on each change, so a room change, a join or
+   * a leave can never leave a stale party behind; it is one map lookup per player.
+   */
+  private syncParties(): void {
+    const partyByAccount = new Map<number, string>();
+    for (const party of this.parties.values()) for (const acc of party.members.keys()) partyByAccount.set(acc, party.id);
+    for (const c of this.clients.values()) {
+      if (c.accountId !== null) c.room?.setParty(c, partyByAccount.get(c.accountId) ?? null);
+    }
   }
 
   private onlineByAccount(): Map<number, Client> {

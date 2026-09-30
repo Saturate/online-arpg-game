@@ -143,6 +143,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     enraged: false,
     raised: false,
     rewards: true,
+    damageBy: new Map(),
     detonated: false,
     pinned: 0,
   });

@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { addXp, createGear, levelRequirement, monsterXp, PROGRESSION, Simulation, xpToNext, type GearItem } from '../src/index.js';
+import { addXp, createGear, createVessel, levelRequirement, monsterXp, PROGRESSION, Simulation, xpToNext, type GearItem } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
+
+function player(sim: Simulation, id: number) {
+  const p = sim.world.player.get(id);
+  if (!p) throw new Error('no player');
+  return p;
+}
+
+function at(sim: Simulation, id: number) {
+  const pos = sim.world.position.get(id);
+  if (!pos) throw new Error('no pos');
+  return pos;
+}
+
+function base(): number {
+  return monsterXp({ level: 1, rare: false, boss: false });
+}
 
 function give(sim: Simulation, pid: number, item: GearItem): void {
   const p = sim.world.player.get(pid);
@@ -29,21 +45,94 @@ describe('progression', () => {
     expect(sim.takeEvents().some((e) => e.ev.e === 'levelUp')).toBe(true);
   });
 
-  it('shares kill XP between nearby players with a party bonus, and pays nothing to those far away', () => {
+  it('shares kill XP only with the killer\'s party members nearby, with a party bonus', () => {
     const sim = new Simulation(2, { kind: 'flat' });
     const a = sim.addPlayer('a', 'mage');
     const b = sim.addPlayer('b', 'ranger');
     const far = sim.addPlayer('f', 'priest');
-    const pos = sim.world.position.get(a);
-    if (!pos) throw new Error('no pos');
+    const stranger = sim.addPlayer('s', 'warrior');
+    for (const id of [a, b, far]) player(sim, id).party = 'p1';
+    const pos = at(sim, a);
     sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
+    sim.world.position.set(stranger, { x: pos.x - 50, y: pos.y });
     sim.world.position.set(far, { x: pos.x + PROGRESSION.partyRange + 400, y: pos.y });
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
     dealDamage(sim, eid, 1e9, a, []);
-    const each = (monsterXp({ level: 1, rare: false, boss: false }) * (1 + PROGRESSION.partyBonusPerMember)) / 2;
-    expect(sim.world.player.get(a)?.xp).toBeCloseTo(each);
-    expect(sim.world.player.get(b)?.xp).toBeCloseTo(each);
-    expect(sim.world.player.get(far)?.xp).toBe(0);
+    const each = (base() * (1 + PROGRESSION.partyBonusPerMember)) / 2;
+    expect(player(sim, a).xp).toBeCloseTo(each);
+    expect(player(sim, b).xp).toBeCloseTo(each);
+    expect(player(sim, far).xp).toBe(0);
+    expect(player(sim, stranger).xp).toBe(0);
+  });
+
+  it('pays the killer alone outside a party, and a party member for a stranger\'s kill gets nothing', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const a = sim.addPlayer('a', 'mage');
+    const b = sim.addPlayer('b', 'ranger');
+    player(sim, b).party = 'p1';
+    const pos = at(sim, a);
+    sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1e9, a, []);
+    expect(player(sim, a).xp).toBeCloseTo(base());
+    expect(player(sim, b).xp).toBe(0);
+  });
+
+  it('skips a dead party member, so the living share without the bonus for them', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const a = sim.addPlayer('a', 'mage');
+    const b = sim.addPlayer('b', 'ranger');
+    for (const id of [a, b]) player(sim, id).party = 'p1';
+    player(sim, b).respawnIn = 3;
+    const pos = at(sim, a);
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1e9, a, []);
+    expect(player(sim, a).xp).toBeCloseTo(base());
+    expect(player(sim, b).xp).toBe(0);
+  });
+
+  it('counts a minion\'s killing blow for its master', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const master = sim.addPlayer('m', 'binder');
+    const bystander = sim.addPlayer('s', 'warrior');
+    const p = player(sim, master);
+    p.stats.spiritMax = 1000;
+    const v = createVessel(sim.newItemUid(), sim.rand.loot, 'common', 'zombie_brute');
+    p.items.set(v.uid, v);
+    p.inventory[p.inventory.indexOf(null)] = v.uid;
+    expect(sim.equipVessel(master, v.uid, 0)).toBeNull();
+    sim.step();
+    const minion = p.minions[0];
+    if (minion === null || minion === undefined) throw new Error('no minion');
+    const pos = at(sim, master);
+    sim.world.position.set(bystander, { x: pos.x + 40, y: pos.y });
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    const before = p.xp;
+    dealDamage(sim, eid, 1e9, minion, []);
+    expect(p.xp - before).toBeCloseTo(base());
+    expect(player(sim, bystander).xp).toBe(0);
+  });
+
+  it('gives a kill with no player behind the last hit to whoever dealt the most damage, or nobody', () => {
+    const sim = new Simulation(2, { kind: 'flat' });
+    const a = sim.addPlayer('a', 'mage');
+    const b = sim.addPlayer('b', 'ranger');
+    const pos = at(sim, a);
+    sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
+    const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    const other = spawnEnemy(sim, 'chaser', pos.x + 120, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, eid, 1, a, []);
+    dealDamage(sim, eid, 3, b, []);
+    // Another monster lands the killing blow, as a monster's hazard or a reflected shot would.
+    dealDamage(sim, eid, 1e9, other, []);
+    expect(sim.world.isAlive(eid)).toBe(false);
+    expect(player(sim, b).xp).toBeCloseTo(base());
+    expect(player(sim, a).xp).toBe(0);
+
+    const untouched = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
+    dealDamage(sim, untouched, 1e9, other, []);
+    expect(player(sim, b).xp).toBeCloseTo(base());
+    expect(player(sim, a).xp).toBe(0);
   });
 
   it('multiplies kill XP by the server XP rate', () => {

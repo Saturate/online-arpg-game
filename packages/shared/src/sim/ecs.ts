@@ -58,6 +58,8 @@ export interface EquippedSigil {
 export interface PlayerComp {
   clientId: string;
   name: string;
+  /** The server's party id, synced every tick; null alone. Kill XP is shared only inside a party. */
+  party: string | null;
   classId: ClassId;
   aimAngle: number;
   castCooldown: number;
@@ -155,6 +157,11 @@ export interface EnemyComp {
    * paid out once) and for ones spawned with dev tools.
    */
   rewards: boolean;
+  /**
+   * Damage taken per player entity, minions counted for their master. Decides who gets the kill
+   * when no player landed the last hit (a hazard, another monster, a burn from a player who left).
+   */
+  damageBy: Map<EntityId, number>;
   /** Killed by its own suicide blast, so the death burst does not fire on top. */
   detonated: boolean;
   /** Seconds left held in place by a Hound Leader's pounce: no moving, biting or casting. */

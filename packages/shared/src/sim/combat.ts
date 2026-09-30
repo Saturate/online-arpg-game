@@ -7,7 +7,7 @@ import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
 import { alertPack, knockbackImmune, onEnemyDeath } from './enemies.js';
 import { onBossKilled } from './dungeon.js';
-import { grantKillXp } from './progression.js';
+import { creditDamage, grantKillXp } from './progression.js';
 import { scoreKill } from './arena.js';
 import { dropLoot } from './inventory.js';
 import { onPackLeaderDeath, onPackmateDeath } from './minions.js';
@@ -82,6 +82,8 @@ export function dealDamage(
   }
 
   if (p?.god) amount = 0;
+  const enemy = w.enemy.get(targetId);
+  if (enemy) creditDamage(sim, enemy, sourceId, Math.min(amount, h.life));
   h.life = Math.max(0, h.life - amount);
   const attacker = w.player.get(sourceId);
   if (attacker && w.enemy.has(targetId)) {
@@ -99,7 +101,7 @@ export function dealDamage(
     if (leech > 0) healEntity(sim, src.ownerId, (amount * leech) / 100, false);
   }
 
-  if (h.life <= 0) kill(sim, targetId);
+  if (h.life <= 0) kill(sim, targetId, sourceId);
   return amount;
 }
 
@@ -190,7 +192,7 @@ export function knockback(sim: Simulation, id: EntityId, fromX: number, fromY: n
   e.knockY += (dy / d) * s;
 }
 
-function kill(sim: Simulation, id: EntityId): void {
+function kill(sim: Simulation, id: EntityId, sourceId: EntityId | null = null): void {
   const w = sim.world;
   const pos = w.position.get(id);
   if (!pos) return;
@@ -213,7 +215,7 @@ function kill(sim: Simulation, id: EntityId): void {
     dropLoot(sim, id);
     onEnemyDeath(sim, id, e, pos);
     if (e.boss) onBossKilled(sim, pos.x, pos.y, e.level);
-    grantKillXp(sim, e, pos.x, pos.y);
+    grantKillXp(sim, e, pos.x, pos.y, sourceId);
     scoreKill(sim, e);
     return;
   }
