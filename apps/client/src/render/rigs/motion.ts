@@ -1276,6 +1276,8 @@ function die(rig: Rig, m: RigMotion): void {
       rot(m.legR, 0, 0, curl(m.legR) * k - kick, 1);
       rot(m.armL, 0, 0, curl(m.armL) * k - kick, 1);
       rot(m.armR, 0, 0, curl(m.armR) * k + kick, 1);
+      // The legs on the upper side fall onto the lower ones; stiff and parallel they read as a toy.
+      for (const c of [m.legL, m.legR, m.armL, m.armR]) if (c && c.side === -dir) rot(c, -dir * 0.35 * k, 0, 0, 1);
       rot(m.head, 0, 0, -0.25 * k, 1);
       rot(m.jaw, 0, 0, -0.5 * k, 1);
       rot(m.tail, 0, 0.4 * k, 0, 1);

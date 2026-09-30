@@ -1050,7 +1050,8 @@ function treant(color: number, king: boolean): Rig {
   const rig = emptyRig(motion('biped', 'claw', 'collapse', king ? 1 : 0.9, { ability: 'slam', cast: 'cast', shoot: 'cast' }));
   rig.legLength = 1.2;
   const bark = mat(0x5a4028, { rough: 1 });
-  const leaf = mat(color, { rough: 0.9 });
+  // The king's crown towers over the hero's light and went black at night: a faint mossy glow keeps its shape.
+  const leaf = king ? mat(color, { rough: 0.9, emissive: 0x2a3a18, intensity: 0.45 }) : mat(color, { rough: 0.9 });
   const b = rig.body;
   if (king) b.scale.setScalar(1.15);
   const torso = new Group();

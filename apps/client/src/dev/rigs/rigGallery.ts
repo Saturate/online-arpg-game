@@ -1,4 +1,4 @@
-import { ENEMIES, MINION_DEFS, MINION_TYPE_IDS, type EnemyTypeId, type MinionTypeId } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, ENEMIES, MINION_DEFS, MINION_TYPE_IDS, type EnemyTypeId, type MinionTypeId } from '@rune/shared';
 import {
   ACESFilmicToneMapping,
   AmbientLight,
@@ -21,6 +21,7 @@ import type { AnimRole } from '../../render/assets.js';
 import { MINION_ASSETS } from '../../render/characters.js';
 import { COLORS, VIEW } from '../../render/config.js';
 import { applyGrit } from '../../render/grit.js';
+import { NIGHT_RIM, nightRim } from '../../render/nightRim.js';
 import { beginRigFrame, buildEnemy, buildMinion, driveRig, enemyModel, minionModel, rigAttack, rigHit, rigReset, rigSpawn, rigWindup, type Rig, type RigDrive } from '../../render/models.js';
 import { PROCEDURAL_ENEMIES } from './rigBench.js';
 
@@ -50,21 +51,24 @@ export const GALLERY_ENTRIES: readonly GalleryEntry[] = [
 ];
 
 /**
- * The wilds rig from render/scene.ts, day and deep night at the default night brightness (0.6):
- * night keeps 0.3 + 0.7 * 0.6 of the light, then the night dim of 0.75, moonlight for the sun, and
- * the hero's light turned up into the D2 light radius.
+ * The wilds rig from render/scene.ts, day and deep night at the admin defaults: night keeps
+ * 0.3 + 0.7 * brightness of the light, then the night dim of 0.75, moonlight for the sun and the
+ * enemy rim, and the hero's light turned into the D2 light radius (2.2 at the feet, 120 up).
  */
-const DAY = { hemi: 1.3, ambient: 0.55, sun: 2.55, sunColor: 0xf2e4ca, exposure: 1.52, hero: 2, heroDistance: 520, heroDecay: 1.4 };
-const KEEP = 0.3 + 0.7 * 0.6;
+const DAY = { hemi: 1.3, ambient: 0.55, sun: 2.55, sunColor: 0xf2e4ca, exposure: 1.52, hero: 2, heroColor: 0xffd6a0, heroDistance: 520, heroDecay: 1.4, rim: 0 };
+const SETTINGS = DEFAULT_SERVER_SETTINGS;
+const KEEP = 0.3 + 0.7 * SETTINGS.nightBrightness;
 const NIGHT = {
   hemi: DAY.hemi * KEEP * 0.75,
   ambient: DAY.ambient * Math.min(1, KEEP + 0.2) * 0.75,
   sun: DAY.sun * KEEP * 0.8 * 0.75,
   sunColor: 0x7488c8,
   exposure: DAY.exposure * 0.8,
-  hero: DAY.hero * 3,
-  heroDistance: 700,
-  heroDecay: 0.9,
+  hero: 2.2 * SETTINGS.heroLight * Math.pow(120, 1.4),
+  heroColor: 0xffc488,
+  heroDistance: SETTINGS.heroLightRadius,
+  heroDecay: 1.4,
+  rim: NIGHT_RIM,
 };
 
 /** Ground disc radius in collision radii: wide enough that a death view never sees past its edge. */
@@ -72,6 +76,7 @@ const GROUND = 16;
 /** Cells sit this far apart in the one shared scene, so no model's light or reach spills over. */
 const SPACING = 1200;
 const DEG = Math.PI / 180;
+const focus = new Vector3();
 
 interface Cell {
   entry: GalleryEntry;
@@ -236,6 +241,8 @@ export class RigGallery {
     this.hero.intensity = l.hero;
     this.hero.distance = l.heroDistance;
     this.hero.decay = l.heroDecay;
+    this.hero.color.setHex(l.heroColor);
+    nightRim.value = l.rim;
     this.renderer.toneMappingExposure = l.exposure;
   }
 
@@ -343,9 +350,16 @@ export class RigGallery {
       Object.assign(this.camera, { left: -half * aspect, right: half * aspect, top: half, bottom: -half });
       this.camera.updateProjectionMatrix();
       const cy = tall * 0.36;
-      const ahead = dying && c.rig.profile.death === 'collapse' ? tall * 0.45 : 0;
-      const fx = c.x + Math.cos(c.rig.root.rotation.y) * ahead;
-      const fz = -Math.sin(c.rig.root.rotation.y) * ahead;
+      // A corpse falls forward, back or to the side; the view follows the middle of the body.
+      let fx = c.x;
+      let fz = 0;
+      if (dying) {
+        c.rig.root.updateMatrixWorld(true);
+        const b = c.rig.body;
+        b.localToWorld(focus.set(0, (c.extent.tall * 0.5) / (b.scale.y || 1), 0));
+        fx = focus.x;
+        fz = focus.z;
+      }
       this.camera.position.set(fx + this.offset.x, cy + this.offset.y, fz + this.offset.z);
       this.camera.lookAt(fx, cy, fz);
       // The hero stands at melee distance in front of each monster, its light 120 up as in scene.ts.
