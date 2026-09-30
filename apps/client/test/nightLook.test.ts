@@ -41,14 +41,14 @@ describe('night rim', () => {
     expect(f.fragmentShader).not.toContain('rimF');
   });
 
-  it('follows the night: zero by day, 0.28 at deep night', () => {
+  it('follows the night: zero by day, 0.34 at deep night', () => {
     const e = shader();
     rigShaderHook(true).hook.call(new MeshStandardMaterial(), e);
     const uniform = e.uniforms.uRim;
     nightRim.value = 0;
     expect(uniform?.value).toBe(0);
     nightRim.value = NIGHT_RIM;
-    expect(uniform?.value).toBeCloseTo(0.28);
+    expect(uniform?.value).toBeCloseTo(0.34);
     nightRim.value = 0;
   });
 
@@ -60,7 +60,7 @@ describe('night rim', () => {
     const s = shader();
     injectRim(s, 0.8);
     nightRim.value = NIGHT_RIM;
-    expect(s.uniforms.uRim?.value).toBeCloseTo(0.28 * 0.8);
+    expect(s.uniforms.uRim?.value).toBeCloseTo(0.34 * 0.8);
     nightRim.value = 0;
   });
 });
