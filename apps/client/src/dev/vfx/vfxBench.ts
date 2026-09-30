@@ -1,5 +1,6 @@
 import {
   compileSigilItem,
+  HOME_ZONE,
   SIM,
   SKILL_BUTTONS,
   Simulation,
@@ -11,6 +12,9 @@ import {
   type EntityId,
   type EntitySnap,
   type GameEvent,
+  type MapDescriptor,
+  type TownLayout,
+  type WorldMap,
 } from '@rune/shared';
 import { EntityRenderer, type RenderItem } from '../../render/entities.js';
 import { Effects } from '../../render/fx.js';
@@ -32,6 +36,10 @@ export interface BenchScene {
   label: string;
   casters: CasterDef[];
   monsters: number;
+  /** Another map than the wilds, for looking at the world's own fires; `town` takes the live town layout. */
+  map?: 'town' | MapDescriptor;
+  /** Where the camera looks on that map. */
+  focus?: (def: WorldMap) => { x: number; y: number };
 }
 
 /** Starter skill ids, or rune text for anything that is not a starter. */
@@ -122,6 +130,22 @@ const SCENES: readonly BenchScene[] = [
       { skill: 'war_cry', at: { x: 0, y: 0 } },
     ],
   },
+  // World fires, no spells: the town square with its lamps and the forge, the wilds camp fire, a torch-lit dungeon room.
+  { id: 'town-fires', label: 'Town square: lamps and the forge fire', monsters: 0, casters: [], map: 'town', focus: (def) => ({ x: def.spawn.x + 60, y: def.spawn.y - 110 }) },
+  { id: 'camp-fire', label: 'The wilds camp fire', monsters: 0, casters: [], focus: (def) => ({ x: def.spawn.x + 40, y: def.spawn.y + 60 }) },
+  {
+    id: 'dungeon-fires',
+    label: 'A torch-lit dungeon room',
+    monsters: 0,
+    casters: [],
+    map: { kind: 'dungeon', run: 0, seed: 4242, level: 3 },
+    focus: (def) => {
+      // Between the two torches of one room, so both are on screen.
+      const a = def.lamps?.[2] ?? def.spawn;
+      const b = def.lamps?.[3] ?? a;
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    },
+  },
 ];
 
 export const BENCH_SCENES = SCENES;
@@ -198,14 +222,16 @@ export class VfxBench {
   /** Camera offset from the default framing and zoom, for close-up screenshots. */
   readonly view = { dx: 0, dy: 0, zoom: 1 };
 
-  constructor(host: HTMLElement, fxLayer: HTMLElement, sceneId: string) {
+  constructor(host: HTMLElement, fxLayer: HTMLElement, sceneId: string, town?: TownLayout) {
     this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', casters: [], monsters: 0 };
-    const sim = new Simulation(7, { kind: 'wilds', seed: 7 }, { waves: false });
+    const map: MapDescriptor = this.scene.map === 'town' ? { kind: 'zone', zone: HOME_ZONE, seed: 7, ...(town ? { layout: town } : {}) } : (this.scene.map ?? { kind: 'wilds', seed: 7 });
+    const sim = new Simulation(7, map, { waves: false });
     this.world = new WorldScene(host, sim.mapDef);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
     this.entities = new EntityRenderer(this.world.scene, this.world.camera, this.fx.vfx);
     this.ctx = { fx: this.fx, entities: this.entities, selfId: null, damageNumbers: false, shake: () => {} };
     this.centre = sim.map.findOpen(sim.mapDef.width / 2, sim.mapDef.height / 2, 200);
+    if (this.scene.focus) this.roadFocus = this.scene.focus(sim.mapDef);
     this.record(sim);
     this.raf = requestAnimationFrame(this.loop);
   }

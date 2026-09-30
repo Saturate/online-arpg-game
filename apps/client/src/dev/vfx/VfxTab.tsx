@@ -1,3 +1,4 @@
+import { validateLayout, type TownLayout } from '@rune/shared';
 import { useEffect, useRef, useState } from 'react';
 import { readLink, writeLink } from '../deepLink.js';
 import { isVfxQuality, QUALITY_LABELS, VFX_QUALITIES, type VfxQuality } from '../../render/vfx/quality.js';
@@ -39,14 +40,28 @@ export function VfxTab() {
   }, [quality, scene]);
 
   useEffect(() => {
-    if (!host.current || !fxLayer.current) return;
-    const b = new VfxBench(host.current, fxLayer.current, scene);
-    b.setQuality(quality);
-    bench.current = b;
-    window.vfxBench = b;
+    const hostEl = host.current;
+    const layerEl = fxLayer.current;
+    if (!hostEl || !layerEl) return;
+    let b: VfxBench | null = null;
+    let cancelled = false;
+    const start = (town: TownLayout | undefined): void => {
+      if (cancelled) return;
+      b = new VfxBench(hostEl, layerEl, scene, town);
+      b.setQuality(quality);
+      bench.current = b;
+      window.vfxBench = b;
+    };
+    // The town scene shows the live town, as the server has it, rather than the shipped default.
+    if (BENCH_SCENES.find((s) => s.id === scene)?.map === 'town') {
+      fetch('/api/town')
+        .then((r) => r.json())
+        .then((j: unknown) => start(validateLayout(j) ?? undefined), () => start(undefined));
+    } else start(undefined);
     return () => {
-      b.dispose();
-      if (window.vfxBench === b) window.vfxBench = undefined;
+      cancelled = true;
+      b?.dispose();
+      if (b && window.vfxBench === b) window.vfxBench = undefined;
     };
     // Quality changes go to the running bench above; only a new scene rebuilds it.
   }, [scene]);
