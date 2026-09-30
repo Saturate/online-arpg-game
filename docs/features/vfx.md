@@ -1,6 +1,6 @@
 # Spell effects (VFX)
 
-Status: Built 2026-09-30, not pushed. Replaces the flat spell shapes with shaders, particles, trails and spell light. Low quality keeps the flat shapes.
+Status: Built 2026-09-30, not pushed. Replaces the flat spell shapes with shaders, particles, trails and spell light. Low quality keeps the flat shapes. World fires (torches, lamps, candles, camp fires, the forge) built 2026-09-30 on the same pools, not pushed.
 
 ## What it does
 
@@ -97,6 +97,23 @@ Every emitter asks for a number (rates are per second at High, times `dt`), and 
 - A per-frame cap stops a burst of deaths from filling the pool in one frame.
 - Emitters skip positions far from the camera.
 
+### World fires
+
+Every flame that belongs to the world, not to a spell: dungeon and Arena torches, the Arena building's post torches, candles, standing and post lanterns (the town's lamp posts and the zone gates), shrine candles, the forge fire and the wilds camp fire. Code: `vfx/worldFires.ts`; the spots are built in `props.ts` (`FLAMES`, `flamesOf`, `campfire`) and reach the system through `BuiltWorld.fires`, `WorldScene.fires` and `Effects.update`.
+
+- **Flames** are noise-shader quads that stand upright and turn about the vertical to face the camera, so their base stays on the torch and they foreshorten like the world. Each is two layers of the same shape (a teardrop eaten from the top by rising value noise): an outer body and a narrower, hotter inner one. The colour runs from a near-white core through deep orange to dull red tips; the cool upper edge also darkens what is behind it a little (soot), so a flame reads as burning pitch rather than a clean glow. Flames lean with a slow shared wind (toward the camera's right) and waver.
+- **Torches** get one flame, a soft glow, a thin dark smoke wisp off the tip and the odd spark. **Candles** and **lanterns** get a small steady flame and a glow and no particles; a lantern's flame and glow are drawn toward the camera (`pull`) so the lantern's own glass does not hide them.
+- **Camp fires and the forge** get five tongues around the centre, a bed of coals on the ground (emissive fbm cells breathing on their own beat, over a ring of dark ash), a heat shimmer band above (faint noise bands a touch lighter and darker than what is behind: a stand-in for refraction with no screen copy), a large glow, embers that ride the heat on a slow turbulence and fade, sparks that pop and fall, and dark smoke that rises and spreads. The logs are crossed charred cylinders whose emissive map is a crack pattern; their emissive intensity follows the fire's light flicker.
+- **The forge flares** when a sigil is inscribed: the client's own `inscribed` reply with `ok: true` (`game.ts`) calls `fires.flareForge()`. The tongues grow by up to 70%, brighten by up to 45%, a burst of 36 sparks is spawned as important particles, and a light at priority 1 flashes from 3.2 down over 0.9 s. Other players at the forge do not see it: no event reaches them.
+- **Their lights** are still the static lights in `lights.ts`. `staticFlicker` (exported from there) is the flicker the light budget applies; a flame reads it with the budget's clock (`LightBudget.time`) and its light's position, so the flame and its light pulse together. The flame moves 1.6 times the light's flicker.
+- **The models' own flames are cut out:** the KayKit dungeon torch and candle paint their flame from the atlas's fire gradient (u 0.9 to 0.96, v 0.5 to 0.7). `PropBatch` drops the triangles whose UV centre falls there (`withoutUvRect`), only for those two assets, when it batches them; the asset viewer and town editor keep the untouched model. Where each asset's flame sits (torch bowl rim, candle wicks, lantern glass) was measured from the meshes and is in `FLAMES`.
+
+**Detail by distance** (`fireDetail`, `nearestFirst`): each frame every fire's flame is projected to the screen. Off screen (outside 1.15 of the viewport sideways and at the top, 1.25 below, so a flame whose base is under the edge still shows its tip) nothing is drawn. On screen the flame, glow and coals are drawn. Within 650 units of the camera focus a torch or camp fire also gets particles and the shimmer, at most 8 fires at once, nearest first (the Arena ring has 14 torches). Low quality (`QualityLevel.fireParticles` false) keeps the flames, glows and coals and drops particles and shimmer.
+
+**Cost:** every quad of every fire goes into one instanced mesh with its own shader (one draw call in total, `RENDER_ORDER.worldFire`, under smoke and embers), premultiplied blending so the additive flame and glow and the darkening soot, ash and shimmer share it. Embers, sparks and smoke go into the spell glow and smoke pools, so they add no draw calls, and ask the particle budget like every ambient emitter. Per frame the fires write a few floats per quad into a fixed buffer (640 quads) and allocate nothing. Particles use a new `wobble` field in the pool (a sideways swirl from two sines phased by the particle's seed; 0, what every spell particle has, skips it).
+
+The VFX bench has three scenes for them: `town-fires` (the live town square from `/api/town` with its six lamps, the forge and the Arena torches), `camp-fire` (the wilds camp) and `dungeon-fires` (a dungeon room with two torches and candles). `window.vfxBench.fx.vfx.fires.stats` gives the fires drawn, the ones with particles and the quads.
+
 ### Adding an effect
 
 1. Pick or add a style in `palette.ts` if it needs new colours.
@@ -122,6 +139,17 @@ Spell views emit their particles inside `EntityRenderer.render`, which is why it
 
 GPU time was not measured (headless Chrome has no timer query here); the fragment cost is the zone and nova shaders (three octaves of value noise over each area) and additive sprite overdraw in a crowd.
 
+World fires, measured with the same bench (600 frames each, 1280x720 page on the development Mac at 120 Hz, visible Chrome, no spells), before the change and after. Render is `WorldScene.render` CPU; heap is JS heap growth per frame.
+
+| Scene | Draw calls | Render CPU | Heap per frame | Live particles |
+|---|---|---|---|---|
+| Town square at night (`?time=0.9`), High | 289 to 291 | 1.13 to 1.23 ms | 93.7 to 97.4 KB | 0 to 63 |
+| Town square at night, Low | 289 to 289 | 1.25 to 1.11 ms | 93.7 to 95.2 KB | 0 to 0 |
+| Camp fire at night, High | 129 to 131 | 0.99 to 0.97 ms | 66.5 to 68.0 KB | 0 to 52 |
+| Dungeon room with two torches, High | 27 to 30 | 0.62 to 0.41 ms | 19.3 to 23.1 KB | 0 to 15 |
+
+The fires' own draw is one call; the rest is the spell glow and smoke layers, which drew nothing before in scenes without spells, and the camp fire's log mesh in place of its two cones (the Arena building swapped its two flame cones for two iron cups). Render CPU is within run-to-run noise. The heap rise of 2 to 4 KB a frame appears once the particle layers have something to upload (three.js records an update range object per upload); the fires' own update allocates nothing. GPU time was not measured.
+
 ## Limits and open questions
 
 - Zones and novas show only their first element: that is all the snapshot carries, so Frostfire looks like fire.
@@ -131,3 +159,7 @@ GPU time was not measured (headless Chrome has no timer query here); the fragmen
 - Changing the `heroLight` and `heroLightRadius` defaults only reaches a server whose stored settings lack them; a server that saved its settings keeps its values until an admin changes them.
 - Stacked zones share glow by style and position only; two casters' zones of one style on one spot also share.
 - Real point lights go to the brightest sources near the camera through the shared budget (8 lights); everything else gets a ground pool from it.
+- World fires: only the forge and the bare wilds camp are camp fires. Zones (including the home zone around the town) have no camp fires of their own, and the town layout has no camp fire prop, so the town's only bonfire is the forge. A camp fire decor or town prop would need a kind in `town.ts` and a spot in `props.ts`.
+- World fires: the dungeon torch's bowl is lit hard by its own real light (height 56, just above the bowl), which reads as a bright blob up close; the light's height is unchanged.
+- World fires: the forge flare shows only for the player who inscribed, since the server sends the reply to them alone.
+- World fires: there are no braziers or wall sconces in the asset list; a new lit asset needs an entry in `LIT_DECOR` (its light) and `FLAMES` (where its flame sits), and `BAKED_FLAMES` in `propBatch.ts` if it models its own flame.

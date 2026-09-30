@@ -421,8 +421,8 @@ export class WorldFires {
         break;
       }
       case 'bonfire': {
-        const up = 1 + flare * 0.8;
-        const hot = 1 + flare * 0.9;
+        const up = 1 + flare * 0.7;
+        const hot = 1 + flare * 0.45;
         this.quad(COALS, s.x, 1.8, s.y, 40 * k, 40 * k, seed, flameGain * (0.8 + 0.2 * f) * hot, 0, 0, 0);
         for (let j = 0; j < TONGUES.length; j++) {
           const tg = TONGUES[j];
