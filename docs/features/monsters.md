@@ -59,6 +59,7 @@ Code:
 - Numbers: `ENEMY_LEVEL`, `WILDS` (aggro, alert, leash), `NAV`, `WAVES`, `CURSE` in `packages/shared/src/config/sim.ts`.
 - Tuning: `packages/shared/src/data/tuning.ts` (editable keys and limits, `normalizeEnemyOverride`, `MonsterTuning`), `apps/server/src/tuningStore.ts` (table `tuning_overrides`), `tuningRoutes.ts`, `liveTuning.ts`, and `retune` in `manager.ts`.
 - Admin UI: `apps/client/src/admin/monsters/` (`TuningTab.tsx`, `exportText.ts`, `ModelCheckTab.tsx`, `modelChecks.ts`, `ModelStage.tsx`, `monsterViewer.ts`); try-ons in `apps/client/src/render/tryOn.ts`.
+- Model files: `tools/blender/` is a headless Blender pipeline for fixing, rigging and animating a quadruped `.glb` (order, worked example and lessons in `tools/blender/README.md`); `pnpm model:check <file.glb> [--height N]` runs the Model check on a local file from the terminal (`scripts/model-check.ts`, through `admin/monsters/checkGlb.ts`) and exits non-zero on a warning.
 - Rendering: model registry and the tint shader (`corruptMaterial`) in `apps/client/src/render/assets.ts`; procedural models in `render/models.ts`; corpses in `render/entities.ts`.
 
 The ability and monster shapes:
@@ -96,7 +97,7 @@ Model check runs 10 checks, all pass or warn:
 | triangles | over 5000 |
 | size | file over 3 MB |
 | facing | not +Z (guessed from head-like part names, then glowing parts, then body shape) |
-| feet | a part reaches more than 3% of the height below the rest |
+| feet | a part (a mesh node, whatever its materials) reaches more than 3% of the height below the rest, unless it holds most of the triangles |
 | colours | an untextured, non-emissive material is near black (luminance under 0.01) |
 | loops | idle, walk or run do not loop (position within 0.0005 of height, rotation within 0.5 degrees) |
 | materials | a primitive has no material |
@@ -154,7 +155,7 @@ Tests:
 - `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
 - `packages/shared/test/tuning.test.ts`: override validation, stale kinds dropped, overrides at spawn, XP scaled but Arena score untouched, living monsters unchanged, export format and round trip.
 - `apps/server/test/tuning.test.ts`: permissions, validation, reset, live rooms pick up new spawns, `models` before `welcome`, overrides survive a restart.
-- `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; a height-only override keeps the model swap.
+- `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; feet in their own material are not a stray part; a textured file checks in Node; a height-only override keeps the model swap.
 
 ## Limits and open questions
 
