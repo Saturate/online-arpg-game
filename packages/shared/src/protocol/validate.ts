@@ -13,8 +13,9 @@ function isGearSlot(v: unknown): v is GearSlot {
 import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken } from './accounts.js';
-import { isZoneId } from '../data/zones.js';
-import { BUTTON_MASK, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type RuneRef, type ServerMessage } from './messages.js';
+import { INSTANCE_CAPACITY, isZoneId } from '../data/zones.js';
+import { isClassId } from '../data/classes.js';
+import { BUTTON_MASK, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
 function isWarbandSlot(value: unknown): value is number {
@@ -163,6 +164,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     }
     case 'useWaypoint':
       return isZoneId(value.zone) ? { t: 'useWaypoint', zone: value.zone } : null;
+    case 'partyTeleport':
+      return typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 24 ? { t: 'partyTeleport', name: value.name } : null;
     case 'input': {
       const { seq, moveDir, aimAngle, buttons } = value;
       if (!isNonNegativeInt(seq)) return null;
@@ -248,7 +251,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -256,7 +259,34 @@ const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'insc
  */
 export function isServerMessage(value: unknown): value is ServerMessage {
   if (!isRecord(value) || typeof value.t !== 'string' || !SERVER_TAGS.has(value.t)) return false;
+  if (value.t === 'partyStatus') return isPartyStatus(value);
+  if (value.t === 'teleportChannel') return isTeleportChannel(value);
   return value.t !== 'inscribed' || isInscribeReply(value);
+}
+
+const PARTY_PLACES: readonly PartyPlace[] = ['town', 'wilds', 'dungeon', 'arena', 'sandbox', 'offline'];
+
+function isPartyMemberStatus(v: unknown): v is PartyMemberStatus {
+  if (!isRecord(v) || typeof v.name !== 'string' || !(v.cls === null || isClassId(v.cls))) return false;
+  if (!isNonNegativeInt(v.level) || !isFiniteNumber(v.life) || !isFiniteNumber(v.maxLife) || typeof v.dead !== 'boolean') return false;
+  if (!PARTY_PLACES.some((p) => p === v.place) || typeof v.zone !== 'string') return false;
+  // A position comes as a pair or not at all; the minimap draws it as is.
+  if (v.x === undefined ? v.y !== undefined : !isFiniteNumber(v.x) || !isFiniteNumber(v.y)) return false;
+  return v.no === undefined || typeof v.no === 'string';
+}
+
+/**
+ * The party frames act on this (a click asks to teleport to a name, markers go on the minimap), so
+ * it is checked field by field rather than trusted to the tag. A party holds at most a world's worth.
+ */
+export function isPartyStatus(value: unknown): value is PartyStatusMessage {
+  return isRecord(value) && value.t === 'partyStatus' && Array.isArray(value.members) && value.members.length < INSTANCE_CAPACITY && value.members.every(isPartyMemberStatus);
+}
+
+export function isTeleportChannel(value: unknown): value is TeleportChannelMessage {
+  if (!isRecord(value) || value.t !== 'teleportChannel') return false;
+  if (typeof value.to === 'string') return isFiniteNumber(value.seconds) && value.seconds > 0;
+  return value.to === null && (value.reason === null || typeof value.reason === 'string');
 }
 
 /**

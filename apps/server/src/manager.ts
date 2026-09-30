@@ -19,6 +19,7 @@ import {
   zoneArrival,
   type AdminOverview,
   type ArenaResult,
+  type ClassId,
   type ClientMessage,
   type EnemyOverride,
   type EnemyTypeId,
@@ -32,6 +33,8 @@ import {
   type PlayerSave,
   type Lighting,
   type PartyInfo,
+  type PartyMemberStatus,
+  type PartyPlace,
   type PortalRequest,
   type Role,
   type RoomRules,
@@ -46,6 +49,7 @@ import { LiveTuning } from './liveTuning.js';
 import { roleOf, type AdminHooks } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { events } from './eventLog.js';
+import { channelBreak, PARTY_STATUS_TICKS, TELEPORT_CHANNEL_SECONDS, type ChannelWatch, type TeleportChannel } from './partyTravel.js';
 import { Room } from './room.js';
 import { Staging, type StagingTarget } from './staging.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
@@ -89,6 +93,8 @@ interface Party {
   leader: number;
   /** Account id to the character name last seen, for the member list. */
   members: Map<number, string>;
+  /** Class and level last seen per account, so an offline member's frame still says who they are. */
+  seen: Map<number, { cls: ClassId; level: number }>;
   instanceId: string | null;
 }
 
@@ -104,6 +110,9 @@ export class RoomManager implements AdminHooks {
   /** Invited account id to the inviting account id. */
   private readonly invites = new Map<number, number>();
   private nextPartyId = 1;
+  /** Teleports to party members being channelled, keyed by the channelling client's id. */
+  private readonly channels = new Map<string, TeleportChannel>();
+  private ticksSinceStatus = 0;
   /** Ready-check state per antechamber, keyed by the staging room id. */
   private readonly stagings = new Map<string, Staging>();
   /** Live and just-finished Arena runs, keyed by the run's room id. */
@@ -231,17 +240,35 @@ export class RoomManager implements AdminHooks {
     // A scored run takes nobody who was not there at the start, and a sandbox is its builder's own.
     if (this.arenaRuns.has(room.id)) return 'That player is in an Arena run';
     if (this.sandboxes.has(room.id)) return 'That player is in a private sandbox';
-    const beside = { x: at.x + 40, y: at.y };
-    if (staff.room === room) room.placeMember(staff, beside.x, beside.y);
-    else {
-      const before = this.instanceOf(staff);
-      staff.instanceId = target.instanceId;
-      this.move(staff, room, beside);
-      if (before) this.sendWorldToAll(before);
-      const inst = this.instanceOf(target);
-      if (inst) this.sendWorldToAll(inst);
-    }
+    const error = this.travelTo(staff, target);
+    if (error) return error;
     events.log('staff', `[admin] ${staff.accountName}: teleported to ${this.playerName(target)}`);
+    return null;
+  }
+
+  /**
+   * Puts the client beside the target: moved within the room, or carried into the target's world
+   * copy and room the same way waypoints and portals do it (saved on the way out).
+   */
+  private travelTo(client: Client, target: Client): string | null {
+    const room = target.room;
+    const at = room?.playerState(target);
+    if (!room || !at) return 'That player is between rooms, try again';
+    const beside = { x: at.x + 40, y: at.y };
+    if (client.room === room) {
+      room.placeMember(client, beside.x, beside.y);
+      return null;
+    }
+    const before = this.instanceOf(client);
+    const beforeId = client.instanceId;
+    client.instanceId = target.instanceId;
+    if (!this.move(client, room, beside)) {
+      client.instanceId = beforeId;
+      return 'Could not travel there, try again';
+    }
+    if (before) this.sendWorldToAll(before);
+    const inst = this.instanceOf(target);
+    if (inst && inst !== before) this.sendWorldToAll(inst);
     return null;
   }
 
@@ -400,6 +427,11 @@ export class RoomManager implements AdminHooks {
       staging.broadcast(run?.members.size ?? 0);
     }
     for (const run of [...this.arenaRuns.values()]) this.tickArena(run);
+    this.tickChannels();
+    if (++this.ticksSinceStatus >= PARTY_STATUS_TICKS) {
+      this.ticksSinceStatus = 0;
+      for (const party of this.parties.values()) this.sendPartyStatus(party);
+    }
     for (const inst of [...this.instances.values()]) {
       if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) {
         this.instances.delete(inst.id);
@@ -512,6 +544,7 @@ export class RoomManager implements AdminHooks {
     socket.on('message', (data, isBinary) => this.onMessage(client, data, isBinary));
     socket.on('close', () => {
       if (client.characterId !== null) this.leaves++;
+      this.channels.delete(client.id);
       const room = client.room;
       if (room) this.persist(client, room.remove(client));
       this.clients.delete(client.id);
@@ -589,6 +622,9 @@ export class RoomManager implements AdminHooks {
         return;
       case 'useWaypoint':
         this.useWaypoint(client, msg.zone);
+        return;
+      case 'partyTeleport':
+        this.startTeleport(client, msg.name);
         return;
       case 'chat':
         this.chat(client, msg.text);
@@ -715,6 +751,8 @@ export class RoomManager implements AdminHooks {
       hasWorld: this.partyInstance(party) !== null,
     };
     for (const c of this.onlineMembers(party)) c.send({ t: 'party', party: info });
+    // Straight away, so a new member's frames do not wait for the next round.
+    this.sendPartyStatus(party);
   }
 
   private partyInvite(client: Client, name: string): void {
@@ -727,7 +765,7 @@ export class RoomManager implements AdminHooks {
     let party = this.partyOf(me);
     if (party && party.members.size >= INSTANCE_CAPACITY) return this.system(client, `Your party is full (${INSTANCE_CAPACITY})`);
     if (!party) {
-      party = { id: `p${this.nextPartyId++}`, leader: me, members: new Map([[me, this.playerName(client)]]), instanceId: null };
+      party = { id: `p${this.nextPartyId++}`, leader: me, members: new Map([[me, this.playerName(client)]]), seen: new Map(), instanceId: null };
       this.parties.set(party.id, party);
     }
     this.invites.set(target.accountId, me);
@@ -764,6 +802,8 @@ export class RoomManager implements AdminHooks {
     if (me === null || !party) return this.system(client, 'You are not in a party');
     const inPartyWorld = this.instanceOf(client)?.partyId === party.id;
     party.members.delete(me);
+    party.seen.delete(me);
+    this.cancelTeleport(client, null);
     client.send({ t: 'party', party: null });
     for (const c of this.onlineMembers(party)) this.system(c, `${this.playerName(client)} left the party`);
     if (party.members.size <= 1) {
@@ -986,14 +1026,160 @@ export class RoomManager implements AdminHooks {
   }
 
   /** Carries the character (class, name, items, equipment) from the current room into `to`. */
-  private move(client: Client, to: Room, at?: Vec2): void {
+  private move(client: Client, to: Room, at?: Vec2): boolean {
     const from = client.room;
-    if (!from || from === to) return;
+    if (!from || from === to) return false;
     const carried = from.remove(client);
-    if (!carried) return;
+    if (!carried) return false;
     this.persist(client, carried);
     if (to.desc.kind === 'zone') client.lastZoneRoomId = to.id;
     to.add(client, carried.classId, carried.name, carried, at);
+    return true;
+  }
+
+  // Party frames and teleport ----------------------------------------------------------------
+
+  private placeOf(room: Room): PartyPlace {
+    if (this.arenaRuns.has(room.id) || room.desc.kind === 'arenaGate' || room.desc.kind === 'arena') return 'arena';
+    if (this.sandboxes.has(room.id)) return 'sandbox';
+    if (room.desc.kind === 'staging' || room.desc.kind === 'dungeon') return 'dungeon';
+    if (room.shared) return 'town';
+    return 'wilds';
+  }
+
+  /**
+   * Why `client` may not teleport to the party member `targetAccount` right now, or null when it
+   * would go. Checked when the channel starts, again when it ends, and for the frames' hints.
+   */
+  private teleportRefusal(client: Client, party: Party, targetAccount: number, online: ReadonlyMap<number, Client>): string | null {
+    const name = party.members.get(targetAccount) ?? 'That player';
+    if (targetAccount === client.accountId) return 'That is you';
+    if (!party.members.has(targetAccount)) return `${name} is not in your party`;
+    const target = online.get(targetAccount);
+    if (!target) return `${name} is offline`;
+    const here = client.room;
+    const me = here?.memberView(client);
+    if (!here || !me) return 'Try again in a moment';
+    if (me.dead) return 'You cannot teleport while dead';
+    // A scored run is left by town portal or by dying, never by walking out halfway.
+    if (this.arenaRuns.has(here.id)) return 'You cannot teleport out of an Arena run';
+    const room = target.room;
+    if (!room || !room.memberView(target)) return `${name} is between areas, try again`;
+    // A run takes nobody who was not there at the start.
+    if (this.arenaRuns.has(room.id)) return `${name} is in an Arena run`;
+    if (this.sandboxes.has(room.id)) return `${name} is in a private sandbox`;
+    // Dropping into strangers' dungeon run would skip their gate; only a run the party has to itself.
+    if (room.desc.kind === 'dungeon' && [...room.members.values()].some((m) => m.client.accountId === null || !party.members.has(m.client.accountId))) {
+      return `${name} is in a dungeon run with players outside your party`;
+    }
+    if (target.instanceId !== client.instanceId) {
+      const inst = this.instanceOf(target);
+      if (!inst) return `${name} is between areas, try again`;
+      if (inst.kind === 'party' && inst.partyId !== party.id) return `${name} is in another party's world`;
+      if (this.membersOf(inst).length >= INSTANCE_CAPACITY) return `${name}'s world is full`;
+    }
+    return null;
+  }
+
+  private onlineByAccount(): Map<number, Client> {
+    const out = new Map<number, Client>();
+    for (const c of this.clients.values()) if (c.accountId !== null && c.characterId !== null) out.set(c.accountId, c);
+    return out;
+  }
+
+  /** One small message per online member: everyone else in the party, where they are and whether a teleport would go. */
+  private sendPartyStatus(party: Party): void {
+    const online = this.onlineByAccount();
+    const views = new Map<number, { client: Client | null; status: PartyMemberStatus; x: number; y: number }>();
+    for (const [acc, name] of party.members) {
+      const client = online.get(acc) ?? null;
+      const room = client?.room ?? null;
+      const v = client && room ? room.memberView(client) : null;
+      if (!room || !v) {
+        // Offline, or online but between rooms for this one tick.
+        const seen = party.seen.get(acc);
+        views.set(acc, { client, status: { name, cls: seen?.cls ?? null, level: seen?.level ?? 0, life: 0, maxLife: 0, dead: false, place: client ? 'wilds' : 'offline', zone: '' }, x: 0, y: 0 });
+        continue;
+      }
+      party.seen.set(acc, { cls: v.cls, level: v.level });
+      const status: PartyMemberStatus = { name, cls: v.cls, level: v.level, life: Math.ceil(v.life), maxLife: Math.round(v.maxLife), dead: v.dead, place: this.placeOf(room), zone: room.name };
+      views.set(acc, { client, status, x: Math.round(v.x), y: Math.round(v.y) });
+    }
+    for (const [acc, me] of views) {
+      const receiver = me.client;
+      if (!receiver) continue;
+      const members: PartyMemberStatus[] = [];
+      for (const [other, view] of views) {
+        if (other === acc) continue;
+        const status: PartyMemberStatus = { ...view.status };
+        if (view.client?.room && view.client.room === receiver.room) {
+          status.x = view.x;
+          status.y = view.y;
+        }
+        const no = this.teleportRefusal(receiver, party, other, online);
+        if (no) status.no = no;
+        members.push(status);
+      }
+      receiver.send({ t: 'partyStatus', members });
+    }
+  }
+
+  private watch(client: Client): ChannelWatch | null {
+    const room = client.room;
+    const v = room?.memberView(client);
+    return room && v ? { roomId: room.id, x: v.x, y: v.y, life: v.life, castCooldown: v.castCooldown, dashing: v.dashing, dead: v.dead } : null;
+  }
+
+  /** Free and without a cooldown; the channel is the price. The client only asks. */
+  private startTeleport(client: Client, name: string): void {
+    const party = this.partyOf(client.accountId);
+    if (!party) return client.send({ t: 'notice', text: 'You are not in a party' });
+    const wanted = name.trim().toLowerCase();
+    const targetAccount = [...party.members].find(([, n]) => n.toLowerCase() === wanted)?.[0];
+    if (targetAccount === undefined) return client.send({ t: 'notice', text: `${name} is not in your party` });
+    const refusal = this.teleportRefusal(client, party, targetAccount, this.onlineByAccount());
+    const start = this.watch(client);
+    if (refusal || !start) return client.send({ t: 'notice', text: refusal ?? 'Try again in a moment' });
+    const targetName = party.members.get(targetAccount) ?? name;
+    this.channels.set(client.id, { targetAccount, targetName, ticksLeft: TELEPORT_CHANNEL_SECONDS * SIM.tickRate, start, last: start });
+    client.send({ t: 'teleportChannel', to: targetName, seconds: TELEPORT_CHANNEL_SECONDS });
+  }
+
+  private cancelTeleport(client: Client, reason: string | null): void {
+    if (!this.channels.delete(client.id)) return;
+    client.send({ t: 'teleportChannel', to: null, reason });
+  }
+
+  /** After the rooms stepped, so this tick's movement, hits and casts already show. */
+  private tickChannels(): void {
+    if (this.channels.size === 0) return;
+    for (const [id, ch] of [...this.channels]) {
+      const client = this.clients.get(id);
+      if (!client) {
+        this.channels.delete(id);
+        continue;
+      }
+      const now = this.watch(client);
+      const broke = channelBreak(ch.start, ch.last, now);
+      if (broke || !now) {
+        this.cancelTeleport(client, broke);
+        continue;
+      }
+      ch.last = now;
+      if (--ch.ticksLeft > 0) continue;
+      // The target may have walked into an Arena run or logged off during the channel.
+      const party = this.partyOf(client.accountId);
+      const online = this.onlineByAccount();
+      const target = online.get(ch.targetAccount);
+      const refusal = !party ? 'You are not in a party' : this.teleportRefusal(client, party, ch.targetAccount, online);
+      if (refusal || !target) {
+        this.cancelTeleport(client, refusal ?? `${ch.targetName} is offline`);
+        continue;
+      }
+      const error = this.travelTo(client, target);
+      this.cancelTeleport(client, error);
+      if (party && !error) this.sendPartyStatus(party);
+    }
   }
 
   private join(client: Client, token: string, characterId: number): void {

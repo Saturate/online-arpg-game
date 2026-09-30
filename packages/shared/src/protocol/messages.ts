@@ -70,6 +70,8 @@ export type ClientMessage =
   | { t: 'chat'; text: string }
   /** Travel from the waypoint the player stands on to another unlocked one. */
   | { t: 'useWaypoint'; zone: ZoneId }
+  /** Start the channel that takes you to a party member (by character name); the server checks everything. */
+  | { t: 'partyTeleport'; name: string }
   | ({ t: 'input' } & InputFrame)
   | { t: 'ping'; clientTime: number }
   /**
@@ -306,6 +308,37 @@ export interface PartyInfo {
   hasWorld: boolean;
 }
 
+/** What kind of place a party member is in, for the party frames. */
+export type PartyPlace = 'town' | 'wilds' | 'dungeon' | 'arena' | 'sandbox' | 'offline';
+
+/** One other party member, as the party frames show them. */
+export interface PartyMemberStatus {
+  name: string;
+  /** Null for an offline member the server has not seen since it started. */
+  cls: ClassId | null;
+  level: number;
+  life: number;
+  maxLife: number;
+  dead: boolean;
+  place: PartyPlace;
+  /** The room's name, empty when offline. */
+  zone: string;
+  /** Map position, only when the member is in the receiver's room, for the minimap. */
+  x?: number;
+  y?: number;
+  /** Why a teleport to this member would be refused right now; absent when it would go. */
+  no?: string;
+}
+
+/** About once a second to each online party member: everyone else in the party, wherever they are. */
+export interface PartyStatusMessage {
+  t: 'partyStatus';
+  members: PartyMemberStatus[];
+}
+
+/** The teleport channel started (`to` a member, for `seconds`), or ended: `reason` says why it broke, null when it went through. */
+export type TeleportChannelMessage = { t: 'teleportChannel'; to: string; seconds: number } | { t: 'teleportChannel'; to: null; reason: string | null };
+
 export interface InventoryMessage {
   t: 'inventory';
   items: Item[];
@@ -364,6 +397,8 @@ export type ServerMessage =
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
   | { t: 'partyInvite'; from: string }
+  | PartyStatusMessage
+  | TeleportChannelMessage
   | { t: 'lighting'; lighting: Lighting }
   /** Admin model and height overrides; sent on entering the game and again whenever they change. */
   | { t: 'models'; models: ModelOverrides }

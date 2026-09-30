@@ -108,6 +108,18 @@ export class Room {
     return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
   }
 
+  /** What the party frames and the teleport channel read about a member, once a tick at most. */
+  memberView(client: Client): { cls: ClassId; level: number; x: number; y: number; life: number; maxLife: number; dead: boolean; castCooldown: number; dashing: boolean } | null {
+    const m = this.members.get(client.id);
+    if (!m) return null;
+    const w = this.sim.world;
+    const p = w.player.get(m.playerId);
+    const pos = w.position.get(m.playerId);
+    const h = w.health.get(m.playerId);
+    if (!p || !pos || !h) return null;
+    return { cls: p.classId, level: p.level, x: pos.x, y: pos.y, life: h.life, maxLife: h.maxLife, dead: p.respawnIn !== null, castCooldown: p.castCooldown, dashing: p.dash !== null };
+  }
+
   /** Moves a member within this room, onto open ground near the spot. */
   placeMember(client: Client, x: number, y: number): void {
     const m = this.members.get(client.id);
