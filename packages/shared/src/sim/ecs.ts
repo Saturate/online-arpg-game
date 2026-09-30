@@ -124,6 +124,8 @@ export interface EnemyComp {
   aggro: boolean;
   homeX: number;
   homeY: number;
+  /** Seconds since it broke its leash and turned for home; null unless it is walking back from one. */
+  homeward: number | null;
   affixes: AffixRoll[];
   contactCooldown: number;
   fireCooldown: number;

@@ -119,6 +119,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     aggro: opts.aggro,
     homeX: pos.x,
     homeY: pos.y,
+    homeward: null,
     affixes,
     contactCooldown: 0,
     // Stagger the first volley so a group does not fire in perfect unison.
@@ -173,7 +174,12 @@ export function alertPack(sim: Simulation, id: EntityId): void {
   const w = sim.world;
   const pos = w.position.get(id);
   const e = w.enemy.get(id);
-  if (!pos || !e || e.aggro) return;
+  if (!pos || !e) return;
+  if (e.aggro) {
+    // Walking home from a leash: a hit turns it round once the first few seconds are past.
+    if (e.homeward !== null && e.homeward >= WILDS.leashReturnSeconds) e.homeward = null;
+    return;
+  }
   e.aggro = true;
   const r2 = WILDS.alertRadius * WILDS.alertRadius;
   for (const [oid, other, opos] of w.query(w.enemy, w.position)) {
@@ -278,9 +284,18 @@ export function updateEnemies(sim: Simulation, dt: number): void {
       }
     }
 
-    // Aggroed enemies in the wilds give up and walk home once they are dragged too far from it.
-    const leashed = !sim.mapDef.waves && distSq(pos.x, pos.y, e.homeX, e.homeY) > WILDS.leashDistance ** 2;
-    const target = leashed ? null : pickTarget(sim, e, pos.x, pos.y, Infinity);
+    // Aggroed enemies in the wilds give up once they are dragged too far from home, and walk all the
+    // way back rather than turning at the leash edge (see WILDS.leashReturnSeconds).
+    if (!sim.mapDef.waves && e.homeward === null && distSq(pos.x, pos.y, e.homeX, e.homeY) > WILDS.leashDistance ** 2) e.homeward = 0;
+    if (e.homeward !== null) {
+      e.homeward += dt;
+      if (e.homeward >= WILDS.leashReturnSeconds) {
+        const seen = pickTarget(sim, e, pos.x, pos.y, WILDS.aggroRadius);
+        const spos = seen === null ? undefined : w.position.get(seen);
+        if (spos && map.lineClear(pos.x, pos.y, spos.x, spos.y, 4, 'shots')) e.homeward = null;
+      }
+    }
+    const target = e.homeward !== null ? null : pickTarget(sim, e, pos.x, pos.y, Infinity);
     const tpos = target === null ? undefined : w.position.get(target);
     if (target === null || !tpos) {
       if (!sim.mapDef.waves) {
@@ -290,6 +305,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
         if (d > 20) moveBy(pos, dx / d, dy / d, speed * dt);
         else {
           e.aggro = false;
+          e.homeward = null;
           const h = w.health.get(id);
           if (h) h.life = h.maxLife;
         }

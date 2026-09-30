@@ -105,6 +105,39 @@ describe('world streaming: sleep and wake', () => {
     expect(streamingStats(sim).asleep).toBeGreaterThan(0);
   });
 
+  it('wakes the monsters around the spawn on the tick a player respawns there', () => {
+    const sim = new Simulation(9, STEPPE);
+    const spawn = sim.mapDef.spawn;
+    const corners = [
+      { x: 150, y: 150 },
+      { x: sim.map.width - 150, y: 150 },
+      { x: 150, y: sim.map.height - 150 },
+      { x: sim.map.width - 150, y: sim.map.height - 150 },
+    ];
+    const far = corners.reduce((a, b) => (Math.hypot(b.x - spawn.x, b.y - spawn.y) > Math.hypot(a.x - spawn.x, a.y - spawn.y) ? b : a));
+    const pid = addGodPlayer(sim, far.x, far.y);
+    steps(sim, STREAMING.recomputeEveryTicks + 1);
+    const nearSpawn = [...sim.world.enemy.keys()].filter((id) => {
+      const q = sim.world.position.get(id);
+      return q !== undefined && Math.hypot(q.x - spawn.x, q.y - spawn.y) <= NET.interestRadius + 500 && asleepNow(sim, id);
+    });
+    expect(nearSpawn.length).toBeGreaterThan(5);
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('no player');
+    // Dead far away with one tick left to wait: this tick's `updatePlayers` puts them at the spawn.
+    p.respawnIn = 1 / SIM.tickRate;
+    for (let t = 0; t < 20; t++) {
+      sim.step();
+      const pos = sim.world.position.get(pid);
+      if (!pos) throw new Error('no position');
+      expect(p.respawnIn).toBeNull();
+      expect(Math.hypot(pos.x - spawn.x, pos.y - spawn.y)).toBeLessThan(200);
+      for (const [id] of sim.world.enemy) {
+        if (asleepNow(sim, id)) expect(nearestDist(sim, id, [pid]), `tick ${t}`).toBeGreaterThan(NET.interestRadius + 500);
+      }
+    }
+  });
+
   it('keeps a chasing monster awake outside the awake chunks, and lets it sleep once it is home and idle', () => {
     const sim = new Simulation(5, STEPPE);
     const pid = addGodPlayer(sim, sim.mapDef.spawn.x, sim.mapDef.spawn.y);

@@ -378,6 +378,12 @@ export const WILDS = {
   /** Pack members within this distance of a hit enemy join the fight too. */
   alertRadius: 320,
   leashDistance: 1300,
+  /**
+   * A monster that broke its leash walks home and cannot take a target for this long, so it cannot
+   * turn back at the leash edge for a target standing just beyond it and hover there. After this
+   * long a target in sight within aggroRadius, or a hit, turns it round again.
+   */
+  leashReturnSeconds: 3,
   packSpread: 110,
   /** Empty instances are closed after this long. */
   idleCloseSeconds: 300,

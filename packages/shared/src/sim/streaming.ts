@@ -164,7 +164,7 @@ function recompute(sim: Simulation, s: StreamState): void {
   }
 }
 
-/** Runs first in the tick, after input, so this tick's positions decide who sleeps. */
+/** Runs after input and `updatePlayers` (portals, respawns), before the monsters, so this tick's positions decide who sleeps. */
 export function updateStreaming(sim: Simulation): void {
   const s = state(sim);
   if (!s.enabled || !due(sim, s)) return;

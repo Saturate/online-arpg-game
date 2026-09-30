@@ -37,9 +37,11 @@ function updateNav(sim: Simulation): void {
 }
 
 export const SYSTEMS: readonly System[] = [
-  { name: 'streaming', run: updateStreaming },
   { name: 'nav', run: updateNav },
   { name: 'players', run: updatePlayers },
+  // After players, so a respawn has moved its player to the spawn before sleep is decided; still
+  // before anything a sleeper would run.
+  { name: 'streaming', run: updateStreaming },
   { name: 'auras', run: updateAuras },
   { name: 'statuses', run: updateStatuses },
   { name: 'enemies', run: updateEnemies },
