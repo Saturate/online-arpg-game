@@ -1,6 +1,8 @@
 # Allan's ARPG
 
-Browser ARPG demo with an authoritative server. See `SPEC.md` for the design and `DECISIONS.md` for choices made along the way.
+Browser ARPG demo with an authoritative server. See `SPEC.md` for the design and `DECISIONS.md` for cross-cutting choices made along the way.
+
+**Docs:** every feature (runes, forge, items, loot, stash, monsters, minions, town, Arena, accounts and admin, and more) has its own page, listed in [`docs/features/index.md`](docs/features/index.md).
 
 ```sh
 pnpm install
@@ -43,8 +45,8 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 **Built this session.**
 
-- **The rune rework, PLAN-runes.md phases 2 and 3.** v2 is the only rune system, with no switch; rolled runes as items; sigils as wands; the 20 built-in skills rebuilt as starter sigils within 15% of their v1 Force and 10% of their v1 damage (held by `skillParity.test.ts` against `test/fixtures/skill-baseline-v1.json`); the new forge editor (slots left to right, the sentence and bracket view, named errors, a dummy preview, gold per inserted rune, runes from bag and stash); the one-time save conversion. Every rule is in DECISIONS.md, "Rune rework (v2)".
-- **Monster and minion browser** on the admin page: Monsters, Minions and Model check tabs, overrides applied to new spawns without a deploy, export back to `data/*.ts`. See DECISIONS.md, "Monster and minion tuning".
+- **The rune rework, phases 2 and 3 of the rune plan.** v2 is the only rune system, with no switch; rolled runes as items; sigils as wands; the 20 built-in skills rebuilt as starter sigils within 15% of their v1 Force and 10% of their v1 damage (held by `skillParity.test.ts` against `test/fixtures/skill-baseline-v1.json`); the new forge editor (slots left to right, the sentence and bracket view, named errors, a dummy preview, gold per inserted rune, runes from bag and stash); the one-time save conversion. Every rule is in [runes.md](docs/features/runes.md), [forge.md](docs/features/forge.md) and [items.md](docs/features/items.md), "Conversion from v1".
+- **Monster and minion browser** on the admin page: Monsters, Minions and Model check tabs, overrides applied to new spawns without a deploy, export back to `data/*.ts`. See [monsters.md](docs/features/monsters.md), "Tuning overrides".
 - **Reviews:** three rounds of fresh-eyes review on items (loss and duplication) and on the compiler, engine and UI, plus a browser QA pass; all findings fixed. A random spell search (8000 spells per seed) now finds nothing above about 2.13x the best starter's damage per Force; a seeded 300-spell version runs in the tests. The melee swing code left from the old basic attack is removed.
 
 **Deploying the rework (owner's go needed).**
@@ -65,20 +67,20 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 **Next, in the owner's order.**
 
 1. **Deploy** everything above once the owner says so.
-2. **Loot piles** (parked until after the rework): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all.
-3. **Phase 4 of PLAN-runes.md:** Link, Orbit, Homing, Bounce, Chain, Charge and the channelled Beam.
+2. **Loot piles** (parked until after the rework): nearby drops merge into one pile with a header like gold, clicked open into a small window to take items or all ([loot.md](docs/features/loot.md), "Planned: loot piles").
+3. **Phase 4 of the rune plan:** Link, Orbit, Homing, Bounce, Chain, Charge and the channelled Beam ([runes.md](docs/features/runes.md), "Planned").
 
 **Open items.**
 
-- Multishot and Flame Cleave kept their weak v1 numbers; measured buffs are in PLAN-runes.md, "Open questions".
-- Repeating payloads now cost 60 to 250 Force per cast, which players who built them will read as a nerf.
+- Multishot and Flame Cleave kept their weak v1 numbers; measured buffs are in [runes.md](docs/features/runes.md), "Limits and open questions".
+- Repeating payloads now cost 60 to 250 Force per cast, which players who built them will read as a nerf. The Force items here are tracked in [runes.md](docs/features/runes.md).
 - Fireball and Leap Slam sit near the top of the 15% Force band (+13%); a retune should keep them inside it.
 - A once-off payload at its base price can still reach about 2.1x the best starter's damage per Force.
 - The "first rune is free" sigil roll is now only worth about 5% of a cast (anything stronger broke the Force budget). Decide whether to keep it, drop it from the rolls or replace it.
-- The monster browser cannot edit traits (enrage, burrow, curse) or non-number ability fields.
+- The monster browser cannot edit traits (enrage, burrow, curse) or non-number ability fields ([monsters.md](docs/features/monsters.md)).
 - Your brother's monster models: the Model check tab checks a `.glb`; the dog needs facing, colours, loops and hit/death clips first.
-- If the SQLite write in a trade throws after a buy and a later save succeeds, the item can exist twice after a restart (older than the rework).
-- Replays started mid-room miss spells that were already alive. Skill tooltips show base Force, not the admin's cost multiplier.
+- If the SQLite write in a trade throws after a buy and a later save succeeds, the item can exist twice after a restart (older than the rework; [items.md](docs/features/items.md)).
+- Replays started mid-room miss spells that were already alive ([dev-tools.md](docs/features/dev-tools.md)). Skill tooltips show base Force, not the admin's cost multiplier.
 - Owner chores: rotate the Steam API key and the GHCR pull token that were pasted in chat. The GHCR package could go public too, which would make the pull token unnecessary.
 
 **Infrastructure.**
@@ -89,4 +91,4 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf, settings and monster tuning overrides. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
 - **Checking live state:** use `kubectl -n arpg ...` over `ssh akj@svr.akj.io`. To read the database, run node with `node:sqlite` inside the pod (`kubectl -n arpg exec deploy/arpg -- node -e ...`).
 
-**Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts` and `config/forge.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. The rune grammar and compiler are in `packages/shared/src/runes/v2/`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in `DECISIONS.md`.
+**Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts` and `config/forge.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. The rune grammar and compiler are in `packages/shared/src/runes/v2/`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in the feature docs ([`docs/features/index.md`](docs/features/index.md)) and, for cross-cutting ones, `DECISIONS.md`.
