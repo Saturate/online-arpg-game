@@ -1,4 +1,6 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   BoxGeometry,
   CapsuleGeometry,
   Color,
@@ -13,7 +15,7 @@ import {
   PlaneGeometry,
   SphereGeometry,
   TorusGeometry,
-  type BufferGeometry,
+  Vector3,
   type Object3D,
 } from 'three';
 import type { MotionProfile, RigMotion } from './motion.js';
@@ -110,6 +112,38 @@ export function mesh(geo: BufferGeometry, material: MeshStandardMaterial, x = 0,
   const m = new Mesh(geo, material);
   m.position.set(x, y, z);
   m.scale.set(sx, sy, sz);
+  m.castShadow = true;
+  return m;
+}
+
+export type Vec3 = readonly [number, number, number];
+
+const Y_AXIS = new Vector3(0, 1, 0);
+
+/** A thin rod from `a` to `b`: finger bones, feather shafts, leg segments. */
+export function strut(geo: BufferGeometry, material: MeshStandardMaterial, a: Vec3, b: Vec3, thick: number): Mesh {
+  const from = new Vector3(...a);
+  const dir = new Vector3(...b).sub(from);
+  const length = dir.length();
+  const m = mesh(geo, material, from.x + dir.x / 2, from.y + dir.y / 2, from.z + dir.z / 2, thick, length, thick);
+  if (length > 0) m.quaternion.setFromUnitVectors(Y_AXIS, dir.normalize());
+  return m;
+}
+
+/**
+ * A thin two-sided triangle, for wing membranes. Its geometry is its own, but builders run once per
+ * monster type and the compiled rig merges it with the rest, so it never costs a draw call per copy.
+ */
+export function tri(material: MeshStandardMaterial, a: Vec3, b: Vec3, c: Vec3, thick = 0.02): Mesh {
+  const va = new Vector3(...a);
+  const vb = new Vector3(...b);
+  const vc = new Vector3(...c);
+  const n = new Vector3().subVectors(vb, va).cross(new Vector3().subVectors(vc, va)).normalize().multiplyScalar(thick / 2);
+  const pts = [va.clone().add(n), vb.clone().add(n), vc.clone().add(n), va.clone().sub(n), vc.clone().sub(n), vb.clone().sub(n)];
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(new Float32Array(pts.flatMap((p) => [p.x, p.y, p.z])), 3));
+  g.computeVertexNormals();
+  const m = new Mesh(g, material);
   m.castShadow = true;
   return m;
 }

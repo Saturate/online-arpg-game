@@ -120,13 +120,24 @@ Try on stores the file in the browser's IndexedDB and tells an open game tab ove
 **How it moves.** `driveRig()` (`render/rigs/motion.ts`) plays the KayKit roles from the same inputs, and `locomotionRole()` in `characters.ts` gives both the same walk and run thresholds:
 
 - Base layer, crossfaded by weight (0.2 s, longer for heavy types): idle (breathing, looking around; hovering or flapping for fliers), walk and run, and dormant (a brooding head-down idle; the gargoyle crouches as a statue, the mimic sits shut).
-- Legs cycle at the rate that carries the body at its actual ground speed: a stiff leg swung by `a` covers `4 L sin(a)` per cycle (0.6 of that for splayed insect legs), capped per gait so small legs slide rather than blur. The hip drops by `L (1 - cos)` so the planted foot stays on the ground.
+- Legs cycle at the rate that carries the body at its actual ground speed: a stiff leg swung by `a` covers `4 L sin(a)` per cycle (for splayed insect legs, `L` is the foot's horizontal reach from the hip times the cosine of its fan angle), and a planted foot moves back at a constant speed through its stance. Each gait has a cycle cap so legs never blur; past it the swing grows up to 0.9 rad, then the stance shortens and the body flies between steps (a bound for bipeds, a gallop for quads), lifted by 0.08 L. Hoppers keep each foot down 12.5% of the cycle (25% for both). The hip height follows the least upright planted leg, a more upright planted leg and every swinging leg shorten (a knee bend from afar), legs undo the body's lean, and quadrupeds pitch so front and back feet are both down. `apps/client/test/rigCover.test.ts` checks every fast walker and hopper: planted feet move at 0.8 to 1.2 of the ground speed and rise or sink less than 12% of the leg.
+- The bog lurker does not walk: it slides on its belly with its legs splayed and paddling.
 - One-shots on top: a telegraphed ability holds its wind-up pose from the `tele` event until the `attack` event releases the strike; an attack with no telegraph plays a quick 0.08 s cock-back. Strike styles: bite, claw, slam, spit, cast, scream, shoot, charge, leap, sting, burst, pulse, chomp, ram. Awaken plays when a dormant monster notices you, spawn when a burrower surfaces.
-- Hit is a 0.34 s additive flinch from the damage event. Death is per type (topple, roll, curl, collapse, crumble, dissolve, splat, fall, slump, tip); the body is raised just enough that its rotated rest box stays above the ground, and it stays down until the corpse goes. Ghosts and totems leave no body, so they dissolve for 1.2 s and are removed.
+- Hit is a 0.34 s additive flinch from the damage event: 0.22 rad back and a 0.12 knockback. Death is per type (topple, roll, curl, collapse, crumble, dissolve, splat, fall, slump, tip); the body is raised just enough that its rotated rest box stays above the ground, and it stays down until the corpse goes. Ghosts and totems leave no body, so they dissolve for 1.2 s and are removed.
 
-Gaits: biped, quad (trot, gallop at run), hop, scurry, skitter (alternating leg sets), crawl, fly, hover, float, slither (a wave down the segments), bounce (squash and stretch) and still.
+Gaits: biped, quad (trot, gallop at run), hop, scurry, skitter (alternating leg sets), crawl (belly slide), fly, hover, float, slither (a wave down the segments), bounce (squash and stretch) and still.
 
-**Adding one.** Write a builder in `models.ts` that returns a `Rig` from `emptyRig(motion(...))`, put moving parts on pivots and register extras with their kind, set `rig.legLength` if it walks, and add it to the `buildEnemy` switch. Check it in the dev tools' Monsters tab (`/admin/dev/#monsters/gallery/walk/day/<type>`), with `?raw` to compare against the uncompiled build; `apps/client/test/rigs.test.ts` covers every type automatically.
+Death details: roll deaths turn about the body's middle, not the feet, so the corpse lands on its side where it stood, legs drawn in toward the belly; topple and collapse arm targets are absolute, so an arm held out at rest (the mummy's) falls like the other.
+
+Model conventions:
+
+- **No high metalness.** There is no environment map, so metal above about 0.2 renders near black even by day. Iron, bands and blades use metal 0.2 and roughness 0.45 to 0.65.
+- **Insect legs** splay about x with `-side` outward and use Euler order `YXZ`, so the fan and the stride both turn about the vertical and a planted foot keeps its height. Spider legs have a knee (`userData.foot` marks the tip). Bones copy the node's Euler order, since the animator adds Euler offsets.
+- **Every group compiles to a bone.** Static bends (the mummy's elbows, spider knees, feather fans) are placed as rotated meshes (`strut`, `tri` in `rigs/parts.ts`) rather than on their own groups.
+- **Colours per type** can differ from the data colour (`packages/shared/src/data/enemies.ts` stays the minimap and UI colour): slimes, imps, volatiles, the harpy, the cultist, the hellhound and the iron golem set their own muted colours in `models.ts`. Minions are tinted green like the other bound minions, so the minion wraith never reads as the blue enemy wraith.
+- The capsule geometry is its length plus two radii long; the wolf's body was three times the intended length and swallowed the head.
+
+**Adding one.** Write a builder in `models.ts` that returns a `Rig` from `emptyRig(motion(...))`, put moving parts on pivots and register extras with their kind, set `rig.legLength` if it walks, and add it to the `buildEnemy` switch. Check it in the dev tools' Monsters tab (`/admin/dev/#monsters/gallery/walk/day/<type>`), with `?raw` to compare against the uncompiled build; `window.rigGallery.seek(s)` freezes a moment for screenshots (the hit flinch peaks at about 0.15 s, 0.05 s after the hit event at 0.1 s); `apps/client/test/rigs.test.ts` covers every type automatically.
 
 **Performance rules.**
 
@@ -146,6 +157,8 @@ Measured on the Monsters tab's bench (the game's `EntityRenderer` and `WorldScen
 | Triangles | 1.48 M | 1.48 M |
 
 With 240 monsters: 309 draw calls and 2.3 ms render CPU. With half of 120 off screen: 179 draw calls, 1.3 ms.
+
+After the 2026-09-30 model review (wings, knees, cracks, the gallop), 120 monsters still draw in 248 calls, the same as before it, with 1.49 M triangles (+1%). A node micro-bench of `driveRig` over the same 120 rigs measured the same CPU before and after within noise (0.23 to 0.50 ms a frame, other work running on the machine).
 
 ### Waves on test maps
 
