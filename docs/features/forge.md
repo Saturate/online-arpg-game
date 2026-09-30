@@ -22,7 +22,7 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 - **Everything is checked before anything moves.** A refused inscribe changes nothing, so a half-applied edit cannot lose or duplicate a rune.
 - **The message carries the slot uids the client drafted from** (`base`). If the sigil changed since, the server refuses with "The sigil changed; look again". A double click cannot apply a draft to the wrong slots.
 - **The server sends the new inventory first, then the `inscribed` reply.** Until the new slots are on screen, a second click would resend a draft made against the old ones.
-- **Source order for plain runes:** the bag first, bound stacks first, then the account stash. Bound runes are spent before unbound ones because they have no other use.
+- **Source order for plain runes:** the bag first, bound stacks first, then the stash's rune tab, then its general tabs. Bound runes are spent before unbound ones because they have no other use.
 - **Runes left out go back to the bag, or to pending when it is full, never to the stash.** The stash is the account's, and a bound rune must not reach it.
 - **Price:** each inserted rune costs its sell value (factor `insertPriceFactor` 1). Taking a rune out is free. Any factor is safe against minting, because a sigil sells for no more than its runes' sell values on top of its own.
 - **Bound runes cost nothing to insert:** they cannot be sold, so a price protects nothing, and a new character with no gold must be able to put its starter runes back.
