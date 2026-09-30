@@ -1090,9 +1090,9 @@ function die(rig: Rig, m: RigMotion): void {
       // Down on the knees, then forward onto the face.
       const kneel = smooth(t / 0.35);
       const k = fallK(t, 0.35, fallT);
-      // The knees fold forward, then straighten out behind as it hits the ground.
-      rot(m.legL, 0, 0, 0.8 * kneel * (1 - k) - 0.25 * k, 1);
-      rot(m.legR, 0, 0, 0.7 * kneel * (1 - k) - 0.15 * k, 1);
+      // The knees fold forward, then the legs lie out behind; face down, forward in body space is down.
+      rot(m.legL, 0, 0, 0.8 * kneel * (1 - k) + 0.12 * k, 1);
+      rot(m.legR, 0, 0, 0.7 * kneel * (1 - k) + 0.05 * k, 1);
       const legDrop = rig.legLength * rig.body.scale.y * (1 - Math.cos(0.75));
       pos(b, 0, -legDrop * kneel * (1 - k), 0, 1);
       rot(b, 0.1 * dir * k, 0, -(Math.PI / 2) * k + bounceK(t, 0.35, fallT, 0.06), 1);
@@ -1164,6 +1164,21 @@ function die(rig: Rig, m: RigMotion): void {
     }
   }
   groundBody(m);
+  // Face down, the hips sit as high as the body is thick; the legs angle down to the floor. The arms
+  // already lie flat past the head.
+  if (p.death === 'collapse') {
+    const k = fallK(t, 0.35, fallT);
+    for (const c of [m.legL, m.legR]) reachDown(c, b.py * k * 0.7, rig.body.scale.y, 1);
+  }
+}
+
+/** Swings a limb toward the ground far enough for its tip to touch it, `lift` above. */
+function reachDown(c: Channel | null, lift: number, scale: number, sign: number): void {
+  if (!c) return;
+  const length: unknown = c.node.userData.length;
+  const reach = (typeof length === 'number' ? length : 1) * scale;
+  if (reach <= 0 || lift <= 0) return;
+  c.rz += sign * Math.asin(Math.min(1, lift / reach));
 }
 
 const corner = new Vector3();

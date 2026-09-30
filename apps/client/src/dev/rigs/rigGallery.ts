@@ -334,15 +334,20 @@ export class RigGallery {
       const s = c.rig.root.scale.y;
       const tall = c.extent.tall * s;
       const wide = c.extent.wide * s;
-      const half = Math.max(tall * 0.8, wide * 0.72, 12);
+      // A corpse lies out along the ground, so the death view widens and follows the fall forward.
+      const dying = c.role === 'death';
+      const half = Math.max(tall * 0.8, wide * 0.72, 12) * (dying ? 1.15 : 1);
       const aspect = r.width / r.height;
       Object.assign(this.camera, { left: -half * aspect, right: half * aspect, top: half, bottom: -half });
       this.camera.updateProjectionMatrix();
       const cy = tall * 0.36;
-      this.camera.position.set(c.x + this.offset.x, cy + this.offset.y, this.offset.z);
-      this.camera.lookAt(c.x, cy, 0);
-      // The hero stands a little in front of each monster, carrying the light.
-      this.hero.position.set(c.x + 60, 120, 90);
+      const ahead = dying && c.rig.profile.death === 'collapse' ? tall * 0.45 : 0;
+      const fx = c.x + Math.cos(c.rig.root.rotation.y) * ahead;
+      const fz = -Math.sin(c.rig.root.rotation.y) * ahead;
+      this.camera.position.set(fx + this.offset.x, cy + this.offset.y, fz + this.offset.z);
+      this.camera.lookAt(fx, cy, fz);
+      // The hero stands at melee distance in front of each monster, its light 120 up as in scene.ts.
+      this.hero.position.set(c.x + 35, 120, 45);
       this.sun.position.set(c.x - 400, 900, 250);
       this.sun.target.position.set(c.x, 0, 0);
       this.renderer.render(this.scene, this.camera);
