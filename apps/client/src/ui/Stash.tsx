@@ -44,6 +44,8 @@ import { DRAG_TYPE, dropAction, parseDrag, type DragPayload, type ItemPlace } fr
 import { tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useStashView, type SigilContents } from './stashView.js';
+import { useMovablePanel } from './GamePanel.js';
+import { tip } from './Tip.js';
 import './forge.css';
 import './stash.css';
 
@@ -166,7 +168,7 @@ function TabButton({ tab, label, color, count, active }: { tab: StashTabRef; lab
         clear();
         dropOn(e, { at: 'tabLabel', tab });
       }}
-      title={typeof tab === 'number' ? `${label}: drop an item here to put it in this tab` : undefined}
+      {...tip(typeof tab === 'number' ? `${label}: drop an item here to put it in this tab` : null)}
     >
       <span className="stash-tab-name">{label}</span>
       <span className="stash-tab-count">{count}</span>
@@ -194,9 +196,12 @@ function BuyTab({ inv }: { inv: InventoryMessage }) {
       </span>
     );
   return (
-    <button type="button" className="stash-buy" disabled={short} onClick={() => setAsking(true)} title={short ? `You have ${inv.gold} gold` : `${inv.stash.general.length} of ${STASH_TABS.maxGeneral} general tabs`}>
-      + Buy tab ({price} gold)
-    </button>
+    // React drops mouse events on a disabled button, and the tip matters most then, so it sits on a wrapper.
+    <span className="tip-host" {...tip(short ? `You have ${inv.gold} gold` : `${inv.stash.general.length} of ${STASH_TABS.maxGeneral} general tabs`)}>
+      <button type="button" className="stash-buy" disabled={short} onClick={() => setAsking(true)}>
+        + Buy tab ({price} gold)
+      </button>
+    </span>
   );
 }
 
@@ -246,7 +251,7 @@ function TabEditor({ tab, name, color, onClose }: { tab: number; name: string; c
       </label>
       <div className="stash-swatches" role="radiogroup" aria-label="Tab colour">
         {STASH_COLORS.map((c) => (
-          <button key={c.id} type="button" role="radio" aria-checked={pick === c.id} className={`bare stash-swatch${pick === c.id ? ' on' : ''}`} style={{ background: c.hex }} title={c.label} onClick={() => setPick(c.id)} />
+          <button key={c.id} type="button" role="radio" aria-checked={pick === c.id} className={`bare stash-swatch${pick === c.id ? ' on' : ''}`} style={{ background: c.hex }} aria-label={c.label} {...tip(c.label)} onClick={() => setPick(c.id)} />
         ))}
       </div>
       {!ok && <p className="stash-editor-why">1 to {STASH_TABS.nameMax} letters, digits, spaces or . , ' ! ? &amp; ( ) + # : -</p>}
@@ -608,9 +613,11 @@ function GeneralTabView({ inv, id, onEdit }: { inv: InventoryMessage; id: number
         </span>
         <span className="muted">{used} items</span>
         <span className="stash-spacer" />
-        <button type="button" onClick={() => sendCommand({ t: 'sortStash', tab: id, key: null, affix: null })} disabled={used === 0} title="Group by type, best first">
-          Sort
-        </button>
+        <span className="tip-host" {...tip('Group by type, best first')}>
+          <button type="button" onClick={() => sendCommand({ t: 'sortStash', tab: id, key: null, affix: null })} disabled={used === 0}>
+            Sort
+          </button>
+        </span>
         <button type="button" onClick={onEdit}>
           Rename
         </button>
@@ -632,13 +639,14 @@ export function StashWindow() {
   useEffect(() => setEditing(false), [open, tab]);
   // A row that unmounts under the mouse never sends mouseleave, so its tooltip would stay up.
   useEffect(() => useHover.getState().set(null, 0, 0), [tab]);
+  const { ref, handleProps } = useMovablePanel('stash');
   if (!open || !inv) return null;
   // Another account (or a stash from before a purchase) may not have the tab last looked at.
   const current: StashTabRef = typeof tab === 'number' && !generalTab(inv.stash, tab) ? (inv.stash.general[0]?.id ?? 1) : tab;
   const editTab = typeof current === 'number' ? generalTab(inv.stash, current) : undefined;
   return (
-    <section className="panel inv-window stash-window" aria-label="Stash">
-      <header className="inv-header">
+    <section ref={ref} className="panel inv-window stash-window" aria-label="Stash">
+      <header className="inv-header" {...handleProps}>
         <h2>Stash</h2>
         <span className="muted">
           shared by all your characters · <span className="gold">{inv.gold} gold</span>

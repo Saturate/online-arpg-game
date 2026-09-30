@@ -77,8 +77,11 @@
 .stash-tab-gap {
   width: 8px;
 }
-.panel button.stash-buy {
+.stash-tabs > .tip-host {
   margin: 0 0 3px auto;
+}
+.panel button.stash-buy {
+  margin: 0;
   padding: 3px 9px;
   font-size: 11.5px;
   color: #d9b56a;

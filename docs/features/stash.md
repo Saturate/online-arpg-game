@@ -4,7 +4,7 @@ Status: one 12x10 grid per account live since 2026-09-29; stash tabs built 2026-
 
 ## What it does
 
-- **One stash per account,** shared by all its characters, at the chest nearest the town spawn. Click the chest: the hero walks into reach (150 units) and the stash opens beside the bag; walking away closes it.
+- **One stash per account,** shared by all its characters, at the chest nearest the town spawn. Click the chest: the hero walks into reach (150 units) and the stash opens beside the bag; walking away closes it. The window moves by its title bar when panels are unlocked, like the bag; the tab bar sits below the title bar, so clicking a tab never starts a drag.
 - **Tabs:**
   - **General tabs:** 12x10 grids with the same footprints as the bag ([items.md](items.md)). An account starts with 1; more are bought at the chest with the buying character's gold, up to 10. Each can be renamed (1 to 16 characters) and given one of 8 muted colours.
   - **Rune tab:** a list of up to 1000 rune items, plain stacks (still 20 each) and rolled runes, sortable by rune, kind, tier, item level or an affix value, and filterable by rune, kind, tier and affix text.

@@ -2518,3 +2518,8 @@ kbd {
 .game-app .inv-cell.filled {
   cursor: var(--cur-grab);
 }
+
+/* Holds the tip for a button that can be disabled: React drops mouse events on disabled buttons. */
+.tip-host {
+  display: inline-flex;
+}

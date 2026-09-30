@@ -8,6 +8,8 @@ import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
 import { openGeneralTab } from './stashView.js';
+import { useMovablePanel } from './GamePanel.js';
+import { tip } from './Tip.js';
 import './inventory.css';
 
 interface HoverState {
@@ -493,10 +495,11 @@ export function TraderWindow() {
   const stock = useUi((s) => s.traderStock);
   const gold = useUi((s) => s.inventory?.gold ?? 0);
   const setHover = useHover((h) => h.set);
+  const { ref, handleProps } = useMovablePanel('trader');
   if (!open) return null;
   return (
-    <section className="panel inv-window trader-window" aria-label="Trader">
-      <header className="inv-header">
+    <section ref={ref} className="panel inv-window trader-window" aria-label="Trader">
+      <header className="inv-header" {...handleProps}>
         <h2>Trader</h2>
         <span className="muted">
           {stock.length} / {TRADER.capacity} · shared by everyone · <span className="gold">{gold} gold</span>
@@ -615,6 +618,7 @@ export function Inventory() {
   const compact = useUi((s) => s.stashOpen || s.traderOpen);
   const stashOpen = useUi((s) => s.stashOpen);
   const traderOpen = useUi((s) => s.traderOpen);
+  const { ref, handleProps } = useMovablePanel('inventory');
   // A window that closes under the mouse never sends mouseleave, so the tooltip of the item that
   // was hovered would stay on screen. Any window opening or closing drops it.
   useEffect(() => {
@@ -645,8 +649,8 @@ export function Inventory() {
   };
 
   return (
-    <section className={`panel inv-window${compact ? ' compact' : ''}`} aria-label="Inventory">
-      <header className="inv-header">
+    <section ref={ref} className={`panel inv-window${compact ? ' compact' : ''}`} aria-label="Inventory">
+      <header className="inv-header" {...handleProps}>
         <h2>Inventory</h2>
         <button type="button" className="close" onClick={close} aria-label="Close inventory">
           ×
@@ -683,9 +687,12 @@ export function Inventory() {
             <span className="muted">
               {used} items · <span className="gold">{inv.gold} gold</span>
             </span>
-            <button type="button" className="inv-sort" onClick={() => sendCommand({ t: 'sortInventory' })} disabled={used === 0} title="Group by type, best first">
-              Sort
-            </button>
+            {/* React drops mouse events on a disabled button, so the tip sits on a wrapper. */}
+            <span className="tip-host" {...tip('Group by type, best first')}>
+              <button type="button" className="inv-sort" onClick={() => sendCommand({ t: 'sortInventory' })} disabled={used === 0}>
+                Sort
+              </button>
+            </span>
           </div>
           <div className="inv-bag">
             <ItemGrid which="bag" selUid={selUid} onSelect={(uid) => setSelUid(uid === selUid ? null : uid)} />
