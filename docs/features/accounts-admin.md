@@ -1,18 +1,19 @@
 # Accounts, roles and the admin page
 
-Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests since 2026-09-29.
+Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests since 2026-09-29. The Grant item tab built 2026-09-30, not pushed.
 
 ## What it does
 
 - **Accounts:** register with a username and password, or "Play as guest". Up to 12 characters per account. One character online per account at a time.
 - **Guests** get a generated name (`Guest` plus 6 hex characters) and a one-year session. The character screen offers to claim the account with a real name and password; the characters stay. Unclaimed guests are deleted after 90 days without play.
 - **Roles:** player, builder, moderator, admin and owner. Staff pages live under `/admin/`; the dev tools at `/admin/dev/` need builder or higher ([dev-tools.md](dev-tools.md)).
-- **The admin page** (`/admin/`) has seven tabs:
+- **The admin page** (`/admin/`) has seven tabs, eight for the owner:
   - **Overview:** online count, games, rooms, memory, uptime and build; the announce form; the online players with Go to and Kick; games and rooms. Refreshes every 3 s.
   - **Players:** account search, with role, guest and banned badges, the role picker (owner only), ban and unban, and each account's characters.
   - **Arena:** the season leaderboards with a month picker ([arena.md](arena.md)).
   - **Settings:** live server settings (below). Everyone who can open the page can view them; only the `settings` permission can edit.
   - **Monsters, Minions, Model check:** tuning overrides and the model checker ([monsters.md](monsters.md)).
+  - **Grant item** (owner only): pick an account by name and one of its characters, then an item: Brothers Creation, or a rolled vessel (any type or random), sigil or rolled rune by tier and item level, the rolls the dev tools make. The item goes onto the character as pending and lands on their next login. See "Item grants" below.
 - The header links to the dev tools for builders and up, and reminds town editors that the editor is F2 in town ([town.md](town.md)).
 
 ## Why
@@ -36,8 +37,8 @@ Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests 
 | player | none |
 | builder | `viewAdmin`, `townEdit`, `devTools` |
 | moderator | `viewAdmin`, `announce`, `kick`, `ban`, `teleport` |
-| admin | everything except `manageRoles` |
-| owner | all nine, including `manageRoles` |
+| admin | everything except `manageRoles` and `grantItems` |
+| owner | all ten, including `manageRoles` and `grantItems` |
 
 ## How
 
@@ -66,6 +67,7 @@ Routes:
 | POST | `/api/admin/accounts/:id/ban` | `ban` (a ban also kicks and deletes the account's sessions) |
 | POST | `/api/admin/goto` | `teleport` |
 | POST | `/api/admin/accounts/:id/role` | `manageRoles` |
+| POST | `/api/admin/grant` | `grantItems` (owner only) |
 
 Bodies must be JSON and at most 4096 bytes.
 
@@ -96,11 +98,21 @@ Staff actions:
 - **Kick** ends the session with "You were removed from the game by an admin".
 - **Go to** (and `/goto name` in chat) puts staff 40 units beside the player, in their world copy and room. It refuses a player in an Arena run or a sandbox, or between rooms.
 
-**Staff log:** there is no stored log or admin tab for it. Every staff action (settings, announce, kick, ban and unban, goto, role, monster and minion edits) is written to the server's stdout as `[admin] <user> (<role>): <what>`, so it shows in the pod log only.
+**Item grants** (`POST /api/admin/grant`, body `{ username, characterId, template, tier, level, minion, rune }`):
+
+- **Owner only.** `grantItems` is a new permission only the owner holds, like `manageRoles`: it makes real, tradeable items from nothing, so a taken-over admin account cannot mint them. Admins and moderators get 403, everyone else 404.
+- **Every field is checked on the server:** unknown fields are refused; the username must be an account name; the character must belong to that account and have entered the world once (a character without a save is refused); `template` is `brothers_creation`, `vessel`, `sigil` or `rune`; `tier` a tier (Brothers Creation only `relic`); `level` a whole number from 1 to 30; `minion` only for a vessel and `rune` only for a rolled rune, each a real id or null for a random roll.
+- **Offline only.** A grant to an account with any live session is refused with 409 ("is online ... ask them to log out, then try again") rather than handed to the room: the session's next save would write its own copy of the character over the grant. From the online check to the write nothing awaits, and a login loads the character synchronously, so a login cannot slip in between.
+- **Exactly one item, pending.** The server reads the stored save, refuses one it cannot read or a v1 save not loaded since the rune update, and appends one item to its item list in a transaction that writes the row only if it is still the row it read. The item takes a uid above every uid in the save (runes inside sigils included), and the room reissues uids on load anyway. It is in no grid or slot, which is what pending means ([items.md](items.md)): the next login lays it out like any pending item, stash first (it is unbound), then the bag, and it stays pending if neither has room. Nothing else in the save is touched; `played_at` is not bumped.
+- **Grants are never bound**, unlike dev tool items, since they are meant to be traded (the brothers' vessels).
+- **Logged** as `[admin] <owner> (owner): grant "<name>" (<template>, <tier>, item level <n>, uid <uid>) to <account> / <character> (character <id>), pending until next login`.
+
+**Staff log:** there is no stored log or admin tab for it. Every staff action (settings, announce, kick, ban and unban, goto, role, monster and minion edits, item grants) is written to the server's stdout as `[admin] <user> (<role>): <what>`, so it shows in the pod log only.
 
 Tests:
 
 - `apps/server/test/accounts.test.ts`: register and duplicate names (case-insensitive); sessions resolve and revoke; characters per account; save round trip; settings round trip, defaults and validation; closed registration; dev tools for builders and up; live role changes; the rate limiter; guest play and claim; one message for bad logins; non-JSON and oversized bodies; the admin API hidden from non-staff; bans end the session, block login and can be undone; each role does only its own part; `ADMIN_USERS` names cannot be registered; idle guest removal keeps played, online and claimed accounts.
+- `apps/server/test/grants.test.ts`: only the owner can grant (admin and moderator 403, players 404) and a refusal writes nothing; every field is validated; an online account is refused and keeps its items; a grant adds exactly one unbound item with a fresh uid, is logged once, and reaches the character on login with every other item unchanged, once; rolled vessel, sigil and rune grants.
 - `apps/server/test/worlds.test.ts`: staff teleport; an unreadable stash refuses the join and keeps the row.
 - `apps/server/test/convertV2.test.ts`: an unreadable v1 row is kept and the join refused.
 
@@ -111,3 +123,4 @@ Tests:
 - No stored staff log; only stdout.
 - `/help` does not list `/goto` for staff.
 - Rank checks cover kick and ban only; any moderator can `/goto` any player.
+- Grants go to offline characters only, and to one that has played once; there is no grant to the account stash directly and no way to take a grant back except by hand in the database.

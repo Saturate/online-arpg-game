@@ -112,13 +112,21 @@ Try on stores the file in the browser's IndexedDB and tells an open game tab ove
 
 ### Grave Hound
 
-- **Numbers:** life 95, move speed 115, radius 17, contact 12 every 0.9 s, colour `0x6a6e66`, XP by the level formula. One ability, a pounce (`leap`): cooldown 4.5 s, 140 to 400 units, 0.55 s telegraph, lands in a 58 radius for 22 damage over 0.55 s. It sits between the Ghoul (85 life, leap 20) and the Hellhound (80 life, from level 5) and hits harder than the Dire Wolf (60 life, contact 9) because it is bigger and slower.
+- **Numbers:** life 95, move speed 115, radius 17, contact 10 every 0.9 s, colour `0x6a6e66`, XP by the level formula. One ability, a pounce (`leap`): cooldown 4.5 s, 140 to 400 units, 0.55 s telegraph, lands in a 58 radius for 22 damage over 0.55 s. Its bite and pounce poison (trait `poisonBite`, below). It sits between the Ghoul (85 life, leap 20) and the Hellhound (80 life, from level 5).
+- **Why contact 10:** it bit 12 before the poison. At 10 every 0.9 s (11.1 DPS) plus three held poison stacks (3.6 DPS) it does 14.7, between the Dire Wolf's bite (12.9) and the Hellhound's bite plus burn (16), where 12 plus poison would have made it the hardest biter.
 - **Where:** crypts and ruins from monster level 3 (`HABITATS`), so the Ashen Steppe (ruins, levels 4 to 6) and crypt dungeons. Beasts come in packs of 1.3x.
 - **Model:** `apps/client/public/assets/monsters/grave_hound.glb`, asset `mon_grave_hound`, height 50 (93% of a hero, about 1 m at the shoulder), 394 triangles, 186 KB, clips Idle, Walk, Run, Attack, Hit and Death; `pnpm model:check --height 50` passes all 11 checks. It is the owner's brother's "Dog thing", made for this game only: it is not licensed for reuse, and no licence file goes with it.
 - **Why 50 tall at 115:** the client plays the walk at speed / 110, so the authored walk must cover 110 units a second. At the 34 units of the pipeline's dog example (Dire Wolf size) that is 3.7 m/s for a 0.57 m leg, which only a gallop reaches. At 50 units and a trot lowered by 7.5 cm (`--walk-crouch 0.075`), a planted paw covers 0.47 m of model per step and the walk plays at 1.05x: 3.1 strides a second, a steady trot. The stock trot at the same size capped at 5.7 strides a second. The Run (190 units a second, a gallop) only shows mid-pounce, since the game runs only above 188 and even a Hasted rare tops out at 184.
 - **Colours:** ashen grey coat (luminance 0.16), a paler bone-grey chest and muzzle (0.30 to 0.33) and green glowing eyes, so it reads as a grey shape by the hero's light at night. The first pass at 0.12 read as a black blot at night and was lifted.
 - **While the file streams in** it draws as the procedural wolf at 1.2x bulk, so it never pops from a humanoid.
 - **Rebuild:** the commands are in `tools/blender/README.md` ("The same dog as the Grave Hound"), with its palette and joints in `tools/blender/examples/grave_hound/`.
+
+### Poison
+
+- **Poisoned** is a stacking damage over time (`AILMENTS.poison` in `config/sim.ts`): each bite adds a stack worth 12% of the hit per second and resets every stack to 4 s; at 3 stacks a new bite replaces the weakest stack if it is stronger. Stacks tick quietly (no numbers), each crediting its own source. It works the same on players, minions and monsters; a hit that does no damage (god mode, a shield soaking all of it) poisons nothing.
+- **Who poisons:** the Grave Hound's bite and pounce, the Hound pack's packmates' bites and the pack Leader's pounce ([minions.md](minions.md)). Poison has no element yet and nothing resists it; it joins the damage types in the rune update.
+- **On the wire and on screen:** status flag `STATUS.poison` (256) in every entity snapshot, like burn, chill and shock. Medium and High draw bile green drops running off the body (0x7c9436 fading to 0x3a4a18) and a low murky mist (0x4a5a2c); the tint is a slow sickly pulse at the chill tint's weight, the only cue on Low (`vfx.status`, `applyTint` in `render/entities.ts`, [vfx.md](vfx.md)).
+- Tests: `packages/shared/test/poison.test.ts` (stacking, refresh, the weakest giving way, ticking and wearing off on a monster, a player and a minion, the snapshot flag, the Grave Hound's bite).
 
 ### Procedural models
 
@@ -178,6 +186,7 @@ The testground and sandbox-style maps keep the old wave spawner (`WAVES`), when 
 Tests:
 
 - `packages/shared/test/monsters.test.ts`: every type runs 15 s without errors and deterministically; summon caps, splitting, wind-ups, dodging a slam, burrowed monsters cannot be hit, shielders block from the front, a shaman raises a corpse once, poison pools, boss enrage; every biome has monsters at levels 1 to 30, families appear by level.
+- `packages/shared/test/poison.test.ts`: poison stacks, ticks and wears off on every kind of target; the Grave Hound's bite poisons.
 - `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, the Grave Hound's zones and pounce, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
 - `packages/shared/test/tuning.test.ts`: override validation, stale kinds dropped, overrides at spawn, XP scaled but Arena score untouched, living monsters unchanged, export format and round trip.
 - `apps/server/test/tuning.test.ts`: permissions, validation, reset, live rooms pick up new spawns, `models` before `welcome`, overrides survive a restart.
@@ -186,5 +195,6 @@ Tests:
 ## Limits and open questions
 
 - The browser tuner cannot edit traits (enrage, burrow, curse) or non-number ability fields.
+- Poison drops are small at game zoom: by day the tint reads, at night mostly the mist; a visual review may want them larger.
 - The Grave Hound's walk still slides about 1% (half-stride 0.235 m against a 0.232 m reach) and its run about 3%.
 - Dungeon and zone monsters do not scale with party size; only waves do.
