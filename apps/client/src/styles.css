@@ -1,4 +1,46 @@
+/* Alegreya Sans (SIL OFL, from Google Fonts, public/fonts/OFL.txt). Its x-height is small, so
+   size-adjust draws it larger: the sizes below were set for Inter and stay legible unchanged. */
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  size-adjust: 112%;
+  src: url('/fonts/AlegreyaSans-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  size-adjust: 112%;
+  src: url('/fonts/AlegreyaSans-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  size-adjust: 112%;
+  src: url('/fonts/AlegreyaSans-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 700 800;
+  font-display: swap;
+  size-adjust: 112%;
+  src: url('/fonts/AlegreyaSans-Bold.woff2') format('woff2');
+}
+
 :root {
+  /* The admin page shares this sheet and keeps the browser's own cursors and Inter. */
+  --font-body: Inter, system-ui, sans-serif;
+  --cur: default;
+  --cur-hover: pointer;
+  --cur-grab: grab;
+  --cur-aim: crosshair;
+  --cur-grip: move;
   color-scheme: dark;
   --bg: #07070b;
   --panel: rgba(14, 12, 10, 0.94);
@@ -12,10 +54,27 @@
   --spirit: #4a74d9;
   --good: #7dff8a;
   --bad: #ff6b5a;
-  font-family: Inter, system-ui, sans-serif;
+  --ember: #e0873a;
+  --plate: linear-gradient(180deg, #3d3024 0%, #2a2017 46%, #1c150e 54%, #130e09 100%);
+  --plate-pressed: linear-gradient(180deg, #0e0a06, #1c150e);
+  --plate-shadow: inset 0 1px 0 rgba(255, 226, 170, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.65), 0 0 0 1px #000, 0 2px 3px rgba(0, 0, 0, 0.55);
+  --plate-shadow-pressed: inset 0 2px 5px rgba(0, 0, 0, 0.85), 0 0 0 1px #000;
+  font-family: var(--font-body);
   font-size: 14px;
   background: var(--bg);
   color: var(--text);
+}
+.game-app {
+  --font-body: 'Alegreya Sans', 'Trebuchet MS', system-ui, sans-serif;
+  /* Paths from the site root: a url() inside a custom property resolves where it is used. */
+  --cur: url('/cursors/arrow.svg') 3 2, default;
+  --cur-hover: url('/cursors/arrow-hover.svg') 3 2, pointer;
+  --cur-grab: url('/cursors/arrow-hover.svg') 3 2, grab;
+  --cur-aim: url('/cursors/aim.svg') 16 16, crosshair;
+  --cur-grip: url('/cursors/grip.svg') 16 16, move;
+  cursor: var(--cur);
+  /* Alegreya's old-style figures sink below the line; stats and bars read better lining. */
+  font-variant-numeric: lining-nums;
 }
 html,
 body,
@@ -103,7 +162,7 @@ kbd {
   background: linear-gradient(180deg, #1a1611, #110e0b);
   border: 1px solid #3a2f20;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   text-align: left;
 }
 .picker li button:hover,
@@ -149,7 +208,7 @@ kbd {
   display: block;
   width: 100%;
   height: 100%;
-  cursor: crosshair;
+  cursor: var(--cur-aim);
 }
 .fx-layer {
   position: absolute;
@@ -161,7 +220,7 @@ kbd {
   position: absolute;
   left: 0;
   top: 0;
-  font: 700 15px Inter, sans-serif;
+  font: 700 15px var(--font-body);
   text-shadow: 0 1px 2px #000, 0 0 6px #000;
   white-space: nowrap;
   will-change: transform, opacity;
@@ -173,7 +232,7 @@ kbd {
   position: absolute;
   left: 0;
   top: 0;
-  font: 600 12px Inter, sans-serif;
+  font: 600 12px var(--font-body);
   color: #cfe6ff;
   text-shadow: 0 1px 2px #000;
   white-space: nowrap;
@@ -262,7 +321,7 @@ kbd {
   background: color-mix(in srgb, var(--rune) 16%, #0c0a08);
   color: var(--rune);
   font-size: 12px;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   user-select: none;
 }
 .rune-chip b {
@@ -447,27 +506,58 @@ kbd {
   text-transform: uppercase;
 }
 .close {
-  background: none;
-  border: 1px solid #3a2f20;
-  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  flex: none;
   width: 24px;
   height: 24px;
-  cursor: pointer;
-  color: var(--muted);
+  padding: 0;
+  font: 400 18px/1 Cinzel, Georgia, serif;
+  color: #b09a74;
+  background: var(--plate);
+  border: 1px solid #4a3820;
+  border-radius: 2px;
+  box-shadow: var(--plate-shadow);
+  cursor: var(--cur-hover);
 }
+.close:hover {
+  color: #ffb27a;
+  border-color: #8a4a2a;
+}
+.close:active {
+  background: var(--plate-pressed);
+  box-shadow: var(--plate-shadow-pressed);
+  transform: translateY(1px);
+}
+/* Carved plates: a bevel that catches the light on top, a dark lip below, and a pressed state
+   that sinks into the panel. */
 .panel button:not(.close):not(.cell):not(.inv-cell):not(.bare) {
-  background: #1f1a13;
-  border: 1px solid #4a3b24;
-  border-radius: 4px;
+  background: var(--plate);
+  border: 1px solid #54402a;
+  border-radius: 2px;
   padding: 5px 10px;
-  cursor: pointer;
+  color: #e2d4b4;
+  text-shadow: 0 1px 0 #000;
+  box-shadow: var(--plate-shadow);
+  cursor: var(--cur-hover);
+  transition: border-color 90ms, color 90ms, filter 90ms;
 }
 .panel button:not(:disabled):not(.inv-cell):hover {
-  border-color: var(--gold);
+  border-color: #b08a4a;
+  color: #f4e6c4;
+}
+.panel button:not(.close):not(.cell):not(.inv-cell):not(.bare):not(:disabled):hover {
+  filter: brightness(1.12);
+}
+.panel button:not(.close):not(.cell):not(.inv-cell):not(.bare):not(:disabled):active {
+  background: var(--plate-pressed);
+  box-shadow: var(--plate-shadow-pressed);
+  transform: translateY(1px);
+  filter: none;
 }
 .panel button:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: var(--cur);
 }
 .panel button.danger {
   color: var(--bad);
@@ -493,12 +583,12 @@ kbd {
   background: #120f0b;
   border: 1px solid #3a2f20;
   border-radius: 4px;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   display: grid;
   place-items: center;
 }
 .cell.empty {
-  cursor: default;
+  cursor: var(--cur);
   opacity: 0.6;
 }
 .cell.selected {
@@ -648,8 +738,8 @@ kbd {
 .fx-label.loot {
   /* Clickable to pick up, though the layer they sit on lets the mouse through. */
   pointer-events: auto;
-  cursor: pointer;
-  font: 600 12px Inter, sans-serif;
+  cursor: var(--cur-hover);
+  font: 600 12px var(--font-body);
   padding: 1px 6px;
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -888,7 +978,7 @@ kbd {
   left: 0;
   right: 0;
   text-align: center;
-  font: 600 10px Inter, sans-serif;
+  font: 600 10px var(--font-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #e8dcc0;
@@ -985,7 +1075,7 @@ kbd {
   padding: 0 !important;
   background: none !important;
   border: none !important;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   display: grid;
   place-items: center;
 }
@@ -1025,7 +1115,7 @@ kbd {
   bottom: -2px;
   right: -2px;
   padding: 0 4px;
-  font: 600 10px Inter, sans-serif;
+  font: 600 10px var(--font-body);
   color: #9fd0ff;
   background: #000c;
   border-radius: 3px;
@@ -1089,7 +1179,7 @@ kbd {
 }
 .death p {
   margin: 6px 0 0;
-  font: 14px Inter, sans-serif;
+  font: 14px var(--font-body);
   color: #e8c8c0;
 }
 .party .pname small {
@@ -1196,7 +1286,7 @@ kbd {
   background: radial-gradient(circle at 50% 40%, #1c1712, #0c0a08) !important;
   border: 1px solid #3a2f20 !important;
   border-radius: 6px !important;
-  cursor: pointer;
+  cursor: var(--cur-hover);
 }
 .gear-slot.empty {
   opacity: 0.6;
@@ -1297,7 +1387,7 @@ kbd {
   background: #1a1611;
   color: var(--text);
   font: inherit;
-  cursor: pointer;
+  cursor: var(--cur-hover);
 }
 .picker button.primary {
   background: linear-gradient(180deg, #7a5a24, #4a3514);
@@ -1311,7 +1401,7 @@ kbd {
 }
 .picker button:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: var(--cur);
 }
 .picker button.link,
 .picker a.link {
@@ -1320,7 +1410,7 @@ kbd {
   padding: 0;
   color: var(--gold);
   text-decoration: underline;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   font: inherit;
 }
 .account-bar {
@@ -1592,7 +1682,7 @@ kbd {
 }
 .cell[draggable='true'],
 .gear-slot[draggable='true'] {
-  cursor: grab;
+  cursor: var(--cur-grab);
 }
 .gear-slot.empty .cell-label {
   position: static;
@@ -1656,13 +1746,13 @@ kbd {
   color: #ff8a3a;
 }
 .target-level {
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 11px;
   color: var(--muted);
   margin-left: 6px;
 }
 .target-tag {
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -1752,7 +1842,8 @@ kbd {
 .bindings button {
   min-width: 92px;
   padding: 3px 8px;
-  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 .bindings button.waiting {
   border-color: var(--gold) !important;
@@ -1788,7 +1879,7 @@ kbd {
   border-radius: 6px;
   border: 1px solid #5a4628;
   background: linear-gradient(180deg, #221b13, #120e0a);
-  cursor: pointer;
+  cursor: var(--cur-hover);
 }
 .panel-buttons button:hover,
 .panel-buttons button.on {
@@ -1839,7 +1930,7 @@ kbd {
   background: #15120e;
   color: var(--text);
   font: inherit;
-  cursor: pointer;
+  cursor: var(--cur-hover);
   text-align: left;
 }
 .waypoints li button:hover:not(:disabled) {
@@ -1847,11 +1938,11 @@ kbd {
 }
 .waypoints li button.here {
   border-color: var(--gold);
-  cursor: default;
+  cursor: var(--cur);
 }
 .waypoints li button.locked {
   opacity: 0.45;
-  cursor: default;
+  cursor: var(--cur);
 }
 
 /* XP bar and item requirements */
@@ -1906,7 +1997,7 @@ kbd {
   background: #15120e;
   color: var(--text);
   font: inherit;
-  cursor: pointer;
+  cursor: var(--cur-hover);
 }
 .scheme-row button.on {
   border-color: var(--gold);
@@ -2077,7 +2168,7 @@ kbd {
   z-index: 20;
   pointer-events: none;
   text-align: left;
-  cursor: default;
+  cursor: var(--cur);
 }
 .skill-pop h4 {
   margin: 0 0 4px;
@@ -2102,4 +2193,328 @@ kbd {
 .skill-pop-hint {
   color: #7a6d58;
   font-size: 11px !important;
+}
+
+/* ============================================================================================
+   Game feel: forged panels, plates, tooltips, scrollbars, focus, selection and cursors. Game
+   behaviour hangs off .game-app (set by the game's entry point), so the admin page is untouched.
+   ============================================================================================ */
+
+/* Leather grain: fine speckle over a slower mottle, both only darkening. */
+:root {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  --mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.012' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .9 -.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)' opacity='.5'/%3E%3C/svg%3E");
+  --rivet: radial-gradient(circle, #d8b878 0, #8a6634 1.4px, #2a1c0e 2.6px, rgba(0, 0, 0, 0.6) 3.3px, transparent 4px);
+  --iron-edge: linear-gradient(165deg, #a07e48, #4d3920 28%, #7d5f36 52%, #2c2014 78%, #6b5030);
+}
+
+.panel {
+  --pad-y: 12px;
+  --pad-x: 14px;
+  border-radius: 2px;
+  border: 3px solid #5a4428;
+  border-image: var(--iron-edge) 1;
+  /* Rivets sit in the corners of the box and do not scroll with the content. */
+  background:
+    var(--rivet) 3px 3px / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 3px) 3px / 10px 10px no-repeat,
+    var(--rivet) 3px calc(100% - 3px) / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 3px) calc(100% - 3px) / 10px 10px no-repeat,
+    var(--grain),
+    var(--mottle),
+    linear-gradient(180deg, rgba(36, 27, 19, 0.98), rgba(15, 11, 8, 0.98));
+  box-shadow:
+    0 0 0 1px #000,
+    0 16px 48px rgba(0, 0, 0, 0.82),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 1px rgba(255, 220, 160, 0.05),
+    inset 0 0 42px rgba(0, 0, 0, 0.55);
+}
+/* Keep in step with each panel's own top padding, so the sticky title bar sits flush. */
+.cs-window,
+.panel.forge {
+  --pad-y: 0px;
+}
+.panel.arena-result {
+  background:
+    var(--rivet) 3px 3px / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 3px) 3px / 10px 10px no-repeat,
+    var(--rivet) 3px calc(100% - 3px) / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 3px) calc(100% - 3px) / 10px 10px no-repeat,
+    var(--grain),
+    radial-gradient(ellipse at top, rgba(40, 10, 6, 0.97), rgba(10, 8, 6, 0.97));
+}
+/* The title bar runs edge to edge and stays put while the panel scrolls. Windows that already
+   draw their own bar (inventory, forge) set margin with !important and keep theirs. */
+.panel > header {
+  position: sticky;
+  top: calc(-1 * var(--pad-y));
+  z-index: 2;
+  margin: calc(-1 * var(--pad-y)) calc(-1 * var(--pad-x)) 10px;
+  padding: 9px var(--pad-x) 8px;
+  background:
+    var(--rivet) 0 0 / 10px 10px no-repeat,
+    var(--rivet) 100% 0 / 10px 10px no-repeat,
+    var(--grain),
+    linear-gradient(180deg, #33271b, #1c150e);
+  border-bottom: 1px solid #000;
+  box-shadow: 0 1px 0 rgba(217, 181, 106, 0.16), 0 3px 6px rgba(0, 0, 0, 0.45);
+}
+.panel > header h2 {
+  font-family: Cinzel, Georgia, serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  text-shadow: 0 1px 0 #000, 0 0 12px rgba(217, 181, 106, 0.22);
+}
+.panel h3 {
+  font-family: Cinzel, Georgia, serif;
+  letter-spacing: 0.1em;
+  color: #a8957a;
+}
+.panel.menu > header h2 {
+  text-align: center;
+  font-size: 24px;
+}
+.arena-result > header {
+  justify-content: center;
+}
+/* Unlocked: the title bar shows it can be taken hold of. */
+[data-drag-handle] {
+  cursor: var(--cur-grip);
+  box-shadow: inset 0 1px 0 rgba(224, 135, 58, 0.55), 0 1px 0 rgba(217, 181, 106, 0.16), 0 3px 6px rgba(0, 0, 0, 0.45) !important;
+}
+.dragging-panel {
+  z-index: 40 !important;
+  box-shadow: 0 0 0 1px #000, 0 24px 60px rgba(0, 0, 0, 0.9), 0 0 0 2px rgba(224, 135, 58, 0.35) !important;
+}
+.menu-backdrop {
+  background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.78));
+}
+
+/* Small frames: minimap, party list, notices, chat. Iron edge without rivets. */
+.minimap,
+.party,
+.notice {
+  border: 2px solid #4a3820;
+  border-image: var(--iron-edge) 1;
+  border-radius: 0;
+  background: var(--grain), linear-gradient(180deg, rgba(28, 21, 15, 0.94), rgba(12, 9, 7, 0.94));
+  box-shadow: 0 0 0 1px #000, 0 6px 18px rgba(0, 0, 0, 0.6), inset 0 0 14px rgba(0, 0, 0, 0.6);
+}
+.chat.open ul {
+  border-radius: 2px;
+  border-color: #3a2c1a;
+  background: var(--grain), rgba(8, 6, 4, 0.8);
+}
+.hud-center {
+  border: 2px solid #4a3820;
+  border-bottom: none;
+  border-image: var(--iron-edge) 1;
+  border-radius: 0;
+  background: var(--grain), var(--mottle), linear-gradient(180deg, rgba(26, 20, 14, 0.55), rgba(12, 9, 7, 0.95));
+}
+.panel-buttons button {
+  border-radius: 2px;
+  border-color: #54402a;
+  background: var(--plate);
+  box-shadow: var(--plate-shadow);
+}
+.panel-buttons button:active {
+  background: var(--plate-pressed);
+  box-shadow: var(--plate-shadow-pressed);
+  transform: translateY(1px);
+}
+.panel-buttons button.on svg {
+  fill: #ffb45a;
+}
+
+/* Title screens share the plate look. */
+.picker button.primary,
+.picker button.danger,
+.row-actions button,
+.picker li button {
+  border-radius: 2px;
+  box-shadow: var(--plate-shadow);
+}
+.picker button.primary:not(:disabled):active,
+.picker li button:active,
+.row-actions button:not(:disabled):active {
+  box-shadow: var(--plate-shadow-pressed);
+  transform: translateY(1px);
+}
+
+/* Fields: dark, sunk into the panel. */
+.game-app :is(input:not([type]), input[type='text'], input[type='password'], input[type='search'], input[type='number'], textarea, select) {
+  background: #0c0906;
+  border: 1px solid #3e3020;
+  border-radius: 2px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+  color: var(--text);
+}
+.game-app :is(input:not([type]), input[type='text'], input[type='password'], input[type='search'], textarea) {
+  cursor: text;
+}
+.game-app :is(input, textarea, select):focus {
+  border-color: #a8834a;
+}
+.game-app input::placeholder {
+  color: #6d6353;
+}
+.game-app input[type='checkbox'] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0 4px 0 0;
+  vertical-align: -3px;
+  border: 1px solid #6b5634;
+  border-radius: 2px;
+  background: #0c0906;
+  box-shadow: inset 0 1px 3px #000;
+}
+.game-app input[type='checkbox']:checked {
+  border-color: #b08a4a;
+  background: #0c0906 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5 6.5 12 13 4' fill='none' stroke='%23e8c476' stroke-width='2.4' stroke-linecap='square'/%3E%3C/svg%3E") center / 13px no-repeat;
+}
+.game-app input[type='range'] {
+  appearance: none;
+  height: 16px;
+  background: transparent;
+}
+.game-app input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #0c0906;
+  border: 1px solid #3e3020;
+  box-shadow: inset 0 1px 2px #000;
+}
+.game-app input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #e8c476, #7a5a2c);
+  border: 1px solid #000;
+}
+.game-app input[type='range']::-moz-range-track {
+  height: 4px;
+  background: #0c0906;
+  border: 1px solid #3e3020;
+}
+.game-app input[type='range']::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  transform: rotate(45deg);
+  border-radius: 0;
+  background: linear-gradient(135deg, #e8c476, #7a5a2c);
+  border: 1px solid #000;
+}
+.volume-row {
+  display: grid;
+  grid-template-columns: auto 1fr 3.2em;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.volume-row b {
+  color: var(--gold);
+  font-weight: 500;
+  text-align: right;
+}
+
+/* Keyboard focus: an ember line in place of the browser's blue ring. */
+.game-app :focus {
+  outline: none;
+}
+.game-app :focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+/* Scrollbars: a bronze bar in a dark groove. */
+.game-app ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.game-app ::-webkit-scrollbar-track {
+  background: #0a0705;
+  box-shadow: inset 0 0 3px #000;
+}
+.game-app ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #6b5030, #3e2e1a);
+  border: 2px solid #0a0705;
+  border-radius: 5px;
+}
+.game-app ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #8a6a3e, #54402a);
+}
+.game-app ::-webkit-scrollbar-corner {
+  background: #0a0705;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .game-app * {
+    scrollbar-color: #6b5030 #0a0705;
+    scrollbar-width: thin;
+  }
+}
+
+/* Tooltips: the game's own and the HUD pops share the item tooltip's frame. */
+.tooltip,
+.skill-pop.panel,
+.spirit-pop.panel {
+  border-image: none;
+  border-radius: 3px;
+  background: var(--grain), linear-gradient(180deg, rgba(14, 11, 8, 0.98), rgba(6, 5, 4, 0.98));
+}
+.skill-pop.panel,
+.spirit-pop.panel {
+  border: 1px solid #5a4628;
+  box-shadow: 0 0 0 1px #000, 0 10px 36px #000e, inset 0 1px 0 rgba(255, 220, 160, 0.05);
+}
+.tooltip.game-tip {
+  z-index: 50;
+  width: auto;
+  max-width: 280px;
+  padding: 6px 10px 7px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #e4d8c0;
+  white-space: normal;
+}
+.game-tip .tip-lines strong {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 13px;
+}
+.game-tip .tip-roll {
+  margin: 2px 0 0;
+  color: #8fa8ff;
+}
+
+/* No text selection or dragging in the game UI; chat and text fields still select. */
+.game-app {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.game-app :is(input, textarea, [contenteditable='true'], .chat-line) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.game-app :is(img, a, svg) {
+  -webkit-user-drag: none;
+}
+.game-app ::selection {
+  background: rgba(217, 181, 106, 0.35);
+  color: #fff;
+}
+
+/* Cursors. Clickable things get the lit arrow; item cells show it only when there is an item. */
+.game-app :where(button, [role='button'], [role='radio'], a[href], select, summary, label, input[type='checkbox'], input[type='range']):not(:disabled) {
+  cursor: var(--cur-hover);
+}
+.game-app .inv-cell {
+  cursor: var(--cur);
+}
+.game-app .inv-cell.filled {
+  cursor: var(--cur-grab);
 }
