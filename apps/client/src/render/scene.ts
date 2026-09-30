@@ -21,7 +21,7 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
-import { lighting, nightFactor, overcast } from './daylight.js';
+import { darkness, lighting, nightFactor, nightModeOf, overcast, type NightMode } from './daylight.js';
 import { sceneLights } from './lights.js';
 import { NIGHT_RIM, nightRim } from './nightRim.js';
 import { buildWorld, type BuiltWorld } from './props.js';
@@ -95,6 +95,8 @@ export class WorldScene {
   /** The theme's daytime lighting; night is blended from it outdoors. */
   private readonly base: Lighting;
   private readonly outdoors: boolean;
+  /** Day and night for this map; Effects reads it so spell glow follows the same rule as the lights. */
+  readonly nightMode: NightMode;
   private readonly sunDay = new Color();
   private lastLight = { night: -1, cloud: -1, brightness: -1, hero: -1, radius: -1 };
   private night = 0;
@@ -119,7 +121,8 @@ export class WorldScene {
   ) {
     const light = LIGHTING[def.theme];
     this.base = light;
-    this.outdoors = def.theme === 'town' || def.theme === 'wilds';
+    this.nightMode = nightModeOf(def.theme);
+    this.outdoors = this.nightMode === 'outdoors';
     this.sunDay.setHex(light.sunColor);
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -202,8 +205,8 @@ export class WorldScene {
     this.sun.target.position.set(x, 0, y);
     this.playerLight.position.set(x, HERO_HEIGHT, y);
     this.applyDaylight();
-    // Underground it is always night for the torches.
-    sceneLights.update(this.time, dt, x, y, this.outdoors ? this.night : 1, lighting.lampLight);
+    // Underground it is always night for the torches; flat test maps have no night at all.
+    sceneLights.update(this.time, dt, x, y, this.outdoors ? this.night : darkness(this.nightMode), lighting.lampLight);
     fadeUniforms.uFadeCenter.value.set(x, 0, y);
     this.world.update(this.time, x, y);
   }
@@ -245,7 +248,7 @@ export class WorldScene {
     this.sun.color.copy(this.sunDay).lerp(CLOUDLIGHT, cloud * 0.7).lerp(MOONLIGHT, night);
     // The hero's light becomes the D2 light radius: a warm pool reaching past the fight around you.
     // Its intensity is scaled by height^decay so HERO_NIGHT is the light at the hero's feet.
-    const dayIntensity = this.outdoors ? b.playerLight : b.playerLight * lighting.heroLight;
+    const dayIntensity = this.nightMode === 'underground' ? b.playerLight * lighting.heroLight : b.playerLight;
     const nightIntensity = HERO_NIGHT * lighting.heroLight * Math.pow(HERO_HEIGHT, HERO_DECAY);
     this.playerLight.intensity = mix(dayIntensity, nightIntensity);
     this.playerLight.distance = mix(520, lighting.heroLightRadius);

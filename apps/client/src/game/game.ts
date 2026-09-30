@@ -339,8 +339,6 @@ export class Game {
     });
     const world = new WorldScene(this.mounts.host, def);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
-    // Underground, spell light is the light: effects glow as they do at night.
-    fx.vfx.setUnderground(def.theme !== 'town' && def.theme !== 'wilds');
     const entities = new EntityRenderer(world.scene, world.camera, fx.vfx);
     const input = new InputState(
       world.canvas,

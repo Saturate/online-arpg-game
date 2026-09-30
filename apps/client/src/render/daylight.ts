@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, dayPhaseAt, type Lighting } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, dayPhaseAt, type Lighting, type MapTheme } from '@rune/shared';
 
 /**
  * Day and night, visual only. The time of day comes from the wall clock, so every player sees the
@@ -49,6 +49,35 @@ export function nightFactor(phase = dayPhase()): number {
   if (phase < NIGHT) return smooth((phase - DUSK) / (NIGHT - DUSK));
   if (phase < DAWN) return 1;
   return 1 - smooth((phase - DAWN) / (1 - DAWN));
+}
+
+/**
+ * Whether a map has day and night. Town and the wilds follow the clock; the dungeon, its staging
+ * room and the Arena pit are underground, where it is always night for torches and spell light;
+ * the flat test maps (Sandbox, Testground, the Spell Studio) have neither, so effects look the same
+ * there at any hour. The game, the Spell Studio and the VFX bench all read it from here.
+ */
+export type NightMode = 'outdoors' | 'underground' | 'none';
+
+export function nightModeOf(theme: MapTheme): NightMode {
+  switch (theme) {
+    case 'town':
+    case 'wilds':
+      return 'outdoors';
+    case 'dungeon':
+    case 'staging':
+    case 'arena':
+      return 'underground';
+    case 'flat':
+      return 'none';
+  }
+}
+
+/** How dark it is for lights and effects, 0 to 1: the night factor outdoors, 1 underground, 0 on flat maps. */
+export function darkness(mode: NightMode, phase?: number): number {
+  if (mode === 'underground') return 1;
+  if (mode === 'none') return 0;
+  return nightFactor(phase);
 }
 
 /** Length of one weather step; the sky drifts between steps over the whole step. */

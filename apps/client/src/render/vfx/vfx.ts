@@ -1,6 +1,6 @@
 import { Color, DoubleSide, Mesh, MeshBasicMaterial, AdditiveBlending, PlaneGeometry, RingGeometry, Vector3, type Camera, type IUniform, type Scene, type ShaderMaterial } from 'three';
 import { RENDER_ORDER } from '../config.js';
-import { nightFactor } from '../daylight.js';
+import { darkness, type NightMode } from '../daylight.js';
 import { emitLight, entityLightKey, lightKey } from '../lights.js';
 import { ParticleBudget } from './budget.js';
 import { novaMaterial, type NovaUniforms, type SharedUniforms } from './materials.js';
@@ -72,10 +72,10 @@ export class Vfx {
   private readonly waveGeo = new PlaneGeometry(2, 2);
   private readonly ringGeo = new RingGeometry(0.8, 1, 48);
   private begun = false;
-  private underground = false;
+  private nightMode: NightMode = 'outdoors';
   /** Ground point the camera looks at and a generous radius around it, for skipping off-screen emitters. */
   private readonly focus = { x: 0, y: 0, r: 900 };
-  /** Night factor, 0 to 1. Underground counts as night: effects are the light there. */
+  /** Night factor, 0 to 1. Underground counts as night (effects are the light there), flat maps as day. */
   night = 0;
   /** This frame's zones: x, y, r, style, weight. See zoneShare. */
   private readonly claims = new Float32Array(MAX_ZONE_CLAIMS * 5);
@@ -139,8 +139,9 @@ export class Vfx {
     this.waves.length = 0;
   }
 
-  setUnderground(underground: boolean): void {
-    this.underground = underground;
+  /** Day and night for the map on screen (`nightModeOf`); set by Effects from the world scene. */
+  setNightMode(mode: NightMode): void {
+    this.nightMode = mode;
   }
 
   /**
@@ -152,7 +153,7 @@ export class Vfx {
     this.begun = true;
     this.claimCount = 0;
     this.shared.uTime.value += dt;
-    this.night = this.underground ? 1 : nightFactor();
+    this.night = darkness(this.nightMode);
     this.shared.uNight.value = this.night;
     this.budget.beginFrame(dt, Math.max(this.glow.fullness, this.smoke.fullness));
     this.glow.step(dt);

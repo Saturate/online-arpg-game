@@ -72,6 +72,8 @@ export class Effects {
     private readonly layer: HTMLElement,
   ) {
     this.vfx = new Vfx(scene, world.camera, useSettings.getState().options.vfxQuality);
+    // One rule for day and night everywhere a world is drawn: the game, the Spell Studio and the bench.
+    this.vfx.setNightMode(world.nightMode);
     this.unsubscribe = useSettings.subscribe((st) => this.vfx.setQuality(st.options.vfxQuality));
   }
 

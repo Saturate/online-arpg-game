@@ -3,6 +3,8 @@ import { ParticleBudget } from '../src/render/vfx/budget.js';
 import { emptySpec, INSTANCE_STRIDE, ParticlePool } from '../src/render/vfx/pool.js';
 import { isVfxQuality, QUALITY, VFX_QUALITIES } from '../src/render/vfx/quality.js';
 import { DEFAULT_OPTIONS, parseSettings } from '../src/ui/settings.js';
+import { darkness, nightModeOf } from '../src/render/daylight.js';
+import { HeldJitter, JITTER_RANGE } from '../src/render/vfx/jitter.js';
 
 /** A repeatable random stream, so rounding in the budget is testable. */
 function seeded(seed: number): () => number {
@@ -165,5 +167,37 @@ describe('quality levels', () => {
     expect(parseSettings(JSON.stringify({ options: { vfxQuality: 'ultra' } })).options.vfxQuality).toBe('high');
     expect(isVfxQuality('medium')).toBe(true);
     expect(isVfxQuality(3)).toBe(false);
+  });
+});
+
+describe('held jitter', () => {
+  it('holds each value for a tenth of a second and stays within the range', () => {
+    const j = new HeldJitter(JITTER_RANGE, 0.1, seeded(7));
+    const first = j.next(1 / 60);
+    for (let i = 0; i < 5; i++) expect(j.next(1 / 60)).toBe(first);
+    const values = new Set<number>();
+    for (let i = 0; i < 600; i++) {
+      const v = j.next(1 / 60);
+      expect(Math.abs(v - 1)).toBeLessThanOrEqual(JITTER_RANGE + 1e-9);
+      values.add(v);
+    }
+    // Ten seconds at 60 fps: about 100 held values, not 600.
+    expect(values.size).toBeGreaterThan(80);
+    expect(values.size).toBeLessThan(120);
+  });
+});
+
+describe('night mode', () => {
+  it('is night underground, never on flat maps and follows the clock outdoors', () => {
+    expect(nightModeOf('dungeon')).toBe('underground');
+    expect(nightModeOf('staging')).toBe('underground');
+    expect(nightModeOf('arena')).toBe('underground');
+    expect(nightModeOf('flat')).toBe('none');
+    expect(nightModeOf('town')).toBe('outdoors');
+    expect(nightModeOf('wilds')).toBe('outdoors');
+    expect(darkness('underground', 0.2)).toBe(1);
+    expect(darkness('none', 0.8)).toBe(0);
+    expect(darkness('outdoors', 0.2)).toBe(0);
+    expect(darkness('outdoors', 0.8)).toBe(1);
   });
 });
