@@ -76,6 +76,26 @@ describe('new monster behaviours', () => {
     expect(teles).toBeGreaterThan(0);
   });
 
+  it('grave hounds hunt crypts and ruins from level 3 and pounce from range', () => {
+    for (const b of ['crypt', 'ruins'] as const) {
+      expect(monsterPool(b, 2), b).not.toContain('grave_hound');
+      expect(monsterPool(b, 3), b).toContain('grave_hound');
+    }
+    expect(familyOf('grave_hound')).toBe('beast');
+    const { sim, pos } = setup(9);
+    const id = spawnEnemy(sim, 'grave_hound', pos.x + 320, pos.y, { rare: false, level: 3, aggro: true });
+    const hound = sim.world.enemy.get(id);
+    if (!hound) throw new Error('no hound');
+    // The spawn cooldown is random; a ready pounce keeps the test from depending on it.
+    hound.cooldowns[0] = 0;
+    let teles = 0;
+    for (let i = 0; i < 20; i++) {
+      sim.step();
+      for (const ev of sim.takeEvents()) if (ev.ev.e === 'tele' && ev.ev.id === id) teles++;
+    }
+    expect(teles).toBeGreaterThan(0);
+  });
+
   it('gargoyles hold perfectly still until a player comes close, then wake', () => {
     const { sim, pid, pos } = setup(4);
     const def = ENEMIES.gargoyle;

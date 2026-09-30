@@ -53,6 +53,7 @@ const HABITATS: Partial<Record<EnemyTypeId, Habitat>> = {
   // Second roster: beasts, insects, flyers, elementals, golems and ambushers.
   dire_wolf: { biomes: ['meadow', 'forest', 'ruins'], minLevel: 1 },
   hellhound: { biomes: ['desert', 'cave', 'ruins'], minLevel: 5 },
+  grave_hound: { biomes: ['crypt', 'ruins'], minLevel: 3 },
   giant_scorpion: { biomes: ['desert', 'cave'], minLevel: 3 },
   thorn_beast: { biomes: ['forest', 'meadow'], minLevel: 3 },
   cave_spider: { biomes: ['cave', 'crypt', 'forest'], minLevel: 2 },

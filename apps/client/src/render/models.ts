@@ -264,6 +264,9 @@ export function buildEnemy(type: EnemyTypeId, color: number): Rig {
       return wolf(color, { fire: false, bulk: 1 }, motion('quad', 'bite', 'roll', 0.35));
     case 'hellhound':
       return wolf(color, { fire: true, bulk: 1.1 }, motion('quad', 'bite', 'roll', 0.45, { ability: 'spit', shoot: 'spit' }));
+    case 'grave_hound':
+      // Stand-in while its model file streams in, so it never pops from a humanoid to a dog.
+      return wolf(color, { fire: false, bulk: 1.2 }, motion('quad', 'bite', 'roll', 0.45, { ability: 'leap' }));
     case 'giant_scorpion':
       return scorpion(color, 1);
     case 'thorn_beast':

@@ -203,6 +203,7 @@ export const ENEMY_TYPE_IDS = [
   // Beasts
   'dire_wolf',
   'hellhound',
+  'grave_hound',
   'giant_scorpion',
   'thorn_beast',
   'cave_spider',
@@ -652,6 +653,15 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     { life: 80, speed: 180, radius: 15, contact: 11, contactCooldown: 0.8, color: 0x8a2a1a },
     [{ kind: 'shoot', cooldown: 3, range: 260, windup: 0.4, bullets: 3, spread: 0.25, speed: 300, damage: 10, radius: 7, element: 'fire' }],
     { contactElement: 'fire', deathBurst: { radius: 60, damage: 14, element: 'fire' } },
+  ),
+  // Its model is the owner's brother's dog, made for this game only and not licensed for reuse.
+  grave_hound: monster(
+    'grave_hound',
+    'Grave Hound',
+    'beast',
+    'flank',
+    { life: 95, speed: 115, radius: 17, contact: 12, contactCooldown: 0.9, color: 0x6a6e66 },
+    [{ kind: 'leap', cooldown: 4.5, range: 400, windup: 0.55, minRange: 140, radius: 58, damage: 22, duration: 0.55 }],
   ),
   giant_scorpion: monster(
     'giant_scorpion',
