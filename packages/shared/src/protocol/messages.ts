@@ -285,6 +285,8 @@ export interface Snapshot {
   players: { id: EntityId; name: string; cls: ClassId; level: number; life: number; maxLife: number; dead: boolean }[];
   /** The room is frozen: only possible when a player is alone in a non-shared room. */
   paused: boolean;
+  /** A dungeon's boss is dead, so its sealed exit is open; absent until then and everywhere else. */
+  exitOpen?: true;
 }
 
 /** The copy of the world the player is in: a shared public one, or their party's own. */

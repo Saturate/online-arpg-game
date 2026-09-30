@@ -278,6 +278,7 @@ export function snapshotFor(
     wave: sim.wave,
     players,
     paused: false,
+    ...(sim.cleared ? { exitOpen: true } : {}),
   };
 }
 

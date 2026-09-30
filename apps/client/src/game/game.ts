@@ -16,6 +16,7 @@ import {
   type GameEvent,
   type GameMap,
   type MapDescriptor,
+  type Portal,
   type ServerMessage,
   type Snapshot,
   type TownLayout,
@@ -35,6 +36,7 @@ import { isOutdated, reloadForUpdate } from './update.js';
 import { netSettings } from '../net/settings.js';
 import { cssColor, FX, TIER_COLORS, UNIQUE_COLOR, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
+import { ExitPortal } from '../render/exitPortal.js';
 import { Effects } from '../render/fx.js';
 import { playFxEvent } from '../render/fxEvents.js';
 import { Minimap } from '../render/minimap.js';
@@ -114,6 +116,17 @@ interface RoomView {
   spells: SpellTable;
   mover: ClickMover;
   minimap: Minimap | null;
+  /** A dungeon's exit while its boss lives: kept out of `def`, so nothing draws or labels it yet. */
+  sealed: Portal[];
+  exits: ExitPortal[];
+}
+
+/** Dev panel teleport spots: the spawn side of each portal, open ground close enough to step in. */
+function devPortals(def: WorldMap): { label: string; x: number; y: number }[] {
+  return def.portals.map((p) => {
+    const d = Math.hypot(def.spawn.x - p.x, def.spawn.y - p.y) || 1;
+    return { label: p.label, x: p.x + ((def.spawn.x - p.x) / d) * (p.r + 50), y: p.y + ((def.spawn.y - p.y) / d) * (p.r + 50) };
+  });
 }
 
 export interface GameMounts {
@@ -319,6 +332,7 @@ export class Game {
     this.editor = null;
     if (!this.room) return;
     this.room.input.dispose();
+    for (const exit of this.room.exits) exit.dispose();
     this.room.fx.dispose();
     this.room.world.dispose();
     this.room = null;
@@ -329,14 +343,11 @@ export class Game {
     this.teardownRoom();
     useUi.setState({ staging: null, arena: null, boardOpen: false });
     clearItemInteractions();
-    const { def, game } = loadMap(desc);
-    useUi.setState({
-      roomPortals: def.portals.map((p) => {
-        // Land on the spawn side of the portal: open ground, and close enough to step in.
-        const d = Math.hypot(def.spawn.x - p.x, def.spawn.y - p.y) || 1;
-        return { label: p.label, x: p.x + ((def.spawn.x - p.x) / d) * (p.r + 50), y: p.y + ((def.spawn.y - p.y) / d) * (p.r + 50) };
-      }),
-    });
+    const loaded = loadMap(desc);
+    const game = loaded.game;
+    const sealed = loaded.def.portals.filter((p) => p.sealed === 'boss');
+    const def: WorldMap = { ...loaded.def, portals: loaded.def.portals.filter((p) => p.sealed !== 'boss') };
+    useUi.setState({ roomPortals: devPortals(def) });
     const world = new WorldScene(this.mounts.host, def);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
     const entities = new EntityRenderer(world.scene, world.camera, fx.vfx);
@@ -364,6 +375,8 @@ export class Game {
       spells: new SpellTable(),
       mover: new ClickMover(game),
       minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`) : null,
+      sealed,
+      exits: [],
     };
     this.latest = null;
     this.pendingEvents = [];
@@ -575,6 +588,8 @@ export class Game {
     const snap = room.spells.expand(sent);
     const first = this.latest === null;
     this.latest = snap;
+    // Someone arriving after the boss died gets the exit already standing, without the opening burst.
+    if (snap.exitOpen && room.sealed.length > 0) this.openExits(room, !first);
     if (snap.paused !== this.paused) {
       this.paused = snap.paused;
       useUi.setState({ paused: snap.paused });
@@ -601,6 +616,16 @@ export class Game {
       }
       this.publishHud(self, snap);
     }
+  }
+
+  /** Labels, the minimap and the dev panel read `def.portals`, so adding the exit there shows it everywhere. */
+  private openExits(room: RoomView, opening: boolean): void {
+    for (const p of room.sealed) {
+      room.def.portals.push(p);
+      room.exits.push(new ExitPortal(room.world.scene, room.fx.vfx, p, opening));
+    }
+    room.sealed = [];
+    useUi.setState({ roomPortals: devPortals(room.def) });
   }
 
   private frame(now: number): void {
@@ -917,6 +942,8 @@ export class Game {
     this.playEvents(now);
     entities.render(items, dt);
     fx.syncLabels(labels);
+    const seconds = performance.now() / 1000;
+    for (const exit of room.exits) exit.update(dt, seconds);
     fx.update(dt);
     const focus = this.editor?.camera ?? { x: px, y: py };
     world.follow(focus.x, focus.y, dt);

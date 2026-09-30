@@ -3,6 +3,7 @@ import {
   HOME_ZONE,
   buyItem,
   pendingItems,
+  portalOpen,
   sellItem,
   type Item,
   restoreStash,
@@ -293,10 +294,16 @@ export class Room {
     this.broadcast();
     if (this.sim.cleared && !this.announcedClear) {
       this.announcedClear = true;
-      for (const m of this.members.values()) m.client.send({ t: 'banner', title: `${this.name} cleared`, text: 'The boss has fallen. A cache has opened where it died.' });
+      const exit = this.sim.mapDef.portals.some((p) => p.sealed === 'boss');
+      for (const m of this.members.values()) {
+        m.client.send({ t: 'banner', title: `${this.name} cleared`, text: 'The boss has fallen. A cache has opened where it died.' });
+        if (exit) m.client.send({ t: 'chat', kind: 'system', from: '', to: null, text: 'The way out opens in the boss chamber' });
+      }
     }
     const out: { client: Client; request: PortalRequest }[] = [];
     for (const request of this.sim.portalRequests) {
+      // The sim already skips a sealed exit; this keeps the rule even if a request gets through another way.
+      if (!portalOpen(this.sim, request.portal)) continue;
       for (const m of this.members.values()) if (m.playerId === request.playerId) out.push({ client: m.client, request });
     }
     this.sim.portalRequests = [];

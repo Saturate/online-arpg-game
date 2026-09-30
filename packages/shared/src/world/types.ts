@@ -53,6 +53,8 @@ export interface Portal {
   dungeon?: DungeonRef;
   /** Set on `zone` portals (where they lead) and `waypoint` portals (which zone's waypoint this is). */
   zone?: ZoneId;
+  /** Hidden and closed until the room's boss dies (`Simulation.cleared`): a dungeon's exit. */
+  sealed?: 'boss';
 }
 
 /** Axis-aligned area where nobody can be hurt or targeted: the town inside the first zone. */

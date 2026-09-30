@@ -3,6 +3,7 @@ import { GEAR_SLOTS, categoryForSlot, type GearCategory } from '../data/gear.js'
 import { ITEM_TIERS, ROLLABLE_RUNES, createGear, createRolledRune, createVessel, type ItemTier } from '../items/items.js';
 import type { RuneId } from '../runes/v2/runes.js';
 import { dropSigil } from '../items/drops.js';
+import { onBossKilled } from './dungeon.js';
 import type { EntityId } from './ecs.js';
 import { spawnEnemy } from './enemies.js';
 import { addItem } from './inventory.js';
@@ -92,9 +93,17 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
     case 'god':
       if (p) p.god = cmd.on;
       return cmd.on ? 'God mode on' : 'God mode off';
-    case 'killAll':
-      for (const id of w.enemy.keys()) w.destroy(id);
+    case 'killAll': {
+      // A boss removed this way still ends the run, or a dungeon cleared with dev tools keeps its exit sealed.
+      const bosses: { x: number; y: number; level: number }[] = [];
+      for (const [id, e] of w.enemy) {
+        const pos = w.position.get(id);
+        if (e.boss && pos) bosses.push({ x: pos.x, y: pos.y, level: e.level });
+      }
+      for (const id of [...w.enemy.keys()]) w.destroy(id);
+      for (const b of bosses) onBossKilled(sim, b.x, b.y, b.level);
       return 'Cleared all monsters';
+    }
     case 'clearLoot':
       for (const id of w.loot.keys()) w.destroy(id);
       return 'Cleared loot';

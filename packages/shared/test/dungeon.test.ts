@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DUNGEON, enemyDisplayName, GameMap, generateDungeon, loadMap, Simulation, stagingMap, type WorldMap } from '../src/index.js';
+import { applyDev, DUNGEON, enemyDisplayName, GameMap, generateDungeon, loadMap, NET, serializeEntities, Simulation, snapshotFor, stagingMap, type EntityId, type Portal, type WorldMap } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 
 /** Walkable nav cells reachable from a point, by flood fill. */
@@ -92,6 +92,105 @@ describe('dungeon boss', () => {
     if (boss) dealDamage(sim, boss[0], 1e9, pid, []);
     sim.step();
     expect(sim.cleared).toBe(false);
+  });
+});
+
+describe('dungeon exit', () => {
+  const desc = { kind: 'dungeon', seed: 11, level: 3, run: 0 } as const;
+
+  function setup(): { sim: Simulation; pid: EntityId; exit: Portal; entrance: Portal } {
+    const sim = new Simulation(3, desc);
+    const pid = sim.addPlayer('c', 'mage');
+    const p = sim.world.player.get(pid);
+    if (p) p.god = true;
+    const exit = sim.mapDef.portals.find((x) => x.sealed === 'boss');
+    const entrance = sim.mapDef.portals.find((x) => x.target === 'staging');
+    if (!exit || !entrance) throw new Error('missing portal');
+    return { sim, pid, exit, entrance };
+  }
+
+  function stand(sim: Simulation, pid: EntityId, at: Portal, seconds: number): void {
+    for (let i = 0; i < seconds * 20; i++) {
+      sim.world.position.set(pid, { x: at.x, y: at.y });
+      sim.step();
+    }
+  }
+
+  function exitOpen(sim: Simulation, pid: EntityId): boolean {
+    return snapshotFor(sim, pid, serializeEntities(sim), [], NET.interestRadius).exitOpen === true;
+  }
+
+  function killBoss(sim: Simulation, pid: EntityId): void {
+    const boss = [...sim.world.enemy].find(([, e]) => e.boss);
+    if (!boss) throw new Error('no boss');
+    dealDamage(sim, boss[0], 1e9, pid, []);
+    sim.step();
+  }
+
+  it('seals the exit in the boss room and opens the way back to the antechamber from the start', () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const { map } = generateDungeon({ seed, level: 2 }, 0);
+      const exits = map.portals.filter((p) => p.sealed === 'boss');
+      expect(exits.map((p) => p.target)).toEqual(['wilds']);
+      const back = map.portals.filter((p) => p.target === 'staging');
+      expect(back).toHaveLength(1);
+      expect(back[0]?.sealed).toBeUndefined();
+      expect(back[0]?.dungeon).toEqual({ seed, level: 2 });
+      expect(Math.hypot((back[0]?.x ?? 0) - map.spawn.x, (back[0]?.y ?? 0) - map.spawn.y)).toBeLessThan(150);
+    }
+  });
+
+  it('never asks to use the exit while the boss lives', () => {
+    const { sim, pid, exit } = setup();
+    stand(sim, pid, exit, 4);
+    expect(sim.portalRequests).toHaveLength(0);
+    expect(exitOpen(sim, pid)).toBe(false);
+  });
+
+  it('uses the entrance portal before the boss dies', () => {
+    const { sim, pid, entrance } = setup();
+    stand(sim, pid, entrance, 2);
+    expect(sim.portalRequests.map((r) => r.target)).toContain('staging');
+  });
+
+  it('opens the exit when the boss dies, after a grace for anyone standing on it', () => {
+    const { sim, pid, exit } = setup();
+    sim.world.position.set(pid, { x: exit.x, y: exit.y });
+    killBoss(sim, pid);
+    expect(exitOpen(sim, pid)).toBe(true);
+    stand(sim, pid, exit, 2);
+    expect(sim.portalRequests).toHaveLength(0);
+    stand(sim, pid, exit, 2);
+    expect(sim.portalRequests.map((r) => r.portal)).toContain(exit);
+  });
+
+  it('drops the cache clear of the exit when the boss dies on it', () => {
+    const { sim, pid, exit } = setup();
+    const boss = [...sim.world.enemy].find(([, e]) => e.boss);
+    if (!boss) throw new Error('no boss');
+    sim.world.position.set(boss[0], { x: exit.x, y: exit.y });
+    dealDamage(sim, boss[0], 1e9, pid, []);
+    sim.step();
+    const bags = [...sim.world.loot.keys()].flatMap((id) => {
+      const pos = sim.world.position.get(id);
+      return pos ? [Math.hypot(pos.x - exit.x, pos.y - exit.y)] : [];
+    });
+    expect(bags.length).toBeGreaterThan(0);
+    expect(Math.min(...bags)).toBeGreaterThan(exit.r + 40);
+  });
+
+  it('shows the exit open to a player who arrives after the boss died', () => {
+    const { sim, pid } = setup();
+    killBoss(sim, pid);
+    const late = sim.addPlayer('late', 'warrior');
+    expect(exitOpen(sim, late)).toBe(true);
+  });
+
+  it('opens the exit when dev tools remove the boss', () => {
+    const { sim, pid } = setup();
+    applyDev(sim, pid, { c: 'killAll' });
+    sim.step();
+    expect(sim.cleared).toBe(true);
   });
 });
 

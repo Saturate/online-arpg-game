@@ -216,9 +216,11 @@ export function generateDungeon(ref: DungeonRef, run: number): DungeonLayout {
   }
   map.obstacles.push(...wallsFromGrid(floor, cols, rows));
 
-  map.portals.push({ x: spawn.x - 90, y: spawn.y, r: 40, target: 'wilds', label: 'Leave' });
+  // The way back is open from the start, so a party can always retreat to the antechamber and
+  // rejoin the live run through its gate; the exit only opens over the boss's body.
+  map.portals.push({ x: spawn.x - 90, y: spawn.y, r: 40, target: 'staging', dungeon: { seed: ref.seed, level: ref.level }, label: 'Back to the antechamber' });
   const bc = centre(bossRoom);
-  map.portals.push({ x: cellPos(bossRoom.x1 - 3), y: cellPos(bc.cy), r: 44, target: 'wilds', label: 'Exit' });
+  map.portals.push({ x: cellPos(bossRoom.x1 - 3), y: cellPos(bc.cy), r: 44, target: 'wilds', label: 'Exit', sealed: 'boss' });
 
   const lamps: { x: number; y: number }[] = [];
   const packs: MonsterPack[] = [];
