@@ -1,4 +1,4 @@
-import { AdditiveBlending, Color, DoubleSide, NormalBlending, ShaderMaterial, Vector3, type IUniform } from 'three';
+import { AdditiveBlending, Color, DoubleSide, NormalBlending, ShaderMaterial, Vector2, Vector3, type IUniform } from 'three';
 import { NOISE_GLSL, OUTPUT_GLSL } from './glsl.js';
 import { PALETTE, STYLE_INDEX, type VfxStyle } from './palette.js';
 
@@ -459,6 +459,112 @@ export function plainAreaMaterial(color: number, inner: number): Shaded<PlainAre
     depthWrite: false,
     side: DoubleSide,
     blending: AdditiveBlending,
+    premultipliedAlpha: true,
+  });
+  return { material, u: uniforms };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Enemy wind-ups and hazards: one hostile look for every enemy ground marker, so it can never be
+// read as a player's spell. Player areas have a solid ring in their element's colour; these have a
+// blood-red ring broken into segments with a dark border, and the element only as a thin inner
+// tick. Circles are a 2 x 2 quad scaled by the radius; lines a 1 x 1 plane scaled to length and
+// width, with `uSize` in world units so the border and dashes keep their size.
+
+export const HOSTILE = { ring: 0xb81c14, ringAlpha: 0.9, border: 0x1a0806, borderAlpha: 0.8, fillAlpha: 0.26, segments: 24 } as const;
+
+const HOSTILE_FRAGMENT = /* glsl */ `
+uniform vec3 uRing;
+uniform vec3 uBorder;
+uniform vec3 uTick;
+uniform float uRingA;
+uniform float uBorderA;
+uniform float uFillA;
+/** 0 to 1: how far the fill has grown (radius share for circles, length share for lines). */
+uniform float uFill;
+/** Opacity of the whole marker: fades hazards in and out, 1 for telegraphs. */
+uniform float uAlpha;
+uniform vec2 uSize;
+varying vec2 vUv;
+void main() {
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+  float ring;
+  float border;
+  float tick;
+  float fill;
+#ifdef LINE
+  // Distances in world units: along the line from its start, across from its nearer long edge.
+  float along = vUv.x * uSize.x;
+  float edge = min(min(vUv.y, 1.0 - vUv.y) * uSize.y, min(along, uSize.x - along));
+  border = step(edge, 3.0);
+  float dash = step(0.3, fract(along / 22.0));
+  ring = step(3.0, edge) * step(edge, 7.0) * dash;
+  tick = step(8.5, edge) * step(edge, 10.0);
+  fill = step(vUv.x, uFill) * step(7.0, edge);
+#else
+  vec2 p = vUv * 2.0 - 1.0;
+  float r = length(p);
+  if (r > 1.0) discard;
+  // Widths as a share of the radius, with a floor so small circles keep a readable ring.
+  float px = 1.0 / max(uSize.x, 1.0);
+  float bw = max(0.03, 3.0 * px);
+  float rw = max(0.06, 5.0 * px);
+  float tw = max(0.012, 1.5 * px);
+  float ang = atan(p.y, p.x);
+  float seg = step(0.28, fract(ang * ${HOSTILE.segments}.0 / 6.2831853));
+  border = step(1.0 - bw, r);
+  ring = step(1.0 - bw - rw, r) * step(r, 1.0 - bw) * seg;
+  float t0 = 1.0 - bw - rw - 1.5 * tw;
+  tick = step(t0 - tw, r) * step(r, t0);
+  fill = step(r, uFill * (1.0 - bw));
+#endif
+  // Layered front to back: border, ring, tick, fill; each covers what is under it.
+  if (border > 0.5) { col = uBorder; a = uBorderA; }
+  else if (ring > 0.5) { col = uRing; a = uRingA; }
+  else if (tick > 0.5) { col = uTick; a = 0.8; }
+  else if (fill > 0.5) { col = uRing; a = uFillA; }
+  a *= uAlpha;
+  if (a <= 0.001) discard;
+  gl_FragColor = vec4(col * a, a);
+  ${OUTPUT_GLSL}
+}
+`;
+
+export type HostileUniforms = {
+  uRing: IUniform<Color>;
+  uBorder: IUniform<Color>;
+  uTick: IUniform<Color>;
+  uRingA: IUniform<number>;
+  uBorderA: IUniform<number>;
+  uFillA: IUniform<number>;
+  uFill: IUniform<number>;
+  uAlpha: IUniform<number>;
+  uSize: IUniform<Vector2>;
+};
+
+/** The hostile marker for one telegraph or hazard. `tick` is the element's colour. */
+export function hostileMaterial(shape: 'circle' | 'line', tick: number): Shaded<HostileUniforms> {
+  const uniforms: HostileUniforms = {
+    uRing: { value: new Color(HOSTILE.ring) },
+    uBorder: { value: new Color(HOSTILE.border) },
+    uTick: { value: new Color(tick) },
+    uRingA: { value: HOSTILE.ringAlpha },
+    uBorderA: { value: HOSTILE.borderAlpha },
+    uFillA: { value: HOSTILE.fillAlpha },
+    uFill: { value: 0 },
+    uAlpha: { value: 1 },
+    uSize: { value: new Vector2(60, 60) },
+  };
+  const material = new ShaderMaterial({
+    uniforms,
+    vertexShader: FLAT_VERTEX,
+    fragmentShader: HOSTILE_FRAGMENT,
+    defines: shape === 'line' ? { LINE: 1 } : {},
+    transparent: true,
+    depthWrite: false,
+    side: DoubleSide,
+    blending: NormalBlending,
     premultipliedAlpha: true,
   });
   return { material, u: uniforms };

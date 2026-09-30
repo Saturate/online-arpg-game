@@ -1,28 +1,25 @@
 import type { ElementId, EntityId, GameEvent } from '@rune/shared';
-import { CircleGeometry, PlaneGeometry, Color, DoubleSide, Mesh, MeshBasicMaterial, RingGeometry, type Scene } from 'three';
+import { PlaneGeometry, Color, Mesh, type Scene } from 'three';
 import { useSettings } from '../ui/settings.js';
 import { cssColor, FX, RENDER_ORDER } from './config.js';
 import type { WorldScene } from './scene.js';
 import { styleOf, type VfxStyle } from './vfx/palette.js';
 import { Vfx } from './vfx/vfx.js';
+import { HOSTILE, hostileMaterial, type HostileUniforms } from './vfx/materials.js';
 
-/** A monster wind-up: the outline shows where, the fill growing to the edge shows when. */
+/** A monster wind-up: the ring shows where, the fill growing to the edge shows when. */
 interface Telegraph {
   ownerId: number;
-  outline: Mesh;
-  fill: Mesh;
-  outlineMat: MeshBasicMaterial;
-  fillMat: MeshBasicMaterial;
+  mesh: Mesh;
+  u: HostileUniforms;
   age: number;
   duration: number;
-  shape: 'circle' | 'line';
-  /** Full size of the fill: radius for circles, length for lines. */
-  size: number;
 }
 
+/** A monster's lasting ground hazard, in the same hostile look with a fill that stays. */
 interface Pool {
   mesh: Mesh;
-  mat: MeshBasicMaterial;
+  u: HostileUniforms;
   age: number;
   duration: number;
 }
@@ -30,8 +27,9 @@ interface Pool {
 type TeleEvent = Extract<GameEvent, { e: 'tele' }>;
 type HazardEvent = Extract<GameEvent, { e: 'hazard' }>;
 
-const TELE_COLORS: Record<ElementId | 'none', number> = { fire: 0xff7a30, cold: 0x7ab8ff, lightning: 0xf0e060, none: 0xff3a30 };
-const HAZARD_COLORS: Record<HazardEvent['kind'], number> = { poison: 0x6ad030, fire: 0xff5a20, frost: 0x9ad8ff };
+/** The inner tick of an enemy marker: the only place its element shows. */
+const TICK_COLORS: Record<ElementId | 'none', number> = { fire: 0xd8662a, cold: 0x6a9cc8, lightning: 0xc8b850, none: 0x5a1410 };
+const HAZARD_TICKS: Record<HazardEvent['kind'], number> = { poison: 0x6a9a30, fire: 0xd8662a, frost: 0x6a9cc8 };
 
 interface FloatingText {
   el: HTMLSpanElement;
@@ -42,6 +40,12 @@ interface FloatingText {
 }
 
 const tmpColor = new Color();
+
+function disposeMaterial(mesh: Mesh): void {
+  const m = mesh.material;
+  if (Array.isArray(m)) for (const one of m) one.dispose();
+  else m.dispose();
+}
 
 /**
  * Visual-only effects. Particles, trails and shockwaves live in the Vfx system (render/vfx/); this
@@ -56,8 +60,8 @@ export class Effects {
   private readonly unsubscribe: () => void;
   /** Last values written per label: reading style.color back returns the browser's rgb() form, so it never matched. */
   private readonly labels = new Map<string, { el: HTMLSpanElement; text: string; color: string; className: string }>();
-  private readonly edgeGeo = new RingGeometry(0.92, 1, 48);
-  private readonly diskGeo = new CircleGeometry(1, 40);
+  /** 2 x 2, so a scale of r covers a circle of radius r. */
+  private readonly quadGeo = new PlaneGeometry(2, 2);
   private readonly planeGeo = new PlaneGeometry(1, 1);
   private readonly teles: Telegraph[] = [];
   private readonly pools: Pool[] = [];
@@ -95,46 +99,28 @@ export class Effects {
   }
 
   telegraph(ev: TeleEvent): void {
-    const hex = TELE_COLORS[ev.el ?? 'none'];
-    const outlineMat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.85, depthWrite: false, side: DoubleSide });
-    const fillMat = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.28, depthWrite: false, side: DoubleSide });
-    let outline: Mesh;
-    let fill: Mesh;
-    let size: number;
+    const shaded = hostileMaterial(ev.shape, TICK_COLORS[ev.el ?? 'none']);
+    let mesh: Mesh;
     if (ev.shape === 'circle') {
-      outline = new Mesh(this.edgeGeo, outlineMat);
-      fill = new Mesh(this.diskGeo, fillMat);
-      outline.position.set(ev.x, 2.5, ev.y);
-      fill.position.set(ev.x, 2.4, ev.y);
-      outline.scale.setScalar(ev.r);
-      fill.scale.setScalar(0.01);
-      outline.rotation.x = -Math.PI / 2;
-      fill.rotation.x = -Math.PI / 2;
-      size = ev.r;
+      mesh = new Mesh(this.quadGeo, shaded.material);
+      mesh.position.set(ev.x, 2.5, ev.y);
+      mesh.scale.setScalar(ev.r);
+      mesh.rotation.x = -Math.PI / 2;
+      shaded.u.uSize.value.set(ev.r, ev.r);
     } else {
       const dx = ev.x2 - ev.x;
       const dy = ev.y2 - ev.y;
-      size = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx);
-      outline = new Mesh(this.planeGeo, outlineMat);
-      fill = new Mesh(this.planeGeo, fillMat);
-      outlineMat.opacity = 0.22;
-      fillMat.opacity = 0.45;
-      for (const m of [outline, fill]) {
-        m.rotation.set(-Math.PI / 2, 0, -angle);
-      }
-      outline.position.set(ev.x + dx / 2, 2.4, ev.y + dy / 2);
-      outline.scale.set(size, ev.w, 1);
-      // The fill grows from the monster outward along the line.
-      fill.position.set(ev.x, 2.5, ev.y);
-      fill.scale.set(0.01, ev.w, 1);
-      fill.userData = { x: ev.x, y: ev.y, cos: Math.cos(angle), sin: Math.sin(angle) };
+      const len = Math.max(1, Math.hypot(dx, dy));
+      mesh = new Mesh(this.planeGeo, shaded.material);
+      mesh.rotation.set(-Math.PI / 2, 0, -Math.atan2(dy, dx));
+      mesh.position.set(ev.x + dx / 2, 2.5, ev.y + dy / 2);
+      mesh.scale.set(len, ev.w, 1);
+      shaded.u.uSize.value.set(len, ev.w);
     }
     // Above roads and plazas, like every ground effect; see RENDER_ORDER.
-    outline.renderOrder = RENDER_ORDER.groundEffect;
-    fill.renderOrder = RENDER_ORDER.groundEffect;
-    this.scene.add(outline, fill);
-    this.teles.push({ ownerId: ev.id, outline, fill, outlineMat, fillMat, age: 0, duration: Math.max(0.05, ev.t), shape: ev.shape, size });
+    mesh.renderOrder = RENDER_ORDER.groundEffect;
+    this.scene.add(mesh);
+    this.teles.push({ ownerId: ev.id, mesh, u: shaded.u, age: 0, duration: Math.max(0.05, ev.t) });
   }
 
   /** Drops a monster's pending telegraphs when it dies mid wind-up. */
@@ -146,22 +132,24 @@ export class Effects {
   }
 
   hazard(ev: HazardEvent): void {
-    const mat = new MeshBasicMaterial({ color: HAZARD_COLORS[ev.kind], transparent: true, opacity: 0.4, depthWrite: false, side: DoubleSide });
-    const mesh = new Mesh(this.diskGeo, mat);
+    const shaded = hostileMaterial('circle', HAZARD_TICKS[ev.kind]);
+    const mesh = new Mesh(this.quadGeo, shaded.material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(ev.x, 2, ev.y);
     mesh.scale.setScalar(ev.r);
     mesh.renderOrder = RENDER_ORDER.groundEffect;
+    shaded.u.uSize.value.set(ev.r, ev.r);
+    shaded.u.uFill.value = 1;
+    shaded.u.uAlpha.value = 0;
     this.scene.add(mesh);
-    this.pools.push({ mesh, mat, age: 0, duration: ev.t });
+    this.pools.push({ mesh, u: shaded.u, age: 0, duration: ev.t });
   }
 
   private removeTele(i: number): void {
     const t = this.teles[i];
     if (!t) return;
-    this.scene.remove(t.outline, t.fill);
-    t.outlineMat.dispose();
-    t.fillMat.dispose();
+    this.scene.remove(t.mesh);
+    disposeMaterial(t.mesh);
     this.teles.splice(i, 1);
   }
 
@@ -213,15 +201,9 @@ export class Effects {
         this.removeTele(i);
         continue;
       }
-      if (t.shape === 'circle') t.fill.scale.setScalar(Math.max(0.01, t.size * k));
-      else {
-        const u = t.fill.userData;
-        const len = Math.max(0.01, t.size * k);
-        t.fill.scale.x = len;
-        if (typeof u.x === 'number' && typeof u.y === 'number' && typeof u.cos === 'number' && typeof u.sin === 'number') t.fill.position.set(u.x + (u.cos * len) / 2, 2.5, u.y + (u.sin * len) / 2);
-      }
+      t.u.uFill.value = k;
       // The last moment flashes so the hit is readable even without watching the fill.
-      t.outlineMat.opacity = k > 0.8 ? 1 : t.shape === 'circle' ? 0.85 : 0.22;
+      t.u.uRingA.value = k > 0.8 ? 1 : HOSTILE.ringAlpha;
     }
 
     for (let i = this.pools.length - 1; i >= 0; i--) {
@@ -230,13 +212,14 @@ export class Effects {
       p.age += dt;
       if (p.age >= p.duration) {
         this.scene.remove(p.mesh);
-        p.mat.dispose();
+        disposeMaterial(p.mesh);
         this.pools.splice(i, 1);
         continue;
       }
       const fadeIn = Math.min(1, p.age * 4);
       const fadeOut = Math.min(1, (p.duration - p.age) * 2);
-      p.mat.opacity = (0.32 + Math.sin(p.age * 5) * 0.06) * fadeIn * fadeOut;
+      p.u.uAlpha.value = fadeIn * fadeOut;
+      p.u.uFillA.value = HOSTILE.fillAlpha * (0.8 + Math.sin(p.age * 5) * 0.2);
     }
 
     for (let i = this.texts.length - 1; i >= 0; i--) {
@@ -261,7 +244,7 @@ export class Effects {
     for (let i = this.teles.length - 1; i >= 0; i--) this.removeTele(i);
     for (const p of this.pools) {
       this.scene.remove(p.mesh);
-      p.mat.dispose();
+      disposeMaterial(p.mesh);
     }
     this.pools.length = 0;
     for (const t of this.texts) t.el.remove();
