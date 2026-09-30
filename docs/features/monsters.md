@@ -4,7 +4,7 @@ Status: Live. The roster since 2026-09-28 (two batches); the admin Monsters, Min
 
 ## What it does
 
-- **68 monster types:** 3 originals with their own AI (Chaser, Shooter, Spinner) and 65 built on one generic AI: 58 regular monsters in 21 families and 7 bosses.
+- **69 monster types:** 3 originals with their own AI (Chaser, Shooter, Spinner) and 66 built on one generic AI: 59 regular monsters in 21 families and 7 bosses.
 - **Families:** swarm, brute, archer, caster, summoner, charger, exploder, shielder, shaman, leaper, burrower, totem, ghost, poisoner, splitter, beast, elemental, golem, flyer, lurker and boss (plus `fallen`, used only to label the Chaser).
 - **Bosses**, one per biome, each with an enraged phase:
 
@@ -18,6 +18,7 @@ Status: Live. The roster since 2026-09-28 (two batches); the admin Monsters, Min
 | The Treant King | forest | 1600 | 50% | poison pool |
 | The Frost Giant | cave | 1700 | 50% | summons an ice wraith, self slam |
 
+- **The Grave Hound** (`grave_hound`, beast, flank) is the one monster drawn from a hand-made model file: the owner's brother's dog, rebuilt with `tools/blender/` (see "Grave Hound" below).
 - **Every big attack is telegraphed:** a circle or line fills up while the monster stands still, then lands, so it can always be dodged.
 - **Rares** have 3x life, 1.45x size and 1 to 3 affixes: Extra Fast (hasted), Multishot (extra projectiles), Reflects Projectiles, Extra Strong (armored, more life) and Regenerates. Names follow D2 style, built from the affixes.
 - **Corpses** stay 20 s (at most 60), and a necromancer or shaman can raise them. Raised monsters, bosses, totems and ghosts leave no corpse.
@@ -109,6 +110,16 @@ Two flags say what the file cannot: **never moves** (`--static`; towers and tote
 
 Try on stores the file in the browser's IndexedDB and tells an open game tab over a BroadcastChannel; nothing reaches the server.
 
+### Grave Hound
+
+- **Numbers:** life 95, move speed 115, radius 17, contact 12 every 0.9 s, colour `0x6a6e66`, XP by the level formula. One ability, a pounce (`leap`): cooldown 4.5 s, 140 to 400 units, 0.55 s telegraph, lands in a 58 radius for 22 damage over 0.55 s. It sits between the Ghoul (85 life, leap 20) and the Hellhound (80 life, from level 5) and hits harder than the Dire Wolf (60 life, contact 9) because it is bigger and slower.
+- **Where:** crypts and ruins from monster level 3 (`HABITATS`), so the Ashen Steppe (ruins, levels 4 to 6) and crypt dungeons. Beasts come in packs of 1.3x.
+- **Model:** `apps/client/public/assets/monsters/grave_hound.glb`, asset `mon_grave_hound`, height 50 (93% of a hero, about 1 m at the shoulder), 394 triangles, 186 KB, clips Idle, Walk, Run, Attack, Hit and Death; `pnpm model:check --height 50` passes all 11 checks. It is the owner's brother's "Dog thing", made for this game only: it is not licensed for reuse, and no licence file goes with it.
+- **Why 50 tall at 115:** the client plays the walk at speed / 110, so the authored walk must cover 110 units a second. At the 34 units of the pipeline's dog example (Dire Wolf size) that is 3.7 m/s for a 0.57 m leg, which only a gallop reaches. At 50 units and a trot lowered by 7.5 cm (`--walk-crouch 0.075`), a planted paw covers 0.47 m of model per step and the walk plays at 1.05x: 3.1 strides a second, a steady trot. The stock trot at the same size capped at 5.7 strides a second. The Run (190 units a second, a gallop) only shows mid-pounce, since the game runs only above 188 and even a Hasted rare tops out at 184.
+- **Colours:** ashen grey coat (luminance 0.16), a paler bone-grey chest and muzzle (0.30 to 0.33) and green glowing eyes, so it reads as a grey shape by the hero's light at night. The first pass at 0.12 read as a black blot at night and was lifted.
+- **While the file streams in** it draws as the procedural wolf at 1.2x bulk, so it never pops from a humanoid.
+- **Rebuild:** the commands are in `tools/blender/README.md` ("The same dog as the Grave Hound"), with its palette and joints in `tools/blender/examples/grave_hound/`.
+
 ### Procedural models
 
 52 monster types (and the wraith minion) have no model file and are built from primitives in `apps/client/src/render/models.ts`, one builder per type. The KayKit types also fall back to them while their file loads.
@@ -167,7 +178,7 @@ The testground and sandbox-style maps keep the old wave spawner (`WAVES`), when 
 Tests:
 
 - `packages/shared/test/monsters.test.ts`: every type runs 15 s without errors and deterministically; summon caps, splitting, wind-ups, dodging a slam, burrowed monsters cannot be hit, shielders block from the front, a shaman raises a corpse once, poison pools, boss enrage; every biome has monsters at levels 1 to 30, families appear by level.
-- `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
+- `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, the Grave Hound's zones and pounce, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
 - `packages/shared/test/tuning.test.ts`: override validation, stale kinds dropped, overrides at spawn, XP scaled but Arena score untouched, living monsters unchanged, export format and round trip.
 - `apps/server/test/tuning.test.ts`: permissions, validation, reset, live rooms pick up new spawns, `models` before `welcome`, overrides survive a restart.
 - `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; feet in their own material are not a stray part; a textured file checks in Node; head parts match whole words (no horn in thorn_beast); a glowing body or sparks are not eyes; the static and floats flags; every KayKit hero and skeleton in `public/assets/kaykit/` faces +Z; a height-only override keeps the model swap.
@@ -175,5 +186,5 @@ Tests:
 ## Limits and open questions
 
 - The browser tuner cannot edit traits (enrage, burrow, curse) or non-number ability fields.
-- The owner's brother's monster models: the dog needs facing, colours, loops and hit and death clips before it can be committed.
+- The Grave Hound's walk still slides about 1% (half-stride 0.235 m against a 0.232 m reach) and its run about 3%.
 - Dungeon and zone monsters do not scale with party size; only waves do.
