@@ -254,6 +254,14 @@ export interface DriveState {
  */
 const RUN_UP = 188;
 const RUN_DOWN = 184;
+/** Below this the entity stands; smoothed speed never quite reaches 0. */
+const WALK_FROM = 18;
+
+/** Idle, walk or run for a ground speed, with the run band's hysteresis. Procedural rigs use it too. */
+export function locomotionRole(speed: number, current: AnimRole | null): 'idle' | 'walk' | 'run' {
+  if (speed > (current === 'run' ? RUN_DOWN : RUN_UP)) return 'run';
+  return speed > WALK_FROM ? 'walk' : 'idle';
+}
 
 /**
  * Picks the clip from what the entity is doing. One-shots (attack, death, awaken) play through;
@@ -286,10 +294,8 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     return;
   }
   if (oneShotRunning) return;
-  const running = cm.current === 'run';
-  if (s.speed > (running ? RUN_DOWN : RUN_UP)) play(cm, 'run');
-  else if (s.speed > 18) play(cm, cm.actions.has('walk') ? 'walk' : 'run');
-  else play(cm, 'idle');
+  const loco = locomotionRole(s.speed, cm.current);
+  play(cm, loco === 'walk' && !cm.actions.has('walk') ? 'run' : loco);
   const walk = cm.actions.get('walk');
   if (walk) walk.timeScale = Math.max(0.6, Math.min(1.8, s.speed / 110));
 }

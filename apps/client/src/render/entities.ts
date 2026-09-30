@@ -29,7 +29,7 @@ import {
 import { COLORS, ELEMENT_COLORS, fxColor, TIER_COLORS } from './config.js';
 import { assetById, cloneMaterial, instantiate } from './assets.js';
 import { characterAsset, characterNow, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
-import { animate, enemyModel, minionModel, playerModel, type Rig } from './models.js';
+import { beginRigFrame, driveRig, enemyModel, minionModel, playerModel, rigAttack, rigHit, rigWindup, type Rig, type RigDrive } from './models.js';
 
 export interface RenderItem {
   /** `s<id>` for server entities, `l<n>` for local cosmetic effects. */
@@ -90,13 +90,16 @@ interface Corpse {
   age: number;
   x: number;
   y: number;
+  /** Ghosts and totems leave nothing to raise; they only stay long enough to dissolve. */
+  body: boolean;
 }
 
 /** Matches the server's corpse lifetime, so a shaman can only raise bodies you can still see. */
 const CORPSE_SECONDS = 20;
 const CORPSE_SINK_SECONDS = 1.5;
 const MAX_CORPSES = 60;
-const FALL_SECONDS = 0.35;
+/** How long a monster that leaves no body takes to dissolve before it is gone. */
+const DISSOLVE_SECONDS = 1.2;
 
 // Shared geometry: every entity of a kind reuses the same buffers.
 const GEO = {
@@ -416,6 +419,7 @@ function makeView(item: RenderItem): View {
     }
   }
 
+  if (rig) for (const r of rig.owned) owned.add(r);
   if (s.k === 'player' || s.k === 'enemy' || s.k === 'minion') {
     shield = new Mesh(GEO.sphere, own(basic(COLORS.shield, 0.18, true)));
     shield.scale.set(s.r * 1.6, s.r * 2.2, s.r * 1.6);
@@ -481,6 +485,8 @@ function leavesBody(typeId: EnemyTypeId | null): boolean {
 }
 
 const tmpColor = new Color();
+/** Reused for every rig every frame, so driving them allocates nothing. */
+const rigDrive: RigDrive = { speed: 0, dead: false, dormant: false, hidden: false, dt: 0, seed: 0 };
 
 export class EntityRenderer {
   private readonly views = new Map<string, View>();
@@ -503,7 +509,9 @@ export class EntityRenderer {
 
   flash(key: string): void {
     const v = this.views.get(key);
-    if (v) v.flash = FLASH_SECONDS;
+    if (!v) return;
+    v.flash = FLASH_SECONDS;
+    if (v.rig && !v.character) rigHit(v.rig, v.bob);
   }
 
   /** Plays the attack swing on an entity's model. */
@@ -512,6 +520,13 @@ export class EntityRenderer {
     if (!v) return;
     v.attack = 1;
     v.attackPending = true;
+    if (v.rig && !v.character) rigAttack(v.rig, v.bob);
+  }
+
+  /** A telegraphed ability began: a procedural model holds its wind-up until the attack lands. */
+  windup(key: string, seconds: number): void {
+    const v = this.views.get(key);
+    if (v?.rig && !v.character) rigWindup(v.rig, seconds, 'ability', v.bob);
   }
 
   /** Loads the glTF model for a view and swaps it in for the procedural placeholder. */
@@ -567,6 +582,7 @@ export class EntityRenderer {
 
   render(items: readonly RenderItem[], dt: number): void {
     this.time += dt;
+    beginRigFrame(this.camera);
     const seen = this.seen;
     const positions = this.positions;
     seen.clear();
@@ -590,7 +606,7 @@ export class EntityRenderer {
     for (const [key, view] of this.views) {
       if (seen.has(key)) continue;
       const id = Number(key.slice(1));
-      if (view.kind === 'enemy' && key.startsWith('s') && this.dying.delete(id) && leavesBody(view.typeId)) this.toCorpse(key, view);
+      if (view.kind === 'enemy' && key.startsWith('s') && this.dying.delete(id)) this.toCorpse(key, view, leavesBody(view.typeId));
       else this.remove(key, view);
     }
     this.updateCorpses(dt);
@@ -614,12 +630,12 @@ export class EntityRenderer {
       }
     });
     const c = this.corpses[best];
-    if (!c) return;
+    if (!c?.body) return;
     this.corpses.splice(best, 1);
     this.disposeView(c.view);
   }
 
-  private toCorpse(key: string, view: View): void {
+  private toCorpse(key: string, view: View, body: boolean): void {
     this.views.delete(key);
     if (view.healthBar) view.healthBar.group.visible = false;
     if (view.shield) view.shield.visible = false;
@@ -634,7 +650,7 @@ export class EntityRenderer {
       m.color.multiplyScalar(0.55);
       m.emissiveIntensity = 0;
     });
-    this.corpses.push({ view, age: 0, x: view.root.position.x, y: view.root.position.z });
+    this.corpses.push({ view, age: 0, x: view.root.position.x, y: view.root.position.z, body });
     while (this.corpses.length > MAX_CORPSES) {
       const old = this.corpses.shift();
       if (old) this.disposeView(old.view);
@@ -647,9 +663,18 @@ export class EntityRenderer {
       const v = c.view;
       if (v.character) driveCharacter(v.character, { speed: 0, attack: false, dead: true, dormant: false, dt });
       else if (v.rig) {
-        // Procedural models have no death clip, so they topple sideways and settle.
-        const k = Math.min(1, c.age / FALL_SECONDS);
-        v.rig.root.rotation.z = (Math.PI / 2) * k * k;
+        rigDrive.speed = 0;
+        rigDrive.dead = true;
+        rigDrive.dormant = false;
+        rigDrive.hidden = false;
+        rigDrive.dt = dt;
+        rigDrive.seed = v.bob;
+        driveRig(v.rig, rigDrive);
+      }
+      if (!c.body) {
+        if (c.age < DISSOLVE_SECONDS) return true;
+        this.disposeView(v);
+        return false;
       }
       if (c.age > CORPSE_SECONDS) v.root.position.y = -((c.age - CORPSE_SECONDS) / CORPSE_SINK_SECONDS) * 30;
       if (c.age < CORPSE_SECONDS + CORPSE_SINK_SECONDS) return true;
@@ -697,13 +722,16 @@ export class EntityRenderer {
         view.attackPending = false;
       } else if (rig) {
         rig.root.rotation.y = -s.a;
-        animate(rig, t, dt, view.speed, view.attack, view.bob);
+        rigDrive.speed = view.speed;
+        rigDrive.dead = s.k === 'player' && s.dead;
+        rigDrive.dormant = s.k === 'enemy' && s.dormant;
+        rigDrive.hidden = s.k === 'enemy' && (s.st & STATUS.hidden) !== 0;
+        rigDrive.dt = dt;
+        rigDrive.seed = view.bob;
+        driveRig(rig, rigDrive);
       }
       if (s.k === 'player') {
-        if (!view.character && rig) {
-          rig.root.rotation.z = s.dead ? Math.PI / 2 : 0;
-          rig.root.position.y = s.dead ? s.r * 0.4 : s.dashing ? 6 : 0;
-        }
+        if (!view.character && rig) rig.root.position.y = s.dashing && !s.dead ? 6 : 0;
         this.syncAuras(view, s);
       }
     } else if (s.k === 'projectile' && s.orb) {

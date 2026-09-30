@@ -982,6 +982,7 @@ export class Game {
           break;
         case 'tele':
           fx.telegraph(ev);
+          entities.windup(`s${ev.id}`, ev.t);
           break;
         case 'hazard':
           fx.hazard(ev);
