@@ -106,6 +106,44 @@ Model check runs 10 checks, all pass or warn:
 
 Try on stores the file in the browser's IndexedDB and tells an open game tab over a BroadcastChannel; nothing reaches the server.
 
+### Procedural models
+
+52 monster types (and the wraith minion) have no model file and are built from primitives in `apps/client/src/render/models.ts`, one builder per type. The KayKit types also fall back to them while their file loads.
+
+**How a rig is built.** A builder places meshes (`G` geometry, `mat()` materials, from `render/rigs/parts.ts`) facing +x, feet at y = 0, at radius 1; entities scale it by the collision radius. Anything that moves hangs off a pivot group: `body`, `head`, `jaw`, `armL`/`armR`, `legL`/`legR` (limbs from `limb()`, which records their length), `tail`, and `extras` tagged with `extra(rig, node, kind)` (`leg`, `wing`, `tentacle`, `strand`, `flame`, `orbit`, `claw`, `segment`, `tongue`). Each builder passes a motion profile: `motion(gait, contact strike, death, weight, { ability, cast, shoot, dormant, burrows })`.
+
+**How it is drawn.** `compiledRig()` (`render/rigs/compile.ts`) builds each type once and compiles it: every pivot becomes a bone, every part is bound rigidly to its bone, and colour, roughness, metalness and glow move into vertex attributes, so a monster draws as one skinned mesh (two when it has see-through parts). Copies share geometry and materials and own only their skeleton. The hit flash, ailment tints, rare glow and corpse darkening still work through the material (`entities.ts`), since the vertex glow adds on top of the material's emissive and goes out with a corpse's zero intensity.
+
+**How it moves.** `driveRig()` (`render/rigs/motion.ts`) plays the KayKit roles from the same inputs, and `locomotionRole()` in `characters.ts` gives both the same walk and run thresholds:
+
+- Base layer, crossfaded by weight (0.2 s, longer for heavy types): idle (breathing, looking around; hovering or flapping for fliers), walk and run, and dormant (a brooding head-down idle; the gargoyle crouches as a statue, the mimic sits shut).
+- Legs cycle at the rate that carries the body at its actual ground speed: a stiff leg swung by `a` covers `4 L sin(a)` per cycle (0.6 of that for splayed insect legs), capped per gait so small legs slide rather than blur. The hip drops by `L (1 - cos)` so the planted foot stays on the ground.
+- One-shots on top: a telegraphed ability holds its wind-up pose from the `tele` event until the `attack` event releases the strike; an attack with no telegraph plays a quick 0.08 s cock-back. Strike styles: bite, claw, slam, spit, cast, scream, shoot, charge, leap, sting, burst, pulse, chomp, ram. Awaken plays when a dormant monster notices you, spawn when a burrower surfaces.
+- Hit is a 0.34 s additive flinch from the damage event. Death is per type (topple, roll, curl, collapse, crumble, dissolve, splat, fall, slump, tip); the body is raised just enough that its rotated rest box stays above the ground, and it stays down until the corpse goes. Ghosts and totems leave no body, so they dissolve for 1.2 s and are removed.
+
+Gaits: biped, quad (trot, gallop at run), hop, scurry, skitter (alternating leg sets), crawl, fly, hover, float, slither (a wave down the segments), bounce (squash and stretch) and still.
+
+**Adding one.** Write a builder in `models.ts` that returns a `Rig` from `emptyRig(motion(...))`, put moving parts on pivots and register extras with their kind, set `rig.legLength` if it walks, and add it to the `buildEnemy` switch. Check it in the dev tools' Monsters tab (`/admin/dev/#monsters/gallery/walk/day/<type>`), with `?raw` to compare against the uncompiled build; `apps/client/test/rigs.test.ts` covers every type automatically.
+
+**Performance rules.**
+
+- Never create geometry or materials per copy; builders use the shared `G` and `mat()`, and `compiledRig()` caches by type and colour.
+- Nothing in `driveRig()` allocates: channels, weights and orbit angles are preallocated on the rig; pass a reused `RigDrive`.
+- Off-screen rigs skip posing (`beginRigFrame(camera)` once per frame); their clocks still run. A corpse stops posing 3 s after it settles.
+- Transparent parts use single-pass double-sided materials: the two-pass path sets `needsUpdate` twice per draw and rebuilt program parameters every frame.
+
+Measured on the Monsters tab's bench (the game's `EntityRenderer` and `WorldScene` on a wilds map, 600-frame averages in headless Chrome on the development Mac, vsync at 60 Hz):
+
+| 120 monsters | Before | After |
+|---|---|---|
+| Draw calls (world alone: 105) | 1560 | 250 |
+| Render CPU per frame | 14.2 ms | 1.6 ms |
+| EntityRenderer CPU per frame | 0.60 ms | 0.30 ms |
+| JS heap growth per frame (world alone: about 45 KB) | 1.25 MB | 177 KB |
+| Triangles | 1.48 M | 1.48 M |
+
+With 240 monsters: 309 draw calls and 2.3 ms render CPU. With half of 120 off screen: 179 draw calls, 1.3 ms.
+
 ### Waves on test maps
 
 The testground and sandbox-style maps keep the old wave spawner (`WAVES`), when the room's rules turn waves on (the builders' sandbox turns them off): the first wave 2 s after a player arrives, `min(36, 5 + 2(n-1))` monsters times `1 + 0.5` per extra player, the next wave 4 s after the last dies, spawning 380 to 900 units from players, rare chance 8% plus 2% a wave up to 35%, shooters from wave 2, spinners and the biome pools (cycling by wave) from wave 3, and monster level `1 + floor((n - 1) / 2)`. Every fifth wave adds the biome's boss. Waves do not reset when all players leave. The Arena uses its own numbers ([arena.md](arena.md)).
