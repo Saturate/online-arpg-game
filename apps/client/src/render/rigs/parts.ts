@@ -47,26 +47,7 @@ export interface Rig {
   owned: { dispose(): void }[];
   /** Animation state, created on the first frame the rig is driven. */
   motion: RigMotion | null;
-  /** The old animator's style, still read by the .glb export (dev/builtinModels.ts). */
-  style: 'biped' | 'hop' | 'float' | 'hover';
-  /** The old animator's stride, still read by the .glb export. */
-  stride: number;
 }
-
-const LEGACY_STYLE: Record<MotionProfile['gait'], Rig['style']> = {
-  biped: 'biped',
-  quad: 'biped',
-  crawl: 'biped',
-  hop: 'hop',
-  scurry: 'hop',
-  bounce: 'hop',
-  skitter: 'float',
-  fly: 'float',
-  float: 'float',
-  slither: 'float',
-  still: 'float',
-  hover: 'hover',
-};
 
 const materials = new Map<string, MeshStandardMaterial>();
 
@@ -157,7 +138,7 @@ export function emptyRig(profile: MotionProfile): Rig {
   const root = new Group();
   const body = new Group();
   root.add(body);
-  return { root, body, legL: null, legR: null, armL: null, armR: null, head: null, jaw: null, tail: null, extras: [], profile, legLength: 0, owned: [], motion: null, style: LEGACY_STYLE[profile.gait], stride: 0 };
+  return { root, body, legL: null, legR: null, armL: null, armR: null, head: null, jaw: null, tail: null, extras: [], profile, legLength: 0, owned: [], motion: null };
 }
 
 export function eyes(parent: Object3D, x: number, y: number, z: number, glow: number, size = 0.06): void {

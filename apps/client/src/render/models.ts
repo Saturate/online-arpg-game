@@ -5,7 +5,7 @@ import { emptyRig, extra, eyes, G, limb, mat, mesh, tint, type Rig } from './rig
 
 export { mat, tint, uniqueMaterials, type Rig } from './rigs/parts.js';
 export { beginRigFrame, driveRig, rigAttack, rigHit, rigReset, rigSpawn, rigWindup, type RigDrive } from './rigs/motion.js';
-import { driveRig, motion, rigAttack, type MotionProfile, type RigDrive } from './rigs/motion.js';
+import { motion, type MotionProfile } from './rigs/motion.js';
 
 /**
  * Procedural low-poly character models, one builder per monster type. Every model is built facing
@@ -1150,25 +1150,3 @@ export function enemyModel(type: EnemyTypeId, color: number): Rig {
 export function minionModel(type: MinionTypeId, color: number): Rig {
   return compiledRig(`minion:${type}:${color}`, () => buildMinion(type, color));
 }
-
-/**
- * The old animate() signature, kept only while dev/builtinModels.ts (another change in progress)
- * still bakes through it; it runs the new driver. `attack` rising past a half fires the strike.
- */
-export function animate(rig: Rig, t: number, dt: number, speed: number, attack: number, seed: number): void {
-  if (rig.root.userData.phase === undefined) {
-    rig.motion = null;
-    rig.root.userData.phase = 0;
-  }
-  if (attack > 0.5 && rig.root.userData.struck !== true) {
-    rigAttack(rig, seed);
-    rig.root.userData.struck = true;
-  } else if (attack < 0.1) rig.root.userData.struck = false;
-  legacyDrive.speed = speed;
-  legacyDrive.dt = dt;
-  legacyDrive.seed = seed;
-  driveRig(rig, legacyDrive);
-  if (rig.motion) rig.motion.time = t;
-}
-
-const legacyDrive: RigDrive = { speed: 0, dead: false, dormant: false, hidden: false, dt: 0, seed: 0 };
