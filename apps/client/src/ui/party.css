@@ -17,8 +17,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* The minimap's outer width, so the column reads as one block. */
-  width: 216px;
+  /* The minimap's outer width (a square turned map fills 220 px plus the frame), so the column reads as one block. */
+  width: 236px;
   pointer-events: auto;
 }
 

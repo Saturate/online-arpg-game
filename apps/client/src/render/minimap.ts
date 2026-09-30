@@ -1,7 +1,11 @@
 import type { EntitySnap, WorldMap } from '@rune/shared';
-import { cssColor, TIER_COLORS } from './config.js';
+import { cssColor, TIER_COLORS, VIEW } from './config.js';
 
-const SIZE = 200;
+/**
+ * Longest side of the drawn minimap in pixels. The map is turned to match the camera, so a square
+ * map becomes a diamond and needs a wider box than the old 200 north-up square to stay readable.
+ */
+const FRAME = 220;
 /** Fog cell size in minimap pixels. */
 const CELL = 2;
 /** How far around the hero the map uncovers, in world units: roughly what the camera shows. */
@@ -13,9 +17,41 @@ const REVEAL_RADIUS = 650;
 const explored = new Map<string, Uint8Array>();
 
 /**
+ * How far to turn the north-up map so up on the minimap is up on screen. The camera looks along
+ * (-sin yaw, -cos yaw) on the ground (see GameScene's basis); turning the canvas by +yaw (clockwise,
+ * since canvas y points down) maps that direction onto (0, -1).
+ */
+export function minimapRotation(yawDegrees: number): number {
+  return (yawDegrees * Math.PI) / 180;
+}
+
+/** The box a w by h rectangle fills once turned by `angle`. */
+export function rotatedBounds(w: number, h: number, angle: number): { w: number; h: number } {
+  const c = Math.abs(Math.cos(angle));
+  const s = Math.abs(Math.sin(angle));
+  return { w: w * c + h * s, h: w * s + h * c };
+}
+
+/**
+ * Where a point of the north-up map (in its pixels, `mapW` by `mapH`) lands on the turned canvas
+ * (`outW` by `outH`): turned by `angle` around the map's centre, which sits at the canvas centre.
+ */
+export function rotatePoint(x: number, y: number, mapW: number, mapH: number, outW: number, outH: number, angle: number): { x: number; y: number } {
+  const dx = x - mapW / 2;
+  const dy = y - mapH / 2;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return { x: dx * c - dy * s + outW / 2, y: dx * s + dy * c + outH / 2 };
+}
+
+/**
  * Corner map. The static layout is drawn once per room into an offscreen canvas; each update only
  * blits it and draws dots, so it costs almost nothing per frame. Unexplored ground is covered by
  * fog that lifts as the hero walks, and nothing under the fog is shown.
+ *
+ * The layout and fog stay north-up offscreen and are turned by the camera's yaw with one transform
+ * when blitted, so WASD up is up on the map. Markers are placed at their turned positions but drawn
+ * upright, so a monster square does not become a diamond.
  */
 export class Minimap {
   private readonly base: HTMLCanvasElement;
@@ -26,18 +62,28 @@ export class Minimap {
   private readonly cols: number;
   private readonly seen: Uint8Array;
   private lastReveal = new Map<string, { x: number; y: number }>();
+  private readonly angle: number;
+  /** The turned canvas, which holds the whole turned map. */
+  private readonly outW: number;
+  private readonly outH: number;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly def: WorldMap,
     /** Identifies this map across room changes, so its explored area is remembered. */
     memoryKey: string,
+    /** Camera yaw; the camera never turns during play, so this is fixed per minimap. */
+    yawDegrees: number = VIEW.yawDegrees,
   ) {
-    this.scale = SIZE / Math.max(def.width, def.height);
+    this.angle = minimapRotation(yawDegrees);
+    const turned = rotatedBounds(def.width, def.height, this.angle);
+    this.scale = FRAME / Math.max(turned.w, turned.h);
     this.w = Math.round(def.width * this.scale);
     this.h = Math.round(def.height * this.scale);
-    canvas.width = this.w;
-    canvas.height = this.h;
+    this.outW = Math.ceil(turned.w * this.scale);
+    this.outH = Math.ceil(turned.h * this.scale);
+    canvas.width = this.outW;
+    canvas.height = this.outH;
     this.base = document.createElement('canvas');
     this.base.width = this.w;
     this.base.height = this.h;
@@ -170,23 +216,31 @@ export class Minimap {
     }
   }
 
+  /** A point in north-up map pixels to the turned canvas. */
+  private toCanvas(mx: number, my: number): { x: number; y: number } {
+    return rotatePoint(mx, my, this.w, this.h, this.outW, this.outH, this.angle);
+  }
+
   /**
    * A party member's marker: a ringed dot, or an arrow on the edge pointing at them when they stand
    * past the drawn map (spawn and arrival points can sit on or beyond its border).
    */
-  private drawAlly(g: CanvasRenderingContext2D, x: number, y: number): void {
+  private drawAlly(g: CanvasRenderingContext2D, mx: number, my: number): void {
     const inset = 5;
-    const cx = Math.min(this.w - inset, Math.max(inset, x));
-    const cy = Math.min(this.h - inset, Math.max(inset, y));
+    // Clamped to the map's own edge before turning, so the arrow sits on the turned map's border.
+    const clampedX = Math.min(this.w - inset, Math.max(inset, mx));
+    const clampedY = Math.min(this.h - inset, Math.max(inset, my));
     g.strokeStyle = '#000';
     g.lineWidth = 1;
-    if (cx === x && cy === y) {
+    const { x, y } = this.toCanvas(mx, my);
+    if (clampedX === mx && clampedY === my) {
       g.beginPath();
       g.arc(x, y, 2.5, 0, Math.PI * 2);
       g.fill();
       g.stroke();
       return;
     }
+    const { x: cx, y: cy } = this.toCanvas(clampedX, clampedY);
     const a = Math.atan2(y - cy, x - cx);
     g.beginPath();
     g.moveTo(cx + Math.cos(a) * 5, cy + Math.sin(a) * 5);
@@ -208,14 +262,20 @@ export class Minimap {
     this.reveal('self', selfX, selfY);
     const list = [...entities];
     for (const e of list) if (e.k === 'player' && e.id !== selfId && party.has(e.name)) this.reveal(`p${e.id}`, e.x, e.y);
-    g.clearRect(0, 0, this.w, this.h);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.outW, this.outH);
+    g.translate(this.outW / 2, this.outH / 2);
+    g.rotate(this.angle);
+    g.translate(-this.w / 2, -this.h / 2);
     g.drawImage(this.base, 0, 0);
     g.drawImage(this.fog, 0, 0);
+    g.setTransform(1, 0, 0, 1, 0, 0);
     for (const p of this.def.portals) {
       if (!this.isSeen(p.x, p.y)) continue;
+      const at = this.toCanvas(p.x * s, p.y * s);
       g.fillStyle = '#b49cff';
       g.beginPath();
-      g.arc(p.x * s, p.y * s, 4, 0, Math.PI * 2);
+      g.arc(at.x, at.y, 4, 0, Math.PI * 2);
       g.fill();
     }
     for (const e of list) {
@@ -231,7 +291,8 @@ export class Minimap {
         this.drawAlly(g, e.x * s, e.y * s);
         continue;
       }
-      g.fillRect(e.x * s - 1.5, e.y * s - 1.5, e.k === 'enemy' && e.rare ? 4 : 3, e.k === 'enemy' && e.rare ? 4 : 3);
+      const at = this.toCanvas(e.x * s, e.y * s);
+      g.fillRect(at.x - 1.5, at.y - 1.5, e.k === 'enemy' && e.rare ? 4 : 3, e.k === 'enemy' && e.rare ? 4 : 3);
     }
     const near = new Set(list.flatMap((e) => (e.k === 'player' ? [e.name] : [])));
     for (const m of far) {
@@ -239,10 +300,11 @@ export class Minimap {
       g.fillStyle = '#7ad69a';
       this.drawAlly(g, m.x * s, m.y * s);
     }
+    const self = this.toCanvas(selfX * s, selfY * s);
     g.fillStyle = '#ffd36b';
     g.strokeStyle = '#000';
     g.beginPath();
-    g.arc(selfX * s, selfY * s, 3.5, 0, Math.PI * 2);
+    g.arc(self.x, self.y, 3.5, 0, Math.PI * 2);
     g.fill();
     g.stroke();
   }
