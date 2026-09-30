@@ -73,6 +73,3 @@ export function overcast(now = Date.now()): number {
   const noise = stepNoise(step) * (1 - blend) + stepNoise(step + 1) * blend;
   return smooth((noise - 0.55) / 0.3);
 }
-
-/** Lamps read this each frame; the scene sets it from the night factor. */
-export const lampLevel = { value: 1 };

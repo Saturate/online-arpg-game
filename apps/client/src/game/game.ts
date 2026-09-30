@@ -50,6 +50,7 @@ import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
+import { emitLight, entityLightKey } from '../render/lights.js';
 import { setModelOverrides } from '../render/characters.js';
 import { applyTryOns, watchTryOns } from '../render/tryOn.js';
 import { actionFor, useSettings } from '../ui/settings.js';
@@ -839,6 +840,7 @@ export class Game {
     this.renderedLoot = [];
     const trail = fx.trailDue(dt);
     const showAllLoot = room.input.showLootDown;
+    const partyNames = useUi.getState().partyInfo?.members;
 
     if (sample) {
       for (const [id, to] of sample.to) {
@@ -850,6 +852,8 @@ export class Game {
         const snap: EntitySnap = { ...to, x, y, r };
         if (to.k === 'enemy') this.renderedEnemies.push({ x, y, r, snap: to });
         if (to.k === 'player') {
+          // Party members carry a faint share of the hero's light, so the group reads at night.
+          if (partyNames?.some((m) => m.name === to.name)) emitLight(entityLightKey(id), x, y, 100, 0xffd6a0, 0.55 * lighting.heroLight, 320, 1);
           labels.push({ key: `p${id}`, x, y, text: to.name, color: '#cfe6ff', height: 78, className: 'fx-label' });
           const bubble = this.bubbles.get(to.name);
           if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });

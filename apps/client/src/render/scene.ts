@@ -21,7 +21,9 @@ import {
 } from 'three';
 import { COLORS, VIEW } from './config.js';
 import { applyGrit } from './grit.js';
-import { lampLevel, lighting, nightFactor, overcast } from './daylight.js';
+import { lighting, nightFactor, overcast } from './daylight.js';
+import { sceneLights } from './lights.js';
+import { NIGHT_RIM, nightRim } from './nightRim.js';
 import { buildWorld, type BuiltWorld } from './props.js';
 import { useSettings } from '../ui/settings.js';
 import { fadeUniforms } from './occluderFade.js';
@@ -44,6 +46,12 @@ const MOONLIGHT = new Color(0x7488c8);
  */
 const NIGHT_EXPOSURE = 0.8;
 const NIGHT_DIM = 0.75;
+/** The hero's light at night: height, falloff, the light at their feet, and a warmer, torch-like colour. */
+const HERO_HEIGHT = 120;
+const HERO_DECAY = 1.4;
+const HERO_NIGHT = 2.2;
+const HERO_DAY = new Color(0xffd6a0);
+const HERO_WARM = new Color(0xffc488);
 /** The sun's colour under heavy cloud: grey and cold. */
 const CLOUDLIGHT = new Color(0x9aa0a8);
 
@@ -88,7 +96,8 @@ export class WorldScene {
   private readonly base: Lighting;
   private readonly outdoors: boolean;
   private readonly sunDay = new Color();
-  private lastLight = { night: -1, cloud: -1, brightness: -1 };
+  private lastLight = { night: -1, cloud: -1, brightness: -1, hero: -1, radius: -1 };
+  private night = 0;
   private readonly offset: Vector3;
   private readonly raycaster = new Raycaster();
   private readonly ground = new Plane(new Vector3(0, 1, 0), 0);
@@ -149,7 +158,9 @@ export class WorldScene {
     this.scene.add(this.playerLight);
 
     this.world = buildWorld(def);
-    this.scene.add(this.world.group, this.overlay);
+    sceneLights.reset();
+    sceneLights.setStatic(this.world.lights);
+    this.scene.add(this.world.group, this.overlay, sceneLights.group);
     this.resize();
     this.resizeObserver = new ResizeObserver(() => {
       this.sizeDirty = true;
@@ -189,8 +200,10 @@ export class WorldScene {
     this.camera.lookAt(x + sx, 0, y + sz);
     this.sun.position.set(x - 400, 900, y + 250);
     this.sun.target.position.set(x, 0, y);
-    this.playerLight.position.set(x, 120, y);
+    this.playerLight.position.set(x, HERO_HEIGHT, y);
     this.applyDaylight();
+    // Underground it is always night for the torches.
+    sceneLights.update(this.time, dt, x, y, this.outdoors ? this.night : 1, lighting.lampLight);
     fadeUniforms.uFadeCenter.value.set(x, 0, y);
     this.world.update(this.time, x, y);
   }
@@ -202,12 +215,20 @@ export class WorldScene {
    */
   private applyDaylight(): void {
     const night = this.outdoors ? nightFactor() : 0;
+    this.night = night;
+    nightRim.value = NIGHT_RIM * night;
     const cloud = this.outdoors ? overcast() : 0;
-    lampLevel.value = 1 + night * 1.4 + cloud * 0.3;
     // The light only changes over minutes; skipping unchanged frames saves the uniform churn.
     const last = this.lastLight;
-    if (Math.abs(night - last.night) < 0.002 && Math.abs(cloud - last.cloud) < 0.002 && lighting.nightBrightness === last.brightness) return;
-    this.lastLight = { night, cloud, brightness: lighting.nightBrightness };
+    if (
+      Math.abs(night - last.night) < 0.002 &&
+      Math.abs(cloud - last.cloud) < 0.002 &&
+      lighting.nightBrightness === last.brightness &&
+      lighting.heroLight === last.hero &&
+      lighting.heroLightRadius === last.radius
+    )
+      return;
+    this.lastLight = { night, cloud, brightness: lighting.nightBrightness, hero: lighting.heroLight, radius: lighting.heroLightRadius };
     const b = this.base;
     const mix = (day: number, dark: number) => day + (dark - day) * night;
     // How much light night keeps is the admin's call (nightBrightness): 0 is pitch, 1 the brightest
@@ -222,10 +243,14 @@ export class WorldScene {
     this.ambient.intensity = mix(b.ambient, b.ambient * Math.min(1, keep + 0.2)) * (1 + 0.25 * cloud);
     this.sun.intensity = mix(b.sun, b.sun * keep * 0.8) * sunCloud;
     this.sun.color.copy(this.sunDay).lerp(CLOUDLIGHT, cloud * 0.7).lerp(MOONLIGHT, night);
-    // The hero's light becomes the D2 light radius: brighter and slower to fall off.
-    this.playerLight.intensity = mix(b.playerLight, b.playerLight * 3);
-    this.playerLight.distance = mix(520, 700);
-    this.playerLight.decay = mix(b.playerDecay ?? 1.4, 0.9);
+    // The hero's light becomes the D2 light radius: a warm pool reaching past the fight around you.
+    // Its intensity is scaled by height^decay so HERO_NIGHT is the light at the hero's feet.
+    const dayIntensity = this.outdoors ? b.playerLight : b.playerLight * lighting.heroLight;
+    const nightIntensity = HERO_NIGHT * lighting.heroLight * Math.pow(HERO_HEIGHT, HERO_DECAY);
+    this.playerLight.intensity = mix(dayIntensity, nightIntensity);
+    this.playerLight.distance = mix(520, lighting.heroLightRadius);
+    this.playerLight.decay = mix(b.playerDecay ?? 1.4, HERO_DECAY);
+    this.playerLight.color.copy(HERO_DAY).lerp(HERO_WARM, night);
     // The day's exposure is set for sun; carried into the night it would lift the dark the admin's
     // night brightness is tuned for, so it eases back as night falls.
     this.renderer.toneMappingExposure = mix(b.exposure, b.exposure * NIGHT_EXPOSURE);
@@ -243,6 +268,7 @@ export class WorldScene {
       if (o instanceof Mesh) o.geometry.dispose();
     });
     this.world = buildWorld(def);
+    sceneLights.setStatic(this.world.lights);
     this.scene.add(this.world.group);
   }
 
@@ -276,6 +302,11 @@ export class WorldScene {
   dispose(): void {
     this.resizeObserver.disconnect();
     this.world.dispose();
+    // The budget outlives the scene and keeps its geometry; a newer scene may already own it.
+    if (sceneLights.group.parent === this.scene) {
+      this.scene.remove(sceneLights.group);
+      sceneLights.reset();
+    }
     this.scene.traverse((o) => {
       if (o instanceof Mesh) o.geometry.dispose();
     });

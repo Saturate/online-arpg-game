@@ -20,7 +20,6 @@ import {
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
-  PointLight,
   RepeatWrapping,
   RingGeometry,
   Shape as ThreeShape,
@@ -31,7 +30,7 @@ import {
 import { COLORS } from './config.js';
 import { mat } from './models.js';
 import { withOccluderFade } from './occluderFade.js';
-import { lampLevel } from './daylight.js';
+import type { StaticLight } from './lights.js';
 import { PropBatch } from './propBatch.js';
 import { treeGeometry, type TreeKind } from './trees.js';
 
@@ -41,6 +40,28 @@ export interface BuiltWorld {
   update(t: number, playerX: number, playerY: number): void;
   /** Stops pending asset loads from adding meshes to a world that has been replaced. */
   dispose(): void;
+  /** Torches, lanterns, fires, portals and waypoints, for the scene's light budget. */
+  lights: readonly StaticLight[];
+}
+
+type LightLook = Omit<StaticLight, 'x' | 'y'>;
+/** Warm flame colours; heights are where the flame sits, so the pool centres under it. */
+const TORCH: LightLook = { height: 56, color: 0xff9a4a, intensity: 3, radius: 480, flicker: 0.1, priority: 0, day: 0 };
+const LANTERN: LightLook = { height: 64, color: 0xffb060, intensity: 2.8, radius: 420, flicker: 0.05, priority: 0, day: 0 };
+const CANDLE: LightLook = { height: 14, color: 0xffb060, intensity: 0.9, radius: 170, flicker: 0.12, priority: 0, day: 0 };
+const FIRE: LightLook = { height: 40, color: 0xff9040, intensity: 3.2, radius: 520, flicker: 0.12, priority: 0, day: 0 };
+
+/** Decor that is itself a flame or a lamp, and the light it casts, per unit of scale. */
+const LIT_DECOR: Record<string, LightLook> = {
+  dungeon_torch_lit: TORCH,
+  dungeon_candle_lit: CANDLE,
+  grave_lantern_standing: { ...LANTERN, height: 38, intensity: 1.4, radius: 300 },
+  grave_post_lantern: LANTERN,
+  grave_shrine_candles: { ...CANDLE, height: 30, intensity: 1.2, radius: 220 },
+};
+
+function lightAt(look: LightLook, x: number, y: number, scale = 1): StaticLight {
+  return { ...look, x, y, height: look.height * scale, radius: look.radius * Math.sqrt(scale) };
 }
 
 const dummy = new Object3D();
@@ -264,6 +285,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const group = new Group();
   const animated: ((t: number, px: number, py: number) => void)[] = [];
   const disposers: (() => void)[] = [];
+  const lights: StaticLight[] = [];
   const { width, height } = def;
 
   // The Arena pit is an underground colosseum carved like a dungeon, lit the same way by torches.
@@ -288,7 +310,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
   const stoneTex = repeatTexture(stoneCanvas(), 1, 1);
   const dirtTex = repeatTexture(dirtCanvas(), 1, 1);
-  if (underground) addUnderground(group, def, animated);
+  if (underground) addUnderground(group, def);
   for (const patch of def.ground) {
     if (patch.kind === 'floor') continue;
     const s = patch.shape;
@@ -362,8 +384,15 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') batch.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
   for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') batch.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
   for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') batch.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
-  for (const d of def.decor) batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
-  for (const l of def.lamps ?? []) batch.add(underground ? 'dungeon_torch_lit' : 'grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
+  for (const d of def.decor) {
+    batch.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale } });
+    const look = LIT_DECOR[d.asset];
+    if (look) lights.push(lightAt(look, d.x, d.y, d.scale));
+  }
+  for (const l of def.lamps ?? []) {
+    batch.add(underground ? 'dungeon_torch_lit' : 'grave_post_lantern', { x: l.x, y: l.y, angle: 0, fit: { height: underground ? 50 : 80 } });
+    lights.push(lightAt(underground ? TORCH : LANTERN, l.x, l.y));
+  }
   if (!underground) addBorder(group, batch, def);
   let cancelled = false;
   void batch.build(group, () => cancelled);
@@ -380,27 +409,23 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : arenaEntrance ? arenaBuilding(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
     group.add(built.group);
     animated.push(built.update);
+    lights.push(...built.lights);
   }
   // The forge's fire, beside its weapon rack, so the spot reads as a smithy at night too.
   if (def.forge) {
     const forgeFire = campfire(def.forge.x + 38, def.forge.y + 22);
     group.add(forgeFire.group);
     animated.push(forgeFire.update);
+    lights.push(lightAt(FIRE, def.forge.x + 38, def.forge.y + 22));
   }
   // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
   if (def.theme === 'wilds' && !def.safeZones?.length) {
     const fire = campfire(def.spawn.x + 40, def.spawn.y + 60);
     group.add(fire.group);
     animated.push(fire.update);
+    lights.push(lightAt(FIRE, def.spawn.x + 40, def.spawn.y + 60));
   }
-  if (!underground) {
-    for (const { x, y } of def.lamps ?? []) {
-      const torch = lamp(x, y);
-      group.add(torch.group);
-      animated.push(torch.update);
-    }
-    addDecor(group, def);
-  }
+  if (!underground) addDecor(group, def);
 
   return {
     group,
@@ -410,7 +435,14 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     dispose() {
       for (const d of disposers) d();
     },
+    lights,
   };
+}
+
+interface Landmark {
+  group: Group;
+  update: (t: number) => void;
+  lights: StaticLight[];
 }
 
 const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D', 'rock_single_E'];
@@ -744,7 +776,7 @@ function bridge(x: number, y: number, angle: number, length: number, width: numb
   return g;
 }
 
-function portal(x: number, y: number, r: number, color: number): { group: Group; update: (t: number) => void } {
+function portal(x: number, y: number, r: number, color: number): Landmark {
   const g = new Group();
   const stone = mat(0x6a6460);
   const base = new Mesh(new CylinderGeometry(r * 1.3, r * 1.45, 8, 20), stone);
@@ -762,9 +794,6 @@ function portal(x: number, y: number, r: number, color: number): { group: Group;
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = 8.5;
   g.add(floor);
-  const light = new PointLight(color, 3, 320, 1.5);
-  light.position.y = r + 14;
-  g.add(light);
   g.position.set(x, 0, y);
   // The portal faces the default camera direction so its swirl reads as a disc, not a line.
   g.rotation.y = Math.PI / 4;
@@ -772,9 +801,9 @@ function portal(x: number, y: number, r: number, color: number): { group: Group;
     group: g,
     update: (t) => {
       swirl.rotation.z = -t * 1.6;
-      light.intensity = 2.6 + Math.sin(t * 3) * 0.5;
       floor.rotation.z = t * 0.5;
     },
+    lights: [{ x, y, height: r + 14, color, intensity: 1.4, radius: 300, flicker: 0.08, priority: 0, day: 0 }],
   };
 }
 
@@ -782,7 +811,7 @@ function portal(x: number, y: number, r: number, color: number): { group: Group;
  * A D2-style waypoint: a raised, weathered slab with four rune stones at its corners and a dim
  * rune circle set into the top. Cold light, kept low so it marks the spot without lighting the night.
  */
-function waypoint(x: number, y: number, r: number): { group: Group; update: (t: number) => void } {
+function waypoint(x: number, y: number, r: number): Landmark {
   const g = new Group();
   const stone = mat(0x57524c, { rough: 0.95 });
   const dark = mat(0x3a3632, { rough: 1 });
@@ -822,9 +851,6 @@ function waypoint(x: number, y: number, r: number): { group: Group; update: (t: 
     g.add(pillar, mark);
     stones.push(mark);
   }
-  const light = new PointLight(glow, 1.4, 220, 1.6);
-  light.position.y = 30;
-  g.add(light);
   g.position.set(x, 0, y);
   return {
     group: g,
@@ -833,8 +859,9 @@ function waypoint(x: number, y: number, r: number): { group: Group; update: (t: 
       runeMat.opacity = pulse;
       circle.rotation.z = t * 0.15;
       inner.rotation.z = -t * 0.3;
-      light.intensity = 1.2 + Math.sin(t * 1.3) * 0.25;
     },
+    // Cold and low: it marks the spot without lighting up the night.
+    lights: [{ x, y, height: 30, color: glow, intensity: 0.9, radius: 260, flicker: 0.04, priority: 0, day: 0 }],
   };
 }
 
@@ -843,7 +870,7 @@ function waypoint(x: number, y: number, r: number): { group: Group; update: (t: 
  * colosseum, with an archway and steps leading into the dark, and a torch either side. Walking
  * into the archway takes you down.
  */
-function arenaBuilding(x: number, y: number, r: number): { group: Group; update: (t: number) => void } {
+function arenaBuilding(x: number, y: number, r: number): Landmark {
   const g = new Group();
   const stone = mat(0x5a544e, { rough: 0.95 });
   const dark = mat(0x3c3833, { rough: 1 });
@@ -884,6 +911,7 @@ function arenaBuilding(x: number, y: number, r: number): { group: Group; update:
   lintel.castShadow = true;
   g.add(lintel);
   const flames: Mesh[] = [];
+  const lights: StaticLight[] = [];
   // Across the archway: perpendicular to the direction it faces.
   const sideX = -Math.sin(facing);
   const sideZ = Math.cos(facing);
@@ -896,19 +924,16 @@ function arenaBuilding(x: number, y: number, r: number): { group: Group; update:
     flame.position.set(bx, 46, bz);
     g.add(post, flame);
     flames.push(flame);
+    lights.push({ ...TORCH, x: x + bx, y: y + bz, height: 46, radius: 340 });
   }
-  const light = new PointLight(0xff9a40, 3, 320, 1.4);
-  light.position.set(Math.cos(facing) * (radius + 20), 50, Math.sin(facing) * (radius + 20));
-  g.add(light);
   g.position.set(x, 0, y);
   return {
     group: g,
     update: (t) => {
       const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
       for (const fl of flames) fl.scale.set(1, f, 1);
-      // Rises at night with every other lamp in town.
-      light.intensity = (2.6 + f * 0.6) * lampLevel.value;
     },
+    lights,
   };
 }
 
@@ -925,10 +950,7 @@ function campfire(x: number, y: number): { group: Group; update: (t: number) => 
   flame.position.y = 17;
   const inner = new Mesh(new ConeGeometry(7, 24, 6), mat(0xffe080, { emissive: 0xffd060, intensity: 3 }));
   inner.position.y = 12;
-  const light = new PointLight(0xff9a40, 5, 460, 1.4);
-  light.position.y = 40;
-  light.castShadow = false;
-  g.add(flame, inner, light);
+  g.add(flame, inner);
   g.position.set(x, 0, y);
   return {
     group: g,
@@ -936,19 +958,8 @@ function campfire(x: number, y: number): { group: Group; update: (t: number) => 
       const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 23) * 0.05;
       flame.scale.set(1, f, 1);
       inner.scale.set(1, 1.1 - f * 0.2, 1);
-      light.intensity = 5 * f;
     },
   };
-}
-
-function lamp(x: number, y: number): { group: Group; update: (t: number) => void } {
-  const g = new Group();
-  // The post itself is the glTF lantern post; this adds the light it casts.
-  const light = new PointLight(0xffb060, 3, 360, 1.6);
-  light.position.y = 64;
-  g.add(light);
-  g.position.set(x, 0, y);
-  return { group: g, update: (t) => (light.intensity = (3 + Math.sin(t * 7 + x) * 0.2) * lampLevel.value) };
 }
 
 /** True where the scenery outside the map should open up for a zone gate's road. */
@@ -1113,7 +1124,7 @@ function addDecor(group: Group, def: WorldMap): void {
 // Dungeons
 
 /** Flagstone quads and rock wall boxes, each merged into one mesh, with UVs in world space so the texture never stretches. */
-function addUnderground(group: Group, def: WorldMap, animated: ((t: number, px: number, py: number) => void)[]): void {
+function addUnderground(group: Group, def: WorldMap): void {
   const tile = 160;
   const floorPos: number[] = [];
   const floorUv: number[] = [];
@@ -1176,25 +1187,4 @@ function addUnderground(group: Group, def: WorldMap, animated: ((t: number, px: 
   walls.castShadow = true;
   walls.receiveShadow = true;
   group.add(walls);
-
-  // A fixed pool of lights follows the torches nearest the player. The light count is part of every
-  // material's shader, so toggling one light per torch would recompile shaders as you walk.
-  const lamps = def.lamps ?? [];
-  const pool: PointLight[] = [];
-  for (let i = 0; i < Math.min(6, lamps.length); i++) {
-    const light = new PointLight(0xff9a4a, 0, 380, 0);
-    light.position.y = 56;
-    group.add(light);
-    pool.push(light);
-  }
-  animated.push((t, px, py) => {
-    const nearest = [...lamps].sort((a, b) => (a.x - px) ** 2 + (a.y - py) ** 2 - ((b.x - px) ** 2 + (b.y - py) ** 2));
-    pool.forEach((light, i) => {
-      const l = nearest[i];
-      if (!l) return;
-      light.position.x = l.x;
-      light.position.z = l.y;
-      light.intensity = 2.4 + Math.sin(t * 9 + l.x) * 0.25 + Math.sin(t * 23 + l.y) * 0.15;
-    });
-  });
 }

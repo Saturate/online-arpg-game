@@ -58,3 +58,19 @@ describe('light budget', () => {
     expect(b.stats.real + b.stats.pools).toBe(0);
   });
 });
+
+describe('light budget crowding', () => {
+  it('scales a crowd of lights around the hero down instead of burning white', () => {
+    const b = new LightBudget();
+    const keys = Array.from({ length: 64 }, () => lightKey());
+    run(b, 120, 0, 0, 1, () => keys.forEach((k, i) => b.emit(k, Math.cos(i) * 150, Math.sin(i) * 150, 40, 0xff6a2b, 2.5, 260)));
+    expect(b.stats.crowd).toBeLessThan(0.4);
+  });
+
+  it('leaves a lone torch at full strength', () => {
+    const b = new LightBudget();
+    b.setStatic([{ x: 0, y: 0, height: 56, color: 0xff9a4a, intensity: 3, radius: 480, flicker: 0, priority: 0, day: 0 }]);
+    run(b, 60, 0, 0);
+    expect(b.stats.crowd).toBe(1);
+  });
+});
