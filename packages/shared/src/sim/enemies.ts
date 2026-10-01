@@ -246,6 +246,28 @@ function moveBy(pos: Vec2, nx: number, ny: number, len: number): void {
   pos.y += ny * len;
 }
 
+/**
+ * Moves a knocked-back enemy. Knockback (320 a hit, and hits stack) can move it further in a tick
+ * than a fence reaches from its line, so it goes in steps no longer than its radius, each pushed
+ * out of the map, or it could be thrown across a fence. Ghosts and burrowers pass through terrain.
+ */
+function knockMove(map: Simulation['map'], pos: Vec2, e: EnemyComp, def: EnemyDef, dx: number, dy: number, radius: number): void {
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+  const n = Math.ceil(len / Math.max(4, radius));
+  if (n <= 1 || e.burrowed || (def.behaviour === 'monster' && def.movement === 'ghost')) {
+    pos.x += dx;
+    pos.y += dy;
+    return;
+  }
+  const mask = def.behaviour === 'monster' && def.movement === 'fly' ? 'shots' : 'move';
+  for (let i = 0; i < n; i++) {
+    const p = map.resolveCircle({ x: pos.x + dx / n, y: pos.y + dy / n }, radius, mask);
+    pos.x = p.x;
+    pos.y = p.y;
+  }
+}
+
 export function updateEnemies(sim: Simulation, dt: number): void {
   const w = sim.world;
   const map = sim.map;
@@ -262,8 +284,7 @@ export function updateEnemies(sim: Simulation, dt: number): void {
     if (e.fireCooldown > 0) e.fireCooldown -= dt;
     if (e.tauntTimer > 0) e.tauntTimer -= dt;
 
-    pos.x += e.knockX * dt;
-    pos.y += e.knockY * dt;
+    knockMove(map, pos, e, def, e.knockX * dt, e.knockY * dt, w.radius.get(id) ?? 0);
     e.knockX *= KNOCK_DECAY;
     e.knockY *= KNOCK_DECAY;
 

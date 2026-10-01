@@ -5,20 +5,42 @@ import { describe, expect, it } from 'vitest';
 import { assetById } from '../src/render/assets.js';
 import { placementMatrix } from '../src/render/propBatch.js';
 
-/** A model's bounds as the asset registry places it: scaled to its height, feet on the ground. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function list(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+/**
+ * A model's bounds as the asset registry places it: scaled to its height, feet on the ground. Read
+ * from the vertex positions of every mesh primitive (the POSITION accessors only, not normals),
+ * and only for models whose nodes carry no transform of their own, which the test checks.
+ */
 function registryBounds(id: string): Box3 {
   const def = assetById(id);
   if (!def) throw new Error(`no asset ${id}`);
   const gltf: unknown = JSON.parse(readFileSync(new URL(`../public${def.url}`, import.meta.url), 'utf8'));
+  if (!isRecord(gltf)) throw new Error('not a gltf');
+  for (const node of list(gltf.nodes)) {
+    if (isRecord(node) && (node.translation !== undefined || node.rotation !== undefined || node.scale !== undefined || node.matrix !== undefined)) throw new Error(`${id} has node transforms; measure it through the loader instead`);
+  }
+  const accessors = list(gltf.accessors);
   const box = new Box3();
-  if (typeof gltf !== 'object' || gltf === null || !('accessors' in gltf) || !Array.isArray(gltf.accessors)) throw new Error('not a gltf');
-  // These segment models are one untransformed mesh, so the position accessors' bounds are the model's.
-  for (const a of gltf.accessors) {
-    if (typeof a === 'object' && a !== null && 'type' in a && a.type === 'VEC3' && 'min' in a && 'max' in a && Array.isArray(a.min) && Array.isArray(a.max)) {
-      box.expandByPoint(new Vector3(Number(a.min[0]), Number(a.min[1]), Number(a.min[2])));
-      box.expandByPoint(new Vector3(Number(a.max[0]), Number(a.max[1]), Number(a.max[2])));
+  for (const mesh of list(gltf.meshes)) {
+    for (const prim of isRecord(mesh) ? list(mesh.primitives) : []) {
+      const attrs = isRecord(prim) ? prim.attributes : undefined;
+      const index = isRecord(attrs) ? attrs.POSITION : undefined;
+      const a = typeof index === 'number' ? accessors[index] : undefined;
+      if (!isRecord(a)) continue;
+      const min = list(a.min).map(Number);
+      const max = list(a.max).map(Number);
+      box.expandByPoint(new Vector3(min[0], min[1], min[2]));
+      box.expandByPoint(new Vector3(max[0], max[1], max[2]));
     }
   }
+  if (box.isEmpty()) throw new Error(`${id}: no vertex positions`);
   const size = box.getSize(new Vector3());
   const scale = def.height / size.y;
   box.translate(new Vector3(0, -box.min.y, 0));

@@ -351,6 +351,22 @@ function stepToward(pos: Vec2, tx: number, ty: number, step: number, stopAt: num
 }
 
 /**
+ * `stepToward` against the map, in steps no longer than the minion's radius. A catching-up minion
+ * moves about 23 units a tick, more than a fence's reach from its line (radius 13 plus 8): one
+ * step from touching it could land past the line, and settling then pushed it out the far side.
+ */
+function walkToward(sim: Simulation, pos: Vec2, tx: number, ty: number, step: number, stopAt: number, radius: number): void {
+  const d = Math.hypot(tx - pos.x, ty - pos.y);
+  const len = Math.min(step, d - stopAt);
+  if (len <= 0) return;
+  const n = Math.max(1, Math.ceil(len / Math.max(4, radius)));
+  for (let i = 0; i < n; i++) {
+    stepToward(pos, tx, ty, len / n, stopAt);
+    if (n > 1) settle(sim, pos, radius);
+  }
+}
+
+/**
  * Walks toward a goal around obstacles. With line of sight it goes straight; otherwise it follows
  * the master's breadcrumb trail, picking the newest crumb it can see, which is always a route the
  * master actually walked. With no crumb in sight (after a teleport, or spawned across a fence), or
@@ -361,7 +377,7 @@ function navigate(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radiu
   if (sim.map.lineClear(pos.x, pos.y, goal.x, goal.y, radius * 0.8, 'move')) {
     m.path.length = 0;
     budgets.get(sim)?.queue.delete(m);
-    stepToward(pos, goal.x, goal.y, step, stopAt);
+    walkToward(sim, pos, goal.x, goal.y, step, stopAt, radius);
     return;
   }
   if (m.path.length > 0 && followPath(sim, id, m, pos, radius, goal, step, stopAt)) return;
@@ -369,13 +385,13 @@ function navigate(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, radiu
     for (let i = trail.length - 1; i >= 0; i--) {
       const c = trail[i];
       if (c && sim.map.lineClear(pos.x, pos.y, c.x, c.y, radius * 0.8, 'move')) {
-        stepToward(pos, c.x, c.y, step, 4);
+        walkToward(sim, pos, c.x, c.y, step, 4, radius);
         return;
       }
     }
   }
   if (planPath(sim, id, m, pos, radius, goal) && followPath(sim, id, m, pos, radius, goal, step, stopAt)) return;
-  stepToward(pos, goal.x, goal.y, step, stopAt);
+  walkToward(sim, pos, goal.x, goal.y, step, stopAt, radius);
 }
 
 interface PathRequest {
@@ -536,7 +552,7 @@ function followPath(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, rad
   const target = path[0];
   if (!target) return false;
   const last = path.length === 1;
-  stepToward(pos, target.x, target.y, step, last ? stopAt : 0);
+  walkToward(sim, pos, target.x, target.y, step, last ? stopAt : 0, radius);
   if (last && distSq(pos.x, pos.y, target.x, target.y) <= Math.max(stopAt, WAYPOINT_REACHED) ** 2) path.length = 0;
   return true;
 }
@@ -756,7 +772,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
     if (m.behaviour === 'bodyguard') {
       const block = interceptPoint(sim, opos);
       if (block) {
-        stepToward(pos, block.x, block.y, speed * 1.4 * dt, 2);
+        walkToward(sim, pos, block.x, block.y, speed * 1.4 * dt, 2, radius);
         settle(sim, pos, radius);
         continue;
       }
