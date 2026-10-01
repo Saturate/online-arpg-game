@@ -11,19 +11,19 @@ const MAX_STEPS = 8;
  * The forge's training dummy. `spellKey` names the draft, so the spell is swapped only when the
  * runes change, not on every render.
  */
-export function ForgePreviewCanvas({ classId, spellKey, compiled, castDelay }: { classId: ClassId; spellKey: string; compiled: SigilCompile | null; castDelay: number }) {
+export function ForgePreviewCanvas({ classId, spellKey, compiled, castDelayShare }: { classId: ClassId; spellKey: string; compiled: SigilCompile | null; castDelayShare: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<ForgePreview | null>(null);
   const [dps, setDps] = useState(0);
-  const latest = useRef({ compiled, castDelay });
-  latest.current = { compiled, castDelay };
+  const latest = useRef({ compiled, castDelayShare });
+  latest.current = { compiled, castDelayShare };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const preview = new ForgePreview(classId);
-    preview.setSpell(latest.current.compiled, latest.current.castDelay);
+    preview.setSpell(latest.current.compiled, latest.current.castDelayShare);
     previewRef.current = preview;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = WIDTH * dpr;
@@ -56,7 +56,7 @@ export function ForgePreviewCanvas({ classId, spellKey, compiled, castDelay }: {
   }, [classId]);
 
   useEffect(() => {
-    previewRef.current?.setSpell(latest.current.compiled, latest.current.castDelay);
+    previewRef.current?.setSpell(latest.current.compiled, latest.current.castDelayShare);
   }, [spellKey]);
 
   const idle = !compiled || !compiled.ok;

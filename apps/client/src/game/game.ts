@@ -52,6 +52,7 @@ import { InputState, screenToWorld, type SampledInput } from './input.js';
 import { InterpolationBuffer } from './interpolation.js';
 import { SpellTable } from './spellTable.js';
 import { Predictor } from './prediction.js';
+import { receiveCastCooldown } from './castTiming.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
@@ -543,6 +544,7 @@ export class Game {
         if (useUi.getState().reconnectAttempt > 0) useUi.getState().notify('Reconnected');
         useUi.getState().connected();
         this.playerId = msg.playerId;
+        receiveCastCooldown(msg.castCooldown);
         this.townEditorAllowed = msg.townEditor;
         // A role change resends the welcome; an open editor would otherwise linger with saves refused.
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
@@ -631,6 +633,9 @@ export class Game {
         return;
       case 'zoom':
         Object.assign(zoomLimits, msg.zoom);
+        return;
+      case 'castCooldown':
+        receiveCastCooldown(msg.seconds);
         return;
       case 'models': {
         const models = parseModelOverrides(msg.models);
@@ -1131,8 +1136,8 @@ export class Game {
       if (ui.xp !== s.xp) patch.xp = s.xp;
       if (ui.xpNext !== s.xpNext) patch.xpNext = s.xpNext;
       if (JSON.stringify(ui.stats) !== JSON.stringify(s.stats)) patch.stats = s.stats;
-      const cd = Math.round(s.castCooldown * 10) / 10;
-      if (ui.castCooldown !== cd) patch.castCooldown = cd;
+      // Snapshot precision (one 0.05 s tick), so the skill bar sweep moves every tick of the cooldown.
+      if (ui.castCooldown !== s.castCooldown) patch.castCooldown = s.castCooldown;
       if (ui.castCooldownFull !== s.castCooldownFull) patch.castCooldownFull = s.castCooldownFull;
       const respawns = s.minionRespawn.map((t) => Math.ceil(t));
       if (respawns.join() !== ui.minionRespawn.join()) patch.minionRespawn = respawns;

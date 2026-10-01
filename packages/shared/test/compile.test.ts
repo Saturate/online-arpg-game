@@ -36,7 +36,7 @@ function castAtDummy(text: string, distance = 200): number {
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);
   if (!p || !pos) throw new Error('setup');
-  const eq: EquippedSigil = { uid: -1, compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds };
+  const eq: EquippedSigil = { uid: -1, compiled, misfireMultiplier: 1, castDelayShare: 1 };
   p.sigils = [eq, null, null, null];
   const dummy = sim.spawnEnemy('chaser', pos.x + distance, pos.y);
   const h = sim.world.health.get(dummy);

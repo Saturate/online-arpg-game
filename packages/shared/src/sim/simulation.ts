@@ -82,6 +82,8 @@ export interface SimRates {
   forceCool: number;
   /** Cap on the cooling speed-up after a pause in casting. */
   forceRampMax: number;
+  /** Seconds between any two sigil casts, before the cast delay affix and cast speed. */
+  castCooldown: number;
 }
 
 /**
@@ -95,7 +97,7 @@ export interface RoomRules {
   waves: boolean;
 }
 
-export const DEFAULT_RATES: SimRates = { xp: 1, loot: 1, forceMax: HEAT.max, forceCost: 1, forceCool: 1, forceRampMax: HEAT.coolRampMax };
+export const DEFAULT_RATES: SimRates = { xp: 1, loot: 1, forceMax: HEAT.max, forceCost: 1, forceCool: 1, forceRampMax: HEAT.coolRampMax, castCooldown: HEAT.castCooldownSeconds };
 
 export class Simulation {
   readonly world = new World();

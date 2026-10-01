@@ -2,7 +2,6 @@ import {
   compileSigilItem,
   createStarterSigil,
   formatRunes,
-  HEAT,
   SIM,
   SKILL_BUTTONS,
   Simulation,
@@ -11,7 +10,7 @@ import {
   type EntityId,
   type EnemyTypeId,
   type GameEvent,
-  sigilCastDelay,
+  sigilCastDelayShare,
   type SigilCompile,
   type SigilItem,
   type StarterSigilDef,
@@ -72,9 +71,9 @@ export function compileSkill(def: StudioSkill): SigilCompile {
   return compileSigilItem(sigil, def.classId);
 }
 
-function skillCastDelay(def: StudioSkill): number {
+function skillCastDelayShare(def: StudioSkill): number {
   const sigil = studioSigil(def);
-  return sigil ? sigilCastDelay(sigil) : HEAT.castCooldownSeconds;
+  return sigil ? sigilCastDelayShare(sigil) : 1;
 }
 
 function dummyPositions(setup: StudioSetup, cx: number, cy: number): { x: number; y: number }[] {
@@ -113,7 +112,7 @@ export class StudioSim {
   readonly home: { x: number; y: number };
   compiled: SigilCompile;
   /** The sigil's cast delay; a spell from the Spell Lab has no sigil and uses the default. */
-  castDelay: number = HEAT.castCooldownSeconds;
+  castDelayShare = 1;
   cast: CastSettings = { mode: 'hold', intervalSeconds: 1, infiniteForce: false };
   /** Events from the last step, for the renderer. */
   lastEvents: GameEvent[] = [];
@@ -146,19 +145,19 @@ export class StudioSim {
       this.dummies.push({ id, x: at.x, y: at.y });
     }
     this.compiled = compileSkill(skill);
-    this.castDelay = skillCastDelay(skill);
+    this.castDelayShare = skillCastDelayShare(skill);
     this.equip();
   }
 
   /** Swaps the skill under test without resetting the world. Metrics restart so numbers stay honest. */
   setSkill(skill: StudioSkill): void {
-    this.setCompiled(compileSkill(skill), skillCastDelay(skill));
+    this.setCompiled(compileSkill(skill), skillCastDelayShare(skill));
   }
 
   /** Tests an already compiled spell, such as one from the Spell Lab. */
-  setCompiled(compiled: SigilCompile, castDelay: number = HEAT.castCooldownSeconds): void {
+  setCompiled(compiled: SigilCompile, castDelayShare = 1): void {
     this.compiled = compiled;
-    this.castDelay = castDelay;
+    this.castDelayShare = castDelayShare;
     this.equip();
     this.metrics.reset();
   }
@@ -166,7 +165,7 @@ export class StudioSim {
   private equip(): void {
     const p = this.sim.world.player.get(this.playerId);
     if (!p) return;
-    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1, castDelay: this.castDelay };
+    p.sigils[0] = { uid: -1, compiled: this.compiled, misfireMultiplier: 1, castDelayShare: this.castDelayShare };
     p.sigils[1] = null;
     p.sigils[2] = null;
     p.sigils[3] = null;

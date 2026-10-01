@@ -17,7 +17,6 @@ import {
   runeName,
   SIGIL_SORT_KEYS,
   sigilCapacity,
-  sigilCastDelay,
   STASH,
   STASH_COLORS,
   STASH_TABS,
@@ -49,6 +48,7 @@ import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import './forge.css';
 import './stash.css';
+import { formatCooldown, sigilCooldown, useCastTiming } from '../game/castTiming.js';
 
 const RUNE_SORT_LABELS: Record<RuneSortKey, string> = { rune: 'Rune', kind: 'Kind', tier: 'Tier', ilvl: 'Item level', affix: 'Affix value' };
 const SIGIL_SORT_LABELS: Record<SigilSortKey, string> = { tier: 'Tier', ilvl: 'Item level', slots: 'Slots', name: 'Name' };
@@ -529,6 +529,8 @@ function sigilMatches(s: SigilItem, tier: ItemTier | 'all', contents: SigilConte
 function SigilTabView({ inv }: { inv: InventoryMessage }) {
   const view = useStashView();
   const classId = useUi((s) => s.classId);
+  const globalCooldown = useCastTiming((s) => s.globalSeconds);
+  const castSpeed = useUi((s) => s.stats?.castSpeedMult ?? 1);
   const sigils = inv.stash.sigils.list.flatMap((u) => {
     const it = itemByUid(inv, u);
     return it?.kind === 'sigil' ? [it] : [];
@@ -590,7 +592,7 @@ function SigilTabView({ inv }: { inv: InventoryMessage }) {
                 {s.name}
               </span>
               <span className="stash-sigil-meta">
-                {TIER_LABELS[s.tier]} · ilvl {s.ilvl} · {s.slots.length}/{sigilCapacity(s)} runes · {sigilCastDelay(s).toFixed(2)} s
+                {TIER_LABELS[s.tier]} · ilvl {s.ilvl} · {s.slots.length}/{sigilCapacity(s)} runes · Cooldown {formatCooldown(sigilCooldown(s, globalCooldown, castSpeed))}
                 {s.affixes.length > 0 && <> · {s.affixes.map(formatAffix).join(' · ')}</>}
               </span>
               <span className="stash-sigil-sentence">{sentenceOf(s, classId)}</span>

@@ -14,7 +14,7 @@ import {
   reissueUids,
   RUNE_STACK,
   sigilCapacity,
-  sigilCastDelay,
+  sigilCastDelayShare,
   sigilMisfireMultiplier,
   STARTER_VESSELS,
   type Item,
@@ -42,7 +42,7 @@ export const FORGE_REACH = 170;
 
 
 export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
-  return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelay: sigilCastDelay(item) };
+  return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
 }
 
 function spiritMax(p: PlayerComp): number {

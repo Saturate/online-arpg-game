@@ -131,6 +131,8 @@ export interface ServerSettings {
   respawnMinutes: number;
   /** The same for bosses (region bosses and their escorts), on their own, longer timer. */
   bossRespawnMinutes: number;
+  /** Seconds between any two sigil casts, before the cast delay affix and cast speed shorten it. */
+  castCooldownSeconds: number;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -157,6 +159,7 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   zoomMax: 1.4,
   respawnMinutes: STREAMING.respawnMinutes,
   bossRespawnMinutes: STREAMING.bossRespawnMinutes,
+  castCooldownSeconds: HEAT.castCooldownSeconds,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
@@ -175,6 +178,11 @@ export function isZoomSettings(v: unknown): v is ZoomSettings {
     if (typeof z !== 'number' || !Number.isFinite(z) || z < SETTINGS_LIMITS.zoomMin || z > SETTINGS_LIMITS.zoomMax) return false;
   }
   return true;
+}
+
+/** The client shows this in tooltips, so a value outside the admin limits is ignored rather than shown. */
+export function isCastCooldown(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= SETTINGS_LIMITS.castCooldownMin && v <= SETTINGS_LIMITS.castCooldownMax;
 }
 
 /**
@@ -229,6 +237,9 @@ export const SETTINGS_LIMITS = {
   /** Under a minute, stepping out of a chunk's wake range and back would farm it. */
   respawnMinutesMin: 1,
   respawnMinutesMax: 240,
+  /** Under 0.1 s a held key casts nearly every 0.05 s tick; over 3 s spells feel broken. */
+  castCooldownMin: 0.1,
+  castCooldownMax: 3,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -283,8 +294,9 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     zoomMax: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
     respawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
     bossRespawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
+    castCooldownSeconds: [SETTINGS_LIMITS.castCooldownMin, SETTINGS_LIMITS.castCooldownMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'castCooldownSeconds'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

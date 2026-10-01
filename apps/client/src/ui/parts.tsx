@@ -16,7 +16,6 @@ import {
   runeName,
   RUNE_STACK,
   sigilCapacity,
-  sigilCastDelay,
   matchingStarter,
   STAT_IDS,
   STAT_LABELS,
@@ -31,6 +30,8 @@ import {
 import { cssColor, TIER_COLORS, UNIQUE_COLOR } from '../render/config.js';
 import { compileFor, useUi } from './store.js';
 import { tip } from './Tip.js';
+import { formatCooldown } from '../game/castTiming.js';
+import { useSigilCooldown } from './useSigilCooldown.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
@@ -220,6 +221,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
   const result = compileFor(item, classId);
+  const cooldown = useSigilCooldown(item);
   // Still the starter it came from only while it holds the starter's runes.
   const skill = matchingStarter(item);
   const sub = item.corrupted ? 'Corrupted Sigil' : skill ? 'Starter Sigil' : 'Sigil';
@@ -232,7 +234,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
         </p>
       )}
       <p className="tt-sec tt-wand">
-        {sigilCapacity(item)} rune slots · {sigilCastDelay(item).toFixed(2)} s between casts
+        {sigilCapacity(item)} rune slots · Cooldown {formatCooldown(cooldown)}
       </p>
       {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />

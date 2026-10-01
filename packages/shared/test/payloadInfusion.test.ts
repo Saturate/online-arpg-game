@@ -3,7 +3,6 @@ import { SKILL_BUTTONS, Simulation, STARTER_SIGILS, type ElementId } from '../sr
 import { serializeEntities } from '../src/sim/snapshot.js';
 import { equipStarter } from './harness/parity.js';
 import { compileText } from './helpers/spell.js';
-import { HEAT } from '../src/index.js';
 
 /**
  * A payload carries its parent's infusions unless it has its own, all the way from the runes to what
@@ -58,7 +57,7 @@ function text(t: string): (sim: Simulation, pid: number) => void {
   const compiled = compileText(t);
   return (sim, pid) => {
     const p = sim.world.player.get(pid);
-    if (p) p.sigils = [{ uid: -1, compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds }, null, null, null];
+    if (p) p.sigils = [{ uid: -1, compiled, misfireMultiplier: 1, castDelayShare: 1 }, null, null, null];
   };
 }
 

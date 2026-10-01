@@ -1,5 +1,6 @@
 import { AURA, SIM, SKILL_BUTTONS, Simulation, spellFx, type ClassId, type ElementId, type EntityId, type SigilCompile, type SpellInst } from '@rune/shared';
 import { cssColor, COLORS, ELEMENT_COLORS, fxColor } from '../../render/config.js';
+import { useCastTiming } from '../../game/castTiming.js';
 
 /** Where the dummy stands from the caster: inside every shape's reach, far enough to see a bolt fly. */
 const DUMMY_DISTANCE = 260;
@@ -59,11 +60,12 @@ export class ForgePreview {
   }
 
   /** Swaps the spell; the next cast comes right away so a change shows at once. */
-  setSpell(compiled: SigilCompile | null, castDelay: number): void {
+  setSpell(compiled: SigilCompile | null, castDelayShare: number): void {
     this.compiled = compiled;
     const p = this.sim.world.player.get(this.playerId);
     if (!p) return;
-    p.sigils[0] = compiled ? { uid: -1, compiled, misfireMultiplier: 1, castDelay } : null;
+    this.sim.setRates({ ...this.sim.rates, castCooldown: useCastTiming.getState().globalSeconds });
+    p.sigils[0] = compiled ? { uid: -1, compiled, misfireMultiplier: 1, castDelayShare } : null;
     this.sinceCast = Infinity;
     this.hits = [];
   }

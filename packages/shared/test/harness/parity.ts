@@ -1,4 +1,4 @@
-import { compileSigilItem, createStarterSigil, sigilCastDelay, sigilMisfireMultiplier, STARTER_SIGILS, type StarterSigilDef } from '../../src/index.js';
+import { compileSigilItem, createStarterSigil, sigilCastDelayShare, sigilMisfireMultiplier, STARTER_SIGILS, type StarterSigilDef } from '../../src/index.js';
 import v1 from '../fixtures/skill-baseline-v1.json' with { type: 'json' };
 import { measureSkill, type EquipSkill, type SkillDpsResult } from './skillDps.js';
 
@@ -9,7 +9,7 @@ export function equipStarter(def: StarterSigilDef): EquipSkill {
     if (!p) throw new Error('no player');
     const item = createStarterSigil(() => sim.newItemUid(), def, { bound: true });
     p.items.set(item.uid, item);
-    return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelay: sigilCastDelay(item) };
+    return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
   };
 }
 

@@ -51,8 +51,11 @@ export interface EquippedSigil {
   uid: ItemUid;
   compiled: SigilCompile;
   misfireMultiplier: number;
-  /** Seconds before the next cast after this one, from the sigil's cast delay stat. */
-  castDelay: number;
+  /**
+   * Share of the global cast cooldown this sigil waits, from its cast delay affix. A share rather
+   * than seconds so an admin change to the cooldown reaches sigils already equipped.
+   */
+  castDelayShare: number;
 }
 
 export interface PlayerComp {

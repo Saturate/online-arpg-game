@@ -13,7 +13,7 @@ import {
   runeName,
   rollLosses,
   sigilCapacity,
-  sigilCastDelay,
+  sigilCastDelayShare,
   stashItemUids,
   type GrammarError,
   type InventoryMessage,
@@ -35,6 +35,8 @@ import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import './forge.css';
+import { formatCooldown } from '../game/castTiming.js';
+import { useSigilCooldown } from './useSigilCooldown.js';
 
 /** Drag type for forge slots and pool runes; kept apart from item drags so the two never mix. */
 const FORGE_DRAG = 'application/x-rune-forge';
@@ -227,6 +229,7 @@ export function ForgeEditor() {
   const places = useMemo(() => (inv ? sigilsOf(inv) : []), [inv]);
   const current = places.find((p) => p.item.uid === uid) ?? places.find((p) => p.where !== 'stash') ?? null;
   const sigil = current?.item ?? null;
+  const cooldown = useSigilCooldown(sigil);
   const base = sigil ? sigil.slots.map((r) => r.uid).join(',') : '';
   const stock = useMemo(() => (inv ? runeStock(inv, bench && !forgeOpen) : null), [inv, bench, forgeOpen]);
   const free = stock?.bench === true;
@@ -362,7 +365,7 @@ export function ForgeEditor() {
                 <h3 style={{ color: tierColor(sigil) }}>{sigil.name}</h3>
                 {starterNote(sigil) && <span className="forge-starter-note">{starterNote(sigil)}</span>}
                 <span className="muted">
-                  {capacity} slots · {sigilCastDelay(sigil).toFixed(2)} s between casts
+                  {capacity} slots{cooldown !== null && <> · Cooldown {formatCooldown(cooldown)}</>}
                   {sigil.corrupted ? ' · corrupted' : ''}
                 </span>
               </div>
@@ -422,7 +425,7 @@ export function ForgeEditor() {
               </div>
 
               <div className="forge-foot">
-                <ForgePreviewCanvas classId={classId} spellKey={`${sigil.uid}:${draftKey}`} compiled={draft.length > 0 ? result : null} castDelay={sigilCastDelay(sigil)} />
+                <ForgePreviewCanvas classId={classId} spellKey={`${sigil.uid}:${draftKey}`} compiled={draft.length > 0 ? result : null} castDelayShare={sigilCastDelayShare(sigil)} />
                 <div className="forge-save">
                   {resolution.refunds.length > 0 && <p className="muted">Comes back out: {resolution.refunds.map((r) => runeName(r.rune)).join(', ')}</p>}
                   {resolution.refundWeakened.length > 0 && (

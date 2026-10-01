@@ -5,10 +5,12 @@ import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
+import { formatCooldown } from '../game/castTiming.js';
 import { usePanelLayout } from './GamePanel.js';
 import { spiritUses } from './spirit.js';
 import { tip } from './Tip.js';
 import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
+import { useSigilCooldown } from './useSigilCooldown.js';
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
 function Orb({ label, value, max, kind, danger }: { label: string; value: number; max: number; kind: 'life' | 'force'; danger?: boolean }) {
@@ -28,14 +30,17 @@ function Orb({ label, value, max, kind, danger }: { label: string; value: number
 }
 
 /** What a skill does and costs, above its slot: the spell sentence and its Force or spirit. */
-function SkillPop({ name, description, result }: { name: string; description: string | null; result: SigilCompile | null }) {
+function SkillPop({ name, description, result, cooldown }: { name: string; description: string | null; result: SigilCompile | null; cooldown: number | null }) {
   return (
     <div className="skill-pop panel" role="tooltip">
       <h4>{name}</h4>
       {description && <p className="muted">{description}</p>}
       {result?.ok && <p className="skill-pop-sentence">{describeTree(result.tree)}</p>}
       {result?.ok && (
-        <p className="skill-pop-cost">{result.persistent ? `Reserves ${result.spirit} spirit while equipped` : `${Math.round(result.force)} ${HEAT.displayName} per cast`}</p>
+        <p className="skill-pop-cost">
+          {result.persistent ? `Reserves ${result.spirit} spirit while equipped` : `${Math.round(result.force)} ${HEAT.displayName} per cast`}
+          {!result.persistent && cooldown !== null && ` · Cooldown ${formatCooldown(cooldown)}`}
+        </p>
       )}
       {result && !result.ok && <p className="skill-pop-bad">Fizzles: {result.errors[0]?.message ?? 'the runes do not make a spell'}</p>}
       <p className="skill-pop-hint">Left or right click puts it on that mouse button</p>
@@ -61,6 +66,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
   const result = sigil && classId ? compileFor(sigil, classId) : null;
   const persistent = result?.ok === true && result.persistent;
+  const cooldown = useSigilCooldown(sigil);
   // Named and described as its starter only while it still holds the starter's runes.
   const skill = sigil ? matchingStarter(sigil) : undefined;
   const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
@@ -103,7 +109,7 @@ function SkillSlot({ slot }: { slot: number }) {
       data-link-uid={sigil ? sigil.uid : undefined}
       aria-label={`${name}${skill ? `: ${skill.description}` : ''}`}
     >
-      {hovered && sigil && <SkillPop name={name} description={skill?.description ?? null} result={sigil.slots.length > 0 ? result : null} />}
+      {hovered && sigil && <SkillPop name={name} description={skill?.description ?? null} result={sigil.slots.length > 0 ? result : null} cooldown={cooldown} />}
       {sigil && sigil.slots.length > 0 ? <SkillIcon runes={sigil.slots.map(toRuneInstance)} size={56} /> : <div className="skill-blank" />}
       {cd > 0 && <div className="skill-cd" style={sweep} />}
       <kbd className="skill-key">{keyLabel(binding)}</kbd>

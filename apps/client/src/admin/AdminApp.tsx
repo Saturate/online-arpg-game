@@ -484,6 +484,24 @@ function Settings({ token, role, notify }: TabProps) {
         {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceRampMax', 'Cooling ramp', `How much faster cooling gets after a pause in casting, at most. Default x${DEFAULT_SERVER_SETTINGS.forceRampMax}.`, SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax, 0.5)}
+        <label className="adm-field">
+          <span>
+            Cast cooldown <b>{draft.castCooldownSeconds} s</b>
+          </span>
+          <input
+            type="number"
+            min={SETTINGS_LIMITS.castCooldownMin}
+            max={SETTINGS_LIMITS.castCooldownMax}
+            step={0.05}
+            value={draft.castCooldownSeconds}
+            aria-label="Cast cooldown"
+            onChange={(e) => {
+              // An emptied field reads as 0, which the server would reject; keep the last value instead.
+              if (e.target.value !== '') setDraft({ ...draft, castCooldownSeconds: Number(e.target.value) });
+            }}
+          />
+          <small className="muted">{`Seconds between any two spell casts, before cast delay and cast speed shorten it. Force is the magazine, this is the fire rate. Default ${DEFAULT_SERVER_SETTINGS.castCooldownSeconds}.`}</small>
+        </label>
         {respawn('respawnMinutes', 'Monster respawn', `Minutes a stretch of the world must go with no player or minion within about 2000 units before its killed packs and opened chests come back. Default ${DEFAULT_SERVER_SETTINGS.respawnMinutes}.`)}
         {respawn('bossRespawnMinutes', 'Boss respawn', `The same for region bosses and their escorts. Default ${DEFAULT_SERVER_SETTINGS.bossRespawnMinutes}.`)}
         <label className="adm-field wide">

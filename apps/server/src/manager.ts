@@ -182,7 +182,7 @@ export class RoomManager implements AdminHooks {
 
   private applySettings(room: Room): void {
     const s = this.current;
-    room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax });
+    room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax, castCooldown: s.castCooldownSeconds });
     setRespawnTimes(room.sim, s);
   }
 
@@ -202,6 +202,7 @@ export class RoomManager implements AdminHooks {
       if (c.characterId === null) continue;
       c.send({ t: 'lighting', lighting });
       c.send({ t: 'zoom', zoom });
+      c.send({ t: 'castCooldown', seconds: this.current.castCooldownSeconds });
     }
     return this.settings();
   }

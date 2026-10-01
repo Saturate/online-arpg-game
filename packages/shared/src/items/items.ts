@@ -277,9 +277,17 @@ export function sigilCapacity(item: SigilItem): number {
   return Math.min(SIGIL_MAX_SLOTS, Math.max(rolled, starter));
 }
 
-/** Seconds before the next cast after casting this sigil (before cast speed). */
-export function sigilCastDelay(item: SigilItem): number {
-  return HEAT.castCooldownSeconds * (1 - affixValue(item.affixes, 'cast_delay') / 100);
+/** Share of the global cast cooldown this sigil waits, from its cast delay affix. */
+export function sigilCastDelayShare(item: SigilItem): number {
+  return 1 - affixValue(item.affixes, 'cast_delay') / 100;
+}
+
+/**
+ * Seconds between casts: the global cooldown (the admin setting), shortened by the sigil's cast
+ * delay share and the character's cast speed. The sim and every tooltip use this one formula.
+ */
+export function castCooldownSeconds(globalSeconds: number, castDelayShare: number, castSpeedMult: number): number {
+  return (globalSeconds * castDelayShare) / castSpeedMult;
 }
 
 export function sigilMisfireMultiplier(item: SigilItem): number {
