@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import type { Stats } from 'node:fs';
+import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 
 /**
  * Serves the built client in production, so game, API and WebSocket share one origin and one port.
@@ -42,8 +43,31 @@ const CSP = [
 
 const UNHASHED = ['/assets/kaykit/', '/assets/monsters/'];
 
+/** `path` is the served file relative to the root, with forward slashes and a leading one. */
 export function hashedAsset(path: string): boolean {
   return path.startsWith('/assets/') && !UNHASHED.some((p) => path.startsWith(p));
+}
+
+/** Weak because it comes from size and modification time, not the bytes. */
+export function weakEtag(info: Pick<Stats, 'size' | 'mtimeMs'>): string {
+  return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
+}
+
+/**
+ * Whether the browser's copy is current. If-None-Match wins over If-Modified-Since when both are
+ * sent (RFC 9110 13.2.2); weak comparison, since every tag here is weak.
+ */
+export function notModified(req: IncomingMessage, etag: string, mtimeMs: number): boolean {
+  const inm = req.headers['if-none-match'];
+  if (inm !== undefined) {
+    const strip = (t: string) => t.trim().replace(/^W\//, '');
+    return inm.split(',').some((t) => t.trim() === '*' || strip(t) === strip(etag));
+  }
+  const ims = req.headers['if-modified-since'];
+  if (ims === undefined) return false;
+  const since = Date.parse(ims);
+  // HTTP dates have whole seconds.
+  return Number.isFinite(since) && Math.floor(mtimeMs / 1000) * 1000 <= since;
 }
 
 export function staticHandler(root: string): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
@@ -74,15 +98,27 @@ export function staticHandler(root: string): (req: IncomingMessage, res: ServerR
     }
     if (!info?.isFile()) return false;
     const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
+    // Judged on the file actually served, so "/x/../assets/a.js" or a folder index gets the rule of what it is.
+    const served = '/' + relative(base, file).split(sep).join('/');
+    // Vite puts a content hash in every file it builds under /assets, so those can be cached
+    // forever. The model folders are copied from public/ under fixed names, so a fixed model
+    // would never reach a browser that has the old one: those revalidate, cheaply, by ETag.
+    const hashed = hashedAsset(served);
+    const etag = weakEtag(info);
+    const common = {
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'same-origin',
+      ...(hashed ? { 'cache-control': 'public, max-age=31536000, immutable' } : { 'cache-control': 'no-cache', etag, 'last-modified': info.mtime.toUTCString() }),
+    };
+    if (!hashed && notModified(req, etag, info.mtimeMs)) {
+      res.writeHead(304, common);
+      res.end();
+      return true;
+    }
     res.writeHead(200, {
       'content-type': type,
       'content-length': info.size,
-      // Vite puts a content hash in every file it builds under /assets, so those can be cached
-      // forever. The model folders are copied from public/ under fixed names, so a fixed model
-      // would never reach a browser that has the old one.
-      'cache-control': hashedAsset(path) ? 'public, max-age=31536000, immutable' : 'no-cache',
-      'x-content-type-options': 'nosniff',
-      'referrer-policy': 'same-origin',
+      ...common,
       ...(type.startsWith('text/html') ? { 'content-security-policy': CSP } : {}),
     });
     if (req.method === 'HEAD') {
