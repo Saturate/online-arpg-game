@@ -24,6 +24,11 @@ function shaperValue(node: SpellNode, id: SpellNode['shapers'][number]['id']): n
   return node.shapers.find((s) => s.id === id)?.value ?? null;
 }
 
+/** Concentrated's bonus as it is, to two decimals ("40.5"); 0 without one. */
+function morePercent(node: SpellNode): number {
+  return Number(node.stats.concentration.toFixed(2));
+}
+
 function descriptors(node: SpellNode, long: boolean): string[] {
   const out: string[] = [];
   const { speed, size, duration } = node.stats;
@@ -61,6 +66,8 @@ function nounPhrase(node: SpellNode): string {
   if (stack !== null) clauses.push(`stacking up to ${stack} before merging`);
   for (const e of node.effects) clauses.push(`that ${plural ? EFFECT_CLAUSE[e].many : EFFECT_CLAUSE[e].one}`);
   if (node.stats.damage !== 0) clauses.push(`with ${node.stats.damage > 0 ? '+' : ''}${node.stats.damage}% damage`);
+  const more = morePercent(node);
+  if (more > 0) clauses.push(`concentrated for ${more}% more damage`);
   return clauses.length ? `${head}, ${joinAnd(clauses)}` : head;
 }
 
@@ -161,6 +168,8 @@ function nodeTags(node: SpellNode): string[] {
   if (st.pierce > 0) tags.push(`pierce${st.pierce}`);
   if (st.bounce > 0) tags.push(`bounce${st.bounce}`);
   if (st.damage !== 0) tags.push(`${st.damage > 0 ? '+' : ''}${st.damage}% damage`);
+  const more = morePercent(node);
+  if (more > 0) tags.push(`${more}% more damage`);
   return tags;
 }
 

@@ -26,7 +26,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles a
 | boss | 4 | 0 | 30 | 60 | 10 |
 | dungeon cache | 3 | 0 | 0 | 70 | 30 |
 
-- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled. The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random starter's runes, unbound.
+- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled. A Concentrated rune is always rolled, whichever way it drops, since its amount is its roll ([runes.md](runes.md), "Concentrated rune"). The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random starter's runes, unbound.
 - **The dungeon cache** is richer per item than a boss drop (30% relic against 10%) because clearing the whole run earns it; 70% of it is gear, the rest sigils.
 - **Gold** drops from 35% of normal kills and always from rares and bosses: 2 to 6 gold per monster level, times 4 for rares and 15 for bosses.
 - **Summons, raised corpses and dev-spawned monsters drop nothing,** so they cannot be farmed ([monsters.md](monsters.md)).

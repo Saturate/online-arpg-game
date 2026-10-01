@@ -23,6 +23,7 @@ const ALIASES: Record<string, RuneId> = {
   hit: 'onhit',
   expire: 'onexpire',
   land: 'onland',
+  conc: 'concentrated',
 };
 
 const NUM = String.raw`([+-]?\d+(?:\.\d+)?|[+-]?\.\d+)`;
@@ -43,7 +44,7 @@ const WORD_AFFIXES: Record<string, (a: RuneAffixes) => void> = {
   homing: (a) => (a.homing = (a.homing ?? 0) + 1),
 };
 
-const COUNT_KEYS: Record<string, 'pierce' | 'bounce' | 'homing' | 'chain' | 'count' | 'stackLimit' | 'chargeStages' | 'seconds'> = {
+const COUNT_KEYS: Record<string, 'pierce' | 'bounce' | 'homing' | 'chain' | 'count' | 'stackLimit' | 'chargeStages' | 'seconds' | 'concentration'> = {
   pierce: 'pierce',
   bounce: 'bounce',
   homing: 'homing',
@@ -55,6 +56,7 @@ const COUNT_KEYS: Record<string, 'pierce' | 'bounce' | 'homing' | 'chain' | 'cou
   limit: 'stackLimit',
   stages: 'chargeStages',
   seconds: 'seconds',
+  concentration: 'concentration',
 };
 
 function parseRelease(item: string): Release | null {
@@ -220,7 +222,7 @@ export function formatRunes(runes: readonly RuneInstance[]): string {
       }
       const count = COUNT_AFFIX[r.id];
       let suffix = '';
-      for (const key of ['count', 'pierce', 'bounce', 'homing', 'chain', 'stackLimit', 'chargeStages', 'seconds'] as const) {
+      for (const key of ['count', 'pierce', 'bounce', 'homing', 'chain', 'stackLimit', 'chargeStages', 'seconds', 'concentration'] as const) {
         const v = a[key];
         if (v === undefined) continue;
         if (key === count) suffix = `(${v})`;

@@ -7,6 +7,7 @@ import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
 import { DEFAULT_CONTEXT, RULES, type GrammarError, type RuleKey } from './rules.js';
 import {
   COMBOS,
+  CONCENTRATED,
   DEFAULTS,
   isCastableRune,
   isPersistentShape,
@@ -107,6 +108,7 @@ export const RUNE_FORCE: Record<RuneId, number> = {
   onland: 2,
   swift: 3,
   large: 3,
+  concentrated: 5,
 };
 const SPLIT_FORCE_PER_COPY = 2;
 const RELEASE_FORCE: Record<ReleaseKind, number> = { onhit: 2, onexpire: 2, after: 2, every: 3, onland: 2, onrelease: 2 };
@@ -123,7 +125,16 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   restore: 12,
   swift: 5,
   large: 8,
+  /** The least Concentrated reserves; it reserves CONCENTRATED_SPIRIT_SHARE of the rest when that is more. */
+  concentrated: 10,
 };
+
+/**
+ * Concentrated multiplies every element on an aura, so a flat price let a three-element aura reach
+ * 1.31x the damage per spirit. As a share of the rest of the aura it costs the same per damage for
+ * any mix: a 60% roll gives 1.6 / 1.35, at most 1.19x the damage per spirit.
+ */
+const CONCENTRATED_SPIRIT_SHARE = 0.35;
 
 /**
  * Runes that only change the shape they sit on. On a payload they pay HEAT.payloadAffixShare like a
@@ -174,6 +185,15 @@ function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
   return scale * (1 + extra * STACKED_INFUSION_BONUS);
 }
 
+/**
+ * Damage-only multiplier of a node: its damage roll and Concentrated. Heals, shields and the strength
+ * of Ward and Restore auras leave it out; at damageScale a Concentrated Ward aura, with Large to win
+ * back the area, gave a party 51% damage reduction.
+ */
+function damageTuning(node: SpellNode): number {
+  return affixMultiplier(node.stats.damage) * (1 + node.stats.concentration / 100);
+}
+
 function isProjectileShape(node: SpellNode): boolean {
   return node.shape === 'bolt' || node.shape === 'orb';
 }
@@ -197,7 +217,7 @@ function nodeReleases(node: SpellNode): number {
 function releaseWeight(node: SpellNode, parent: SpellNode, splitEfficiencyBonus: number): number {
   const ringed = parent.release?.kind === 'every' && node.copies > 1 && isProjectileShape(node) && isProjectileShape(parent);
   const aimed = ringed ? (node.copies * SPELL.splitSpreadRadians) / (2 * Math.PI) : node.copies;
-  return nodeScale(node, splitEfficiencyBonus) * affixMultiplier(node.stats.damage) * aimed;
+  return nodeScale(node, splitEfficiencyBonus) * damageTuning(node) * aimed;
 }
 
 /**
@@ -247,6 +267,9 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
   if (a.duration !== undefined) force += steps(a.duration, st.duration) * own;
   if (a.damage !== undefined) force += steps(a.damage, st.damage) * own;
   if (a.pierce !== undefined && a.pierce > 0) force += (Math.log(1 + a.pierce / st.pierce) / Math.LN2) * own;
+  // Concentrated's damage is priced like a damage roll of the same size, on top of its base cost.
+  // Its area loss gives nothing back: on a Bolt or a lone target it costs the spell almost nothing.
+  if (rune.id === 'concentrated') force += steps(a.concentration ?? CONCENTRATED.defaultMore, st.damage) * own;
   return force * HEAT.affixStepForce;
 }
 
@@ -284,9 +307,14 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
 }
 
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {
-  let spirit = 0;
-  for (const r of runes) spirit += RUNE_SPIRIT[r.id] ?? 0;
-  return Math.round(spirit * mult);
+  let rest = 0;
+  let concentrated = 0;
+  for (const r of runes) {
+    if (r.id === 'concentrated') concentrated++;
+    else rest += RUNE_SPIRIT[r.id] ?? 0;
+  }
+  const each = Math.max(RUNE_SPIRIT.concentrated ?? 0, rest * CONCENTRATED_SPIRIT_SHARE);
+  return Math.round((rest + concentrated * each) * mult);
 }
 
 /** Everything the engine cannot run yet, named. Empty when the tree is castable. */
@@ -318,6 +346,11 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
   // An orb rolls through everything unless it bursts on hit: that is what makes it an orb.
   const phase = form === 'orb' && trigger !== 'onhit';
   if (phase && node.stats.pierce > 0) notes.push(`${runeName(node.shape)} (rune ${node.runeIndex + 1}) already rolls through every enemy, so its pierce does nothing.`);
+  // Same test as the engine's isOffensive; an aura only damages through its elements.
+  const damages = elements.length > 0 || (form !== 'aura' && (node.effects.includes('impact') || (!node.effects.includes('restore') && !node.effects.includes('ward'))));
+  if (node.concentratedAt !== null && !damages) {
+    notes.push(`Concentrated (rune ${node.concentratedAt + 1}) only adds damage, and ${runeName(node.shape)} (rune ${node.runeIndex + 1}) deals none: it only shrinks it.`);
+  }
   const payload = trigger ? node.payload.map((child) => buildNode(child, ctx, notes)) : [];
   return {
     form,
@@ -336,7 +369,7 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
       speed: affixMultiplier(node.stats.speed),
       radius: affixMultiplier(node.stats.size),
       range: affixMultiplier(node.stats.duration),
-      damage: affixMultiplier(node.stats.damage),
+      damage: damageTuning(node),
       phase: phase ? 1 : 0,
     },
   };

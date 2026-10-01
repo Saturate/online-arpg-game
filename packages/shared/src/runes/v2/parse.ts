@@ -2,6 +2,7 @@ import { measureBudget } from './budget.js';
 import {
   AFFIX_KEYS,
   affixesFor,
+  CONCENTRATED,
   DEFAULT_PULSE_SECONDS,
   DEFAULT_TIMER_SECONDS,
   DEFAULTS,
@@ -14,6 +15,7 @@ import {
   runeName,
   SHAPERS_FOR_SHAPE,
   SHAPES,
+  SHAPES_WITHOUT_AREA,
   TRIGGER_RELEASE,
   type AffixKey,
   type EffectId,
@@ -54,6 +56,8 @@ export interface NodeStats {
   pierce: number;
   bounce: number;
   homing: number;
+  /** Percent more damage from the shape's Concentrated rune, 0 without one. */
+  concentration: number;
 }
 
 export interface SpellNode {
@@ -71,6 +75,8 @@ export interface SpellNode {
   /** Copies after Split (1 when unsplit). */
   copies: number;
   linked: boolean;
+  /** Index of the shape's Concentrated rune, if it has one. */
+  concentratedAt: number | null;
   release: NodeRelease | null;
   /** Shapes spawned when this one releases; cast together with each other. */
   payload: SpellNode[];
@@ -112,9 +118,10 @@ function newNode(runeIndex: number, shape: ShapeId, depth: number): SpellNode {
     effectiveInfusions: [],
     effects: [],
     shapers: [],
-    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0 },
+    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0 },
     copies: 1,
     linked: false,
+    concentratedAt: null,
     release: null,
     payload: [],
     castTogether: false,
@@ -322,7 +329,11 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       if (a.speed !== undefined) node.stats.speed += a.speed;
       if (a.size !== undefined) node.stats.size += a.size;
       if (a.duration !== undefined) node.stats.duration += a.duration;
-      if (a.damage !== undefined) node.stats.damage += a.damage;
+      if (a.damage !== undefined) {
+        // Matches the drop table (rune_damage never rolls on Aura or Bond): spirit does not price damage.
+        if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry a damage affix.`);
+        else node.stats.damage += a.damage;
+      }
       if (a.pierce !== undefined) {
         if (PROJECTILE_SHAPES.includes(shape)) node.stats.pierce += a.pierce;
         else fail('AFFIX_NOT_ALLOWED', i, `${label(i)} does not fly, so it cannot pierce.`);
@@ -378,6 +389,26 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         }
         const effect = PLAIN_MODIFIER_EFFECT[rune.id];
         target.stats[effect.key] += effect.value;
+        break;
+      }
+      case 'concentrated': {
+        const shape = SHAPES[target.shape].name;
+        if (SHAPES_WITHOUT_AREA.includes(target.shape)) {
+          fail('CONCENTRATED_NEEDS_AREA', i, `${label(i)} trades area for damage, but ${shape} (rune ${target.runeIndex + 1}) has no area to give up.`);
+          break;
+        }
+        if (target.concentratedAt !== null) {
+          fail('CONCENTRATED_ONCE', i, `${shape} (rune ${target.runeIndex + 1}) already has Concentrated (rune ${target.concentratedAt + 1}); a shape takes one.`);
+          break;
+        }
+        const more = rune.affixes.concentration ?? CONCENTRATED.defaultMore;
+        if (!(more >= CONCENTRATED.minMore && more <= CONCENTRATED.maxMore)) {
+          fail('CONCENTRATED_AMOUNT', i, `${label(i)} adds ${more}% damage; Concentrated adds ${CONCENTRATED.minMore} to ${CONCENTRATED.maxMore}%.`);
+          break;
+        }
+        target.concentratedAt = i;
+        target.stats.concentration = more;
+        target.stats.size += CONCENTRATED.sizePercent;
         break;
       }
       case 'split':

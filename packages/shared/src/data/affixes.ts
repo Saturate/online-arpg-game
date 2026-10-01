@@ -78,6 +78,7 @@ export const AFFIX_IDS = [
   'rune_damage',
   'rune_pierce',
   'split_count',
+  'rune_concentrated',
 ] as const;
 export type AffixId = (typeof AFFIX_IDS)[number];
 
@@ -403,6 +404,21 @@ export const AFFIXES: Record<AffixId, AffixDef> = {
       { weight: 100, min: 2, max: 3 },
       { weight: 60, min: 3, max: 4 },
       { weight: 25, min: 5, max: 6 },
+    ],
+  },
+  // Every Concentrated drop rolls this (docs/features/runes.md); the tiers lift its amount with item level.
+  rune_concentrated: {
+    id: 'rune_concentrated',
+    text: '{v}% more damage',
+    slot: 'prefix',
+    targets: ['rune'],
+    group: 'rune_concentrated',
+    nameWord: 'Dense',
+    runes: ['concentrated'],
+    tiers: [
+      { weight: 100, min: 40, max: 46 },
+      { weight: 60, min: 47, max: 53 },
+      { weight: 25, min: 54, max: 60 },
     ],
   },
   coward: {

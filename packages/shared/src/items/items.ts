@@ -150,6 +150,7 @@ const RUNE_AFFIX_KEY: Partial<Record<AffixId, AffixKey>> = {
   rune_damage: 'damage',
   rune_pierce: 'pierce',
   split_count: 'count',
+  rune_concentrated: 'concentration',
 };
 
 /** Whether `rune` may roll this affix: the affix lists the rune and the grammar reads its key there. */
@@ -163,6 +164,16 @@ export function runeMayCarry(rune: RuneId, id: AffixId): boolean {
 export const ROLLABLE_RUNES: readonly RuneId[] = CASTABLE_RUNES.filter((r) => AFFIX_IDS.some((id) => runeMayCarry(r, id)));
 
 /**
+ * Runes whose amount is rolled at drop, so they never drop plain: Concentrated's more damage is its
+ * rune_concentrated roll. A plain one (the builders' bench) casts at CONCENTRATED.defaultMore.
+ */
+export const ALWAYS_ROLLED_RUNES: readonly RuneId[] = ['concentrated'];
+
+export function dropsRolled(rune: RuneId): boolean {
+  return ALWAYS_ROLLED_RUNES.includes(rune);
+}
+
+/**
  * A rolled rune: a single item with rune affixes, never stacking. Affix count comes from the drop's
  * tier and the affix tiers from item level, like gear. Its item tier is at least magic, and at least
  * the rune's own, so a rolled rune always reads as the better find.
@@ -171,7 +182,9 @@ export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: n
   const id = rune ?? weightedPick(rng, ROLLABLE_RUNES.map((r) => ({ item: r, weight: RUNE_WEIGHT[runeTier(r)] }))) ?? 'orb';
   const n = FORGE.rolledRuneAffixes[tier];
   const maxAffixTier = Math.min(TIER_ROLLS[tier === 'common' ? 'magic' : tier].maxAffixTier, ilvlAffixTier(ilvl));
-  const affixes = rollAffixes(rng, 'rune', rng.int(n.min, n.max), maxAffixTier, { rune: id, allow: (a) => runeMayCarry(id, a) });
+  // A rune rolled for its amount always gets that roll, whatever the drop tier allows.
+  const count = Math.max(rng.int(n.min, n.max), dropsRolled(id) ? 1 : 0);
+  const affixes = rollAffixes(rng, 'rune', count, maxAffixTier, { rune: id, allow: (a) => runeMayCarry(id, a) });
   const itemTier = ITEM_TIERS[Math.max(ITEM_TIERS.indexOf(tier), ITEM_TIERS.indexOf(runeTier(id)), 1)] ?? 'magic';
   return { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
 }
@@ -182,7 +195,7 @@ export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: n
  */
 export function toRuneInstance(item: RuneItem): RuneInstance {
   const a: RuneAffixes = {};
-  const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count', v: number): void => {
+  const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count' | 'concentration', v: number): void => {
     a[key] = (a[key] ?? 0) + v;
   };
   for (const roll of item.affixes) {
@@ -220,6 +233,9 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
       case 'split_count':
         add('count', roll.value);
         break;
+      case 'rune_concentrated':
+        add('concentration', roll.value);
+        break;
       default:
         break;
     }
@@ -227,7 +243,15 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
   return { id: item.rune, affixes: a };
 }
 
-const AFFIX_FOR_KEY = { speed: 'rune_speed', size: 'rune_size', duration: 'rune_duration', damage: 'rune_damage', pierce: 'rune_pierce', count: 'split_count' } as const;
+const AFFIX_FOR_KEY = {
+  speed: 'rune_speed',
+  size: 'rune_size',
+  duration: 'rune_duration',
+  damage: 'rune_damage',
+  pierce: 'rune_pierce',
+  count: 'split_count',
+  concentration: 'rune_concentrated',
+} as const;
 const AFFIX_FOR_RELEASE = { onhit: 'release_onhit', onexpire: 'release_onexpire', onland: 'release_onland', after: 'release_after', every: 'release_every' } as const;
 
 /**
@@ -248,7 +272,7 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
       item.affixes.push({ id, tier: honestTier(id, value), value });
       continue;
     }
-    if (key !== 'speed' && key !== 'size' && key !== 'duration' && key !== 'damage' && key !== 'pierce' && key !== 'count') {
+    if (key !== 'speed' && key !== 'size' && key !== 'duration' && key !== 'damage' && key !== 'pierce' && key !== 'count' && key !== 'concentration') {
       throw new Error(`${rune.id}: no rune affix sets ${key}`);
     }
     const v = a[key];
