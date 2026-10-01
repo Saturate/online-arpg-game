@@ -7,6 +7,7 @@ import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
 import { alertPack, knockbackImmune, onEnemyDeath } from './enemies.js';
 import { onBossKilled } from './dungeon.js';
+import { onGateBossKilled } from './gates.js';
 import { creditDamage, grantKillXp } from './progression.js';
 import { scoreKill } from './arena.js';
 import { dropLoot } from './inventory.js';
@@ -218,6 +219,7 @@ function kill(sim: Simulation, id: EntityId, sourceId: EntityId | null = null): 
     dropLoot(sim, id);
     onEnemyDeath(sim, id, e, pos);
     if (e.boss) onBossKilled(sim, pos.x, pos.y, e.level);
+    if (e.gate) onGateBossKilled(sim, e, pos.x, pos.y, sourceId);
     grantKillXp(sim, e, pos.x, pos.y, sourceId);
     scoreKill(sim, e);
     return;

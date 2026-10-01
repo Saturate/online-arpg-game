@@ -232,6 +232,8 @@ export type GameEvent =
   | { e: 'attack'; id: EntityId }
   /** A character touched a waypoint for the first time. */
   | { e: 'waypoint'; id: EntityId; waypoint: string }
+  /** A gate opened for character `id`: its boss fell to their party. (x, y) is the gate. */
+  | { e: 'gateOpened'; id: EntityId; gate: string; x: number; y: number }
   | { e: 'levelUp'; id: EntityId; level: number; x: number; y: number }
   /**
    * A monster winding up an attack: where it will land and when. Circles are areas, lines are
@@ -267,6 +269,8 @@ export interface SelfState {
   level: number;
   xp: number;
   xpNext: number;
+  /** Gates this character has opened; prediction seals the rest as the server does. */
+  gates: string[];
 }
 
 export interface Snapshot {

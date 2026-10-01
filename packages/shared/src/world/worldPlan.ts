@@ -597,9 +597,25 @@ export class WorldPlan {
   node(id: number): WorldNode | undefined {
     return this.nodes[id];
   }
+
+  /**
+   * The gate a spot lies behind, or null: the gate its nearest road lies behind. The line between
+   * two such areas runs halfway between their roads, across the trunk at the gate node and out over
+   * open ground to the sector borders, so it can be crossed only by the pass. Movement checks it.
+   */
+  gateAt(x: number, y: number): string | null {
+    if (this.gates.length === 0 || this.inTown(x, y)) return null;
+    const n = this.nearest(x, y);
+    return n ? (this.list[n.edge.b]?.behind ?? null) : null;
+  }
 }
 
 const FOREST_BY_BIOME: Record<Biome, number> = { forest: 2.2, marsh: 1.1, meadow: 1, ruins: 0.6, crypt: 0.6, cave: 0.5, desert: 0.25 };
+
+/** Gate ids are a region's id and `-gate`, the same for every seed, so a save's list can be checked on load. */
+export function isGateId(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= 24 && /^[a-z]+-gate$/.test(v);
+}
 
 /** Waypoint ids are short words, with a number after a dash for the world's: the old zone ids and `steppe-2` alike. */
 export function isWaypointId(v: unknown): v is string {

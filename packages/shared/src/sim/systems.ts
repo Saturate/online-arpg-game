@@ -1,6 +1,7 @@
 import { NAV } from '../config/sim.js';
 import { updateArenaWaves } from './arena.js';
 import { updateChests } from './chests.js';
+import { updateGates } from './gates.js';
 import { updateAuras } from './auras.js';
 import { isTargetable } from './combat.js';
 import { updateStatuses } from './combat.js';
@@ -41,6 +42,7 @@ export const SYSTEMS: readonly System[] = [
   { name: 'nav', run: updateNav },
   { name: 'players', run: updatePlayers },
   { name: 'chests', run: updateChests },
+  { name: 'gates', run: updateGates },
   // After players, so a respawn has moved its player to the spawn before sleep is decided; still
   // before anything a sleeper would run.
   { name: 'streaming', run: updateStreaming },

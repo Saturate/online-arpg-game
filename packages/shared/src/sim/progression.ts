@@ -67,6 +67,23 @@ export function killerOf(sim: Simulation, e: EnemyComp, sourceId: EntityId | nul
 }
 
 /**
+ * Who shares in a kill at (x, y): the killer's party members alive within partyRange, or the killer
+ * alone outside a party. XP and gate progress both go to them.
+ */
+export function killSharers(sim: Simulation, killer: EntityId, x: number, y: number): EntityId[] {
+  const w = sim.world;
+  const party = w.player.get(killer)?.party ?? null;
+  const r2 = PROGRESSION.partyRange ** 2;
+  const near: EntityId[] = [];
+  for (const [id, p] of w.player) {
+    if (id !== killer && (party === null || p.party !== party)) continue;
+    const pos = w.position.get(id);
+    if (p.respawnIn === null && pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) near.push(id);
+  }
+  return near;
+}
+
+/**
  * Pays a kill's XP the D2 way: to the killer's party members alive within partyRange of the kill,
  * or to the killer alone outside a party. Anyone else nearby gets nothing, so strangers cannot
  * leech off each other's fights. The pool grows per member present, so a party levels faster than
@@ -77,14 +94,7 @@ export function grantKillXp(sim: Simulation, e: EnemyComp, x: number, y: number,
   const w = sim.world;
   const killer = killerOf(sim, e, sourceId);
   if (killer === null) return;
-  const party = w.player.get(killer)?.party ?? null;
-  const r2 = PROGRESSION.partyRange ** 2;
-  const near: EntityId[] = [];
-  for (const [id, p] of w.player) {
-    if (id !== killer && (party === null || p.party !== party)) continue;
-    const pos = w.position.get(id);
-    if (p.respawnIn === null && pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) near.push(id);
-  }
+  const near = killSharers(sim, killer, x, y);
   if (near.length === 0) return;
   const arena = sim.arena ? ARENA.xpMultiplier : 1;
   const pool = killXp(e) * (1 + PROGRESSION.partyBonusPerMember * (near.length - 1)) * sim.rates.xp * arena;

@@ -33,12 +33,15 @@ describe('world save conversion', () => {
   });
 
   it('converts a save from the zones in order, without repeats', () => {
-    const { waypoints, report } = convertWorldWaypoints(['barrens', 'steppe', 'gloomvale', 'thornwood', 'dunes', 'hollows', 'steppe']);
+    const { waypoints, gates, report } = convertWorldWaypoints(['barrens', 'steppe', 'gloomvale', 'thornwood', 'dunes', 'hollows', 'steppe']);
     expect(waypoints).toEqual(['steppe-1', 'gloomvale-1', 'thornwood-1', 'dunes-1', 'hollows-1']);
     expect(report.dropped).toEqual(['barrens']);
     expect(report.unknown).toEqual([]);
     expect(report.warnings).toEqual([]);
-    expect(report.gatesPassed).toEqual(['steppe-gate', 'gloomvale-gate']);
+    // The zones behind a gate keep their way in: those gates open, the others stay sealed.
+    expect(gates).toEqual(['steppe-gate', 'gloomvale-gate']);
+    expect(report.gatesGranted).toEqual(gates);
+    expect(convertWorldWaypoints(['steppe', 'gloomvale', 'thornwood']).gates).toEqual([]);
   });
 
   it('keeps world ids found after the world shipped beside the mapped ones, and drops the town\'s', () => {
@@ -53,6 +56,9 @@ describe('world save conversion', () => {
     expect(twice.waypoints).toEqual(once.waypoints);
     expect(twice.report.mapped).toEqual([]);
     expect(twice.report.dropped).toEqual([]);
+    // World ids open nothing, so a second pass grants no gate the first did not.
+    expect(once.gates).toEqual(['gloomvale-gate']);
+    expect(twice.gates).toEqual([]);
     for (const id of WORLD_WAYPOINT_IDS.filter((x) => x !== TOWN_WAYPOINT)) expect(convertWorldWaypoints([id]).waypoints).toEqual([id]);
   });
 

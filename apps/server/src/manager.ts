@@ -48,6 +48,7 @@ import {
   type RoomRules,
   type TownLayout,
   type Vec2,
+  type GateInfo,
   type WorldInfo,
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
@@ -1095,6 +1096,13 @@ export class RoomManager implements AdminHooks {
       return;
     }
     const world = this.worldRoom(inst);
+    // Found before its gate was this character's to pass (an old save, an admin's goto): still sealed.
+    const behind = world.sim.mapDef.waypoints?.find((w) => w.id === id)?.behind ?? null;
+    if (behind && !state.gates.includes(behind)) {
+      const gate = world.sim.mapDef.gates?.find((g) => g.id === behind);
+      client.send({ t: 'notice', text: `The ${gate?.name ?? 'gate'} is sealed to you: slay its guardian first` });
+      return;
+    }
     const at = waypointArrival(world.sim.mapDef, world.sim.map, id);
     if (!at) {
       client.send({ t: 'notice', text: 'That waypoint is not in this world' });
@@ -1150,6 +1158,9 @@ export class RoomManager implements AdminHooks {
     if (room.desc.kind === 'dungeon' && [...room.members.values()].some((m) => m.client.accountId === null || !party.members.has(m.client.accountId))) {
       return `${name} is in a dungeon run with players outside your party`;
     }
+    // Past a gate this character has not opened, a teleport would skip its boss; walking is the way in.
+    const gate = this.gateBehind(target, room);
+    if (gate && !(here.playerState(client)?.gates.includes(gate.id) ?? false)) return `${name} is past the ${gate.name}, which is sealed to you`;
     if (target.instanceId !== client.instanceId) {
       const inst = this.instanceOf(target);
       if (!inst) return `${name} is between areas, try again`;
@@ -1159,6 +1170,26 @@ export class RoomManager implements AdminHooks {
       if (this.membersOf(inst).length >= INSTANCE_HARD_CAP) return `${name}'s world is full`;
     }
     return null;
+  }
+
+  /**
+   * The gate a player stands behind in their world copy, a dungeon or its antechamber counting as
+   * where its entrance is, or null. Reads the world room only if it is open, since the party frames
+   * ask this every second and must not open one.
+   */
+  private gateBehind(target: Client, room: Room): GateInfo | null {
+    const inst = this.instanceOf(target);
+    const world = inst ? this.rooms.get(this.worldRoomId(inst)) : undefined;
+    const plan = world?.sim.zone?.plan;
+    if (!world || !plan) return null;
+    let at: Vec2 | null = null;
+    if (room === world) at = room.playerState(target);
+    else if (room.desc.kind === 'staging' || room.desc.kind === 'dungeon') {
+      const seed = room.desc.seed;
+      at = world.sim.mapDef.portals.find((p) => p.target === 'staging' && p.dungeon?.seed === seed) ?? null;
+    }
+    const id = at ? plan.gateAt(at.x, at.y) : null;
+    return id === null ? null : (world.sim.mapDef.gates?.find((g) => g.id === id) ?? null);
   }
 
   /**

@@ -1,12 +1,13 @@
-import { STREAMING, WILDS, WORLD } from '../config/sim.js';
-import { ZONES } from '../data/zones.js';
+import { GATES, STREAMING, WILDS, WORLD } from '../config/sim.js';
+import type { EnemyTypeId } from '../data/enemies.js';
+import { ZONES, type ZoneId } from '../data/zones.js';
 import type { Vec2 } from '../sim/math.js';
 import { Rng } from '../sim/rng.js';
 import { addPathRiver, distToSegment, emptyMap, pillarRing, rock, scatterDecor, wall } from './gen.js';
 import { GameMap } from './gamemap.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { DEFAULT_TOWN_LAYOUT, layoutToMap, type TownLayout } from './town.js';
-import type { Decor, GroundPatch, Obstacle, Portal, Shape, WorldMap } from './types.js';
+import type { Decor, GateInfo, GroundPatch, Obstacle, Portal, Shape, WorldMap } from './types.js';
 import { HOME_REGION, TOWN_WAYPOINT, WorldPlan, type RoadSide } from './worldPlan.js';
 import { ZoneWorld, type ZoneSpec } from './zoneGen.js';
 
@@ -165,6 +166,98 @@ function bridgesOver(path: readonly Vec2[], roads: readonly { ax: number; ay: nu
   return bridges.sort((x, y) => x - y);
 }
 
+/**
+ * Each road's gate boss, by the road's first region. Bosses the road does not already end in, so
+ * the fight at the gate is not a rehearsal of the one at the far end: the Pale Lich (seen only in
+ * dungeons before) at the mouth of the Hollows, the Butcher on the old steppe road into the Dunes,
+ * the Broodmother where the Thornwood closes in.
+ */
+const GATE_BOSS: Partial<Record<ZoneId, EnemyTypeId>> = { gloomvale: 'lich', steppe: 'butcher', thornwood: 'broodmother' };
+
+/** Half the gap between the arch's legs: the trunk's half width plus the road's clearance and a little. */
+const GATE_LEG = WORLD.trunkWidth + ROAD_CLEARANCE + 10;
+/** Broken walls run this far out from each leg along the seal before the ridge takes over. */
+const GATE_WALL = 340;
+
+/**
+ * A gate's pass: a ruined arch over the road with broken walls out from its legs, then a ridge of
+ * rocks along the rest of the seal's line (where `WorldPlan.gateAt` changes) out to the sector's
+ * borders, so the line a character without the gate cannot cross is a wall wherever the rocks fit.
+ * The rule itself is the plan's, not these rocks: a gap in the ridge (a river, a tight spot) is
+ * still sealed.
+ */
+function addGatePass(map: WorldMap, space: Space, plan: WorldPlan, gate: WorldPlan['gates'][number], width: number, height: number): GateInfo | null {
+  const g = plan.node(gate.node);
+  const road = plan.roads[gate.road];
+  if (!g || !road) return null;
+  const rng = Rng.stream(plan.seed, `world:gate:${gate.id}`);
+  const nx = -Math.sin(gate.angle);
+  const ny = Math.cos(gate.angle);
+  const push = (o: Obstacle): void => {
+    map.obstacles.push(o);
+    space.obstacle(o);
+  };
+  // The arch is decor; its legs are what blocks, so the road between them stays the only way through.
+  map.decor.push({ asset: 'grave_arch', x: g.x, y: g.y, angle: gate.angle + Math.PI / 2, scale: 2.35 });
+  for (const side of [1, -1]) {
+    const lx = g.x + nx * GATE_LEG * side;
+    const ly = g.y + ny * GATE_LEG * side;
+    push({ kind: 'decor', shape: { type: 'circle', x: lx, y: ly, r: 18 }, blocksMove: true, blocksShots: true, visual: 200 });
+    map.decor.push({ asset: 'grave_post_skull', x: lx + Math.cos(gate.angle) * -40, y: ly + Math.sin(gate.angle) * -40, angle: gate.angle, scale: 1 });
+    // Wall pieces out from the leg, each only where it keeps off every road.
+    for (let d = GATE_LEG + 24; d < GATE_LEG + GATE_WALL; d += 80) {
+      const ax = g.x + nx * d * side;
+      const ay = g.y + ny * d * side;
+      const bx = g.x + nx * (d + 80) * side;
+      const by = g.y + ny * (d + 80) * side;
+      if (!fitsIn(space, width, height, (ax + bx) / 2, (ay + by) / 2, 44, { spacing: 0, riverPad: 20, keepOut: true, bridges: true })) break;
+      push(wall(ax, ay, bx, by));
+    }
+  }
+  map.ground.push({ kind: 'dirt', shape: { type: 'circle', x: g.x - Math.cos(gate.angle) * 120, y: g.y - Math.sin(gate.angle) * 120, r: 210 } });
+
+  // The ridge: along each ray from the centre across the sector, the first spot behind this gate,
+  // found by stepping out and then halving the step.
+  const c = plan.centre;
+  const r0 = Math.hypot(g.x - c.x, g.y - c.y);
+  const far = Math.hypot(width, height) / 2;
+  const behind = (a: number, r: number): boolean => plan.gateAt(c.x + Math.cos(a) * r, c.y + Math.sin(a) * r) === gate.id;
+  const rules: PlacementRules = { spacing: -30, riverPad: 40, keepOut: true, bridges: true };
+  const half = WORLD.sectorHalf - 0.02;
+  for (let a = road.angle - half; a <= road.angle + half; a += 58 / r0) {
+    let lo = Math.max(WORLD.hubRadius, r0 * 0.55);
+    if (behind(a, lo)) continue;
+    let hi = lo;
+    while (hi < far && !behind(a, hi)) hi += 150;
+    if (hi >= far) continue;
+    lo = hi - 150;
+    for (let k = 0; k < 6; k++) {
+      const mid = (lo + hi) / 2;
+      if (behind(a, mid)) hi = mid;
+      else lo = mid;
+    }
+    const x = c.x + Math.cos(a) * hi;
+    const y = c.y + Math.sin(a) * hi;
+    if (Math.hypot(x - g.x, y - g.y) < GATE_LEG + GATE_WALL + 40) continue;
+    const rad = rng.range(46, 66);
+    if (fitsIn(space, width, height, x, y, rad, rules)) push(rock(x, y, rad, rng));
+  }
+
+  const inner = road.regions[0] ?? g.region;
+  return {
+    id: gate.id,
+    x: g.x,
+    y: g.y,
+    angle: gate.angle,
+    region: gate.region,
+    name: `${ZONES[inner].name} Gate`,
+    boss: GATE_BOSS[inner] ?? 'butcher',
+    level: plan.levelAt(g.x, g.y) + GATES.levelBonus,
+    bossX: g.x - Math.cos(gate.angle) * GATES.standBack,
+    bossY: g.y - Math.sin(gate.angle) * GATES.standBack,
+  };
+}
+
 export interface WorldBuild {
   zone: ZoneWorld;
   plan: WorldPlan;
@@ -238,6 +331,9 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
       if (fitsIn(space, width, height, x, y, rad, borderRules)) push(rock(x, y, rad, ridgeRng));
     }
   }
+  // Gates before the loose ridges, so nothing else takes the spots their walls and ridges need.
+  const gates = plan.gates.flatMap((g) => addGatePass(map, space, plan, g, width, height) ?? []);
+
   // Loose ridges out in the regions, as a zone always had, never in the home region.
   for (let n = 0; n < Math.round(WILDS.ridges * scale * 0.6); n++) {
     let x = ridgeRng.range(400, width - 400);
@@ -314,9 +410,11 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
     chests.push({ x: at.x, y: at.y, level: plan.levelAt(at.x, at.y) + 1 });
   }
   map.chests = chests;
-  map.gates = plan.gates.flatMap((g) => {
-    const n = plan.node(g.node);
-    return n ? [{ id: g.id, x: n.x, y: n.y, angle: g.angle, region: g.region }] : [];
+  map.gates = gates.map((g) => {
+    // The boss stands on open ground; packs and camps keep their distance from it.
+    const at = gm.findOpen(g.bossX, g.bossY, 40);
+    keepOutCircles.push({ x: at.x, y: at.y, r: 260 });
+    return { ...g, bossX: at.x, bossY: at.y };
   });
 
   const spec: ZoneSpec = {

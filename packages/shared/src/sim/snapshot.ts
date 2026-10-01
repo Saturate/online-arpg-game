@@ -151,6 +151,7 @@ function selfState(sim: Simulation, pid: EntityId): SelfState | null {
     level: p.level,
     xp: Math.floor(p.xp),
     xpNext: xpToNext(p.level),
+    gates: p.gates,
   };
 }
 

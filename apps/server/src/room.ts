@@ -111,12 +111,12 @@ export class Room {
     return m ? this.sim.exportPlayer(m.playerId) : null;
   }
 
-  /** The player's position and unlocked waypoints, for travel decisions made by the manager. */
-  playerState(client: Client): { x: number; y: number; waypoints: readonly string[] } | null {
+  /** The player's position, unlocked waypoints and opened gates, for travel decisions made by the manager. */
+  playerState(client: Client): { x: number; y: number; waypoints: readonly string[]; gates: readonly string[] } | null {
     const m = this.members.get(client.id);
     const p = m ? this.sim.world.player.get(m.playerId) : undefined;
     const pos = m ? this.sim.world.position.get(m.playerId) : undefined;
-    return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints } : null;
+    return p && pos ? { x: pos.x, y: pos.y, waypoints: p.waypoints, gates: p.gates } : null;
   }
 
   /** What the party frames and the teleport channel read about a member, once a tick at most. */

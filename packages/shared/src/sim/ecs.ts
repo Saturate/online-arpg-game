@@ -105,6 +105,8 @@ export interface PlayerComp {
   god: boolean;
   /** Zones whose waypoint this character has touched; the waypoint menu offers these. */
   waypoints: string[];
+  /** Gates this character has opened by killing their boss (`sim/gates.ts`); the land behind the rest is sealed to it. */
+  gates: string[];
   level: number;
   /** Progress into the current level, not lifetime total. */
   xp: number;
@@ -168,6 +170,8 @@ export interface EnemyComp {
   detonated: boolean;
   /** Seconds left held in place by a Hound Leader's pounce: no moving, biting or casting. */
   pinned: number;
+  /** Set on a gate boss: the gate its death opens for the killer's party (`sim/gates.ts`). */
+  gate?: string;
 }
 
 /** An ability winding up. Aim and target points lock at the start, which is what makes it dodgeable. */

@@ -128,10 +128,28 @@ export interface WorldMap {
   waypoints?: WaypointInfo[];
   /** Chests at the world's dead ends: each opens once per world copy, for the first to reach it. */
   chests?: { x: number; y: number; level: number }[];
-  /** Narrow passes a gate boss will hold (gate bosses come later); passable today. */
-  gates?: { id: string; x: number; y: number; angle: number; region: string }[];
+  /** The world's gates: narrow passes a gate boss holds, sealed for each character until they kill it (`sim/gates.ts`). */
+  gates?: GateInfo[];
   /** Where the town layout's origin sits in this map; the town editor works in town coordinates. */
   townAt?: Vec2;
+}
+
+export interface GateInfo {
+  id: string;
+  /** The gate node, where the seal crosses the road. */
+  x: number;
+  y: number;
+  /** The road's heading through the gate, away from town. */
+  angle: number;
+  /** The region it leads into. */
+  region: string;
+  /** What the HUD calls it: the first region's name and "Gate". */
+  name: string;
+  boss: EnemyTypeId;
+  level: number;
+  /** Where the boss stands, on the town side of the seal. */
+  bossX: number;
+  bossY: number;
 }
 
 export interface WaypointInfo {
@@ -141,7 +159,7 @@ export interface WaypointInfo {
   y: number;
   /** Monster level around it, for the menu. */
   level: number;
-  /** The gate it lies behind, if any (gate bosses will make it need that gate's progress). */
+  /** The gate it lies behind, if any: travel there needs that gate opened. */
   behind: string | null;
 }
 

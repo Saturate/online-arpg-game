@@ -4,7 +4,8 @@ import { ITEM_TIERS, ROLLABLE_RUNES, createGear, createRolledRune, createVessel,
 import type { RuneId } from '../runes/v2/runes.js';
 import { dropSigil } from '../items/drops.js';
 import { onBossKilled } from './dungeon.js';
-import type { EntityId } from './ecs.js';
+import type { EnemyComp, EntityId } from './ecs.js';
+import { onGateBossKilled } from './gates.js';
 import { spawnEnemy } from './enemies.js';
 import { forgoUnspawnedPacks } from './streaming.js';
 import { addItem } from './inventory.js';
@@ -96,15 +97,19 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
       return cmd.on ? 'God mode on' : 'God mode off';
     case 'killAll': {
       // A boss removed this way still ends the run, or a dungeon cleared with dev tools keeps its exit sealed.
-      const bosses: { x: number; y: number; level: number }[] = [];
+      // A gate boss removed this way opens its gate for the one who did it, so a builder can test what lies past it.
+      const bosses: { x: number; y: number; level: number; e: EnemyComp }[] = [];
       for (const [id, e] of w.enemy) {
         const pos = w.position.get(id);
-        if (e.boss && pos) bosses.push({ x: pos.x, y: pos.y, level: e.level });
+        if (e.boss && pos) bosses.push({ x: pos.x, y: pos.y, level: e.level, e });
       }
       for (const id of [...w.enemy.keys()]) w.destroy(id);
       // Packs of chunks nobody has been near yet would spawn later; they go too.
       forgoUnspawnedPacks(sim);
-      for (const b of bosses) onBossKilled(sim, b.x, b.y, b.level);
+      for (const b of bosses) {
+        onBossKilled(sim, b.x, b.y, b.level);
+        if (b.e.gate) onGateBossKilled(sim, b.e, b.x, b.y, pid);
+      }
       return 'Cleared all monsters';
     }
     case 'clearLoot':

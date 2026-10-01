@@ -256,6 +256,7 @@ export function restoreSave(sim: Simulation, pid: EntityId, stored: PlayerSave):
   for (const slot of GEAR_SLOTS) p.gear[slot] = re(save.gear[slot]);
   p.stance = save.stance;
   p.waypoints = [...save.waypoints];
+  p.gates = [...(save.gates ?? [])];
   p.level = save.level;
   p.xp = save.xp;
   p.gold = save.gold;

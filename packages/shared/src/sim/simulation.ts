@@ -23,6 +23,7 @@ import * as inv from './inventory.js';
 import * as stash from './stash.js';
 import { distSq, type Vec2 } from './math.js';
 import { despawnMinion } from './minions.js';
+import { gateSeal } from './gates.js';
 import { stepPlayer } from './movement.js';
 import { Rng } from './rng.js';
 import { castSkill, updateDashSpell } from './spells.js';
@@ -56,6 +57,8 @@ export interface PlayerSave {
   runeFormat: 2;
   /** Waypoints hold world ids. A save without it lists the old zones' ids and is converted before it is read. */
   worldFormat: 1;
+  /** Gates this character has opened (`sim/gates.ts`). A save from before gate bosses has none. */
+  gates?: string[];
 }
 
 export interface PortalRequest {
@@ -225,6 +228,7 @@ export class Simulation {
       god: false,
       // The town's waypoint is everyone's without being listed, like D2's.
       waypoints: [],
+      gates: [],
       level: 1,
       xp: 0,
       gold: 0,
@@ -261,6 +265,7 @@ export class Simulation {
       gold: p.gold,
       runeFormat: 2,
       worldFormat: 1,
+      gates: [...p.gates],
     };
   }
 
@@ -293,7 +298,7 @@ export class Simulation {
 
     const def = CLASSES[p.classId];
     const wasDashing = p.dash !== null;
-    const next = stepPlayer(this.map, { x: pos.x, y: pos.y, dash: p.dash }, input.moveDir, p.stats.moveSpeed, SIM.dt, SIM.playerRadius);
+    const next = stepPlayer(this.map, { x: pos.x, y: pos.y, dash: p.dash }, input.moveDir, p.stats.moveSpeed, SIM.dt, SIM.playerRadius, gateSeal(this, p.gates));
     const moved = Math.hypot(next.x - pos.x, next.y - pos.y);
     if (moved > 0.5) p.heading = Math.atan2(next.y - pos.y, next.x - pos.x);
     pos.x = next.x;

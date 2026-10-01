@@ -459,6 +459,16 @@ export const WORLD = {
   branchWidth: 40,
 } as const;
 
+/** Gate bosses: each road's pass past its first region, sealed per character until its boss falls. */
+export const GATES = {
+  /** It spawns once a living player comes this close to its gate, so an empty road holds none. */
+  spawnRange: 2400,
+  /** Above the ground round the gate, so it is the hardest fight of the road so far. */
+  levelBonus: 2,
+  /** Where it stands: this far back along the road from the gate, on the side everyone can reach. */
+  standBack: 170,
+} as const;
+
 export const DUNGEON = {
   /** Room slots across and down; one room per slot. */
   slotsX: 4,
