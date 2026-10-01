@@ -190,7 +190,7 @@ export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: n
   // A rune rolled for its amount always gets that roll, whatever the drop tier allows.
   const count = Math.max(rng.int(n.min, n.max), dropsRolled(id) ? 1 : 0);
   // Rune affix tiers carry their own item-level gates; the drop's tier only caps how high they go.
-  const affixes = rollAffixes(rng, 'rune', count, RUNE_AFFIX_TIER_CAP[tier], { rune: id, allow: (a) => runeMayCarry(id, a), ilvl });
+  const affixes = rollAffixes(rng, 'rune', count, RUNE_AFFIX_TIER_CAP[tier], { rune: id, allow: (a) => runeMayCarry(id, a), ilvl: Math.max(1, ilvl) });
   const itemTier = ITEM_TIERS[Math.max(ITEM_TIERS.indexOf(tier), ITEM_TIERS.indexOf(runeTier(id)), 1)] ?? 'magic';
   return { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
 }

@@ -206,6 +206,7 @@ describe('affix ranges in live tuning', () => {
     // Sharing an end is fine, as whole-number tiers must.
     expect(tunableSetProblem({ [dmg(1, 'min')]: 18 })).toBeNull();
     expect(tunableSetProblem({ [dmg(5, 'ilvl')]: 4 })).toMatch(/unlocks at item level 4/);
+    expect(tunableSetProblem({ [dmg(0, 'ilvl')]: 2 })).toMatch(/rune_damage T6 must unlock at item level 1/);
     const every = (tier: number, key: 'min' | 'max'): string => affixTierPath('release_every', tier, key);
     expect(tunableSetProblem({ [every(5, 'max')]: 0.25 })).toMatch(/shorter is better/);
     expect(tunableSetProblem({ [affixTierPath('damage_increased', 2, 'min')]: 30 })).toMatch(/damage_increased T1/);

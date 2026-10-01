@@ -403,7 +403,8 @@ function valueIn(values: Readonly<TunableValues>, path: string): number | undefi
  * Why one affix's tiers break under a set of overrides, or null: every tier's lowest roll at most
  * its highest, and the tiers in order from the weakest up without overlapping (neighbours may share
  * an end, as whole-number tiers must), so the tier a roll counts as, and its price, is never in
- * doubt. A better tier may not unlock at a lower item level than a worse one.
+ * doubt. A better tier may not unlock at a lower item level than a worse one, and the weakest
+ * unlocks at level 1, since a Concentrated rune must always find a roll.
  */
 function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string | null {
   const def = AFFIXES[id];
@@ -417,6 +418,7 @@ function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string
     const ilvl = valueIn(values, affixTierPath(id, tier, 'ilvl'));
     const name = `${id} T${def.tiers.length - tier}`;
     if (min > max) return `${name}: its lowest roll ${min} is above its highest ${max}`;
+    if (!prev && ilvl !== undefined && ilvl !== 1) return `${name} must unlock at item level 1, so every drop can roll the affix`;
     if (prev) {
       // A shorter pulse is the better roll, so its tiers run downward.
       if (!lower && min < prev.max) return `${name} (${min} to ${max}) overlaps or sits below ${prev.name} (${prev.min} to ${prev.max})`;
