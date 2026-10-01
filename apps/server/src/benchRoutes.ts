@@ -7,7 +7,7 @@ export interface BenchRequest {
   body: () => Promise<unknown>;
   /** Adding and removing picks takes the `tuning` permission; looking needs only staff access, checked before. */
   canEdit: boolean;
-  /** Shares the tuning write limit, so a script cannot flood the table. */
+  /** The bench's own write limit; consumed only by a write that passed its checks, so typos cost nothing. */
   allowWrite: () => boolean;
   by: { account: string; token: string | null };
   log: (what: string) => void;
@@ -25,15 +25,15 @@ export async function benchRoute(req: BenchRequest, store: BenchStore): Promise<
   if (path === '/api/admin/bench') {
     if (method !== 'GET') return [405, { error: 'Use GET' }];
     const popular = store.mostEquipped();
-    const state: BenchState = { picks: store.picks(), popular: popular.sigils, popularAt: popular.at };
+    const state: BenchState = { picks: store.picks(), popular: popular.sigils, popularAt: popular.at, popularReady: popular.ready };
     return [200, state];
   }
   if (path === '/api/admin/bench/picks') {
     if (method !== 'POST') return [405, { error: 'Use POST' }];
     if (!req.canEdit) return [403, { error: 'Your role cannot do that' }];
-    if (!req.allowWrite()) return [429, { error: 'Too many changes; wait a minute' }];
     const spell = checkBenchSpell(await req.body());
     if (typeof spell === 'string') return [400, { error: spell }];
+    if (!req.allowWrite()) return [429, { error: 'Too many bench changes; wait a minute' }];
     const added = store.add(spell, req.by);
     if (added === 'duplicate') return [409, { error: 'That spell is already on the bench' }];
     if (added === 'full') return [409, { error: 'The bench is full; remove a pick first' }];
@@ -44,9 +44,11 @@ export async function benchRoute(req: BenchRequest, store: BenchStore): Promise<
   if (match) {
     if (method !== 'DELETE') return [405, { error: 'Use DELETE' }];
     if (!req.canEdit) return [403, { error: 'Your role cannot do that' }];
-    if (!req.allowWrite()) return [429, { error: 'Too many changes; wait a minute' }];
-    const gone = store.remove(Number(match[1]));
-    if (!gone) return [404, { error: `No pick #${match[1]}` }];
+    const id = Number(match[1]);
+    if (!store.pick(id)) return [404, { error: `No pick #${id}` }];
+    if (!req.allowWrite()) return [429, { error: 'Too many bench changes; wait a minute' }];
+    const gone = store.remove(id);
+    if (!gone) return [404, { error: `No pick #${id}` }];
     req.log(`bench pick #${gone.id} removed: ${gone.classId} "${gone.text}" (added by ${gone.account})`);
     return [200, { ok: true }];
   }

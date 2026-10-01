@@ -1,9 +1,9 @@
-import { isAffixId } from '../data/affixes.js';
+import { AFFIXES, isAffixId } from '../data/affixes.js';
 import { CLASS_IDS, isClassId, type ClassId } from '../data/classes.js';
 import { createStarterSigil, STARTER_SIGILS, type StarterSigilDef } from '../data/starterSigils.js';
-import { affixValue, SIGIL_MAX_SLOTS, sigilCastDelayShare, sigilMisfireMultiplier, toRuneInstance, type AffixRoll, type RuneItem } from '../items/items.js';
+import { affixValue, runeItemFromInstance, SIGIL_MAX_SLOTS, sigilCastDelayShare, sigilMisfireMultiplier, toRuneInstance, type AffixRoll, type RuneItem } from '../items/items.js';
 import { compileRunes, compileSigilItem, DEFAULT_SIGIL_CONTEXT, type SigilCompile } from '../runes/v2/compile.js';
-import { isRuneId } from '../runes/v2/runes.js';
+import { isRuneId, type RuneInstance } from '../runes/v2/runes.js';
 import { formatRunes, tokenizeSpell } from '../runes/v2/tokenize.js';
 import type { EquippedSigil } from '../sim/ecs.js';
 import { BALANCE_SPELLS } from './spells.js';
@@ -160,9 +160,36 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+const fmtRoll = (n: number): string => String(Number(n.toFixed(3)));
+
 /**
- * An admin pick as typed in: the text must read under the grammar and compile on its class, and
- * is stored as the grammar writes it back, so two spellings of one spell are one pick.
+ * Why no rune item could hold this rune's numbers, in the grammar's words, or null. Each number
+ * becomes the affix that sets it (as a kit's runes do), which must be one this rune can roll, with
+ * a value inside that affix's live drop table over all its tiers.
+ */
+function rollProblem(rune: RuneInstance, word: number): string | null {
+  const said = `"${formatRunes([rune])}" (word ${word})`;
+  let item: RuneItem;
+  try {
+    item = runeItemFromInstance(0, rune, false);
+  } catch {
+    return `${said} sets a number no rune affix rolls.`;
+  }
+  for (const roll of item.affixes) {
+    const def = AFFIXES[roll.id];
+    if (def.runes && !def.runes.includes(rune.id)) return `${said}: no ${rune.id} rune rolls "${def.text.replace('{v}', fmtRoll(roll.value))}".`;
+    const lo = Math.min(...def.tiers.map((t) => t.min));
+    const hi = Math.max(...def.tiers.map((t) => t.max));
+    // Rolls are stored rounded, so a value a hair past the end from the text form still fits.
+    if (roll.value < lo - 1e-9 || roll.value > hi + 1e-9) return `${said}: "${def.text.replace('{v}', fmtRoll(roll.value))}" is outside what any rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
+  }
+  return null;
+}
+
+/**
+ * An admin pick as typed in: the text must read under the grammar, every number must be a roll a
+ * rune item can have (like the random-spell tests, from the live drop tables), and it must compile
+ * on its class. It is stored as the grammar writes it back, so two spellings are one pick.
  */
 export function checkBenchSpell(v: unknown): BenchSpell | string {
   if (!isRecord(v)) return 'Send { text, classId, multicast }';
@@ -177,17 +204,20 @@ export function checkBenchSpell(v: unknown): BenchSpell | string {
   if (first) return first.message;
   if (t.runes.length === 0) return 'No runes in that text';
   if (t.runes.length > SIGIL_MAX_SLOTS) return `A sigil holds at most ${SIGIL_MAX_SLOTS} runes`;
+  for (const [i, r] of t.runes.entries()) {
+    const why = rollProblem(r, i + 1);
+    if (why) return why;
+  }
   const spell: BenchSpell = { text: formatRunes(t.runes), classId, multicast: mc };
   const compiled = compileBenchSpell(spell);
   if (!compiled.ok) return compiled.errors.map((e) => e.message).join('; ');
   return spell;
 }
 
-/** An admin pick as the server stores it, with who added it. */
+/** An admin pick as the server sends it, with the account that added it. */
 export interface BenchPick extends BenchSpell {
   id: number;
   account: string;
-  token: string | null;
   at: number;
 }
 
@@ -199,8 +229,10 @@ export interface PopularSigil extends BenchSpell {
 export interface BenchState {
   picks: BenchPick[];
   popular: PopularSigil[];
-  /** When the most-equipped list was counted. */
+  /** When the most-equipped count last changed. */
   popularAt: number;
+  /** False while the server is still counting the saves it had at boot. */
+  popularReady: boolean;
 }
 
 function isBenchSpell(v: Record<string, unknown>): boolean {
@@ -208,11 +240,11 @@ function isBenchSpell(v: Record<string, unknown>): boolean {
 }
 
 export function isBenchPick(v: unknown): v is BenchPick {
-  return isRecord(v) && isBenchSpell(v) && typeof v.id === 'number' && typeof v.account === 'string' && (v.token === null || typeof v.token === 'string') && typeof v.at === 'number';
+  return isRecord(v) && isBenchSpell(v) && typeof v.id === 'number' && typeof v.account === 'string' && typeof v.at === 'number';
 }
 
 export function isBenchState(v: unknown): v is BenchState {
-  if (!isRecord(v) || typeof v.popularAt !== 'number' || !Array.isArray(v.picks) || !Array.isArray(v.popular)) return false;
+  if (!isRecord(v) || typeof v.popularAt !== 'number' || typeof v.popularReady !== 'boolean' || !Array.isArray(v.picks) || !Array.isArray(v.popular)) return false;
   return v.picks.every(isBenchPick) && v.popular.every((p) => isRecord(p) && isBenchSpell(p) && typeof p.equipped === 'number');
 }
 
@@ -247,43 +279,96 @@ function equippedSpell(item: unknown): { text: string; multicast: number } | nul
 }
 
 /**
+ * Every distinct sigil a save has equipped, by rune text and multicast; a sigil equipped twice
+ * counts once. Saves from before the rune rework (no `runeFormat: 2`) hold none.
+ */
+export function equippedSpells(save: unknown): { text: string; multicast: number }[] {
+  if (!isRecord(save) || save.runeFormat !== 2 || !Array.isArray(save.sigils) || !Array.isArray(save.items)) return [];
+  const items = new Map<unknown, unknown>();
+  for (const it of save.items) if (isRecord(it)) items.set(it.uid, it);
+  const out = new Map<string, { text: string; multicast: number }>();
+  for (const uid of save.sigils) {
+    if (typeof uid !== 'number') continue;
+    const spell = equippedSpell(items.get(uid));
+    if (spell) out.set(`${spell.multicast}|${spell.text}`, spell);
+  }
+  return [...out.values()];
+}
+
+/**
+ * How many characters have each sigil equipped, kept up to date one character at a time (a save
+ * replaces what that character counted before, a delete removes it), so reading the top list never
+ * parses a save. Holds rune text, class and counts only.
+ */
+export class EquippedTally {
+  private readonly byCharacter = new Map<number, { classId: ClassId; keys: string[] }>();
+  private readonly groups = new Map<string, { text: string; multicast: number; count: number; classes: Map<ClassId, number> }>();
+
+  has(characterId: number): boolean {
+    return this.byCharacter.has(characterId);
+  }
+
+  get characters(): number {
+    return this.byCharacter.size;
+  }
+
+  set(characterId: number, classId: ClassId, spells: readonly { text: string; multicast: number }[]): void {
+    this.remove(characterId);
+    const keys: string[] = [];
+    for (const sp of spells) {
+      const key = `${sp.multicast}|${sp.text}`;
+      keys.push(key);
+      const g = this.groups.get(key) ?? { text: sp.text, multicast: sp.multicast, count: 0, classes: new Map<ClassId, number>() };
+      g.count++;
+      g.classes.set(classId, (g.classes.get(classId) ?? 0) + 1);
+      this.groups.set(key, g);
+    }
+    this.byCharacter.set(characterId, { classId, keys });
+  }
+
+  remove(characterId: number): void {
+    const was = this.byCharacter.get(characterId);
+    if (!was) return;
+    this.byCharacter.delete(characterId);
+    for (const key of was.keys) {
+      const g = this.groups.get(key);
+      if (!g) continue;
+      g.count--;
+      const n = (g.classes.get(was.classId) ?? 0) - 1;
+      if (n > 0) g.classes.set(was.classId, n);
+      else g.classes.delete(was.classId);
+      if (g.count <= 0) this.groups.delete(key);
+    }
+  }
+
+  /** Most equipped first, each on the class most of its holders play. */
+  top(limit: number = BENCH_LIMITS.popular): PopularSigil[] {
+    const out: PopularSigil[] = [];
+    for (const g of this.groups.values()) {
+      let classId: ClassId = CLASS_IDS[0];
+      let most = 0;
+      for (const c of CLASS_IDS) {
+        const n = g.classes.get(c) ?? 0;
+        if (n > most) {
+          most = n;
+          classId = c;
+        }
+      }
+      out.push({ text: g.text, classId, multicast: g.multicast, equipped: g.count });
+    }
+    out.sort((a, b) => b.equipped - a.equipped || (a.text < b.text ? -1 : a.text > b.text ? 1 : a.multicast - b.multicast));
+    return out.slice(0, Math.max(0, limit));
+  }
+}
+
+/**
  * The sigils most equipped across saves, by rune text and multicast; each character counts a sigil
  * once. Only the runes are kept, so nothing names a player. Each is measured on the class most of
  * its holders play. Saves from before the rune rework (no `runeFormat: 2`) are skipped.
  */
 export function mostEquipped(saves: Iterable<{ classId: unknown; save: unknown }>, limit: number = BENCH_LIMITS.popular): PopularSigil[] {
-  const groups = new Map<string, { text: string; multicast: number; count: number; classes: Map<ClassId, number> }>();
-  for (const { classId, save } of saves) {
-    if (!isClassId(classId) || !isRecord(save) || save.runeFormat !== 2 || !Array.isArray(save.sigils) || !Array.isArray(save.items)) continue;
-    const items = new Map<unknown, unknown>();
-    for (const it of save.items) if (isRecord(it)) items.set(it.uid, it);
-    const seen = new Set<string>();
-    for (const uid of save.sigils) {
-      if (typeof uid !== 'number') continue;
-      const spell = equippedSpell(items.get(uid));
-      if (!spell) continue;
-      const key = `${spell.multicast}|${spell.text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const g = groups.get(key) ?? { ...spell, count: 0, classes: new Map<ClassId, number>() };
-      g.count++;
-      g.classes.set(classId, (g.classes.get(classId) ?? 0) + 1);
-      groups.set(key, g);
-    }
-  }
-  const out: PopularSigil[] = [];
-  for (const g of groups.values()) {
-    let classId: ClassId = CLASS_IDS[0];
-    let most = 0;
-    for (const c of CLASS_IDS) {
-      const n = g.classes.get(c) ?? 0;
-      if (n > most) {
-        most = n;
-        classId = c;
-      }
-    }
-    out.push({ text: g.text, classId, multicast: g.multicast, equipped: g.count });
-  }
-  out.sort((a, b) => b.equipped - a.equipped || (a.text < b.text ? -1 : a.text > b.text ? 1 : a.multicast - b.multicast));
-  return out.slice(0, Math.max(0, limit));
+  const tally = new EquippedTally();
+  let id = 0;
+  for (const { classId, save } of saves) if (isClassId(classId)) tally.set(id++, classId, equippedSpells(save));
+  return tally.top(limit);
 }

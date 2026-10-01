@@ -14,6 +14,8 @@ const store = new AccountStore();
 const adminUsers = parseAdminUsers(process.env.ADMIN_USERS);
 const rooms = new RoomManager(seed, store, adminUsers);
 rooms.start();
+// The balance bench counts the stored saves once, in small steps between ticks; saves keep it current after.
+void store.bench.seed();
 
 /** Unclaimed guests are removed after 90 days without play. */
 const GUEST_IDLE_MS = 90 * 24 * 60 * 60 * 1000;

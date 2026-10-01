@@ -378,7 +378,12 @@ export class AccountStore {
       .map((r) => num(row(r)?.id))
       .filter((id) => !keep.has(id));
     const del = this.db.prepare('DELETE FROM accounts WHERE id = ? AND is_guest = 1');
-    for (const id of idle) del.run(id);
+    const chars = this.db.prepare('SELECT id FROM characters WHERE account_id = ?');
+    for (const id of idle) {
+      // The characters go with the account (foreign keys cascade), so the bench's count forgets them first.
+      for (const c of chars.all(id)) this.bench.noteDelete(num(row(c)?.id));
+      del.run(id);
+    }
     return idle.length;
   }
 
@@ -593,7 +598,9 @@ export class AccountStore {
 
   /** Scoped by account so one player can never read or delete another's character by guessing ids. */
   deleteCharacter(accountId: number, characterId: number): boolean {
-    return num(this.db.prepare('DELETE FROM characters WHERE id = ? AND account_id = ?').run(characterId, accountId).changes) > 0;
+    const gone = num(this.db.prepare('DELETE FROM characters WHERE id = ? AND account_id = ?').run(characterId, accountId).changes) > 0;
+    if (gone) this.bench.noteDelete(characterId);
+    return gone;
   }
 
   loadCharacter(accountId: number, characterId: number): StoredCharacter | null {
@@ -809,6 +816,7 @@ export class AccountStore {
 
   saveCharacter(characterId: number, save: PlayerSave): void {
     this.db.prepare('UPDATE characters SET save_json = ?, played_at = ? WHERE id = ?').run(JSON.stringify(save), Date.now(), characterId);
+    this.bench.noteSave(characterId, save);
   }
 
   private tuningStore: TuningStore | null = null;
