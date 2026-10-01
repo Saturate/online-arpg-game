@@ -195,6 +195,16 @@ Limits:
 - **Stage 2, gate bosses:** built (above). The seal is the plan's (`gateAt`), so a later stage that moves gates, adds a road or a gate inside the home region gets the seal and the ridge with it. Anything new that moves players (a scroll of town portal back, a summon to a party member) goes through `RoomManager.move`, which holds the seals; it only needs its own refusal (as `useWaypoint` and `teleportRefusal` have) to tell the player why.
 - **Stage 4, minimap names and fog:** built (above). Still open from it: the minimap's 256-pixel tiles cover the whole world at its 0.025 pixels per unit, so drawing them generates every chunk's obstacles at load (the World bench shows all 169 generated); smaller tiles would follow the hero. The world map's tiles do the same at its own scale.
 
+## Planned: generation settings in admin, gates walled properly (owner, 2026-10-01)
+
+The owner chose generation over a world editor: the world stays random per world copy (a seed each), the town stays the one hand-made layout, and generation gets better and tunable.
+
+- **Gates first:** "Gates are not walled correctly or not the right rotation." The gate seals' ridges have gaps (see the gate bosses limit below) and pieces sit at the wrong angle. Fix so each gate reads as a closed pass with the gap only where the road goes through.
+- **Admin settings (ServerSettings or a generation block of its own), validated ranges:** density (packs, rares, chests, camps, dungeons, decor per region), size and roads (world size, road length, branching, winding), levels (level range by distance, how fast levels climb), and seed control (reroll a world copy's seed, pin a seed).
+- **Applying:** a change applies to new world copies only (new party worlds, the public world after its next restart or reroll), so players never see the world change under them; a "force" button rebuilds running copies at once, like a town save, for tuning.
+- **Limits to respect:** server and client build the same plan from the seed and settings, so the client needs the settings with the welcome; the plan checksum (above) must include them. World copy memory (dead bosses, opened chests) is dropped on a forced rebuild that changes the plan.
+- **Order:** the gate fix first (small, visual), then the settings.
+
 ## Limits and open questions
 
 - **Gate bosses:** the seal is invisible wherever the ridge has a gap (a river crossing its line, a spot too tight for a rock), so a character can walk up to an edge that holds for no visible reason; the rule is exact there, the scenery is not. The ridge is traced along rays from the centre and finds the first crossing on each, so where a branch from before the gate reaches further out than land behind it, part of the line has no rocks. The Butcher is also the home region's end boss on most seeds and the Broodmother Gloomvale's: there are 7 bosses for 6 regions and 3 gates, so two repeat; new boss types would fix it. A party member who joins after the boss dies, or stands out of range, has to wait out the respawn. Gate progress is per character, as decided; there is no account-wide unlock. Gate bosses respawn by their own admin setting, apart from the region bosses' (owner decision, 2026-10-01; both 20 minutes by default).
