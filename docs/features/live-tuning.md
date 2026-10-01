@@ -21,17 +21,28 @@ Every gameplay number that matters for balance can be changed through the admin 
   - A class's first skills are ordinary sigils built from ordinary runes with rolls inside the drop tables (the kit recipe only says which runes and rolls a new character gets). No hand-set rolls beyond the tables, no special casting rule (`holdsStarterRecipe`/`castingSlots`/`castingStarter` go), no Skill balance group in tuning.
   - Existing characters' starter sigils keep their stored rolls as they are (owner): every sigil casts the rolls it holds; extraction still clamps, so a strong old roll never leaves its sigil at full strength.
   - Balance moves to the runes and sigils: rune affix roll ranges per tier and sigil affix ranges become tunable (Rune balance, a new Sigil balance), next to rune effects, Force and spirit prices and the base shapes.
+  - **Flame Cleave's ring is full size** with the drawback roll gone (owner, 2026-10-01: fine).
   - **Six rune tiers** (owner, 2026-10-01): T1 is the best and rare, T6 the weakest and common (numbered like Path of Exile, the reverse of today's T1 to T3). T6 to T2 cover today's ranges from low to high, gated by item level; T1 sits above today's best ("super good"), rare even at the deepest levels. Tier weights, ranges and item-level gates are tunable in Rune balance. Existing runes are re-tiered by value on load (rolls never change, only the tier label and price).
   - Several first skills get weaker with table rolls; the first balance pass is done live in Rune balance and Base shapes, measured against today's numbers.
 
 - **Tab names** (owner, 2026-10-01): the Tuning tab opens on **Rune balance** (rune effects and every rune affix tier), then **Sigil balance** (every sigil affix tier), Force prices, Spirit prices, **Base shapes** (the numbers every spell of a shape uses), then the rest. The Skill balance group (`starter.*`) is gone with the starter rule; the live server stored no override under it, and a stored `starter.*` row would be dropped without a report on load.
 
 - **Base numbers, not multipliers** (owner, 2026-10-01): "We don't want multipliers as much as we want just to change the base numbers." Tuning edits the real numbers (Bolt's damage 16, a rune's Force, an affix tier's range), not a factor on top. The per-starter damage multiplier was built and reverted before it shipped.
+- **The damage-per-Force cap is a report, not a limit** (owner, 2026-10-01): "Why even have a balance cap? Let runes be mods and spells base." The balance test fails only above 5x the best kit skill, to catch broken combinations; below that the balance bench shows each sigil's damage per Force and marks outliers. T1 rolls are no longer held to 2x and can be "super good" (the old hand-set starter values, such as +100% orb damage or pierce 4, as a guide).
 - **No balance guard** (owner): admins tune freely. The balance tests keep checking the code defaults only. The admin page may show numbers such as damage per Force for information, but never refuses a save.
 - **History with rollback** (owner): every change is logged with who made it, when, the old and the new value; any change can be reverted with one click. One active set, no named profiles.
 - **One registry:** a schema in `packages/shared` lists every tunable number with its path (for example `shape.bolt.damage`), category, label, default (read from the config), and a validated range. The API, the admin page and validation all come from it, so adding a number is one registry line.
 - **Applied the same everywhere:** the server and every client apply the same overrides (sent with the welcome and on every change), so tooltips, the forge and prediction match the server. Replays record the overrides they ran with.
 - **Monster tuning stays** as it is and is linked from the same admin page; it may move into the registry later.
+
+## Planned: the balance bench (owner, 2026-10-01)
+
+"We need an overview of prebuilt sigils and how changes affect them, Spell Studio like."
+
+- **Rows:** every class's kit skills, the hand-picked spells the balance tests measure, the 20 most-equipped sigils on live (read from saves), and admin picks (rune text typed in, saved server-side and shared between admins).
+- **Columns:** Force, spirit, damage per Force single and pack, against the 2x line.
+- **Preview:** while numbers are edited in the Tuning tab and not yet saved, every row shows before, after and the change in percent.
+- **Watch one:** a row opens a Spell Studio view that casts the sigil at a dummy and a pack at the proposed numbers.
 
 ## How (plan)
 
