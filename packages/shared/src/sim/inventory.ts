@@ -11,6 +11,7 @@ import {
   isBound,
   isPlainRune,
   ITEM_TIERS,
+  matchingStarter,
   reissueUids,
   RUNE_STACK,
   sigilCapacity,
@@ -45,18 +46,65 @@ export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
   return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
 }
 
+/** A notice for one player, for the server to send. */
+export interface PlayerNotice {
+  pid: EntityId;
+  text: string;
+}
+
+function sigilName(item: SigilItem): string {
+  return matchingStarter(item)?.name ?? item.name;
+}
+
 /**
- * Compiles every equipped sigil again, after live tuning changed what runes cost or do. A sigil
- * keeps its slot and Bond target even if its spirit now passes the pool, as on loading a save:
- * refusing would unequip someone's skill under them.
+ * Unequips persistent skills from the last slot back until the reserved spirit fits the pool, and
+ * names each one. Live tuning can raise a rune's spirit under a sigil already equipped (and a save
+ * from before the change loads it equipped), which would otherwise let someone keep more auras than
+ * the pool pays for. The sigil goes to the bag, or pending when the bag is full: never lost.
  */
-export function recompileSigils(sim: Simulation): void {
-  for (const [, p] of sim.world.player) {
+export function fitSpirit(sim: Simulation, pid: EntityId): string[] {
+  const p = sim.world.player.get(pid);
+  if (!p) return [];
+  const out: string[] = [];
+  for (let slot = p.sigils.length - 1; slot >= 0 && spiritReservedFor(p) > spiritMax(p); slot--) {
+    const eq = p.sigils[slot];
+    if (!eq?.compiled.ok || !eq.compiled.persistent) continue;
+    const item = p.items.get(eq.uid);
+    p.sigils[slot] = null;
+    p.links[slot] = null;
+    if (item) {
+      stow(p, item.uid);
+      out.push(item.kind === 'sigil' ? sigilName(item) : item.name);
+    }
+  }
+  if (out.length > 0) {
+    settlePending(p);
+    changed(p);
+  }
+  return out;
+}
+
+/**
+ * Compiles every equipped sigil again, after live tuning changed what runes cost or do, then fits
+ * the spirit pool. Returns what each player should be told: skills that stopped casting and skills
+ * unequipped for spirit.
+ */
+export function recompileSigils(sim: Simulation): PlayerNotice[] {
+  const notices: PlayerNotice[] = [];
+  for (const [pid, p] of sim.world.player) {
     p.sigils.forEach((eq, slot) => {
       const item = eq ? p.items.get(eq.uid) : undefined;
-      if (item?.kind === 'sigil') p.sigils[slot] = compileSigil(p, item);
+      if (!eq || item?.kind !== 'sigil') return;
+      const next = compileSigil(p, item);
+      p.sigils[slot] = next;
+      if (eq.compiled.ok && !next.compiled.ok) {
+        const why = next.compiled.errors[0]?.message ?? 'it breaks a rule';
+        notices.push({ pid, text: `${sigilName(item)} no longer casts after a balance change: ${why}` });
+      }
     });
+    for (const name of fitSpirit(sim, pid)) notices.push({ pid, text: `${name} was unequipped: a balance change raised its spirit past your pool` });
   }
+  return notices;
 }
 
 function spiritMax(p: PlayerComp): number {

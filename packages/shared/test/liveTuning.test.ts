@@ -4,6 +4,9 @@ import {
   AILMENTS,
   applyTunables,
   AURA,
+  fitSpirit,
+  spiritReservedFor,
+  pendingItems,
   CASTABLE_RUNES,
   compileRunes,
   DEFAULT_SIGIL_CONTEXT,
@@ -235,3 +238,61 @@ describe('applying overrides', () => {
     expect(p?.sigils[0]?.compiled.force ?? 0).toBeGreaterThan(before);
   });
 });
+
+describe('live tuning and the spirit pool', () => {
+  function priest() {
+    const sim = new Simulation(4, { kind: 'flat' });
+    const pid = sim.addPlayer('tuner', 'priest');
+    const p = sim.world.player.get(pid);
+    if (!p) throw new Error('no priest');
+    const auraSlot = p.sigils.findIndex((eq) => eq?.compiled.ok === true && eq.compiled.persistent);
+    if (auraSlot < 0) throw new Error('the priest kit has no aura equipped');
+    return { sim, pid, p, auraSlot };
+  }
+
+  it('unequips persistent skills from the end when a change pushes spirit past the pool, keeping the sigil', () => {
+    const { sim, pid, p, auraSlot } = priest();
+    const uid = p.sigils[auraSlot]?.uid;
+    applyTunables({ 'spirit.rune.aura': 300 });
+    const notices = recompileSigils(sim);
+    expect(p.sigils[auraSlot]).toBeNull();
+    expect(spiritReservedFor(p)).toBeLessThanOrEqual(p.stats.spiritMax);
+    expect(notices).toEqual([{ pid, text: 'Prayer was unequipped: a balance change raised its spirit past your pool' }]);
+    expect(uid !== undefined && p.items.has(uid)).toBe(true);
+    expect(uid !== undefined && (p.inventory.includes(uid) || pendingItems(p).includes(uid))).toBe(true);
+  });
+
+  it('does the same for a save that loads equipped under raised prices', () => {
+    const { sim, pid, auraSlot } = priest();
+    const save = sim.exportPlayer(pid);
+    if (!save) throw new Error('no save');
+    applyTunables({ 'spirit.rune.aura': 300 });
+    const again = sim.addPlayer('again', 'priest', 'Again', save);
+    const q = sim.world.player.get(again);
+    expect(q?.sigils[auraSlot]?.compiled.ok).toBe(true);
+    expect(fitSpirit(sim, again)).toEqual(['Prayer']);
+    expect(q?.sigils[auraSlot]).toBeNull();
+  });
+
+  it('tells the player when a change makes an equipped sigil a dud', () => {
+    const sim = new Simulation(5, { kind: 'flat' });
+    const pid = sim.addPlayer('tuner', 'mage');
+    applyTunables({ 'spell.liveCap.max': 1 });
+    const notices = recompileSigils(sim);
+    expect(notices.some((n) => n.pid === pid && n.text.startsWith('Frozen Orb no longer casts after a balance change'))).toBe(true);
+  });
+});
+
+describe('compiling under extreme tuning', () => {
+  it('stays fast with the slowest, longest-lived pulsing shapes the ranges allow', () => {
+    const slow = { 'spell.bolt.speed': tunableSpec('spell.bolt.speed')?.min ?? 1, 'spell.bolt.range': tunableSpec('spell.bolt.range')?.max ?? 1, 'spell.orb.speed': tunableSpec('spell.orb.speed')?.min ?? 1, 'spell.orb.range': tunableSpec('spell.orb.range')?.max ?? 1, 'spell.zone.durationSeconds': tunableSpec('spell.zone.durationSeconds')?.max ?? 1 };
+    applyTunables(slow);
+    const spells = ['bolt[every 0.1s, -90% speed, +75% duration] nova', 'orb[every 0.1s, -90% speed, +75% duration] split(3) bolt[every 0.1s] nova', 'zone[every 0.1s, +75% duration] bolt'];
+    for (const text of spells) compile(text);
+    const started = Date.now();
+    for (const text of spells) compile(text);
+    // Several hundred ms before the pulse peak was walked in one pass.
+    expect((Date.now() - started) / spells.length).toBeLessThan(15);
+  });
+});
+

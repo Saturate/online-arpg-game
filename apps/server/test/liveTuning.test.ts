@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activeTunables, isTunableHistoryEntry, isTunablesState, resetTunables, SKILL_BUTTONS, SPELL, TUNABLES, type ServerMessage, type TunableHistoryEntry, type TunablesState } from '@rune/shared';
+import { activeTunables, applyTunables, isTunableHistoryEntry, isTunablesState, resetTunables, SKILL_BUTTONS, SPELL, TUNABLES, type ServerMessage, type TunableHistoryEntry, type TunablesState } from '@rune/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { AccountApi } from '../src/http.js';
@@ -66,10 +66,9 @@ describe('live tuning API', () => {
     base = `http://127.0.0.1:${addr.port}`;
     playerSocket = await enter(store, rooms, 'caster');
   });
-  afterAll(() => {
-    server.close();
-    resetTunables();
-  });
+  afterAll(() => server.close());
+  // Each test starts from code defaults; the stored rows do not matter to the next one.
+  afterEach(() => resetTunables());
 
   const call = (method: string, path: string, who: string, body?: unknown) => {
     const token = tokens[who];
@@ -211,3 +210,79 @@ describe('live tuning storage', () => {
     store.close();
   });
 });
+
+describe('live tuning writes', () => {
+  afterEach(() => resetTunables());
+
+  async function setup(limits: { tuningWrites?: number } = {}) {
+    const store = new AccountStore(':memory:');
+    const rooms = new RoomManager(1, store);
+    const acc = await store.register('boss', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const token = store.createSession(acc.id);
+    const api = new AccountApi(store, () => undefined, rooms, new Set(['boss']), limits);
+    const server = createServer((req, res) => {
+      if (!api.handle(req, res)) res.writeHead(404).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const addr: AddressInfo | string | null = server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:${addr.port}${path}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    return { store, rooms, server, call };
+  }
+
+  it('limits how many changes one account makes a minute', async () => {
+    const { server, call } = await setup({ tuningWrites: 2 });
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 20 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 21 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 22 })).status).toBe(429);
+    expect((await call('POST', '/api/admin/tuning/revert', { id: 1 })).status).toBe(429);
+    expect((await call('GET', '/api/admin/tuning')).status).toBe(200);
+    expect(SPELL.bolt.damage).toBe(21);
+    server.close();
+  });
+
+  it('answers honestly when the change was saved but reaching the rooms failed', async () => {
+    const { rooms, server, call, store } = await setup();
+    rooms.tunablesChanged = () => {
+      throw new Error('room blew up');
+    };
+    const res = await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 20 });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(isTunablesState(body) && body.warning).toMatch(/Saved and applied/);
+    expect(SPELL.bolt.damage).toBe(20);
+    expect(store.tunables.load()).toEqual({ 'spell.bolt.damage': 20 });
+    server.close();
+  });
+
+  it('reverts to a code default stored as a number as no override', async () => {
+    const { server, call, store } = await setup();
+    const [row] = store.tunables.commit([{ path: 'spell.bolt.damage', old: 16, new: 30 }], { account: 'boss', token: null });
+    if (!row) throw new Error('no row');
+    applyTunables(store.tunables.load());
+    const res = await call('POST', '/api/admin/tuning/revert', { id: row.id });
+    const body: unknown = await res.json();
+    expect(isTunablesState(body) && body.values).toEqual({});
+    expect(store.tunables.load()).toEqual({});
+    expect(SPELL.bolt.damage).toBe(16);
+    server.close();
+  });
+
+  it('tells a player whose aura a change unequips', async () => {
+    const { store, rooms, server, call } = await setup();
+    const acc = await store.register('healer', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const ch = store.createCharacter(acc.id, 'Healer', 'priest');
+    if (typeof ch === 'string') throw new Error(ch);
+    const socket = new FakeSocket();
+    rooms.connect(socket);
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
+    rooms.tick();
+    expect((await call('PATCH', '/api/admin/tuning', { 'spirit.rune.aura': 300 })).status).toBe(200);
+    expect(socket.sent.some((m) => m.t === 'notice' && m.text === 'Prayer was unequipped: a balance change raised its spirit past your pool')).toBe(true);
+    server.close();
+  });
+});
+

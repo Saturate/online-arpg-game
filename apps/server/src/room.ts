@@ -1,5 +1,6 @@
 import {
   activeTunables,
+  fitSpirit,
   applyDev,
   buyItem,
   pendingItems,
@@ -114,6 +115,8 @@ export class Room {
   add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
     const playerId = this.sim.addPlayer(client.id, classId, name, save, at);
     this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map() });
+    // A save from before a live tuning change can hold more auras than the pool now pays for.
+    for (const skill of fitSpirit(this.sim, playerId)) client.send({ t: 'notice', text: `${skill} was unequipped: its spirit now passes your pool` });
     client.room = this;
     // Someone joining ends a solo pause.
     this.paused = false;

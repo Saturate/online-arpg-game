@@ -39,7 +39,11 @@ import { TUNABLES_BODY_BYTES, tunablesRoute, type TunablesHooks } from './tunabl
 const MAX_BODY_BYTES = 4096;
 
 /** Sliding one-minute window per IP. Auth is tight because every attempt costs a 32 MiB scrypt hash. */
-const LIMITS = { auth: 10, other: 120, token: TOKEN_RULES.perMinute } as const;
+/**
+ * `tuningWrites` is per account: every live tuning change recompiles each equipped sigil in every
+ * room and messages every client, so a script in a loop would stall the game thread.
+ */
+const LIMITS = { auth: 10, other: 120, token: TOKEN_RULES.perMinute, tuningWrites: 30 } as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -290,12 +294,14 @@ export class AccountApi {
   private readonly authLimit = new RateLimiter(LIMITS.auth);
   private readonly otherLimit: RateLimiter;
   private readonly tokenLimit: RateLimiter;
+  private readonly tuningWriteLimit: RateLimiter;
   private readonly failedTokens: FailedTokenLog;
   private readonly backupStallMs: number;
   private readonly sweepTimer = setInterval(() => {
     this.authLimit.sweep();
     this.otherLimit.sweep();
     this.tokenLimit.sweep();
+    this.tuningWriteLimit.sweep();
     this.failedTokens.sweep();
   }, 60_000);
   /** One backup at a time: each is a full copy of the database on the data volume. */
@@ -309,10 +315,11 @@ export class AccountApi {
     /** Lower-cased owner usernames, from ADMIN_USERS. Empty means nobody. */
     private readonly owners: ReadonlySet<string> = parseAdminUsers(process.env.ADMIN_USERS),
     /** Tests lower these to reach the limits in a few calls. */
-    limits: { other?: number; token?: number; backupStallMs?: number; failedTokens?: FailedTokenLog } = {},
+    limits: { other?: number; token?: number; tuningWrites?: number; backupStallMs?: number; failedTokens?: FailedTokenLog } = {},
   ) {
     this.otherLimit = new RateLimiter(limits.other ?? LIMITS.other);
     this.tokenLimit = new RateLimiter(limits.token ?? LIMITS.token);
+    this.tuningWriteLimit = new RateLimiter(limits.tuningWrites ?? LIMITS.tuningWrites);
     this.failedTokens = limits.failedTokens ?? new FailedTokenLog();
     this.backupStallMs = limits.backupStallMs ?? BACKUP_STALL_MS;
     this.sweepTimer.unref();
@@ -505,7 +512,7 @@ export class AccountApi {
     const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: allowed('settings'), log }, this.admin);
     if (tuning) return tuning;
     const by = { account: account.username, token: token?.name ?? null };
-    const tunables = await tunablesRoute({ method, path, query, body: () => readJson(req, TUNABLES_BODY_BYTES), canEdit: allowed('tuning'), by, log }, this.store.tunables, this.admin);
+    const tunables = await tunablesRoute({ method, path, query, body: () => readJson(req, TUNABLES_BODY_BYTES), canEdit: allowed('tuning'), allowWrite: () => this.tuningWriteLimit.allow(String(account.id)), by, log }, this.store.tunables, this.admin);
     if (tunables) return tunables;
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');

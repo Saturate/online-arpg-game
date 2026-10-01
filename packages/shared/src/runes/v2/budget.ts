@@ -85,11 +85,18 @@ function everyPeak(node: SpellNode, seconds: number, child: number): number {
   const ownTicks = toTicks(own);
   const childTicks = node.payload.reduce((m, c) => Math.max(m, aliveTicks(node, c)), 1);
   const at = Array.from({ length: n }, (_, i) => toTicks((i + 1) * seconds));
+  // Spawn ticks only grow, so the volleys alive at volley m are a window ending at m. Linear rather
+  // than counting every pair: live tuning can stretch a pulsing shape to thousands of volleys, and
+  // the compiler runs on the game thread.
   let peak = 1;
+  let first = 0;
   for (let m = 0; m < n; m++) {
     const t = at[m] ?? 0;
-    const alive = at.filter((p) => p <= t && t < p + childTicks).length;
-    peak = Math.max(peak, (t < ownTicks ? 1 : 0) + alive * child);
+    while (first < m && (at[first] ?? 0) + childTicks <= t) first++;
+    // Volleys spawning on the same tick as m (a pulse shorter than a tick) are alive too.
+    let last = m;
+    while (last + 1 < n && (at[last + 1] ?? 0) <= t) last++;
+    peak = Math.max(peak, (t < ownTicks ? 1 : 0) + (last - first + 1) * child);
   }
   return peak;
 }

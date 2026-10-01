@@ -166,7 +166,7 @@ export function TunablesTab({ token, role, notify }: { token: string; role: Role
     if (!r.ok) return notify(r.error);
     setServer(r.data);
     setEdits({});
-    notify(done);
+    notify(r.data.warning ?? done);
     void loadHistory();
   };
 

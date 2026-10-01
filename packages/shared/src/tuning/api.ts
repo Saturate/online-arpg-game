@@ -5,6 +5,8 @@ import { isTunableValues, type TunableValues } from './values.js';
 export interface TunablesState {
   schema: TunableSpec[];
   values: TunableValues;
+  /** Set when a change was saved and applied but a later step (reaching rooms or clients) failed. */
+  warning?: string;
 }
 
 /** One change of one number. `old` and `new` are null when that side was the code default. */
@@ -45,7 +47,7 @@ function isTunableSpec(v: unknown): v is TunableSpec {
 }
 
 export function isTunablesState(v: unknown): v is TunablesState {
-  return isRecord(v) && Array.isArray(v.schema) && v.schema.every(isTunableSpec) && isTunableValues(v.values);
+  return isRecord(v) && Array.isArray(v.schema) && v.schema.every(isTunableSpec) && isTunableValues(v.values) && (v.warning === undefined || typeof v.warning === 'string');
 }
 
 export function isTunableHistoryEntry(v: unknown): v is TunableHistoryEntry {

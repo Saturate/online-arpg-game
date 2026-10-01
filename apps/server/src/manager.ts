@@ -248,7 +248,11 @@ export class RoomManager implements AdminHooks {
    * gets the new set for its tooltips and the forge.
    */
   tunablesChanged(): void {
-    for (const room of this.rooms.values()) recompileSigils(room.sim);
+    for (const room of this.rooms.values()) {
+      for (const n of recompileSigils(room.sim)) {
+        for (const m of room.members.values()) if (m.playerId === n.pid) m.client.send({ t: 'notice', text: n.text });
+      }
+    }
     const msg: ServerMessage = { t: 'tunables', values: activeTunables() };
     for (const c of this.clients.values()) if (c.characterId !== null) c.send(msg);
   }
