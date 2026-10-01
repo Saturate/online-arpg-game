@@ -17,6 +17,8 @@ Every gameplay number that matters for balance can be changed through the admin 
 
 ## Decisions
 
+- **Tab names** (owner, 2026-10-01): the Tuning tab opens on **Skill balance** (each class skill's own numbers, paths `starter.*`), then **Rune balance**, Force prices, Spirit prices and **Base shapes** (the numbers every spell of a shape uses). Only labels and order changed; paths and stored values did not.
+
 - **Base numbers, not multipliers** (owner, 2026-10-01): "We don't want multipliers as much as we want just to change the base numbers." Tuning edits the real numbers (Bolt's damage 16, a rune's Force, a starter's own rolls), not a factor on top. The per-starter damage multiplier was built and reverted before it shipped; phase 2 makes each starter's own numbers tunable instead.
 - **No balance guard** (owner): admins tune freely. The balance tests keep checking the code defaults only. The admin page may show numbers such as damage per Force for information, but never refuses a save.
 - **History with rollback** (owner): every change is logged with who made it, when, the old and the new value; any change can be reverted with one click. One active set, no named profiles.
@@ -37,13 +39,13 @@ Each phase ships on its own. Loot and prices touch the economy, so phase 4 gets 
 
 **What is tunable (111 numbers).** Categories on the admin page:
 
-- **Shapes:** every number of Bolt, Orb, Nova, Zone and Dash in `SPELL` (damage, speed, range, radius, duration, heal, shield, dash distance, ticks and hit radius).
+- **Base shapes:** every number of Bolt, Orb, Nova, Zone and Dash in `SPELL` (damage, speed, range, radius, duration, heal, shield, dash distance, ticks and hit radius).
 - **Spell engine:** the rest of `SPELL`: split damage conserved, fan angle and ring offset, the Timer and Pulse default seconds (moved into `SPELL` as `timerSeconds` and `pulseSeconds`, so the parser reads them there), interval spray rotation, the live spell cap and its weights, the affix price steps, Impact knockback, Ward shield seconds, Frostfire bonus, Burning Ward damage, the doubled infusion bonus (moved from `compile.ts` into `SPELL.stackedInfusionBonus`).
 - **Aura** (`AURA`) and **Bond** (`LINK`): radius, regen, ward reduction, element damage, push, regen cap; Bond's ranges, cone, regen, ward and element bonus.
 - **Ailments** (`AILMENTS`): burn, chill, shock and poison numbers.
 - **Force prices:** every castable rune's listed Force (`RUNE_FORCE`; Aura, Bond and Split left out since their listed Force is never read), Split per copy (`RUNE_PRICE.splitForcePerCopy`), and HEAT's pricing numbers: class and off-class multipliers, the payload shares, the least Force per cast, Force per affix step and the refund share. The Force bar, cooling, misfires and the global cost multiplier stay admin settings or phase 4.
 - **Spirit prices:** each rune's spirit (`RUNE_SPIRIT`) and Concentrated's share of the rest of the aura (`RUNE_PRICE.concentratedSpiritShare`).
-- **Rune effects:** Swift's speed and Large's size (`PLAIN_MODIFIER_EFFECT`), Concentrated's size loss and its damage without a roll (40 to 60, the range the rule accepts), and Split's copies without a count (2 to 6).
+- **Rune balance** (was Rune effects): Swift's speed and Large's size (`PLAIN_MODIFIER_EFFECT`), Concentrated's size loss and its damage without a roll (40 to 60, the range the rule accepts), and Split's copies without a count (2 to 6).
 
 **Registry** (`packages/shared/src/tuning/registry.ts`). Walks `SPELL`, `AURA`, `LINK` and `AILMENTS` for every number, so a field added later is tunable without a registry line; the Force, spirit and rune entries are listed. Each entry has a path (`spell.bolt.damage`, `force.rune.nova`, `bond.acquireRange`), category, label, the default read from the config when the module loads, min, max and an integer flag. Ranges are 0 to 10x the default (negative defaults the other way), with exceptions where a number breaks the engine: tick intervals and nova and zone durations at least one tick (0.05 s), Dash ticks 1 to 40 whole, speeds at least a tenth of the default, affix price steps above 1 (they divide a logarithm), slows and damage reductions at most 1, angles at most pi (2 pi for the spray rotation). The live spell caps guard the server rather than balance, so they are narrower: per caster 1 to 120 and per room 1 to 960 (3x), and each cap weight at least about a quarter of its default, so a room cannot be tuned into flooding the tick. No range is a balance guard.
 

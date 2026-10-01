@@ -12,19 +12,19 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['shapes', 'spell', 'aura', 'bond', 'ailments', 'force', 'spirit', 'runes', 'starters'] as const;
+export const TUNING_CATEGORIES = ['starters', 'runes', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
-  shapes: 'Shapes',
+  shapes: 'Base shapes',
   spell: 'Spell engine',
   aura: 'Aura',
   bond: 'Bond',
   ailments: 'Ailments',
   force: 'Force prices',
   spirit: 'Spirit prices',
-  runes: 'Rune effects',
-  starters: 'Starters',
+  runes: 'Rune balance',
+  starters: 'Skill balance',
 };
 
 export interface TunableSpec {

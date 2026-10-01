@@ -105,7 +105,7 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
   const [server, setServer] = useState<TunablesState | null>(null);
   const [history, setHistory] = useState<TunableHistoryEntry[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
-  const [view, setView] = useState<View>('shapes');
+  const [view, setView] = useState<View>('starters');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
 
