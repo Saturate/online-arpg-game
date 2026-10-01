@@ -4,3 +4,4 @@ dist
 .DS_Store
 apps/server/data/*.db*
 apps/server/data/town-layout.json.bak.*
+__pycache__/
