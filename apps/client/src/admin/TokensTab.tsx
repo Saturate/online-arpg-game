@@ -1,6 +1,7 @@
 import { can, TOKEN_RULES, TOKEN_SCOPE_INFO, TOKEN_SCOPES, type AdminTokenInfo, type Role, type TokenScope } from '@rune/shared';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { adminApi } from '../net/api.js';
+import { searchId } from './tabs.js';
 
 /**
  * Owner and admin: tokens for scripts and agents to call the admin API with. A token can do what
@@ -137,7 +138,7 @@ export function TokensTab({ token, role, notify }: { token: string; role: Role; 
           </thead>
           <tbody>
             {list.map((t) => (
-              <tr key={t.id}>
+              <tr key={t.id} data-search-id={searchId('tokens', t.id)} tabIndex={-1}>
                 <td>
                   {t.name} <span className="muted mono">{t.id}</span>
                   {t.expiresAt < Date.now() && <span className="badge red">expired</span>}

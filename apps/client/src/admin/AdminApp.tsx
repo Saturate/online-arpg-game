@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, settingsConflict, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, settingsConflict, type AdminAccount, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
@@ -8,6 +8,11 @@ import { TuningTab } from './monsters/TuningTab.js';
 import { TunablesTab } from './TunablesTab.js';
 import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
+import { LiveTab } from './live/LiveTab.js';
+import { LogTab } from './LogTab.js';
+import { SearchBox } from './search/SearchBox.js';
+import type { SearchEntry } from './search/searchIndex.js';
+import { searchId, TAB_NAMES, visibleTabs, type Jump, type Tab } from './tabs.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -15,13 +20,8 @@ import { TokensTab } from './TokensTab.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'tuning' | 'monsters' | 'minions' | 'modelCheck' | 'grant' | 'tokens';
-
-const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', tuning: 'Tuning', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item', tokens: 'API tokens' };
-/** Tabs only some roles see; the server checks the same permission on every call. */
-const TAB_PERMISSION: Partial<Record<Tab, Permission>> = { grant: 'grantItems', tokens: 'apiTokens' };
 /** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
-const WIDE_TABS: ReadonlySet<Tab> = new Set(['tuning', 'monsters', 'minions', 'modelCheck']);
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'tuning', 'monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -32,202 +32,23 @@ function ago(at: number): string {
   return hours < 48 ? `${hours} h ago` : new Date(at).toLocaleDateString();
 }
 
-function uptime(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h} h ${m} min` : `${m} min`;
-}
-
 interface TabProps {
   token: string;
   role: Role;
   notify: (t: string) => void;
 }
 
-function Overview({ token, role, notify }: TabProps) {
-  const [data, setData] = useState<AdminOverview | null>(null);
-  const [text, setText] = useState('');
-
-  const [expired, setExpired] = useState(false);
-  const load = useCallback(() => {
-    void adminApi.overview(token).then((r) => {
-      if (r.ok) return setData(r.data);
-      // An expired session will not fix itself, so stop polling instead of toasting every 3 s.
-      if (r.status === 401) setExpired(true);
-      notify(r.status === 401 ? 'Session expired, log in to the game again' : r.error);
-    });
-  }, [token, notify]);
-
-  useEffect(() => {
-    if (expired) return;
-    load();
-    const t = setInterval(load, 3000);
-    return () => clearInterval(t);
-  }, [load, expired]);
-
-  const announce = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!text.trim()) return;
-    const r = await adminApi.announce(token, text.trim());
-    notify(r.ok ? `Announced to ${r.data.reached} players` : r.error);
-    if (r.ok) setText('');
-  };
-
-  if (!data) return <p className="muted">Loading</p>;
-  return (
-    <>
-      <div className="adm-cards">
-        <div className="adm-card">
-          <b>{data.online.length}</b>
-          <span>online</span>
-        </div>
-        <div className="adm-card">
-          <b>{data.games.length}</b>
-          <span>games</span>
-        </div>
-        <div className="adm-card">
-          <b>{data.rooms.length}</b>
-          <span>rooms</span>
-        </div>
-        <div className="adm-card">
-          <b>{data.memoryMb} MB</b>
-          <span>memory</span>
-        </div>
-        <div className="adm-card">
-          <b>{uptime(data.uptimeSeconds)}</b>
-          <span>uptime</span>
-        </div>
-        <div className="adm-card">
-          <b className="mono">{data.build.slice(0, 7)}</b>
-          <span>build</span>
-        </div>
-      </div>
-
-      {can(role, 'announce') && (
-        <form className="adm-announce" onSubmit={(e) => void announce(e)}>
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Announce to everyone online" aria-label="Announcement" />
-          <button type="submit" className="primary" disabled={!text.trim()}>
-            Announce
-          </button>
-        </form>
-      )}
-
-      <h2>Online</h2>
-      {data.online.length === 0 ? (
-        <p className="muted">Nobody is playing right now.</p>
-      ) : (
-        <table className="adm-table">
-          <thead>
-            <tr>
-              <th>Character</th>
-              <th>Class</th>
-              <th>Level</th>
-              <th>Account</th>
-              <th>Where</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {data.online.map((p) => (
-              <tr key={p.characterId}>
-                <td>{p.name}</td>
-                <td>{CLASSES[p.classId].name}</td>
-                <td>{p.level}</td>
-                <td>{p.account}</td>
-                <td>
-                  {p.room}
-                  {p.game ? <span className="muted"> ({p.game})</span> : null}
-                </td>
-                <td className="adm-row-actions">
-                  {can(role, 'teleport') && (
-                    <button
-                      type="button"
-                      className="small"
-                      onClick={() => {
-                        void adminApi.goto(token, p.characterId).then((r) => notify(r.ok ? `Teleported to ${p.name}` : r.error));
-                      }}
-                    >
-                      Go to
-                    </button>
-                  )}
-                  {can(role, 'kick') && (
-                    <button
-                      type="button"
-                      className="danger small"
-                      onClick={() => {
-                        if (!confirm(`Kick ${p.name}?`)) return;
-                        void adminApi.kick(token, p.characterId).then((r) => {
-                          notify(r.ok ? (r.data.kicked ? `Kicked ${p.name}` : `${p.name} had already left`) : r.error);
-                          load();
-                        });
-                      }}
-                    >
-                      Kick
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <div className="adm-cols">
-        <div>
-          <h2>Games</h2>
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <th>Game</th>
-                <th>Host</th>
-                <th>Players</th>
-                <th>Rooms</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.games.map((g) => (
-                <tr key={g.id}>
-                  <td className="mono">{g.id}</td>
-                  <td>{g.host}</td>
-                  <td>{g.players}</td>
-                  <td>{g.rooms}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <h2>Rooms</h2>
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Players</th>
-                <th>Monsters</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rooms.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    {r.name} <span className="muted mono">{r.id}</span>
-                  </td>
-                  <td>{r.players}</td>
-                  <td>{r.monsters}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Players({ token, role, notify }: TabProps) {
+function Players({ token, role, notify, focus }: TabProps & { focus: Jump | null }) {
   const [accounts, setAccounts] = useState<AdminAccount[] | null>(null);
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState<number | null>(null);
+
+  // A jump from the search or the Live view opens the account with every row shown.
+  useEffect(() => {
+    if (!focus) return;
+    setFilter('');
+    setOpen(Number(focus.target));
+  }, [focus]);
 
   const load = useCallback(() => {
     void adminApi.accounts(token).then((r) => (r.ok ? setAccounts(r.data) : notify(r.error)));
@@ -262,7 +83,7 @@ function Players({ token, role, notify }: TabProps) {
           {shown.map((a) => {
             const last = Math.max(0, ...a.characters.map((c) => c.playedAt));
             return [
-              <tr key={a.id} className={open === a.id ? 'open' : ''} onClick={() => setOpen(open === a.id ? null : a.id)}>
+              <tr key={a.id} className={open === a.id ? 'open' : ''} onClick={() => setOpen(open === a.id ? null : a.id)} data-search-id={searchId('players', String(a.id))} tabIndex={-1}>
                 <td>
                   {a.username} {a.role !== 'player' && <span className="badge gold">{ROLE_INFO[a.role].name}</span>} {a.guest && <span className="badge">guest</span>} {a.banned && <span className="badge red">banned</span>}
                 </td>
@@ -374,7 +195,7 @@ function ClockControl({ draft, setDraft }: { draft: ServerSettings; setDraft: (s
     setDraft({ ...draft, heldPhase: target, clockOffset: (((target - raw) % 1) + 1) % 1 });
   };
   return (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', 'timeOfDay')}>
       <span>
         Time of day <b>{clockText(current)}</b> {draft.timeOfDay === 'hold' ? '(held)' : ''}
       </span>
@@ -412,7 +233,7 @@ function Settings({ token, role, notify }: TabProps) {
     notify('Settings saved and applied to every room');
   };
   const rate = (key: 'xpRate' | 'lootRate', label: string, hint: string) => (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', key)}>
       <span>
         {label} <b>x{draft[key]}</b>
       </span>
@@ -425,7 +246,7 @@ function Settings({ token, role, notify }: TabProps) {
     </label>
   );
   const force = (key: 'forceMax' | 'forceCostRate' | 'forceCoolRate' | 'forceRampMax', label: string, hint: string, min: number, max: number, step: number) => (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', key)}>
       <span>
         {label} <b>{key === 'forceMax' ? draft[key] : `x${draft[key]}`}</b>
       </span>
@@ -445,7 +266,7 @@ function Settings({ token, role, notify }: TabProps) {
     </label>
   );
   const respawn = (key: 'respawnMinutes' | 'bossRespawnMinutes' | 'gateRespawnMinutes', label: string, hint: string) => (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', key)}>
       <span>
         {label} <b>{draft[key]} min</b>
       </span>
@@ -465,7 +286,7 @@ function Settings({ token, role, notify }: TabProps) {
     </label>
   );
   const boss = (key: 'bossLifeMultiplier' | 'bossDamageMultiplier', label: string, hint: string) => (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', key)}>
       <span>
         {label} <b>x{draft[key]}</b>
       </span>
@@ -485,7 +306,7 @@ function Settings({ token, role, notify }: TabProps) {
     </label>
   );
   const zoom = (key: 'zoomDefault' | 'zoomDungeon' | 'zoomMin' | 'zoomMax', label: string, hint: string) => (
-    <label className="adm-field">
+    <label className="adm-field" data-search-id={searchId('settings', key)}>
       <span>
         {label} <b>{Math.round(draft[key] * 100)}%</b>
       </span>
@@ -505,7 +326,7 @@ function Settings({ token, role, notify }: TabProps) {
         {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceRampMax', 'Cooling ramp', `How much faster cooling gets after a pause in casting, at most. Default x${DEFAULT_SERVER_SETTINGS.forceRampMax}.`, SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax, 0.5)}
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'castCooldownSeconds')}>
           <span>
             Cast cooldown <b>{draft.castCooldownSeconds} s</b>
           </span>
@@ -528,11 +349,11 @@ function Settings({ token, role, notify }: TabProps) {
         {respawn('gateRespawnMinutes', 'Gate boss respawn', `Minutes from a gate boss's death until it comes back for the next character. Default ${DEFAULT_SERVER_SETTINGS.gateRespawnMinutes}.`)}
         {boss('bossLifeMultiplier', 'Boss life', `Every boss's life, on top of the 3x every rare has. Bosses already alive keep theirs. Default x${DEFAULT_SERVER_SETTINGS.bossLifeMultiplier}.`)}
         {boss('bossDamageMultiplier', 'Boss damage', `Everything a boss deals: hits, abilities, projectiles and pools. Bosses already alive keep theirs. Default x${DEFAULT_SERVER_SETTINGS.bossDamageMultiplier}.`)}
-        <label className="adm-field wide">
+        <label className="adm-field wide" data-search-id={searchId('settings', 'motd')}>
           <span>Message of the day</span>
           <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'worldSeed')}>
           <span>
             World seed <b>{draft.worldSeed}</b>
           </span>
@@ -553,35 +374,35 @@ function Settings({ token, role, notify }: TabProps) {
           </button>
           <small className="muted">The layout of the public world. Copies already running keep theirs until everyone leaves; new ones use this.</small>
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'dayMinutes')}>
           <span>
             Day length <b>{draft.dayMinutes} min</b>
           </span>
           <input type="range" min={SETTINGS_LIMITS.dayMinutesMin} max={120} step={1} value={Math.min(120, draft.dayMinutes)} onChange={(e) => setDraft({ ...draft, dayMinutes: Number(e.target.value) })} />
           <small className="muted">One full day and night.</small>
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'nightBrightness')}>
           <span>
             Night brightness <b>{Math.round(draft.nightBrightness * 100)}%</b>
           </span>
           <input type="range" min={0} max={1} step={0.05} value={draft.nightBrightness} onChange={(e) => setDraft({ ...draft, nightBrightness: Number(e.target.value) })} />
           <small className="muted">How much light is left at the darkest point of night.</small>
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'heroLight')}>
           <span>
             Hero light at night <b>{Math.round(draft.heroLight * 100)}%</b>
           </span>
           <input type="range" min={0} max={SETTINGS_LIMITS.lightRateMax} step={0.05} value={draft.heroLight} onChange={(e) => setDraft({ ...draft, heroLight: Number(e.target.value) })} />
           <small className="muted">The warm light around each hero at night; party members carry a faint share. Underground it scales the hero's torch.</small>
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'heroLightRadius')}>
           <span>
             Hero light reach <b>{draft.heroLightRadius}</b>
           </span>
           <input type="range" min={SETTINGS_LIMITS.heroLightRadiusMin} max={SETTINGS_LIMITS.heroLightRadiusMax} step={20} value={draft.heroLightRadius} onChange={(e) => setDraft({ ...draft, heroLightRadius: Number(e.target.value) })} />
           <small className="muted">How far the hero's night light reaches, in world units; the screen is about 540 tall.</small>
         </label>
-        <label className="adm-field">
+        <label className="adm-field" data-search-id={searchId('settings', 'lampLight')}>
           <span>
             Lamps and torches <b>{Math.round(draft.lampLight * 100)}%</b>
           </span>
@@ -594,7 +415,7 @@ function Settings({ token, role, notify }: TabProps) {
         {zoom('zoomMin', 'Furthest zoom out', `How much of the map a player can see at most. The server allows ${Math.round(SETTINGS_LIMITS.zoomMin * 100)}% and up.`)}
         {zoom('zoomMax', 'Closest zoom in', 'How close a player can bring the camera.')}
         {zoomProblem && <p className="adm-field wide"><span className="badge red">{zoomProblem}</span></p>}
-        <label className="adm-check">
+        <label className="adm-check" data-search-id={searchId('settings', 'registrationOpen')}>
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
           Registration open <small className="muted">New accounts can be created</small>
         </label>
@@ -649,30 +470,72 @@ export function AdminApp() {
   );
 }
 
+/** How long a jump keeps looking for its target while the tab loads its data (about 3 s of frames). */
+const FIND_FRAMES = 180;
+const FLASH_MS = 1800;
+
+/** Scrolls to and focuses where a search result points, once its tab has drawn it (`data-search-id`). */
+function useJumpFocus(jump: Jump | null): void {
+  useEffect(() => {
+    if (!jump) return;
+    const id = searchId(jump.tab, jump.target);
+    let frame = 0;
+    let raf = 0;
+    let flash: ReturnType<typeof setTimeout> | undefined;
+    const find = () => {
+      const el = document.querySelector(`[data-search-id="${CSS.escape(id)}"]`);
+      if (!(el instanceof HTMLElement)) {
+        if (++frame < FIND_FRAMES) raf = requestAnimationFrame(find);
+        return;
+      }
+      el.scrollIntoView({ block: 'center' });
+      // A settings label focuses its field and a tuning row its number. A row with actions in it
+      // (Revoke, the role picker) focuses itself, so a stray key press after the jump does nothing.
+      const field = el.querySelector('[data-search-field]') ?? (el.tagName === 'LABEL' ? el.querySelector('input:not([type=hidden]), select, textarea') : null);
+      (field instanceof HTMLElement ? field : el).focus({ preventScroll: true });
+      el.classList.add('adm-found');
+      flash = setTimeout(() => el.classList.remove('adm-found'), FLASH_MS);
+    };
+    raf = requestAnimationFrame(find);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (flash) clearTimeout(flash);
+    };
+  }, [jump]);
+}
+
 function AdminPage({ access }: { access: StaffAccess }) {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('live');
+  const [jump, setJump] = useState<Jump | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const notify = useCallback((t: string) => {
     setToast(t);
     setTimeout(() => setToast((cur) => (cur === t ? null : cur)), 3500);
   }, []);
   const { role, token } = access;
+  const tabs = useMemo(() => visibleTabs(role), [role]);
+  const go = useCallback((to: Tab, target: string) => {
+    setTab(to);
+    setJump((j) => ({ tab: to, target, seq: (j?.seq ?? 0) + 1 }));
+  }, []);
+  const onSearch = useCallback((e: SearchEntry) => go(e.tab, e.target), [go]);
+  const openPlayer = useCallback((accountId: number) => go('players', String(accountId)), [go]);
+  useJumpFocus(jump);
+  /** The jump for a tab, so a tab only reacts to results that point into it. */
+  const focusOf = (t: Tab): Jump | null => (jump?.tab === t ? jump : null);
+  const shows = (t: Tab) => tab === t && tabs.includes(t);
   return (
     <div className="adm">
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'arena', 'settings', 'tuning', 'monsters', 'minions', 'modelCheck', 'grant', 'tokens'] as const)
-            .filter((t) => {
-              const p = TAB_PERMISSION[t];
-              return p === undefined || can(role, p);
-            })
-            .map((t) => (
+          {tabs.map((t) => (
             <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
               {TAB_NAMES[t]}
             </button>
           ))}
         </nav>
+        <SearchBox token={token} role={role} onJump={onSearch} />
         <span className="muted adm-who">
           {access.username} <span className="badge gold">{ROLE_INFO[role].name}</span>
         </span>
@@ -682,16 +545,17 @@ function AdminPage({ access }: { access: StaffAccess }) {
         <a href="/">Back to game</a>
       </header>
       <main className={WIDE_TABS.has(tab) ? 'adm-main adm-wide' : 'adm-main'}>
-        {tab === 'overview' && <Overview token={token} role={role} notify={notify} />}
-        {tab === 'players' && <Players token={token} role={role} notify={notify} />}
-        {tab === 'arena' && <Arena notify={notify} />}
-        {tab === 'settings' && <Settings token={token} role={role} notify={notify} />}
-        {tab === 'tuning' && <TunablesTab token={token} role={role} notify={notify} />}
-        {tab === 'monsters' && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} />}
-        {tab === 'minions' && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} />}
-        {tab === 'modelCheck' && <ModelCheckTab notify={notify} />}
-        {tab === 'grant' && can(role, 'grantItems') && <GrantTab token={token} notify={notify} />}
-        {tab === 'tokens' && can(role, 'apiTokens') && <TokensTab token={token} role={role} notify={notify} />}
+        {shows('live') && <LiveTab token={token} role={role} notify={notify} openPlayer={openPlayer} />}
+        {shows('players') && <Players token={token} role={role} notify={notify} focus={focusOf('players')} />}
+        {shows('arena') && <Arena notify={notify} />}
+        {shows('settings') && <Settings token={token} role={role} notify={notify} />}
+        {shows('tuning') && <TunablesTab token={token} role={role} notify={notify} focus={focusOf('tuning')} />}
+        {shows('monsters') && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} focus={focusOf('monsters')} />}
+        {shows('minions') && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} focus={focusOf('minions')} />}
+        {shows('modelCheck') && <ModelCheckTab notify={notify} />}
+        {shows('log') && <LogTab token={token} notify={notify} focus={focusOf('log')} />}
+        {shows('grant') && <GrantTab token={token} notify={notify} />}
+        {shows('tokens') && <TokensTab token={token} role={role} notify={notify} />}
       </main>
       {toast && (
         <div className="adm-toast" role="status">

@@ -7,6 +7,7 @@ import { isTryOnKey, listTryOns, removeTryOn, saveTryOn, type TryOnEntry, type T
 import { newAssetEntry } from './exportText.js';
 import { checkModel, guessRoles, type ModelFlags } from './modelChecks.js';
 import { ModelStage, ROLES, type StageTarget } from './ModelStage.js';
+import { searchId } from '../tabs.js';
 import './monsters.css';
 
 interface Loaded {
@@ -114,7 +115,7 @@ export function ModelCheckTab({ notify }: { notify: (t: string) => void }) {
           onDrop={onDrop}
         >
           <p>Drop a .glb here</p>
-          <button type="button" onClick={() => input.current?.click()}>
+          <button type="button" onClick={() => input.current?.click()} data-search-id={searchId('modelCheck', 'drop')}>
             Pick a file
           </button>
           <input

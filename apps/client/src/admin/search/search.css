@@ -1,0 +1,91 @@
+.srch {
+  position: relative;
+  width: 300px;
+}
+.srch input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.srch-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 560px;
+  max-height: 70vh;
+  overflow: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #0f0c09;
+  border: 1px solid #4a3b24;
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  z-index: 5;
+}
+.srch-results li {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  grid-template-areas: 'kind title tab' 'kind detail tab';
+  gap: 0 10px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.srch-results li.on {
+  background: rgba(217, 181, 106, 0.1);
+}
+.srch-results li.srch-empty {
+  display: block;
+  cursor: default;
+  font-size: 12px;
+}
+.srch-kind {
+  grid-area: kind;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.srch-kind.player,
+.srch-kind.character {
+  color: var(--gold);
+}
+.srch-kind.log {
+  color: #a08a6a;
+}
+.srch-title {
+  grid-area: title;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srch-detail {
+  grid-area: detail;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srch-tab {
+  grid-area: tab;
+  font-size: 11px;
+  align-self: center;
+}
+/* Where a jump from the search landed. */
+.adm-found {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+  animation: adm-found 1.8s ease-out forwards;
+}
+@keyframes adm-found {
+  from {
+    background-color: rgba(217, 181, 106, 0.18);
+  }
+  to {
+    background-color: transparent;
+  }
+}

@@ -1,0 +1,256 @@
+/* The Live view. Status colours are muted on purpose: the page sits beside a dark, desaturated game. */
+.live {
+  --ok: #8c9a72;
+  --warn: #c88a3e;
+  --late: #c9574a;
+  display: grid;
+  gap: 14px;
+}
+.live h2 {
+  margin: 4px 0 6px;
+}
+.live h2 .muted {
+  font-family: var(--font-body);
+  font-size: 12px;
+  margin-left: 4px;
+}
+.live .adm-announce {
+  margin-top: 0;
+}
+.live-health {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 10px;
+  align-items: stretch;
+}
+.live-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+.live-stat {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  padding: 8px 11px;
+  border: 1px solid #3a2f20;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #17130f, #0f0c09);
+}
+.live-stat b {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.live-stat span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.live-stat.ok b {
+  color: var(--ok);
+}
+.live-stat.warn b {
+  color: var(--warn);
+}
+.live-stat.bad {
+  border-color: #6a2a20;
+}
+.live-stat.bad b {
+  color: var(--late);
+}
+.live-spark-box {
+  margin: 0;
+  padding: 8px 10px 6px;
+  border: 1px solid #3a2f20;
+  border-radius: 5px;
+  background: #0c0a08;
+  display: grid;
+  gap: 4px;
+}
+.live-spark-box figcaption {
+  font-size: 11px;
+}
+.live-spark {
+  width: 100%;
+  height: 64px;
+  display: block;
+}
+.live-spark-mean {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.live-spark-max {
+  fill: rgba(201, 87, 74, 0.22);
+  stroke: none;
+}
+.live-spark-budget {
+  stroke: #6b5634;
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.live-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+.live-table td,
+.live-table th {
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+.live-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.live-table tr.live-idle td {
+  color: var(--muted);
+}
+.live-tick {
+  min-width: 120px;
+}
+.live-tick .ok {
+  color: var(--ok);
+}
+.live-tick .warn {
+  color: var(--warn);
+}
+.live-tick .bad {
+  color: var(--late);
+}
+.live-bar {
+  display: block;
+  height: 3px;
+  margin-top: 3px;
+  background: #221c14;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.live-bar span {
+  display: block;
+  height: 100%;
+}
+.live-bar .ok {
+  background: var(--ok);
+}
+.live-bar .warn {
+  background: var(--warn);
+}
+.live-bar .bad {
+  background: var(--late);
+}
+.adm button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold);
+  text-align: left;
+}
+.adm button.link:hover,
+.adm button.link:focus-visible {
+  text-decoration: underline;
+}
+.live-side {
+  display: grid;
+  gap: 10px;
+}
+.live-map {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.live-map svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid #3a2f20;
+  border-radius: 4px;
+  background: #0a0907;
+}
+.live-map figcaption {
+  font-size: 12px;
+}
+.live-map-bg {
+  fill: #0d0b09;
+}
+.live-map-town {
+  fill: rgba(217, 181, 106, 0.08);
+  stroke: #6b5634;
+  stroke-width: 0.4%;
+  vector-effect: non-scaling-stroke;
+}
+.live-dot {
+  fill: #cfc6b4;
+  stroke: #000;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.live-dot.party {
+  fill: var(--gold);
+}
+.live-tails {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.live-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #2a2218;
+  border-radius: 4px;
+  background: #0c0a08;
+  font-size: 12px;
+}
+.live-log li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid #1a1510;
+  align-items: baseline;
+}
+.live-log li.err {
+  background: rgba(201, 87, 74, 0.1);
+}
+.live-log li.err .live-text {
+  color: #e2a296;
+}
+.live-log time {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.live-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  min-width: 64px;
+}
+.live-kind.error {
+  color: var(--late);
+}
+.live-kind.staff {
+  color: var(--gold);
+}
+.live-text {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .live-health,
+  .live-grid,
+  .live-tails {
+    grid-template-columns: 1fr;
+  }
+}
+.live-log.log-full {
+  max-height: none;
+  margin-top: 8px;
+}

@@ -38,6 +38,7 @@ import { ENEMY_ASSETS, MINION_ASSETS, sizedAsset } from '../../render/characters
 import { exportOverrides } from './exportText.js';
 import { ModelStage, type StageTarget } from './ModelStage.js';
 import { tuningApi } from './tuningApi.js';
+import { searchId, type Jump } from '../tabs.js';
 import './monsters.css';
 
 type Kind = 'monsters' | 'minions';
@@ -255,7 +256,7 @@ function NumberRow({ field, value, saved, editable, onChange }: { field: Field; 
   );
 }
 
-export function TuningTab({ kind, token, role, notify }: { kind: Kind; token: string; role: Role; notify: (t: string) => void }) {
+export function TuningTab({ kind, token, role, notify, focus }: { kind: Kind; token: string; role: Role; notify: (t: string) => void; focus: Jump | null }) {
   const editable = can(role, 'settings');
   const infos = useMemo(() => (kind === 'monsters' ? ENEMY_TYPE_IDS.map(enemyInfo) : MINION_TYPE_IDS.map(minionInfo)), [kind]);
   const [saved, setSaved] = useState<TuningOverrides>(emptyTuning);
@@ -264,6 +265,13 @@ export function TuningTab({ kind, token, role, notify }: { kind: Kind; token: st
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [exported, setExported] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (focus) {
+      setSearch('');
+      setSelected(focus.target);
+    }
+  }, [focus]);
 
   const load = useCallback(async () => {
     const [m, n] = await Promise.all([tuningApi.monsters(token), tuningApi.minions(token)]);
@@ -337,7 +345,7 @@ export function TuningTab({ kind, token, role, notify }: { kind: Kind; token: st
                 .filter((i) => i.group === g)
                 .map((i) => (
                   <li key={i.id}>
-                    <button type="button" className={i.id === info.id ? 'on' : ''} onClick={() => setSelected(i.id)}>
+                    <button type="button" className={i.id === info.id ? 'on' : ''} onClick={() => setSelected(i.id)} data-search-id={searchId(kind, i.id)}>
                       {i.name}
                       {overriddenIds.has(i.id) && <span className="mon-dot" title="Has overrides" />}
                     </button>

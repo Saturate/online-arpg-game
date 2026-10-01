@@ -13,6 +13,7 @@ import {
 } from '@rune/shared';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { call, type ApiResult } from '../net/api.js';
+import { searchId, type Jump } from './tabs.js';
 import './tunables.css';
 
 /** The server checks every value again; checking the reply keeps a bad response out of the editor. */
@@ -57,7 +58,7 @@ function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved
   const bad = typeof value === 'string';
   const unsaved = edit !== undefined && value !== live;
   return (
-    <tr className={saved !== undefined ? 'tun-over' : ''}>
+    <tr className={saved !== undefined ? 'tun-over' : ''} data-search-id={searchId('tuning', spec.path)}>
       <th scope="row" title={spec.note ?? spec.path}>
         {spec.label}
         <span className="mono tun-path">{spec.path}</span>
@@ -71,6 +72,7 @@ function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved
           disabled={!editable}
           value={text}
           aria-label={spec.label}
+          data-search-field
           className={bad ? 'tun-bad' : ''}
           title={bad ? value : `Allowed ${spec.min} to ${spec.max}`}
           onChange={(e) => onEdit(e.target.value)}
@@ -98,7 +100,7 @@ function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved
  * Live tuning (docs/features/live-tuning.md): every spell shape and rune number with its code
  * default, edited and saved without a deploy, and the history of every change with revert.
  */
-export function TunablesTab({ token, role, notify }: { token: string; role: Role; notify: (t: string) => void }) {
+export function TunablesTab({ token, role, notify, focus }: { token: string; role: Role; notify: (t: string) => void; focus: Jump | null }) {
   const editable = can(role, 'tuning');
   const [server, setServer] = useState<TunablesState | null>(null);
   const [history, setHistory] = useState<TunableHistoryEntry[]>([]);
@@ -106,6 +108,11 @@ export function TunablesTab({ token, role, notify }: { token: string; role: Role
   const [view, setView] = useState<View>('shapes');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // A jump from the search shows the number by its path (and any it is a prefix of).
+  useEffect(() => {
+    if (focus) setSearch(focus.target);
+  }, [focus]);
 
   const loadHistory = useCallback(async () => {
     const h = await tunablesApi.history(token);

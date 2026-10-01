@@ -1,4 +1,4 @@
-import { isClassId, isItemShape, isLeaderboardResponse, isRole, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isItemShape, isLeaderboardResponse, isRole, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -44,42 +44,6 @@ function isCharacter(v: unknown): v is CharacterSummary {
 
 function isCharacters(v: unknown): v is CharactersResponse {
   return isRecord(v) && typeof v.username === 'string' && isRole(v.role) && typeof v.guest === 'boolean' && Array.isArray(v.characters) && v.characters.every(isCharacter);
-}
-
-function isOnlinePlayer(v: unknown): v is AdminOnlinePlayer {
-  return (
-    isRecord(v) &&
-    typeof v.characterId === 'number' &&
-    typeof v.name === 'string' &&
-    isClassId(v.classId) &&
-    typeof v.level === 'number' &&
-    typeof v.account === 'string' &&
-    (v.game === null || typeof v.game === 'string') &&
-    typeof v.room === 'string'
-  );
-}
-
-function isGameRow(v: unknown): v is AdminOverview['games'][number] {
-  return isRecord(v) && typeof v.id === 'string' && typeof v.host === 'string' && typeof v.players === 'number' && typeof v.rooms === 'number';
-}
-
-function isRoomRow(v: unknown): v is AdminOverview['rooms'][number] {
-  return isRecord(v) && typeof v.id === 'string' && typeof v.name === 'string' && typeof v.players === 'number' && typeof v.monsters === 'number';
-}
-
-function isOverview(v: unknown): v is AdminOverview {
-  return (
-    isRecord(v) &&
-    typeof v.build === 'string' &&
-    typeof v.uptimeSeconds === 'number' &&
-    typeof v.memoryMb === 'number' &&
-    Array.isArray(v.online) &&
-    v.online.every(isOnlinePlayer) &&
-    Array.isArray(v.games) &&
-    v.games.every(isGameRow) &&
-    Array.isArray(v.rooms) &&
-    v.rooms.every(isRoomRow)
-  );
 }
 
 function isAdminCharacter(v: unknown): v is AdminCharacter {
@@ -160,7 +124,6 @@ export const api = {
 };
 
 export const adminApi = {
-  overview: async (token: string) => narrow(await call('GET', '/api/admin/overview', token), isOverview),
   accounts: async (token: string) => narrow(await call('GET', '/api/admin/accounts', token), isAccounts),
   settings: async (token: string) => narrow(await call('GET', '/api/admin/settings', token), isSettings),
   saveSettings: async (token: string, patch: Partial<ServerSettings>) => narrow(await call('PUT', '/api/admin/settings', token, patch), isSettings),
