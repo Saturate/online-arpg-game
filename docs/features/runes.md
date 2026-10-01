@@ -304,6 +304,15 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 - The rune trader, zone merging, the Stack rune and endgame tiers are not built.
 - `SPELL.timerSeconds` duplicates `DEFAULT_TIMER_SECONDS` and only a test reads it. `runes/v2/examples.ts` still carries the plan's older Fireball text (`+30% damage`, `zone[long]`).
 
+## Planned: a longer cast cooldown (owner, 2026-10-01)
+
+"My brother has a spell like an orb that does some novas, pretty cool, but needs more cooldown; base cooldown needs to be higher."
+
+- **The global cast cooldown goes up** from 0.35 s and becomes a live admin setting (ServerSettings), default 0.5 s, so it can be tuned in play without a deploy. It stays one number for every spell: the owner chose this over a cast delay per rune and over a cooldown by Force cost. The cast delay affix and cast speed keep shortening it.
+- **Shown on the skill bar and in tooltips:** a dark sweep over the skill slot while it recharges, and "Cooldown N s" in the sigil tooltip and at the forge, both from the same setting the server uses.
+- **Trade-off accepted:** starters and basic attacks slow down by the same share as payload spells. The parity and spell engine tests that pin 0.35 s need new expectations.
+- **Order:** after the boss tuning branch merges (it adds ServerSettings fields) and alongside the rune roll branch.
+
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 
 - **Damage packets:** every hit carries physical, fire, cold and lightning amounts instead of one number plus an element tag.
