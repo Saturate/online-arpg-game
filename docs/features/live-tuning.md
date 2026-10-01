@@ -17,6 +17,12 @@ Every gameplay number that matters for balance can be changed through the admin 
 
 ## Decisions
 
+- **No starters as a special kind** (owner, 2026-10-01): "I don't really want starters, just a basic shape with runes in a sigil; balance is the runes and sigils, not a starter weird thing." Planned:
+  - A class's first skills are ordinary sigils built from ordinary runes with rolls inside the drop tables (the kit recipe only says which runes and rolls a new character gets). No hand-set rolls beyond the tables, no special casting rule (`holdsStarterRecipe`/`castingSlots`/`castingStarter` go), no Skill balance group in tuning.
+  - Existing characters' starter sigils keep their stored rolls as they are (owner): every sigil casts the rolls it holds; extraction still clamps, so a strong old roll never leaves its sigil at full strength.
+  - Balance moves to the runes and sigils: rune affix roll ranges per tier and sigil affix ranges become tunable (Rune balance, a new Sigil balance), next to rune effects, Force and spirit prices and the base shapes.
+  - Several first skills get weaker with table rolls; the first balance pass is done live in Rune balance and Base shapes, measured against today's numbers.
+
 - **Tab names** (owner, 2026-10-01): the Tuning tab opens on **Skill balance** (each class skill's own numbers, paths `starter.*`), then **Rune balance**, Force prices, Spirit prices and **Base shapes** (the numbers every spell of a shape uses). Only labels and order changed; paths and stored values did not.
 
 - **Base numbers, not multipliers** (owner, 2026-10-01): "We don't want multipliers as much as we want just to change the base numbers." Tuning edits the real numbers (Bolt's damage 16, a rune's Force, a starter's own rolls), not a factor on top. The per-starter damage multiplier was built and reverted before it shipped; phase 2 makes each starter's own numbers tunable instead.
