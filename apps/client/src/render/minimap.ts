@@ -1,4 +1,4 @@
-import type { EntitySnap, Obstacle, WorldMap, ZoneWorld } from '@rune/shared';
+import { ZONES, type EntitySnap, type Obstacle, type WorldMap, type ZoneWorld } from '@rune/shared';
 import { cssColor, TIER_COLORS, VIEW } from './config.js';
 
 /**
@@ -265,6 +265,17 @@ export class Minimap {
     g.fillStyle = cssColor(this.def.groundTint);
     g.globalAlpha = 0.55;
     g.fillRect(0, 0, this.w, this.h);
+    // The world colours each region as its ground is drawn, in cells of 250 units.
+    const plan = this.zone?.plan;
+    if (plan) {
+      const cell = 250;
+      for (let y = 0; y < this.def.height; y += cell) {
+        for (let x = 0; x < this.def.width; x += cell) {
+          g.fillStyle = cssColor(ZONES[plan.regionAt(x + cell / 2, y + cell / 2)].groundTint);
+          g.fillRect(x * s, y * s, cell * s + 1, cell * s + 1);
+        }
+      }
+    }
     g.globalAlpha = 1;
     for (const patch of this.def.ground) {
       g.fillStyle = patch.kind === 'plaza' ? '#9a9080' : patch.kind === 'floor' ? '#6e655a' : '#8a7050';

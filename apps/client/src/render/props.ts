@@ -1,4 +1,4 @@
-import { Rng, ZONES, type Decor, type Obstacle, type Shape, type WorldMap, type ZoneWorld } from '@rune/shared';
+import { Rng, ZONES, type Decor, type Obstacle, type Shape, type WorldMap, type WorldPlan, type ZoneWorld } from '@rune/shared';
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -440,7 +440,11 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
   const groundMat = own(
     underground ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 }) : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), 1, 1, owned), color: def.groundTint, roughness: 1 }),
   );
-  addGroundTiles(chunks, groundMat, -margin, -margin, gw, gh);
+  // In the world each region keeps the ground colour its zone had, blended over a few hundred units at the borders.
+  const tint = plan && !underground ? (x: number, y: number) => regionTint(plan, x, y) : null;
+  if (tint) groundMat.color.set(0xffffff);
+  if (tint) groundMat.vertexColors = true;
+  addGroundTiles(chunks, groundMat, -margin, -margin, gw, gh, tint);
   const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), own(new MeshBasicMaterial({ color: COLORS.background })));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(width / 2, -3, height / 2);
@@ -622,9 +626,26 @@ function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: 
  * The ground, one tile per chunk. UVs are in world units (one texture repeat per 420), so the
  * pattern runs on across tile edges exactly as it did over the single plane the tiles replace.
  */
-function addGroundTiles(chunks: WorldChunks, material: MeshStandardMaterial, x0: number, z0: number, gw: number, gh: number): void {
+/** Linear RGB of a region's ground at a spot, averaged over a 3 by 3 of samples 300 apart so borders blend. */
+function regionTint(plan: WorldPlan, x: number, y: number): Color {
+  const out = new Color(0, 0, 0);
+  const c = new Color();
+  for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i++) {
+      c.setHex(ZONES[plan.regionAt(x + i * 300, y + j * 300)].groundTint);
+      out.r += c.r / 9;
+      out.g += c.g / 9;
+      out.b += c.b / 9;
+    }
+  }
+  return out;
+}
+
+/** Ground tiles one per chunk; with `tint`, each tile is a grid whose corners carry the ground colour there. */
+function addGroundTiles(chunks: WorldChunks, material: MeshStandardMaterial, x0: number, z0: number, gw: number, gh: number, tint: ((x: number, z: number) => Color) | null = null): void {
   const size = CHUNK_SIZE;
   const REPEAT = 420;
+  const SEGMENTS = 8;
   for (let cy = chunkCoord(z0); cy * size < z0 + gh; cy++) {
     for (let cx = chunkCoord(x0); cx * size < x0 + gw; cx++) {
       const ax = Math.max(x0, cx * size);
@@ -634,13 +655,37 @@ function addGroundTiles(chunks: WorldChunks, material: MeshStandardMaterial, x0:
       if (bx <= ax || bz <= az) continue;
       chunks.build((ax + bx) / 2, (az + bz) / 2, 0, (g) => {
         const geo = new BufferGeometry();
-        geo.setAttribute('position', new BufferAttribute(new Float32Array([ax, 0, az, bx, 0, az, bx, 0, bz, ax, 0, bz]), 3));
-        geo.setAttribute('normal', new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
         const u = (x: number) => (x - x0) / REPEAT;
         const v = (z: number) => (gh - (z - z0)) / REPEAT;
-        geo.setAttribute('uv', new BufferAttribute(new Float32Array([u(ax), v(az), u(bx), v(az), u(bx), v(bz), u(ax), v(bz)]), 2));
+        const n = tint ? SEGMENTS : 1;
+        const pos: number[] = [];
+        const uv: number[] = [];
+        const col: number[] = [];
+        const index: number[] = [];
+        for (let j = 0; j <= n; j++) {
+          for (let i = 0; i <= n; i++) {
+            const x = ax + ((bx - ax) * i) / n;
+            const z = az + ((bz - az) * j) / n;
+            pos.push(x, 0, z);
+            uv.push(u(x), v(z));
+            if (tint) {
+              const c = tint(x, z);
+              col.push(c.r, c.g, c.b);
+            }
+          }
+        }
         // Counter-clockwise seen from above, so the tile faces up.
-        geo.setIndex([0, 3, 1, 1, 3, 2]);
+        for (let j = 0; j < n; j++) {
+          for (let i = 0; i < n; i++) {
+            const a = j * (n + 1) + i;
+            index.push(a, a + n + 1, a + 1, a + 1, a + n + 1, a + n + 2);
+          }
+        }
+        geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+        geo.setAttribute('normal', new BufferAttribute(new Float32Array(pos.map((_, k) => (k % 3 === 1 ? 1 : 0))), 3));
+        geo.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2));
+        if (tint) geo.setAttribute('color', new BufferAttribute(new Float32Array(col), 3));
+        geo.setIndex(index);
         geo.computeBoundingSphere();
         const tile = new Mesh(geo, material);
         tile.receiveShadow = true;
@@ -1495,6 +1540,9 @@ function addGrass(chunks: WorldChunks, def: WorldMap, zone: ZoneWorld | null): v
   chunks.shared.add(cone);
   chunks.shared.add(ico);
   const grassMat = mat(grassColor, { rough: 1 });
+  // In the world, tufts take the colour of the region their chunk is in.
+  const plan = zone?.plan;
+  const grassAt = (x: number, y: number) => (plan ? mat(new Color(ZONES[plan.regionAt(x, y)].groundTint).offsetHSL(0.01, -0.02, 0.02).getHex(), { rough: 1 }) : grassMat);
   const flowerMat = mat(0xffffff, { emissive: 0x202020 });
   const pebbleMat = mat(0x7a7468);
   const size = CHUNK_SIZE;
@@ -1540,7 +1588,7 @@ function addGrass(chunks: WorldChunks, def: WorldMap, zone: ZoneWorld | null): v
             pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
           }
         }
-        for (const m of [instanced(cone, grassMat, grass), instanced(ico, flowerMat, flowers, flowerColors), instanced(ico, pebbleMat, pebbles)]) {
+        for (const m of [instanced(cone, grassAt((x0 + x1) / 2, (y0 + y1) / 2), grass), instanced(ico, flowerMat, flowers, flowerColors), instanced(ico, pebbleMat, pebbles)]) {
           if (!m) continue;
           // Decor is too small to cast useful shadows and there are thousands of instances.
           m.castShadow = false;

@@ -43,8 +43,8 @@ export function WorldTab() {
       bench.current = b;
       window.worldBench = b;
     };
-    // The home zone shows the live town, as the server has it, rather than the shipped default.
-    if (scene === 'town') {
+    // The world is built round the live town, as the server has it, rather than the shipped default.
+    if (scene !== 'wilds') {
       fetch('/api/town')
         .then((r) => r.json())
         .then((j: unknown) => start(validateLayout(j) ?? undefined), () => start(undefined));
