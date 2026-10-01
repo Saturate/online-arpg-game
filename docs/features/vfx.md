@@ -1,6 +1,6 @@
 # Spell effects (VFX)
 
-Status: Built 2026-09-30, not pushed. Replaces the flat spell shapes with shaders, particles, trails and spell light. Low quality keeps the flat shapes. World fires (torches, lamps, candles, camp fires, the forge) built 2026-09-30 on the same pools, not pushed.
+Status: Live (`f82ead6`, 2026-10-01). Built 2026-09-30. Replaces the flat spell shapes with shaders, particles, trails and spell light. Low quality keeps the flat shapes. World fires (torches, lamps, candles, camp fires, the forge) built 2026-09-30 on the same pools.
 
 ## What it does
 

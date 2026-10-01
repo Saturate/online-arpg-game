@@ -292,13 +292,13 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 
 ## Limits and open questions
 
-- **Multishot and Flame Cleave** kept their weak v1 numbers (about 4 and 13 damage per cast, against 100+ for Fireball). Measured proposals, not applied:
+- **Multishot and Flame Cleave** kept their weak v1 numbers (about 4 and 13 damage per cast, against 100+ for Fireball). Owner decision (2026-10-01): apply the measured proposals below, Multishot as `bolt[pierce 2, +300% damage] split(5)` and Flame Cleave as the burning ring `nova[-40% size, +50% damage] fire`. Not applied yet. The proposals:
   - Multishot: `bolt[pierce 2, +300% damage] split(5)`: Force 19.2, 430 single target, 1290 into a pack (v1: 115 / 344).
   - Flame Cleave: `bolt[-50% duration, +60% size, +200% damage] fire split(3)`: 574 / 1149, but Force 22.6 (+40%). At the v1 price, a burning ring instead: `nova[-40% size, +50% damage] fire`: Force 16.7, 650 / 3231.
 - **Repeating payloads** (`every`, Pulse) now cost 60 to 250 Force per cast, since they pay for each release; players who built them will read it as a nerf. Phase 7's rebalance revisits it. Frozen Orb stays near its v1 price because its ring is weighted as mostly missing.
 - **Fireball and Leap Slam** sit near the top of the 15% Force band (+13%); a retune should keep them inside it.
 - **A once-off payload at its base price** can still reach about 2.1x the best starter's damage per Force.
-- **"First rune is free"** is now only worth about 5% of a cast. Decide whether to keep it, drop it from the rolls or replace it.
+- **"First rune is free"** is now only worth about 5% of a cast. Owner decision (2026-10-01): drop it from the rolls ("nothing is free"); pricing stays per rune as it is. Existing rolls on live sigils need a save conversion that removes the affix. Not done yet.
 - **Skill tooltips show the base Force,** not the admin's cost multiplier.
 - **Swift and Large as plain runes** are behind a grammar flag (`plainModifierRunes`), on in the game.
 - The rune trader, zone merging, the Stack rune and endgame tiers are not built.

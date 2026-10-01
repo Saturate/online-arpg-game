@@ -113,5 +113,5 @@ Tests:
 - **Smashing:** at the forge, destroy an inscribed sigil (in-game confirmation, never a browser dialog). Each rune survives independently with a chance set on the admin page (default 10%). Survivors go to the bag, else pending; out-of-table rolls are clamped as on any extraction; bound runes stay bound; bench runes never survive. The sigil shatters with sparks, survivors fly out.
 - **Applies to starter sigils too;** existing sigils with runes on live count as inscribed.
 - **Drops:** a sigil can drop blank, partly inscribed (some fused runes and open slots, for example 1 taken and 5 open; the fused part starts with a readable prefix such as a shape, maybe an infusion or a release) or full (the starter spells). Shares in config.
-- **Starter sigils get one open slot** beyond their runes so a new character can append at the forge from level 1 (proposed; owner to confirm).
+- **Starter sigils get one open slot** beyond their runes so a new character can append at the forge from level 1 (owner confirmed 2026-10-01).
 - **Server rules to change:** inscribe only appends to open slots (the existing `base` check covers the fused part); refuse non-compiling spells; a smash message; conservation tests for smash (survivors plus destroyed equals what the sigil held, chance seeded in tests). Item review before it ships.

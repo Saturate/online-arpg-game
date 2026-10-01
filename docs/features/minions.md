@@ -23,7 +23,7 @@ Status: Live. Vessels and minions since the first build (M5, 2026-09-28); the wa
 - **Binders start with one minion,** a common, bound Zombie Brute vessel.
 - A Bond (the Soul Link starter) can target your own minions as well as allies ([runes.md](runes.md)).
 - **While the master is dead the warband stands down.** Minions stop attacking, pouncing, howling and taunting, drop their targets, and walk back to wait around the corpse. Monsters drop them as targets and nothing can damage them (a burn or poison they carry keeps ticking down but deals no damage, so it has usually run out by the respawn), so no minion dies because its master did. When the master respawns, a minion more than 400 units away or out of sight is put down beside them at once; one nearby just walks over. Minions that respawn from their own timer while the master is down join the stand-down.
-- **In the Arena a dead member's warband stands down for the rest of the run,** since nobody respawns there until the run ends. Before 2026-09-30 it kept fighting for the living. Kept as built; **owner decision to confirm** (the other choice is to let a warband fight on while its master's party still lives, in the Arena only).
+- **In the Arena a dead member's warband stands down for the rest of the run,** since nobody respawns there until the run ends. Before 2026-09-30 it kept fighting for the living. **Owner decision (2026-10-01): desummon instead.** Planned: in the Arena a dead member's minions are desummoned at the death and come back when the run ends; the stand-down stays everywhere else.
 
 ### The Hound pack
 

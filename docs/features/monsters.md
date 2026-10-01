@@ -37,6 +37,7 @@ Status: Live. The roster since 2026-09-28 (two batches); the admin Monsters, Min
 - **Safe zone:** `isTargetable` is the one check both aggro and damage go through, so monsters lose their target at the town gate.
 - **Rare and boss numbers:** bosses always roll 3 affixes, are 1.885x size (1.45 x 1.3) and get 9x base life (3x rare, 3x boss). Monster life grows 28% per level and damage 14% per level above 1.
 - **Low-level fairness:** below level 5, spread shots fire one projectile and rares cannot roll Multishot. A fan of bullets from the first monsters a new character meets felt unfair.
+- **Planned: boss tuning (owner, 2026-10-01).** "Bosses need less HP but more damage, so they are dangerous and you have to dodge attacks." Boss life halves (4.5x base instead of 9x) and boss damage doubles, both as admin settings so they tune live. Applies to every boss: region, gate, dungeon and Arena. The telegraphs stay as they are, since every big attack can already be dodged; a review in play should check that the doubled hits read in time, at night too.
 - **Bosses never roll Regenerates.** Affixes are filtered after the roll, so a rare can end up with none.
 - **Reflected projectiles** are capped at 12 damage and live 1.5 s; the reflect chance is the affix value (20% to 60% by tier).
 - **Summons do not pay:** anything a monster summons drops no loot and gives a quarter of the XP. A shaman's raised corpse gives nothing at all (no XP, no loot, no Arena score), so a monster raised a second time cannot be farmed. Monsters split from a splitter pay in full.

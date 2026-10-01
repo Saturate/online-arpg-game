@@ -62,18 +62,21 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **World:** region terrain (dunes, caves), bigger worlds (16x to 25x needs a coarser reachability check), the server half of chunked snapshots ([world-map.md](docs/features/world-map.md), [world-streaming.md](docs/features/world-streaming.md)).
 - Small requests not started: `docs/backlog.md`.
 
-**Owner decisions open.**
+**Owner decisions (2026-10-01).** Written into their feature docs; none built yet. These are the next build, the "small fixes batch":
 
-- Arena: a dead member's minions stand down for the rest of the run (kept for now; [minions.md](docs/features/minions.md)).
-- Gate bosses share the 20-minute boss timer with region bosses; their own setting?
-- Chests are per world copy; per character?
-- The "first rune is free" sigil roll is worth about 5%; keep, drop or replace.
-- Multishot and Flame Cleave buffs ([runes.md](docs/features/runes.md)).
-- Starter sigils with one open slot, with the forge redesign.
+- Arena: a dead member's minions are desummoned at the death and come back when the run ends ([minions.md](docs/features/minions.md)).
+- Gate bosses get their own respawn setting, apart from the region bosses' 20 minutes ([world-map.md](docs/features/world-map.md)).
+- Chests stay shared per world copy.
+- "First rune is free" is dropped from the rolls; live rolls need a save conversion ([runes.md](docs/features/runes.md)).
+- Multishot and Flame Cleave get the measured buffs ([runes.md](docs/features/runes.md)).
+- Starter sigils get one open slot, with the forge redesign ([forge.md](docs/features/forge.md)).
+- Bosses: half the life, double the damage, both admin settings, every boss ([monsters.md](docs/features/monsters.md)).
+- A town save applies without rebuilding the world room (the full fix; [world-map.md](docs/features/world-map.md)).
+- The trade write duplication and the fence corner get fixed.
 
 **Open items.**
 
-- A town save regenerates the world for everyone in it; moving a gate refills every chest.
+- A town save regenerates the world for everyone in it; moving a gate refills every chest (full fix decided, above).
 - Packmates or the hero can still catch on some town fence corners (`docs/backlog.md`).
 - Trade write failure edge case (an item could exist twice after a restart; [items.md](docs/features/items.md)).
 - Owner chores: rotate the Steam API key and the GHCR pull token pasted in chat; the GHCR package could go public.
@@ -84,6 +87,6 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **Manifests:** in the server repo under `k3s/apps/arpg/` (namespace, PVC `arpg-data` mounted at `/data`, deployment, service, httproute, network policy, image policy). The deployment uses the Recreate strategy, since one pod owns the SQLite file.
 - **Images:** built by `.github/workflows/image.yml` as `ghcr.io/saturate/online-arpg-game:main-<sha>-<ts>`. Flux image automation commits the new tag to the server repo and rolls it out. Pulls use the `ghcr-pull` secret.
 - **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf, settings and monster tuning overrides. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
-- **Checking live state:** use `kubectl -n arpg ...` over `ssh akj@svr.akj.io`. To read the database, run node with `node:sqlite` inside the pod (`kubectl -n arpg exec deploy/arpg -- node -e ...`).
+- **Checking live state:** use the admin API (`pnpm admin`, token in `~/.config/arpg/admin-token`): `GET /api/admin/overview`, `GET /api/admin/log`, `pnpm admin backup <file>`. SSH and `kubectl -n arpg` over `ssh akj@svr.akj.io` are a last resort and need 1Password approval.
 
 **Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts` and `config/forge.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. The rune grammar and compiler are in `packages/shared/src/runes/v2/`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in the feature docs ([`docs/features/index.md`](docs/features/index.md)) and, for cross-cutting ones, `DECISIONS.md`.
