@@ -148,6 +148,8 @@ describe('admin API tokens', () => {
     { method: 'POST', path: '/api/admin/kick', body: { characterId: plebCharacter }, scope: 'kick' },
     { method: 'POST', path: `/api/admin/accounts/${ids.pleb1}/ban`, body: { banned: false }, scope: 'ban' },
     { method: 'POST', path: '/api/admin/goto', body: { characterId: plebCharacter }, scope: 'teleport' },
+    // An empty body is refused by the layout check, so the scope is tested without saving a town.
+    { method: 'PUT', path: '/api/admin/town', body: {}, scope: 'townEdit' },
     { method: 'POST', path: `/api/admin/accounts/${ids.pleb1}/role`, body: { role: 'player' }, scope: 'manageRoles' },
     { method: 'POST', path: '/api/admin/grant', body: {}, scope: 'grantItems' },
     { method: 'GET', path: '/api/admin/log', scope: 'serverLog' },
@@ -197,7 +199,7 @@ describe('admin API tokens', () => {
     expect((await call('POST', '/api/admin/tokens', sessions.pleb1 ?? '', { name: 'x', scopes: [], days: 30 })).status).toBe(404);
     // Unknown scopes and fields, bad names and expiries are refused.
     expect((await call('POST', '/api/admin/tokens', admin, { name: 'x', scopes: ['apiTokens'], days: 30 })).status).toBe(400);
-    expect((await call('POST', '/api/admin/tokens', admin, { name: 'x', scopes: ['townEdit'], days: 30 })).status).toBe(400);
+    expect((await call('POST', '/api/admin/tokens', admin, { name: 'x', scopes: ['devTools'], days: 30 })).status).toBe(400);
     expect((await call('POST', '/api/admin/tokens', admin, { name: 'x', scopes: [], days: 30, extra: 1 })).status).toBe(400);
     expect((await call('POST', '/api/admin/tokens', admin, { name: '"; drop', scopes: [], days: 30 })).status).toBe(400);
     expect((await call('POST', '/api/admin/tokens', admin, { name: 'x', scopes: [], days: 91 })).status).toBe(400);

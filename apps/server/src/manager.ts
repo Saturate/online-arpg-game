@@ -58,7 +58,7 @@ import {
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
 import { ArenaRun } from './arena.js';
 import { LiveTuning } from './liveTuning.js';
-import { roleOf, type AdminHooks } from './http.js';
+import { roleOf, type AdminHooks, type TownSaveResult } from './http.js';
 import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { events } from './eventLog.js';
 import { channelBreak, PARTY_STATUS_TICKS, TELEPORT_CHANNEL_SECONDS, type ChannelWatch, type TeleportChannel } from './partyTravel.js';
@@ -149,6 +149,8 @@ export class RoomManager implements AdminHooks {
   /** Builders' private sandbox rooms. */
   private readonly sandboxes = new Set<string>();
   private townLayout: TownLayout;
+  /** When each account last saved the town, for the save cooldown. */
+  private readonly lastTownSave = new Map<number, number>();
   private nextClientId = 1;
   private nextInstanceId = 1;
   private nextArenaRun = 1;
@@ -723,26 +725,16 @@ export class RoomManager implements AdminHooks {
         return;
       }
       case 'saveTown': {
-        if (!can(client.role, 'townEdit')) {
+        if (!can(client.role, 'townEdit') || client.accountId === null) {
           client.send({ t: 'notice', text: 'The town editor needs the builder role' });
           return;
         }
-        // A save rebuilds the town room in every game, so it is rate limited per client.
-        const now = Date.now();
-        if (now - client.lastTownSave < TOWN_SAVE_COOLDOWN_MS) {
-          client.send({ t: 'notice', text: 'Wait a few seconds between town saves' });
-          return;
-        }
-        client.lastTownSave = now;
-        try {
-          saveTownLayout(msg.layout);
-        } catch (err) {
-          events.error('error', 'saving the town layout failed', err);
-          client.send({ t: 'notice', text: 'Could not save the town on the server' });
+        const saved = this.saveTown(client.accountId, msg.layout);
+        if (!saved.ok) {
+          client.send({ t: 'notice', text: saved.reason === 'wait' ? 'Wait a few seconds between town saves' : 'Could not save the town on the server' });
           return;
         }
         events.log('staff', `[town] saved by ${client.accountName}`);
-        this.replaceTown(msg.layout);
         client.send({ t: 'notice', text: 'Town saved' });
         return;
       }
@@ -950,13 +942,36 @@ export class RoomManager implements AdminHooks {
   }
 
   /**
+   * Saves a layout that already passed `validateLayout` and rebuilds every world room around it; the
+   * town editor and `PUT /api/admin/town` both come through here, so they share the cooldown. It is
+   * per account, since every save rebuilds the world room of every world copy.
+   */
+  saveTown(accountId: number, layout: TownLayout): TownSaveResult {
+    const now = Date.now();
+    const last = this.lastTownSave.get(accountId);
+    if (last !== undefined && now - last < TOWN_SAVE_COOLDOWN_MS) return { ok: false, reason: 'wait' };
+    // Old entries go, so the map holds only accounts inside their cooldown.
+    for (const [id, at] of this.lastTownSave) if (now - at >= TOWN_SAVE_COOLDOWN_MS) this.lastTownSave.delete(id);
+    this.lastTownSave.set(accountId, now);
+    try {
+      saveTownLayout(layout);
+    } catch (err) {
+      events.error('error', 'saving the town layout failed', err);
+      return { ok: false, reason: 'failed' };
+    }
+    return { ok: true, ...this.replaceTown(layout) };
+  }
+
+  /**
    * Rebuilds every world with the new town and carries everyone inside over, each to where they
    * stood (on open ground nearby), with the loot on the ground and the opened chests. The world's
    * roads start at the town's gates, so a town whose gates moved gets a new world around it, with
    * fresh monsters.
    */
-  private replaceTown(layout: TownLayout): void {
+  private replaceTown(layout: TownLayout): { rooms: number; players: number } {
     this.townLayout = layout;
+    let rooms = 0;
+    let players = 0;
     for (const inst of this.instances.values()) {
       const old = this.rooms.get(this.worldRoomId(inst));
       if (!old) continue;
@@ -973,8 +988,11 @@ export class RoomManager implements AdminHooks {
         next.add(m.client, save.classId, save.name, save, at ? { x: at.x, y: at.y } : undefined);
         // The new world's seals may lie elsewhere: someone left standing behind one goes back out.
         this.keepOutOfSeal(m.client, next);
+        players++;
       }
+      rooms++;
     }
+    return { rooms, players };
   }
 
   private usePortal(client: Client, from: Room, request: PortalRequest): void {
