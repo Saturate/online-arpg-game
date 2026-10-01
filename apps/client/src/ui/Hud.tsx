@@ -100,6 +100,7 @@ function SkillSlot({ slot }: { slot: number }) {
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      data-link-uid={sigil ? sigil.uid : undefined}
       aria-label={`${name}${skill ? `: ${skill.description}` : ''}`}
     >
       {hovered && sigil && <SkillPop name={name} description={skill?.description ?? null} result={sigil.slots.length > 0 ? result : null} />}

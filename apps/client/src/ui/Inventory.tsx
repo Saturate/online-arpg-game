@@ -155,11 +155,13 @@ export function ItemTooltip() {
   return (
     <div className={`tooltip tt tt-${item.tier}`} style={tier} ref={ref} role="tooltip">
       <ItemDetails item={item} classId={classId} />
-      <SpiritPreview item={item} place={place} />
+      {place?.at !== 'chat' && <SpiritPreview item={item} place={place} />}
       {place?.at === 'bag' && <Comparison item={item} />}
       {place?.at === 'forge' && place.warn && <p className="tt-warn">{place.warn}</p>}
       <footer className="tt-hint">
-        {place?.at === 'forge'
+        {place?.at === 'chat'
+          ? 'Linked in chat'
+          : place?.at === 'forge'
           ? place.hint
           : place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`
@@ -348,6 +350,7 @@ export function ItemCell({
         if (item) onSelect?.();
       }}
       onContextMenu={act}
+      data-link-uid={item?.uid}
       aria-label={item ? `${item.name}${blocked ? ' (cannot use)' : ''}` : (label ?? 'Empty slot')}
     >
       {label && <span className="inv-cell-key">{label}</span>}
@@ -559,6 +562,7 @@ function PendingStrip() {
             onMouseEnter={(e) => useHover.getState().set(item, e.clientX, e.clientY, { at: 'forge', hint: 'Pending: waits for room in your bag' })}
             onMouseMove={(e) => useHover.getState().set(item, e.clientX, e.clientY, { at: 'forge', hint: 'Pending: waits for room in your bag' })}
             onMouseLeave={() => useHover.getState().set(null, 0, 0)}
+            data-link-uid={item.uid}
             aria-label={`${item.name}, pending`}
           >
             <ItemIcon item={item} size={28} />

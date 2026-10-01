@@ -47,6 +47,8 @@ export interface ChatLine {
   from: string;
   to: string | null;
   text: string;
+  /** Display-only copies of linked items; `{n}` in the text shows `items[n - 1]`. */
+  items: Item[];
   at: number;
 }
 

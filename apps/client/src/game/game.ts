@@ -1,4 +1,5 @@
 import {
+  chatPlainText,
   SKILL_BUTTONS,
   FORGE_REACH,
   STASH_REACH,
@@ -52,6 +53,7 @@ import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
+import { effectiveZoom, stepZoomScale, zoomLimits } from './zoom.js';
 import { emitLight, entityLightKey } from '../render/lights.js';
 import { setModelOverrides } from '../render/characters.js';
 import { applyTryOns, watchTryOns } from '../render/tryOn.js';
@@ -187,6 +189,8 @@ export class Game {
   private lastLeftPresses = 0;
   private readonly pad = new GamepadInput();
   private chatSeq = 0;
+  /** Dungeons and their antechambers use the admin's dungeon zoom. */
+  private inDungeon = false;
   /** Latest chat line per speaker name, shown over their head until it expires. */
   private readonly bubbles = new Map<string, { text: string; until: number }>();
   private pendingEvents: { tick: number; ev: GameEvent }[] = [];
@@ -354,8 +358,13 @@ export class Game {
     const input = new InputState(
       world.canvas,
       (code) => this.onKey(code),
-      (step, shift) => {
-        if (!useSettings.getState().options.wheelCyclesSkill) return;
+      (step, shift, ctrl) => {
+        const options = useSettings.getState().options;
+        if (ctrl || !options.wheelCyclesSkill) {
+          if (this.editor) return;
+          useSettings.getState().setOption('zoomScale', stepZoomScale(zoomLimits, this.inDungeon, options.zoomScale, step));
+          return;
+        }
         const ui = useUi.getState();
         const side = shift ? 'left' : 'right';
         const from = shift ? ui.leftSkill : ui.rightSkill;
@@ -383,6 +392,7 @@ export class Game {
     this.visualOffset = { x: 0, y: 0 };
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
+    this.inDungeon = desc.kind === 'dungeon' || desc.kind === 'staging';
     useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'zone' ? desc.seed : null, waypointMenu: null, godMode: false });
     // The town editor works on the town part of the home zone, which sits at the map origin.
     this.townLayout = desc.kind === 'town' || (desc.kind === 'zone' && desc.zone === HOME_ZONE) ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
@@ -525,10 +535,11 @@ export class Game {
         return;
       }
       case 'chat': {
-        const line = { id: ++this.chatSeq, kind: msg.kind, from: msg.from, to: msg.to, text: msg.text, at: performance.now() };
+        const items = msg.items ?? [];
+        const line = { id: ++this.chatSeq, kind: msg.kind, from: msg.from, to: msg.to, text: msg.text, items, at: performance.now() };
         useUi.setState((s) => ({ chat: [...s.chat, line].slice(-60) }));
         // Speech bubble over the speaker, when they are in this room, like D2's overhead text.
-        if (msg.kind === 'game') this.bubbles.set(msg.from, { text: msg.text, until: performance.now() + BUBBLE_MS });
+        if (msg.kind === 'game') this.bubbles.set(msg.from, { text: chatPlainText(msg.text, items), until: performance.now() + BUBBLE_MS });
         return;
       }
       case 'waypoints':
@@ -566,6 +577,9 @@ export class Game {
         return;
       case 'lighting':
         Object.assign(lighting, msg.lighting);
+        return;
+      case 'zoom':
+        Object.assign(zoomLimits, msg.zoom);
         return;
       case 'models': {
         const models = parseModelOverrides(msg.models);
@@ -640,6 +654,12 @@ export class Game {
       this.accumulator -= SIM.tickMs;
     }
     this.editor?.update(dt);
+    // Checked every frame so a new room, the editor closing, a wheel step or an admin change all land
+    // without each having to remember to reapply it; the editor runs its own zoom.
+    if (this.room && !this.editor) {
+      const zoom = effectiveZoom(zoomLimits, this.inDungeon, useSettings.getState().options.zoomScale);
+      if (this.room.world.camera.zoom !== zoom) this.room.world.setZoom(zoom);
+    }
     const decay = Math.exp(-VIEW.correctionSmoothingPerSecond * dt);
     this.visualOffset.x *= decay;
     this.visualOffset.y *= decay;

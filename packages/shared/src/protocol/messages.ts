@@ -1,4 +1,4 @@
-import type { Lighting } from './accounts.js';
+import type { Lighting, ZoomSettings } from './accounts.js';
 import type { ArenaResult, ArenaStatus } from './arena.js';
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
@@ -66,8 +66,11 @@ export type ClientMessage =
   /** Go to the party's own world (the leader takes everyone online along), or back to the public one. */
   | { t: 'partyWorld' }
   | { t: 'publicWorld' }
-  /** Chat to your game, or a command such as `/w name message`. */
-  | { t: 'chat'; text: string }
+  /**
+   * Chat to your game, or a command such as `/w name message`. `{1}` to `{3}` in the text link the
+   * sender's own items by uid, in `links` order; the server resolves them (see protocol/chatLinks.ts).
+   */
+  | { t: 'chat'; text: string; links?: ItemUid[] }
   /** Travel from the waypoint the player stands on to another unlocked one. */
   | { t: 'useWaypoint'; zone: ZoneId }
   /** Start the channel that takes you to a party member (by character name); the server checks everything. */
@@ -381,6 +384,19 @@ export interface StagingMessage {
  */
 export type InscribeReply = { t: 'inscribed'; uid: ItemUid; attempt: number; ok: true } | { t: 'inscribed'; uid: ItemUid; attempt: number; ok: false; error: string };
 
+/**
+ * `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system`
+ * is the server. `{n}` in the text shows `items[n - 1]`, a display-only copy of the sender's item.
+ */
+export interface ChatMessage {
+  t: 'chat';
+  kind: 'game' | 'party' | 'whisper' | 'system';
+  from: string;
+  to: string | null;
+  text: string;
+  items?: Item[];
+}
+
 export type ServerMessage =
   | {
       t: 'welcome';
@@ -402,12 +418,13 @@ export type ServerMessage =
   | PartyStatusMessage
   | TeleportChannelMessage
   | { t: 'lighting'; lighting: Lighting }
+  /** The admin's camera zoom limits; sent on join and whenever an admin changes them. */
+  | { t: 'zoom'; zoom: ZoomSettings }
   /** Admin model and height overrides; sent on entering the game and again whenever they change. */
   | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */
   | { t: 'trader'; stock: TraderEntry[] }
-  /** `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system` is the server. */
-  | { t: 'chat'; kind: 'game' | 'party' | 'whisper' | 'system'; from: string; to: string | null; text: string }
+  | ChatMessage
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
   | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
   | StagingMessage

@@ -1,6 +1,7 @@
 import {
   ARENA,
   can,
+  resolveChatLinks,
   HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
@@ -32,6 +33,9 @@ import {
   type MapDescriptor,
   type PlayerSave,
   type Lighting,
+  type Item,
+  type ItemUid,
+  type ZoomSettings,
   type PartyInfo,
   type PartyMemberStatus,
   type PartyPlace,
@@ -179,7 +183,12 @@ export class RoomManager implements AdminHooks {
     this.store.saveSettings(this.current);
     for (const room of this.rooms.values()) this.applySettings(room);
     const lighting = this.lighting();
-    for (const c of this.clients.values()) if (c.characterId !== null) c.send({ t: 'lighting', lighting });
+    const zoom = this.zoom();
+    for (const c of this.clients.values()) {
+      if (c.characterId === null) continue;
+      c.send({ t: 'lighting', lighting });
+      c.send({ t: 'zoom', zoom });
+    }
     return this.settings();
   }
 
@@ -208,6 +217,11 @@ export class RoomManager implements AdminHooks {
   private lighting(): Lighting {
     const { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase, heroLight, heroLightRadius, lampLight } = this.current;
     return { dayMinutes, nightBrightness, timeOfDay, clockOffset, heldPhase, heroLight, heroLightRadius, lampLight };
+  }
+
+  private zoom(): ZoomSettings {
+    const { zoomDefault, zoomDungeon, zoomMin, zoomMax } = this.current;
+    return { zoomDefault, zoomDungeon, zoomMin, zoomMax };
   }
 
   announce(text: string): number {
@@ -637,7 +651,7 @@ export class RoomManager implements AdminHooks {
         this.startTeleport(client, msg.name);
         return;
       case 'chat':
-        this.chat(client, msg.text);
+        this.chat(client, msg.text, msg.links ?? []);
         return;
       case 'ready': {
         const room = client.room;
@@ -913,8 +927,31 @@ export class RoomManager implements AdminHooks {
     client.send({ t: 'chat', kind: 'system', from: '', to: null, text });
   }
 
+  /**
+   * Item links resolve only against the sender's own items: every item the character holds (bag,
+   * stash, equipment, the skill bar and pending) is in its item map, and inscribed runes live inside
+   * their sigil. Another player's uid simply is not found, so links cannot be used to look at
+   * anyone else's items.
+   */
+  private ownItem(client: Client): (uid: ItemUid) => Item | undefined {
+    const room = client.room;
+    const member = room?.members.get(client.id);
+    const p = room && member ? room.sim.world.player.get(member.playerId) : undefined;
+    return (uid) => {
+      if (!p) return undefined;
+      const direct = p.items.get(uid);
+      if (direct) return direct;
+      for (const it of p.items.values()) {
+        if (it.kind !== 'sigil') continue;
+        const rune = it.slots.find((r) => r.uid === uid);
+        if (rune) return rune;
+      }
+      return undefined;
+    };
+  }
+
   /** Game chat plus a few D2-style commands. Rate limited so one player cannot flood a game. */
-  private chat(client: Client, text: string): void {
+  private chat(client: Client, raw: string, links: readonly ItemUid[]): void {
     const now = performance.now();
     client.chatTimes = client.chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
     if (client.chatTimes.length >= CHAT_PER_WINDOW) {
@@ -922,6 +959,10 @@ export class RoomManager implements AdminHooks {
       return;
     }
     client.chatTimes.push(now);
+    // Resolved before commands are read, so every token left in the text is a link the server made.
+    const { text, items: linked } = resolveChatLinks(raw, links, this.ownItem(client));
+    const items = linked.length > 0 ? { items: linked } : {};
+    if (!text) return;
     const from = this.playerName(client);
     if (text.startsWith('/')) {
       const [cmd = '', ...rest] = text.slice(1).split(' ');
@@ -934,7 +975,7 @@ export class RoomManager implements AdminHooks {
           if (!body) this.system(client, 'Usage: /w name message');
           else if (!target) this.system(client, `${name} is not online`);
           else {
-            const msg: ServerMessage = { t: 'chat', kind: 'whisper', from, to: this.playerName(target), text: body };
+            const msg: ServerMessage = { t: 'chat', kind: 'whisper', from, to: this.playerName(target), text: body, ...items };
             target.send(msg);
             if (target !== client) client.send(msg);
           }
@@ -974,7 +1015,7 @@ export class RoomManager implements AdminHooks {
           const party = this.partyOf(client.accountId);
           const body = rest.join(' ').trim();
           if (!party) this.system(client, 'You are not in a party');
-          else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body });
+          else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body, ...items });
           return;
         }
         case 'sandbox':
@@ -994,7 +1035,7 @@ export class RoomManager implements AdminHooks {
     }
     const inst = this.instanceOf(client);
     const to = inst ? this.membersOf(inst) : [client];
-    for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text });
+    for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text, ...items });
   }
 
   /**
@@ -1266,6 +1307,7 @@ export class RoomManager implements AdminHooks {
     this.sendWorldToAll(inst);
     if (party) this.sendParty(party);
     client.send({ t: 'lighting', lighting: this.lighting() });
+    client.send({ t: 'zoom', zoom: this.zoom() });
     this.joins++;
   }
 

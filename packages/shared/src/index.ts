@@ -20,6 +20,7 @@ export * from './protocol/roles.js';
 export * from './protocol/codec.js';
 export * from './protocol/messages.js';
 export * from './protocol/validate.js';
+export * from './protocol/chatLinks.js';
 export * from './runes/v2/index.js';
 export { countEntities, NEUTRAL_TUNING, nodeLifetime, type ElementId, type FormId, type SpellProgram, type SpellTuning } from './sim/program.js';
 export * from './sim/arena.js';

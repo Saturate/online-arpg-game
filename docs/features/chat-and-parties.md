@@ -1,10 +1,11 @@
 # Chat and parties
 
-Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. Party frames and teleport to a member built 2026-09-30, not yet deployed.
+Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. Party frames and teleport to a member built 2026-09-30, not yet deployed. Item links in chat built 2026-10-01, not yet deployed.
 
 ## What it does
 
 - **Enter** chats to everyone in your world instance. A line also shows as a speech bubble over the speaker's head for 6 s, when they are in your room.
+- **Item links:** with the chat open, Shift+click an item (bag, stash, paperdoll, sigil and warband rows, the skill bar, the forge's sigil list, rune slots and rolled runes, pending items) to put `[Item Name]` into the message. Up to 3 links per message, in every channel (game, `/p`, `/w`). Everyone who gets the line sees the name in its tier colour; hovering it while the chat is open shows the full item tooltip (affixes, inscribed runes, a sigil's sentence, lore), footed "Linked in chat". Speech bubbles show the link as plain `[Item Name]`.
 - **Commands** (`/help` lists them):
   - `/w name message` (or `/whisper`) whispers anyone online.
   - `/p message` (or `/party`) talks to your party.
@@ -21,6 +22,9 @@ Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. 
 
 - **Text is never HTML.** Chat is set only through React or `textContent`, so a message cannot inject markup.
 - **The server cleans every line:** whitespace collapses to one space (newlines become spaces rather than vanishing), control and format characters (`\p{Cc}`, `\p{Cf}`, which include zero-width characters) are removed, and the line is capped at 200 characters (`CHAT_MAX_LENGTH`).
+- **Item links carry uids, never items.** The client turns each `[Name]` it inserted into a `{n}` token and sends `links: uid[]` beside the text (the name the player sees is only a label; deleting it drops the link). The server looks each uid up in the sender's own player only (`RoomManager.ownItem`: the item map holds bag, stash, equipment, skill bar and pending items, and inscribed runes are found inside their sigil), so another player's uid is never found and links cannot probe anyone's inventory. Unknown uids drop with their token; every other `{n}` the sender typed is stripped, so any token a receiver sees is one the server made.
+- **The copy is display only.** `linkCopy` lists the fields it copies by hand (a field added to items later stays private), and gives the copy and its inscribed runes negative uids. Every item command's validator needs a uid of 0 or more, so the copy can never be picked up, moved, sold or traded, and it never enters the receiver's inventory store. The chat link elements carry no `data-link-uid`, so a linked copy cannot be re-linked.
+- **Bounded and checked on both ends.** The client message is refused when `links` has more than 3 entries or anything but whole uids; the text is cleaned and capped at 200 before links are resolved, so a token cut by the cap is dropped. At most 3 tokens survive (repeats of one link count). The receiving client checks `chat` lines field by field (`isChatMessage`, `isLinkedItem`: tier, kind, affix ids, name and lore length, at most 12 affixes and 10 sigil slots), and the server runs the same check on its own copy before sending. The largest possible line (three full relic sigils) is under 16 KB.
 - **Flood limit:** 6 messages per 5 s per client (`CHAT_PER_WINDOW`, `CHAT_WINDOW_MS`), on top of the general 60 messages per second socket limit. Generous for talk, tight for spam.
 - **Parties are kept by account, in memory,** so a reconnect stays in the party. A party holds at most `INSTANCE_CAPACITY` (8) members, the same as a world copy, so a whole party always fits in its world.
 - **Seeds are never chosen by players.** A party world's seed comes from a server counter; the old player-chosen seed messages are ignored.
@@ -36,12 +40,14 @@ Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. 
 - Server: `apps/server/src/manager.ts`, `chat()` for chat and commands, `partyInvite`, `partyAnswer`, `partyLeave`, `goPartyWorld`, `sendParty`. Parties and pending invites live in the manager (`parties`, `invites`), not in rooms.
 - Party frames and teleport: `sendPartyStatus` (every `PARTY_STATUS_TICKS`, once a second, and straight after any `sendParty`), `teleportRefusal` (the rules), `startTeleport` and `tickChannels` in the manager; `channelBreak` and the constants in `apps/server/src/partyTravel.ts`; `Room.memberView` reads a member's class, level, life, position, cast cooldown and dash. The arrival goes through `travelTo`, shared with staff `/goto`, which uses `move()`: the same save-on-exit room change as waypoints and portals.
 - Validation: `cleanChat` and `CHAT_MAX_LENGTH` in `packages/shared/src/protocol/validate.ts`.
+- Item links: `packages/shared/src/protocol/chatLinks.ts` (`CHAT_LINKS`, `parseChatLinkUids`, `linkCopy`, `isLinkedItem`, `resolveChatLinks` for the server, `chatSegments` and `chatPlainText` for the client); `isChatMessage` in `validate.ts`; `ownItem` and `chat()` in the manager. Client: `apps/client/src/ui/chatCompose.ts` (`composeChat`, `ownItem`, `linkUidAt`) and `ChatBox.tsx`, which listens in the capture phase while open, so Shift+click links instead of running the item's own shift action and keeps focus in the input. Linkable elements carry `data-link-uid`. The tooltip is the shared `ItemTooltip` with place `{ at: 'chat' }`.
 - Client: frames and the cast bar in `apps/client/src/ui/PartyFrames.tsx` and `party.css` (the fill is a CSS animation, nothing runs per frame); `partyStatus` and `teleport` in the UI store; far members and edge arrows in `render/minimap.ts`. The old top-right list now only shows yourself when solo, and the Arena score. `apps/client/src/ui/ChatBox.tsx`; speech bubbles in `apps/client/src/game/game.ts` (`BUBBLE_MS` 6000); the invite form and prompt in `apps/client/src/ui/EscMenu.tsx`; shared vision in `apps/client/src/render/minimap.ts`.
 - Messages: `chat` (kinds `game`, `whisper`, `party`, `system`), `partyInvite`, `partyAnswer`, `partyLeave`, `partyWorld`, and the server's `party` message carrying `PartyInfo` (leader, members with online flags, whether a party world is open). `partyTeleport { name }` asks to teleport; `partyStatus { members }` (`PartyMemberStatus`: name, class, level, life, place, zone, position only when in the receiver's room, and `no`, the refusal reason) and `teleportChannel` (started with `to` and `seconds`, or ended with a `reason`, null on arrival) come back. The client checks both field by field (`isPartyStatus`, `isTeleportChannel`), since clicks act on them.
 - Announcements from the admin page arrive as `system` chat lines prefixed "Announcement:".
 
 Tests:
 
+- `packages/shared/test/chatLinks.test.ts`: resolution only through the lookup, renumbering, unknown uid dropped, typed tokens stripped, the 3-link cap counting repeats, the copy's negative uids and field list, `isLinkedItem` refusals, the client message validator, the received line check, the largest line's size, segments and plain text. `apps/server/test/chatLinks.test.ts`: a real copy reaches the other player, another player's uid never resolves, unknown uids drop, 4 links refuse the message, the text cap applies before links, whispers link too. `apps/client/test/zoomAndLinks.test.ts`: composing tokens from labels, deleted labels, duplicate names, the cap, and finding inscribed runes.
 - `packages/shared/test/protocol.test.ts`: chat strips control and zero-width characters, collapses space and caps length.
 - `apps/server/test/worlds.test.ts`: invite, join the inviter, open a party world together and leave back to public; only the leader opens a party world; staff teleport.
 - `packages/shared/test/progression.test.ts`: party-only XP (see [characters.md](characters.md)). `apps/server/test/partyTeleport.test.ts`, "party XP": the manager tells each room's simulation who is in which party, so a kill pays the party and not a stranger beside it, and a leave takes effect on the next tick.
@@ -51,6 +57,8 @@ Tests:
 
 - No chat history: a client sees only what arrived while it was connected.
 - No mute or block list, and no profanity filter.
+- Links show the item as it was when sent, and only while the chat is open (closed, the lines take no mouse so they never block clicks on the game). Plain runes in the forge's pool are counts, not items, so they cannot be linked; a rolled rune or one in a slot can. Trader shelf items are not the player's and cannot be linked.
+- The tooltip compares nothing and shows no spirit preview for a linked item; a sigil's sentence and cost are worked out for the reader's own class.
 - Parties are lost on a server restart, since they live in memory.
 - Offline and disconnected are one state: a dropped connection leaves the world at once, so there is no "reconnecting" state to show.
 - The Arena gate shows as "Arena" on the frames, though a teleport there is allowed; only runs are refused.

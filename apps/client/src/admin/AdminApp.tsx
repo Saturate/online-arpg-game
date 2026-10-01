@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, settingsConflict, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
@@ -443,6 +443,16 @@ function Settings({ token, role, notify }: TabProps) {
       <small className="muted">{hint}</small>
     </label>
   );
+  const zoom = (key: 'zoomDefault' | 'zoomDungeon' | 'zoomMin' | 'zoomMax', label: string, hint: string) => (
+    <label className="adm-field">
+      <span>
+        {label} <b>{Math.round(draft[key] * 100)}%</b>
+      </span>
+      <input type="range" min={SETTINGS_LIMITS.zoomMin} max={SETTINGS_LIMITS.zoomMax} step={0.05} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })} aria-label={label} />
+      <small className="muted">{hint}</small>
+    </label>
+  );
+  const zoomProblem = settingsConflict(draft);
   const editable = can(role, 'settings');
   return (
     <form className="adm-settings" onSubmit={(e) => void save(e)}>
@@ -515,6 +525,11 @@ function Settings({ token, role, notify }: TabProps) {
           <small className="muted">Torches, lanterns, fires, portals and waypoints: their light at night and every torch underground.</small>
         </label>
         <ClockControl draft={draft} setDraft={setDraft} />
+        {zoom('zoomDefault', 'Camera zoom', 'Where players start outdoors and in town. 100% is the classic view; higher is closer.')}
+        {zoom('zoomDungeon', 'Camera zoom in dungeons', 'Where players start in dungeons and their antechambers.')}
+        {zoom('zoomMin', 'Furthest zoom out', `How much of the map a player can see at most. The server allows ${Math.round(SETTINGS_LIMITS.zoomMin * 100)}% and up.`)}
+        {zoom('zoomMax', 'Closest zoom in', 'How close a player can bring the camera.')}
+        {zoomProblem && <p className="adm-field wide"><span className="badge red">{zoomProblem}</span></p>}
         <label className="adm-check">
           <input type="checkbox" checked={draft.registrationOpen} onChange={(e) => setDraft({ ...draft, registrationOpen: e.target.checked })} />
           Registration open <small className="muted">New accounts can be created</small>
@@ -525,7 +540,7 @@ function Settings({ token, role, notify }: TabProps) {
           <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>
             Revert
           </button>
-          <button type="submit" className="primary" disabled={!dirty}>
+          <button type="submit" className="primary" disabled={!dirty || zoomProblem !== null}>
             Save
           </button>
         </div>

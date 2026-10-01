@@ -13,6 +13,7 @@ import {
   TOKEN_RULES,
   parseNewCharacter,
   parseSettingsPatch,
+  settingsConflict,
   rank,
   seasonOf,
   type AdminAccount,
@@ -494,6 +495,8 @@ export class AccountApi {
         need('settings');
         const patch = parseSettingsPatch(await readJson(req));
         if (typeof patch === 'string') throw new HttpError(400, patch);
+        const conflict = settingsConflict({ ...this.admin.settings(), ...patch });
+        if (conflict) throw new HttpError(400, conflict);
         log(`settings ${JSON.stringify(patch)}`);
         return [200, this.admin.updateSettings(patch)];
       }

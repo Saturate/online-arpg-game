@@ -2062,6 +2062,14 @@ kbd {
   color: #9fd4ff;
   font-style: italic;
 }
+/* Tier colour comes inline; a dark underline keeps it legible over bright ground without glowing. */
+.chat-line .chat-link {
+  font-weight: 600;
+  font-style: normal;
+  cursor: help;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.6);
+  text-underline-offset: 2px;
+}
 .chat form {
   margin-top: 4px;
   pointer-events: auto;

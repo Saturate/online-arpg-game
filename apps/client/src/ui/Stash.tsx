@@ -302,6 +302,7 @@ function ListRow({ item, place, className, children, onShift }: { item: Item; pl
       onMouseMove={(e) => setHover(item, e.clientX, e.clientY, place)}
       onMouseLeave={() => setHover(null, 0, 0)}
       onContextMenu={quick}
+      data-link-uid={item.uid}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey) quick(e);
         else if (e.shiftKey && onShift) onShift();

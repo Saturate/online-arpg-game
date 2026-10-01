@@ -12,10 +12,11 @@ function isGearSlot(v: unknown): v is GearSlot {
 }
 import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
-import { isSessionToken } from './accounts.js';
+import { isSessionToken, isZoomSettings } from './accounts.js';
+import { CHAT_LINKS, isLinkedItem, parseChatLinkUids } from './chatLinks.js';
 import { INSTANCE_CAPACITY, isZoneId } from '../data/zones.js';
 import { isClassId } from '../data/classes.js';
-import { BUTTON_MASK, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
+import { BUTTON_MASK, type ChatMessage, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
 function isWarbandSlot(value: unknown): value is number {
@@ -160,7 +161,9 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return { t: 'publicWorld' };
     case 'chat': {
       const text = cleanChat(value.text);
-      return text ? { t: 'chat', text } : null;
+      const links = parseChatLinkUids(value.links);
+      if (!text || !links) return null;
+      return links.length > 0 ? { t: 'chat', text, links } : { t: 'chat', text };
     }
     case 'useWaypoint':
       return isZoneId(value.zone) ? { t: 'useWaypoint', zone: value.zone } : null;
@@ -251,7 +254,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
   }
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -261,7 +264,23 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   if (!isRecord(value) || typeof value.t !== 'string' || !SERVER_TAGS.has(value.t)) return false;
   if (value.t === 'partyStatus') return isPartyStatus(value);
   if (value.t === 'teleportChannel') return isTeleportChannel(value);
+  if (value.t === 'chat') return isChatMessage(value);
+  if (value.t === 'zoom') return isZoomSettings(value.zoom);
   return value.t !== 'inscribed' || isInscribeReply(value);
+}
+
+const CHAT_KINDS: readonly ChatMessage['kind'][] = ['game', 'party', 'whisper', 'system'];
+
+/**
+ * Chat carries another player's text and item copies straight into the tooltip, so it is checked
+ * field by field. Names are character names (16) or empty for system lines. The text cap is loose:
+ * server lines such as /who or /help run past the 200 a player may send.
+ */
+export function isChatMessage(value: unknown): value is ChatMessage {
+  if (!isRecord(value) || value.t !== 'chat' || !CHAT_KINDS.some((k) => k === value.kind)) return false;
+  if (typeof value.from !== 'string' || value.from.length > 32 || !(value.to === null || (typeof value.to === 'string' && value.to.length <= 32))) return false;
+  if (typeof value.text !== 'string' || value.text.length > 2000) return false;
+  return value.items === undefined || (Array.isArray(value.items) && value.items.length <= CHAT_LINKS.max && value.items.every(isLinkedItem));
 }
 
 const PARTY_PLACES: readonly PartyPlace[] = ['town', 'wilds', 'dungeon', 'arena', 'sandbox', 'offline'];

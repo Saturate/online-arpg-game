@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { isVfxQuality, type VfxQuality } from '../render/vfx/quality.js';
+import { ZOOM_SCALE_RANGE } from '../game/zoom.js';
 
 /**
  * Player preferences: key bindings and display options. Stored per browser in localStorage, since
@@ -87,9 +88,11 @@ export interface Options {
   vfxQuality: VfxQuality;
   /** Rare and relic drops, and relic sales, wait for a yes. Off by default, so selling and clearing the bag stay one click; on is the safety net. */
   confirmValuable: boolean;
+  /** The player's camera zoom as a factor on the admin's default for the area; 1 is the default. */
+  zoomScale: number;
 }
 
-export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5, vfxQuality: 'high', confirmValuable: false };
+export const DEFAULT_OPTIONS: Options = { controls: 'keyboard', damageNumbers: true, screenShake: true, alwaysShowLoot: false, uiScale: 1, wheelCyclesSkill: true, uiVolume: 0.5, vfxQuality: 'high', confirmValuable: false, zoomScale: 1 };
 export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.4] as const;
 
 interface SettingsState {
@@ -132,6 +135,8 @@ export function parseSettings(raw: string | null): { bindings: Bindings; options
       if (typeof o.uiVolume === 'number' && o.uiVolume >= 0 && o.uiVolume <= 1) options.uiVolume = o.uiVolume;
       if (isVfxQuality(o.vfxQuality)) options.vfxQuality = o.vfxQuality;
       if (typeof o.confirmValuable === 'boolean') options.confirmValuable = o.confirmValuable;
+      // The admin's limits clamp it at use; this only keeps junk out of storage.
+      if (typeof o.zoomScale === 'number' && Number.isFinite(o.zoomScale) && o.zoomScale >= ZOOM_SCALE_RANGE.min && o.zoomScale <= ZOOM_SCALE_RANGE.max) options.zoomScale = o.zoomScale;
     }
   } catch {
     // Corrupt storage: defaults.

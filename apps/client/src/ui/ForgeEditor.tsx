@@ -340,6 +340,7 @@ export function ForgeEditor() {
               className={`bare forge-sigil${p.item.uid === sigil?.uid ? ' active' : ''}${p.where === 'stash' ? ' locked' : ''}`}
               style={{ color: tierColor(p.item) }}
               onClick={() => useUi.setState({ editorUid: p.item.uid, forgeError: null })}
+              data-link-uid={p.item.uid}
               {...tip(p.where === 'stash' ? 'Take it out of the stash first' : null)}
             >
               <span className="forge-sigil-where">{p.where === 'equipped' ? <kbd>{p.slot + 1}</kbd> : p.where === 'stash' ? 'stash' : 'bag'}</span>
@@ -397,6 +398,7 @@ export function ForgeEditor() {
                         onMouseEnter={(e) => hover(slot.item, e, hint, weakens)}
                         onMouseMove={(e) => hover(slot.item, e, hint, weakens)}
                         onMouseLeave={unhover}
+                        data-link-uid={slot.item.uid >= 0 ? slot.item.uid : undefined}
                         aria-label={`Slot ${i + 1}: ${runeName(slot.item.rune)}${rolled ? ', rolled' : ''}${weakens ? `. ${weakens}` : ''}`}
                       >
                         <span className="forge-slot-num">{i + 1}</span>
@@ -562,6 +564,7 @@ function RolledRow({ entry, free, disabled, onAdd, onDrag }: { entry: RolledEntr
         onMouseEnter={(e) => hover(entry.item, e, hint)}
         onMouseMove={(e) => hover(entry.item, e, hint)}
         onMouseLeave={unhover}
+        data-link-uid={entry.item.uid}
       >
         <Glyph id={entry.item.rune} />
         <span className="forge-rune-text">

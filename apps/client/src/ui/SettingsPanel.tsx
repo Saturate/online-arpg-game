@@ -104,6 +104,11 @@ export function SettingsPanel() {
                 </button>
               ))}
             </div>
+            <h3>Camera zoom</h3>
+            <p className="muted small">Ctrl+scroll (or pinch) zooms{options.wheelCyclesSkill ? '' : '; with the wheel not picking skills, plain scroll zooms too'}. The server sets how far.</p>
+            <button type="button" onClick={() => setOption('zoomScale', 1)} disabled={options.zoomScale === 1}>
+              Reset zoom
+            </button>
             <h3>Panels</h3>
             <ul className="toggles">
               <li>

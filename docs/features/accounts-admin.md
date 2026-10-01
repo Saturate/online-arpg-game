@@ -97,6 +97,11 @@ Live settings (`ServerSettings`), applied without a restart:
 | `forceMax` (the level-1 Force bar) | 1000 | 50 to 5000 |
 | `forceCostRate`, `forceCoolRate` | 1 | 0.1 to 10 |
 | `forceRampMax` (cooling ramp cap) | 6 | 1 to 20 |
+| `zoomDefault` (camera zoom outdoors and in town; 1 is the classic view, higher is closer) | 1 | 0.6 to 2 |
+| `zoomDungeon` (camera zoom in dungeons and their antechambers) | 1 | 0.6 to 2 |
+| `zoomMin`, `zoomMax` (how far players may zoom out and in) | 0.8, 1.4 | 0.6 to 2 |
+
+**Camera zoom** (built 2026-10-01, not yet deployed). Both defaults must lie between `zoomMin` and `zoomMax`; `settingsConflict` checks the merged settings on PUT (400 otherwise) and the admin page shows the problem and holds Save. A stored set that clashes goes back to the default zoom fields on load. Below 0.6 the view would reach past the 1100 units snapshots carry, so monsters would pop in at the edge. The four fields go to clients as a `zoom` message on join and on every settings change, like the night lighting, and the client checks them (`isZoomSettings`) since they clamp its camera. Before this the game had no player zoom at all (the wheel picks skills); now Ctrl+scroll or a trackpad pinch zooms, and plain scroll does too when "Scroll wheel picks the mouse skills" is off. The player's zoom is kept per browser as a factor on the area's default (`zoomScale` in the settings store), so it carries between town and dungeons and always shows inside the current limits; a tightened limit applies at once. Settings has "Reset zoom". The town editor keeps its own zoom. Code: `apps/client/src/game/zoom.ts` (`effectiveZoom`, `stepZoomScale`), applied each frame in `game.ts`; tests in `packages/shared/test/chatLinks.test.ts` ("zoom settings"), `apps/server/test/chatLinks.test.ts` and `accounts.test.ts`, and `apps/client/test/zoomAndLinks.test.ts`.
 
 Force changes apply to everyone at once. The admin page's sliders are narrower than the server allows (rates to 5 on the slider, 20 in the number box; day length to 120 on the slider).
 

@@ -119,6 +119,14 @@ export interface ServerSettings {
   forceCoolRate: number;
   /** How far cooling speeds up after a pause in casting, as a multiple of the base rate. */
   forceRampMax: number;
+  /** Camera zoom players start at outdoors and in town; 1 is the classic view, above 1 is closer. */
+  zoomDefault: number;
+  /** Camera zoom in dungeons and their antechambers, where rooms are tight. */
+  zoomDungeon: number;
+  /** How far players may zoom out; lower shows more of the map, so it is a gameplay limit. */
+  zoomMin: number;
+  /** How far players may zoom in. */
+  zoomMax: number;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -139,10 +147,40 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   forceCostRate: 1,
   forceCoolRate: 1,
   forceRampMax: HEAT.coolRampMax,
+  zoomDefault: 1,
+  zoomDungeon: 1,
+  zoomMin: 0.8,
+  zoomMax: 1.4,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
 export type Lighting = Pick<ServerSettings, 'dayMinutes' | 'nightBrightness' | 'timeOfDay' | 'clockOffset' | 'heldPhase' | 'heroLight' | 'heroLightRadius' | 'lampLight'>;
+
+/** What clients need to frame the camera; sent on join and whenever an admin changes it. */
+export type ZoomSettings = Pick<ServerSettings, 'zoomDefault' | 'zoomDungeon' | 'zoomMin' | 'zoomMax'>;
+
+const ZOOM_KEYS = ['zoomDefault', 'zoomDungeon', 'zoomMin', 'zoomMax'] as const;
+
+/** The client acts on these (they clamp its camera), so they are checked field by field. */
+export function isZoomSettings(v: unknown): v is ZoomSettings {
+  if (!isRecord(v)) return false;
+  for (const key of ZOOM_KEYS) {
+    const z = v[key];
+    if (typeof z !== 'number' || !Number.isFinite(z) || z < SETTINGS_LIMITS.zoomMin || z > SETTINGS_LIMITS.zoomMax) return false;
+  }
+  return true;
+}
+
+/**
+ * Rules between fields, checked on the merged settings since a patch may change only one of them:
+ * the zoom limits must hold both defaults. Returns the problem, or null.
+ */
+export function settingsConflict(s: ServerSettings): string | null {
+  if (s.zoomMin > s.zoomMax) return 'zoomMin must not be above zoomMax';
+  if (s.zoomDefault < s.zoomMin || s.zoomDefault > s.zoomMax) return 'zoomDefault must be between zoomMin and zoomMax';
+  if (s.zoomDungeon < s.zoomMin || s.zoomDungeon > s.zoomMax) return 'zoomDungeon must be between zoomMin and zoomMax';
+  return null;
+}
 
 /** Where in the day the world is (0 to 1), shared by clients and the admin page so both agree. */
 export function dayPhaseAt(now: number, l: Lighting): number {
@@ -176,6 +214,12 @@ export const SETTINGS_LIMITS = {
   lightRateMax: 3,
   heroLightRadiusMin: 200,
   heroLightRadiusMax: 1600,
+  /**
+   * Below 0.6 the view reaches past what snapshots carry (1100 units around the player), so monsters
+   * would pop in at the screen edge; above 2 the hero fills the screen.
+   */
+  zoomMin: 0.6,
+  zoomMax: 2,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -224,8 +268,12 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     forceCostRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
     forceCoolRate: [SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax],
     forceRampMax: [SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax],
+    zoomDefault: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
+    zoomDungeon: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
+    zoomMin: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
+    zoomMax: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

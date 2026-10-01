@@ -67,6 +67,9 @@ describe('server settings', () => {
     const reopened = new AccountStore(file);
     // A stored value out of range drops only that field.
     expect(reopened.loadSettings()).toEqual({ ...DEFAULT_SERVER_SETTINGS, motd: 'kept', registrationOpen: false });
+    // Zoom values that each pass but clash together go back to the defaults, the rest is kept.
+    raw.prepare(`UPDATE settings SET value = '{"motd":"kept","zoomMin":1.8,"zoomMax":0.9}' WHERE key = 'server'`).run();
+    expect(reopened.loadSettings()).toEqual({ ...DEFAULT_SERVER_SETTINGS, motd: 'kept' });
     raw.prepare("UPDATE settings SET value = '{not json' WHERE key = 'server'").run();
     raw.close();
     expect(reopened.loadSettings()).toEqual(DEFAULT_SERVER_SETTINGS);
@@ -375,6 +378,11 @@ describe('admin API', () => {
     expect((await call('PUT', '/api/admin/settings', token, { xpRate: 999 })).status).toBe(400);
     expect((await call('PUT', '/api/admin/settings', token, { xpRate: 2, registrationOpen: false })).status).toBe(200);
     expect(hooks.state.xpRate).toBe(2);
+    // Zoom fields are checked one by one and then together, against the settings they would join.
+    expect((await call('PUT', '/api/admin/settings', token, { zoomMax: 9 })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/settings', token, { zoomMin: 1.5 })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/settings', token, { zoomMin: 1.5, zoomMax: 1.8, zoomDefault: 1.6, zoomDungeon: 1.5 })).status).toBe(200);
+    expect(hooks.state.zoomDefault).toBe(1.6);
     const reg = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'latecomer', password: 'password123' }) });
     expect(reg.status).toBe(403);
   });

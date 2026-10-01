@@ -58,7 +58,7 @@ export class InputState {
   overCanvas = false;
   private readonly abort = new AbortController();
 
-  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void, onWheel: (step: 1 | -1, shift: boolean) => void = () => undefined) {
+  constructor(canvas: HTMLCanvasElement, onKey: (code: string) => void, onWheel: (step: 1 | -1, shift: boolean, ctrl: boolean) => void = () => undefined) {
     const opts = { signal: this.abort.signal };
     // One step per notch; trackpads fire a stream of small deltas, so steps are spaced out.
     let lastWheel = 0;
@@ -69,7 +69,8 @@ export class InputState {
         const now = performance.now();
         if (e.deltaY === 0 || now - lastWheel < 120) return;
         lastWheel = now;
-        onWheel(e.deltaY > 0 ? 1 : -1, e.shiftKey);
+        // A trackpad pinch arrives as a wheel event with ctrlKey set, so it zooms like Ctrl+scroll.
+        onWheel(e.deltaY > 0 ? 1 : -1, e.shiftKey, e.ctrlKey);
       },
       { signal: this.abort.signal, passive: false },
     );
