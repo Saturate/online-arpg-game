@@ -74,6 +74,8 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - A town save applies without rebuilding the world room (the full fix; [world-map.md](docs/features/world-map.md)).
 - The fence corner gets fixed (the trader write duplication is fixed, merged locally 2026-10-01).
 
+**After the next deploy (owner decision 2026-10-01):** fences are now drawn on their collision line, so the live pen west of the square draws as a broken T. Right after the deploy, save the live layout through the town editor API with fence 7 moved to x about 696.1 and fence 8 to y about 1141.3 (props in `packages/shared/test/fixtures/town-layout-live.json`; read the live layout first, it may have changed). The save rebuilds the world for anyone in it.
+
 **Open items.**
 
 - A town save regenerates the world for everyone in it; moving a gate refills every chest (full fix decided, above).
