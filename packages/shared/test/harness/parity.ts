@@ -1,30 +1,7 @@
-import { compileSigilItem, createStarterSigil, sigilCastDelayShare, sigilMisfireMultiplier, STARTER_SIGILS, type StarterSigilDef } from '../../src/index.js';
+import { measureStarter, STARTER_SIGILS, type SkillDpsResult } from '../../src/index.js';
 import v1 from '../fixtures/skill-baseline-v1.json' with { type: 'json' };
-import { measureSkill, type EquipSkill, type SkillDpsResult } from './skillDps.js';
 
-/** The same path the game takes for a starter kit sigil. */
-export function equipStarter(def: StarterSigilDef): EquipSkill {
-  return (sim, pid) => {
-    const p = sim.world.player.get(pid);
-    if (!p) throw new Error('no player');
-    const item = createStarterSigil(() => sim.newItemUid(), def, { bound: true });
-    p.items.set(item.uid, item);
-    return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
-  };
-}
-
-/** Novas and zones go off on the caster, so they are measured with the target just outside the player's body. */
-const SELF_CENTRED_DISTANCE = 40;
-
-export function distanceFor(def: StarterSigilDef): number | undefined {
-  const shape = def.runes[0]?.id;
-  return shape === 'nova' || shape === 'zone' ? SELF_CENTRED_DISTANCE : undefined;
-}
-
-export function measureStarter(def: StarterSigilDef): SkillDpsResult {
-  const distance = distanceFor(def);
-  return measureSkill({ classId: def.classId, equip: equipStarter(def), ...(distance !== undefined ? { distance } : {}) });
-}
+export { equipStarter, measureStarter } from '../../src/index.js';
 
 export interface ParityRow {
   id: string;

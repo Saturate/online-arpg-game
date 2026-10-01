@@ -24,18 +24,18 @@
  *   That honours the sim's cast cooldown, Force cost and overheat cap, and never risks a misfire,
  *   which would spend a cast on self damage and make the numbers depend on the misfire roll.
  * - The player snaps back home after each dash, so dashes and leaps cast from the same spot.
+ *
+ * `measureSkill` is the full measurement the parity and balance tests use; `measureRate` runs only
+ * its two sustained runs, for the admin balance bench, which measures many spells at every edit.
  */
-import {
-  SIM,
-  SKILL_BUTTONS,
-  Simulation,
-  computeStats,
-  type ClassId,
-  type EntityId,
-  type EquippedSigil,
-  type GearSlot,
-} from '../../src/index.js';
-import { pendingReleases } from '../../src/sim/spells.js';
+import { SIM } from '../config/sim.js';
+import type { ClassId } from '../data/classes.js';
+import type { GearSlot } from '../data/gear.js';
+import { SKILL_BUTTONS } from '../protocol/messages.js';
+import type { EntityId, EquippedSigil } from '../sim/ecs.js';
+import { Simulation } from '../sim/simulation.js';
+import { pendingReleases } from '../sim/spells.js';
+import { computeStats } from '../sim/stats.js';
 
 export type EquipSkill = (sim: Simulation, playerId: EntityId) => EquippedSigil;
 
@@ -103,6 +103,9 @@ function setup(opts: Required<SkillDpsOptions>, dummyCount: number): Bench {
   const sim = new Simulation(opts.seed, { kind: 'flat' });
   sim.setRates({ ...sim.rates, castCooldown: opts.castCooldown });
   sim.waveTimer = Infinity;
+  // The dummies are pinned with no speed, so the enemies' path field never moves anyone; it was
+  // over half of every measurement, and skipping it changes no number.
+  sim.nav.rebuild = () => undefined;
   const pid = sim.addPlayer('baseline', opts.classId, 'Baseline');
   const w = sim.world;
   const p = w.player.get(pid);
@@ -201,18 +204,32 @@ function canCastWithoutMisfire(b: Bench): boolean {
   return p !== undefined && p.heat <= p.stats.heatMax;
 }
 
-function sustained(opts: Required<SkillDpsOptions>, dummyCount: number): { damage: number; casts: number; peak: number } {
+interface Sustained {
+  damage: number;
+  casts: number;
+  peak: number;
+  /** Force the first cast charged, from a cold bar. */
+  firstForce: number;
+  /** Whether the player was ever mid-dash. */
+  dashed: boolean;
+}
+
+function sustained(opts: Required<SkillDpsOptions>, dummyCount: number): Sustained {
   const b = setup(opts, dummyCount);
   let damage = 0;
   let casts = 0;
   let peak = 0;
+  let firstForce = 0;
+  let dashed = false;
   for (let t = 0; t < opts.seconds * SIM.tickRate; t++) {
     const r = tick(b, canCastWithoutMisfire(b));
+    if (t === 0) firstForce = r.heatSpent;
     damage += r.damage;
     casts += r.casts;
     peak = Math.max(peak, liveEntities(b));
+    dashed ||= dashing(b);
   }
-  return { damage, casts, peak };
+  return { damage, casts, peak, firstForce, dashed };
 }
 
 function singleCast(opts: Required<SkillDpsOptions>, dummyCount: number): { damage: number; force: number } {
@@ -233,12 +250,17 @@ function dashDistance(opts: Required<SkillDpsOptions>): number {
 
 const round = (n: number): number => Math.round(n * 10) / 10;
 
-export function measureSkill(options: SkillDpsOptions): SkillDpsResult {
-  const opts: Required<SkillDpsOptions> = { ...HARNESS_DEFAULTS, ...options };
+function probeCompile(opts: Required<SkillDpsOptions>) {
   const probe = setup(opts, 0);
   const compiled = probe.sim.world.player.get(probe.pid)?.sigils[0]?.compiled;
   if (!compiled) throw new Error('equip did not produce a sigil');
   if (!compiled.ok) throw new Error(`skill does not compile: ${compiled.errors.map((e) => e.message).join('; ')}`);
+  return compiled;
+}
+
+export function measureSkill(options: SkillDpsOptions): SkillDpsResult {
+  const opts: Required<SkillDpsOptions> = { ...HARNESS_DEFAULTS, ...options };
+  const compiled = probeCompile(opts);
   if (compiled.persistent) {
     return {
       kind: 'persistent',
@@ -275,4 +297,44 @@ export function measureSkill(options: SkillDpsOptions): SkillDpsResult {
     perCast: dealsDamage ? round(once.damage) : null,
     peakEntities: pack.peak,
   };
+}
+
+/** What `measureRate` reads: the numbers damage per Force is made of, without the single cast and dash runs. */
+export interface SkillRateResult {
+  kind: SkillKind;
+  forcePerCast: number | null;
+  spiritReserved: number | null;
+  casts: number | null;
+  single: number | null;
+  pack: number | null;
+}
+
+/**
+ * The single-target and pack runs of `measureSkill` only, about half its time. Force is the first
+ * cast's charge from a cold bar, which is the same charge `measureSkill` reads from its single cast;
+ * a dash counts as movement when the pack run spawned nothing, as there.
+ */
+export function measureRate(options: SkillDpsOptions): SkillRateResult {
+  const opts: Required<SkillDpsOptions> = { ...HARNESS_DEFAULTS, ...options };
+  const compiled = probeCompile(opts);
+  if (compiled.persistent) return { kind: 'persistent', forcePerCast: null, spiritReserved: compiled.spirit, casts: null, single: null, pack: null };
+  const single = sustained(opts, 1);
+  const pack = sustained(opts, opts.packSize);
+  const dealsDamage = single.damage + pack.damage > 0;
+  const kind: SkillKind = single.dashed && pack.peak === 0 ? 'movement' : dealsDamage ? 'damage' : 'support';
+  return {
+    kind,
+    forcePerCast: round(single.firstForce),
+    spiritReserved: null,
+    casts: single.casts,
+    single: dealsDamage ? round(single.damage) : null,
+    pack: dealsDamage ? round(pack.damage) : null,
+  };
+}
+
+/** Damage per point of Force spent over the run, as the balance test counts it. */
+export function perForce(r: { forcePerCast: number | null; casts: number | null; single: number | null; pack: number | null }): { single: number; pack: number } {
+  const spent = (r.forcePerCast ?? 0) * (r.casts ?? 0);
+  if (spent <= 0) return { single: 0, pack: 0 };
+  return { single: (r.single ?? 0) / spent, pack: (r.pack ?? 0) / spent };
 }

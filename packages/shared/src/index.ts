@@ -61,3 +61,4 @@ export * from './items/stash.js';
 export * from './tuning/registry.js';
 export * from './tuning/api.js';
 export { fitSpirit, recompileSigils, type PlayerNotice } from './sim/inventory.js';
+export * from './bench/index.js';

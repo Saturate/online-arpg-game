@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STARTER_SIGILS } from '../src/index.js';
-import { measureStarter } from './harness/parity.js';
-import type { SkillDpsResult } from './harness/skillDps.js';
+import { measureStarter, STARTER_SIGILS, type SkillDpsResult } from '../src/index.js';
 
 /**
  * Measures every starter sigil with the harness that recorded the v1 baseline
