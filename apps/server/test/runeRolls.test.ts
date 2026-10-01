@@ -1,4 +1,4 @@
-import { applyTunables, BAG, convertRuneRolls, createSigil, createStarterSigil, resetTunables, runeItemFromInstance, tokenizeSpell, emptyGrid, emptyStash, isItemShape, oldStarterRunes, Rng, starterSigilById, toRuneInstance, type Item, type ItemUid, type SigilItem } from '@rune/shared';
+import { applyTunables, BAG, createRune, convertRuneRolls, createSigil, createStarterSigil, resetTunables, runeItemFromInstance, tokenizeSpell, emptyGrid, emptyStash, isItemShape, oldStarterRunes, Rng, starterSigilById, toRuneInstance, type Item, type ItemUid, type SigilItem } from '@rune/shared';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -208,5 +208,25 @@ describe('rune roll decisions on the server', () => {
       resetTunables();
       raw.close();
     }
+  });
+
+  it('a grant into a save from before the six tiers writes it converted and marked, and the granted roll keeps its tier', async () => {
+    const { store, raw, accountId, characterId } = await database();
+    const granted = store.grantPendingItem(accountId, characterId, (newUid) => ({ ...createRune(newUid(), 'bolt'), tier: 'rare', affixes: [{ id: 'rune_pierce', tier: 2, value: 2 }] }));
+    if (!granted.ok) throw new Error(granted.error);
+    const row: unknown = raw.prepare('SELECT save_json FROM characters WHERE id = ?').get(characterId);
+    const json = isRecord(row) ? row.save_json : undefined;
+    if (typeof json !== 'string') throw new Error('no row');
+    const stored: unknown = JSON.parse(json);
+    expect(isRecord(stored) && stored.runeTiers).toBe(6);
+    const written = storedItems(raw, 'SELECT save_json FROM characters WHERE id = ?', characterId);
+    allConverted(written);
+    // Old items went through the pass once (the unbound Split is back); the grant is pending, at its own tier.
+    expect(written).toHaveLength(5);
+    const loaded = store.loadCharacter(accountId, characterId)?.save;
+    const rune = loaded?.items.find((i) => i.uid === granted.item.uid);
+    expect(rune?.affixes).toEqual([{ id: 'rune_pierce', tier: 2, value: 2 }]);
+    expect(JSON.stringify(loaded?.items)).toBe(JSON.stringify(written));
+    raw.close();
   });
 });

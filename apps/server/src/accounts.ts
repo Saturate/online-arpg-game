@@ -660,14 +660,22 @@ export class AccountStore {
       } catch {
         raw = null;
       }
-      const items: unknown = isRecord(raw) ? raw.items : undefined;
-      if (!isRecord(raw) || !Array.isArray(items) || !parseSave(json, classId)) {
+      const parsed = parseSave(json, classId);
+      if (!isRecord(raw) || !Array.isArray(raw.items) || !parsed) {
         result = { ok: false, error: 'unreadable' };
         return;
       }
       // A v1 save converts on its first load; granting into it would mix the formats.
       if (!isRuneFormat2(raw)) {
         result = { ok: false, error: 'old_format' };
+        return;
+      }
+      // A save from before the six rune tiers is written back as its load converts it, marked, so
+      // its old items go through the rune roll pass once and the new item is never re-tiered.
+      const base: Record<string, unknown> = isRuneTiers6(raw) ? raw : { ...parsed };
+      const items: unknown = base.items;
+      if (!Array.isArray(items)) {
+        result = { ok: false, error: 'unreadable' };
         return;
       }
       // Above every uid in the save, runes inside sigils included, so the new item collides with
@@ -679,7 +687,7 @@ export class AccountStore {
         if (Array.isArray(it.slots)) for (const r2 of it.slots) if (isRecord(r2) && typeof r2.uid === 'number') top = Math.max(top, r2.uid);
       }
       const item = make(() => ++top);
-      const next = JSON.stringify({ ...raw, items: [...items, item] });
+      const next = JSON.stringify({ ...base, items: [...items, item] });
       const changed = num(this.db.prepare('UPDATE characters SET save_json = ? WHERE id = ? AND account_id = ? AND save_json = ?').run(next, characterId, accountId, json).changes);
       if (changed !== 1) throw new Error(`grant to character ${characterId}: the row changed while it was written`);
       result = { ok: true, item, characterName: str(r.name) };
