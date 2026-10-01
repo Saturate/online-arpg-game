@@ -1,6 +1,6 @@
 # Live tuning
 
-Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). Phases 3 and 4 planned (owner, 2026-10-01).
+Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). Phases 3 and 4 planned (owner, 2026-10-01).
 
 "I want base damage settings for all runes, skills etc. All entities need to be able to be configured via API, deployless."
 
@@ -35,14 +35,50 @@ Every gameplay number that matters for balance can be changed through the admin 
 - **Applied the same everywhere:** the server and every client apply the same overrides (sent with the welcome and on every change), so tooltips, the forge and prediction match the server. Replays record the overrides they ran with.
 - **Monster tuning stays** as it is and is linked from the same admin page; it may move into the registry later.
 
-## Planned: the balance bench (owner, 2026-10-01)
+## The balance bench (owner, 2026-10-01; built on `feat/balance-bench`, not deployed)
 
 "We need an overview of prebuilt sigils and how changes affect them, Spell Studio like."
 
-- **Rows:** every class's kit skills, the hand-picked spells the balance tests measure, the 20 most-equipped sigils on live (read from saves), and admin picks (rune text typed in, saved server-side and shared between admins).
-- **Columns:** Force, spirit, damage per Force single and pack, against the 2x line.
-- **Preview:** while numbers are edited in the Tuning tab and not yet saved, every row shows before, after and the change in percent.
-- **Watch one:** a row opens a Spell Studio view that casts the sigil at a dummy and a pack at the proposed numbers.
+The **Balance bench** tab on the admin page, next to Tuning.
+
+- **Rows:** every class's kit sigils (made the way a new character gets them, clamped into the live tables), the 76 hand-picked spells of the balance test (`BALANCE_SPELLS`, one list for the test and the bench), the 20 sigils most equipped in the saves, and admin picks.
+- **Columns:** Force per cast (spirit for an aura or Bond), damage per Force to one target and to a pack of six as a multiple of the best kit under the same numbers (with the raw damage per Force beneath), a mark above 2x (soft, gold) and above 5x (hard, red: where the balance test fails), and while previewing the row's own largest change. Every column sorts; rows filter by source, class, rune text, "past 2x only" and "changed only".
+- **Preview:** edits typed in the Tuning tab and not saved stay when the tab is switched (they live in a small store, `admin/tuningDraft.ts`, instead of the tab's state). The bench measures every row under the saved set and under the saved set plus the edits, and shows saved → with the edits and the change in percent. Nothing is sent to the server until Save in the Tuning tab.
+- **Watch one:** a row's Watch opens two Spell Studio stages, the sigil cast at one dummy and at a pack of six, under the proposed numbers or the saved ones (a toggle). It casts at the bench's 0.35 s cadence while Force is under the bar (the studio's new "Under bar" cast mode), like the harness. Its counts are the studio's own running ones (damage from hit events, the whole run so far), so they sit near the bench's 10 s figure, not on it.
+- **Admin picks:** rune text typed in, checked as typed with the same check the server runs (the grammar reads it, the compiler casts it on that class at that multicast), stored as the grammar writes it back (two spellings are one pick), shared between admins with who added it and when. Up to 200.
+- **Most equipped:** counted on the server from every character's save, by rune text and multicast, each character counting a sigil once, measured on the class most of its holders play. Only rune text, class and a count leave the server; no player or character name.
+
+**Why:** the owner tunes base numbers live ("base numbers, not multipliers") and the cap is a report, so the admins need to see what a change does to the spells that matter before saving it.
+
+### How
+
+- **One harness.** `packages/shared/src/bench/` holds the harness the parity and balance tests use (`skillDps.ts`, moved from `test/harness`), the spell list (`spells.ts`) and the bench's pieces (`bench.ts`: `measureBenchSpec`, `bestKit`, `benchMark`, `checkBenchSpell`, `mostEquipped`, `BENCH_MARKS`). `measureRate` runs only the two sustained runs of `measureSkill` (one target and pack, 10 s each), with Force read from the first cast; it is tested to give the same Force, casts, kind and damage per Force as `measureSkill` for every kit and every hand-picked spell.
+- **Speed.** The harness skips the enemies' path field: its dummies are pinned with no speed, so the field moved nobody, and it was over half of every measurement (every number of every kit and hand-picked spell is unchanged, checked against a snapshot of the old harness). A row now measures in about 3 ms (2.3 to 2.6 ms in the browser), so a full bench of 117 rows takes about 0.3 s per tuning set.
+- **The worker.** `applyTunables` overwrites the config in place, so the bench measures in its own worker (`admin/bench/measure.worker.ts`), where a proposed set never touches the page's numbers. Results are cached by tuning set (its sorted paths and values) and rune text, so a spell listed by two sources measures once and going back to an earlier edit costs nothing. Edits are debounced 250 ms; each new job replaces the worker's queue and runs one row per task, kits first, so a newer edit is picked up between rows. Results reach the table once per frame.
+- **Watch** runs on the page itself: it applies the chosen set while open and puts the code defaults back on close; nothing else on the admin page reads those numbers.
+- **Server** (`apps/server/src/benchStore.ts`, `benchRoutes.ts`): a `bench_picks` table (text, class, multicast, account, token, at; unique on the first three). The most-equipped list is counted from `characters.save_json` when asked for and at most every three minutes (`POPULAR_TTL_MS`), and logs a warning if the count takes over 200 ms.
+
+| Method | Route | Needs | Reply |
+|---|---|---|---|
+| GET | `/api/admin/bench` | `viewAdmin` | `{ picks, popular, popularAt }` |
+| POST | `/api/admin/bench/picks` | `tuning` | `{ text, classId, multicast? }`; 201 with the pick, 400 for text the grammar or compiler refuses, 409 for a duplicate or a full bench |
+| DELETE | `/api/admin/bench/picks/<id>` | `tuning` | 200, or 404 |
+
+Writes share the tuning write limit (30 a minute per account) and are in the staff log. Tokens need the `tuning` scope to write.
+
+### Tests
+
+- `packages/shared/test/balanceBench.test.ts`: the bench's rate measurement matches the full harness for every kit and every hand-picked spell; the best kit is 2.13 single and 7.71 pack as the balance test reports; an applied override moves a row and resetting brings it back; the marks; a spell that does not cast reports rather than throws; every row measures in under 20 ms (about 3); picks normalised and bad ones refused; most equipped counts each character once, most first, skips old and unreadable saves and carries no names.
+- `apps/client/test/balanceBench.test.ts`: a proposed override shows in the after numbers without saving or changing the saved set; the cache by set and text; pending edits out of range left out; rows from every source; the best kit and marks; sorting with unmeasured rows last and every filter; the worker message checks; a full bench measures in a few ms a row.
+- `apps/server/test/balanceBench.test.ts`: every staff role sees the bench and a player gets 404; the most-equipped list by count without names; only the `tuning` permission and token scope add and remove picks; grammar checks, normalising, duplicates and sharing between admins; picks survive a restart; the count is cached until it runs out. `adminTokens.test.ts` has both routes in the per-scope check.
+
+### Limits and open questions
+
+- Most equipped sigils are measured on a plain sigil of their class: the holder's own sigil affixes (reduced Force cost, more damage) are not counted, only multicast. Kits on old characters keep their hand-set rolls, so an old kit shows as its own row there.
+- The count reads the saves, not live sessions, so a sigil equipped since the last autosave is not counted yet.
+- The bench measures at the 0.35 s v1 cadence like the tests, not the live cast cooldown.
+- An edit out of range in the Tuning tab is left out of the preview (the bench says how many).
+- The multiples are against the best kit under the same numbers, so an edit that weakens the best kit moves every row's multiple; the "own change" column shows only the row's own numbers.
 
 ## How (plan)
 
@@ -142,5 +178,5 @@ Each phase ships on its own. Loot and prices touch the economy, so phase 4 gets 
 - Concentrated's rolls stay inside 40 to 60%, the grammar's range (`CONCENTRATED.minMore` to `maxMore`): its tiers are tunable inside it, and its default without a roll too.
 - Rune descriptions are hand-written text ("30% less size", "half a second"); they do not follow a change. The forge sentence and Force and spirit numbers do.
 - A newer server's paths are dropped by an older client (and the reverse), so a mixed deploy shows defaults for the new numbers until the client reloads.
-- The balance tests check code defaults only (owner: no balance guard). Nothing measures a tuned set; the admin page shows no damage per Force yet.
+- The balance tests check code defaults only (owner: no balance guard). The balance bench measures the saved set and unsaved edits on the admin page, for information; it never refuses a save.
 - Monster tuning stays in its own Monsters tab and tables; folding it into the registry is phase 3.

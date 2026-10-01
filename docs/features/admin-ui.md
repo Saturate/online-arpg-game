@@ -19,7 +19,8 @@ Status: Built 2026-10-01 on `feat/admin-ui`, not pushed. Planned by the owner th
   - On the server (`GET /api/admin/search?q=`, debounced 200 ms): accounts by name, and by any of their characters' names, and log lines for `serverLog`.
   - Ranking: every query word must match the title or a term; a whole match beats a start, a word start and a match inside a word; terms count 0.7 of the title; players come first and log lines last for an equal match.
   - Enter jumps to the match in its tab (clicking a tab by hand clears the jump, so it never replays): a setting's field is focused, a tuning number is shown by its path with its field focused, a monster or minion is selected, an account row is opened, a log line is shown with the filters cleared, a token row is focused. The target flashes gold for 1.8 s. Rows that hold buttons (tokens, accounts) focus the row, not a button, so a stray key press does nothing.
-- **Header:** tabs on a row of their own under the title, search and links, since eleven tabs did not fit beside them.
+- **Header:** tabs on a row of their own under the title, search and links, since eleven tabs (twelve with the balance bench) did not fit beside them.
+- **Balance bench tab** (after Tuning; every staff role sees it, adding and removing admin picks needs `tuning`): every kit, the balance test's spells, the 20 most equipped sigils and admin picks, with Force and damage per Force against the best kit, outliers marked, sortable and filterable; unsaved edits in the Tuning tab are previewed as before, after and the change, and Watch opens two Spell Studio stages. The Tuning tab's edits now live in `admin/tuningDraft.ts` so they survive switching to the bench. Details, routes and tests: [live-tuning.md](live-tuning.md), "The balance bench".
 
 ## Why
 
@@ -44,13 +45,14 @@ Routes:
 | Method | Route | Needs | Reply |
 |---|---|---|---|
 | GET | `/api/admin/live?have=` | `viewAdmin` | `{ health, players, rooms, worlds, log, staff }`; `log` and `staff` need `serverLog` and are null otherwise; a world's `regions` is null when `have` names its copy and `planHash` (up to 32 `copy:hash` pairs; unreadable ones are ignored) |
+| GET | `/api/admin/bench` | `viewAdmin` | `{ picks, popular, popularAt }`: admin picks with who added them, the most equipped sigils by rune text and count (no names); POST `.../bench/picks` and DELETE `.../bench/picks/<id>` need `tuning` (live-tuning.md) |
 | GET | `/api/admin/search?q=` | `viewAdmin` | `{ accounts, log }`; `q` 2 to 64 characters after trimming (400 otherwise); `log` needs `serverLog` |
 
 Tests:
 
 - `apps/server/test/adminLive.test.ts`: the ring keeps the newest samples oldest first without growing; ticks roll into one sample per second with the mean, the worst and message rates; the sparkline stays at its window; each room's ticks are measured and bounded; the live view reports players with region, party and time online, rooms with kind and tick, the world copy with dots and a region grid, connections and messages; a region grid goes only to a caller that does not hold it for that plan; the tails go to owner and admin only, newest first, without token reads (matched on the whole line), and are null for moderator and builder, 404 for a player; tokens get the tails only with the `serverLog` scope and their polling stays out of the staff log; account search by name and character, prefix first, `%` and `_` matched as themselves; log search by role and token scope; query length limits.
 - `apps/server/test/adminTokens.test.ts`: both routes are in the per-scope route check.
-- `apps/client/test/adminSearch.test.ts`: tabs per role; every setting has a label; every tuning number is found by path, label and category; ranking order; players and settings above log lines; a character lands on its account; results for tabs the role cannot open are dropped, for every role; the Ctrl+K and Cmd+K shortcut.
+- `apps/client/test/adminSearch.test.ts`: tabs per role (the balance bench for every staff role); every setting has a label; every tuning number is found by path, label and category; ranking order; players and settings above log lines; a character lands on its account; results for tabs the role cannot open are dropped, for every role; the Ctrl+K and Cmd+K shortcut.
 - `apps/client/test/adminLive.test.ts`: the reply check; tick colours and durations; the health panel, sparkline, players (actions only when allowed), rooms, log tail and minimap render; the 429 backoff; the region grid cache.
 - `apps/server/test/static.test.ts`: pages allow fonts from `'self'` and Google Fonts only.
 
