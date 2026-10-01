@@ -121,6 +121,8 @@ What it prints: the template dropped (12 meshes), the Charger picked over the do
 - A model whose bulk reaches far ahead of its legs needs its origin moved forward (`--centre-forward`), or it bites from outside the circle that hits and its head covers the hero in melee.
 - A snout far ahead of the hips drops about 3 cm per degree of body pitch; lean a charge in by thrusting forward, and lift the head as the jaw opens, or it ploughs the ground. `clips_biped.py` prints each clip's lowest point per frame for this.
 - Short legs bent at a knee in the middle of long faces shear into shards. Putting the knee on the ring under the belly lets the visible leg swing as one block.
+- When checking a rebuilt model in the game, make sure the browser loads the new file (`fetch(url, {cache: 'reload'})` once, or the Network panel): an old copy in the HTTP cache looks exactly like a fix that did nothing.
+- A glowing colour stays coloured only at a low strength: the game's ACES tone mapping turns a bright saturated glow white (the Charger's ember eyes read white at 2.4 and amber at 0.35). Small faceted eyes also want high roughness and no specular, or a white highlight hides the glow.
 - Check a model's colours from the game camera: it looks down on the back, so the colour of the back decides how it reads, by day as much as at night.
 
 ## Limits

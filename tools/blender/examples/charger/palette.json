@@ -11,7 +11,7 @@
     "eye": [0.35, 0.14, 0.02]
   },
   "emission": {
-    "eye": {"colour": [1.0, 0.38, 0.04], "strength": 1.1}
+    "eye": {"colour": [1.0, 0.38, 0.04], "strength": 0.35, "roughness": 0.9, "specular": 0.0}
   },
   "roughness": 0.92,
   "default": "hide",

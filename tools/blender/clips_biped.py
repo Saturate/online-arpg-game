@@ -446,13 +446,14 @@ HIT = [
 
 def death_keys(drop):
     """Authored at 36 frames: rears with the jaws wide, the legs buckle, it rolls onto its right side
-    and the tail gives a last curl."""
+    and the tail lies out long."""
     legs_folded = {'upper_L': {'pitch': -35}, 'lower_L': {'pitch': 50}, 'upper_R': {'pitch': -55}, 'lower_R': {'pitch': 70}}
     down = lambda extra, curl: {
         'pelvis': {'up': drop + extra, 'pitch': 4, 'roll': -88, 'side': -0.25},
         'chest': {'pitch': 3, 'yaw': -6}, 'head': {'pitch': 6, 'yaw': -10, 'roll': -4}, 'jaw': {'pitch': 16},
         'arm_L': {'pitch': 30}, 'arm_R': {'pitch': 10},
-        'tail_1': {'yaw': -2 * curl}, 'tail_2': {'yaw': -3 * curl}, 'tail_3': {'yaw': -5 * curl}, 'tail_4': {'yaw': -6 * curl}, 'tail_5': {'yaw': -6 * curl},
+        # Rolled onto its side, a yaw would lift the tail into the air; a pitch lays it along the ground.
+        'tail_1': {'pitch': 2 * curl}, 'tail_2': {'pitch': 3 * curl}, 'tail_3': {'pitch': 3 * curl}, 'tail_4': {'pitch': 2 * curl}, 'tail_5': {'pitch': 2 * curl},
         **legs_folded,
     }
     return [

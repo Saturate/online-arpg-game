@@ -8,6 +8,8 @@ Palette file (colours are linear RGB, as Blender's Base Color field shows them):
     {
       "colours":   {"coat": [0.15, 0.128, 0.108], "eye": [0.3, 0.12, 0.02]},
       "emission":  {"eye": {"colour": [1.0, 0.42, 0.06], "strength": 2.5}},
+                   (optional "roughness" and "specular" per glow: a small faceted eye at the
+                   default 0.5 and 0.3 can throw a white highlight that swamps its colour)
       "roughness": 0.92,
       "materials": {"Material.001": "coat"},
       "default":   "coat",
@@ -65,9 +67,10 @@ def make_material(name):
     m.use_nodes = True
     n = m.node_tree.nodes['Principled BSDF']
     n.inputs['Base Color'].default_value = (*COLOURS[name], 1)
-    n.inputs['Roughness'].default_value = PAL.get('roughness', 0.9) if name not in EMISSION else 0.5
+    glow = EMISSION.get(name, {})
+    n.inputs['Roughness'].default_value = glow.get('roughness', 0.5) if glow else PAL.get('roughness', 0.9)
     n.inputs['Metallic'].default_value = 0.0
-    n.inputs['Specular IOR Level'].default_value = 0.3
+    n.inputs['Specular IOR Level'].default_value = glow.get('specular', 0.3) if glow else 0.3
     if name in EMISSION:
         n.inputs['Emission Color'].default_value = (*EMISSION[name]['colour'], 1)
         n.inputs['Emission Strength'].default_value = EMISSION[name]['strength']
