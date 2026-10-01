@@ -152,6 +152,7 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     tuningOverrides: () => emptyTuning(),
     setMonsterOverride: () => emptyTuning(),
     setMinionOverride: () => emptyTuning(),
+    tunablesChanged: () => undefined,
   };
 }
 

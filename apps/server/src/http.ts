@@ -33,6 +33,7 @@ import type { Account, AccountStore } from './accounts.js';
 import type { TokenCaller } from './adminTokens.js';
 import { events, redact } from './eventLog.js';
 import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
+import { TUNABLES_BODY_BYTES, tunablesRoute, type TunablesHooks } from './tunablesRoutes.js';
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
 const MAX_BODY_BYTES = 4096;
@@ -104,7 +105,7 @@ function clientIp(req: IncomingMessage): string {
 }
 
 /** What the admin API needs from the running game; the room manager provides it. */
-export interface AdminHooks extends TuningHooks {
+export interface AdminHooks extends TuningHooks, TunablesHooks {
   overview(): AdminOverview;
   settings(): ServerSettings;
   updateSettings(patch: Partial<ServerSettings>): ServerSettings;
@@ -161,7 +162,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(json);
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<unknown> {
   // Requiring JSON also rules out cross-site form posts, which can only send form or text bodies.
   if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, 'Expected application/json');
   const chunks: Buffer[] = [];
@@ -169,7 +170,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buf = chunk instanceof Buffer ? chunk : Buffer.from(String(chunk));
     size += buf.length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Request too large');
+    if (size > maxBytes) throw new HttpError(413, 'Request too large');
     chunks.push(buf);
   }
   try {
@@ -503,6 +504,9 @@ export class AccountApi {
     }
     const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: allowed('settings'), log }, this.admin);
     if (tuning) return tuning;
+    const by = { account: account.username, token: token?.name ?? null };
+    const tunables = await tunablesRoute({ method, path, query, body: () => readJson(req, TUNABLES_BODY_BYTES), canEdit: allowed('tuning'), by, log }, this.store.tunables, this.admin);
+    if (tunables) return tunables;
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');
       const body = await readJson(req);

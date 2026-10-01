@@ -4,6 +4,7 @@
  *   pnpm admin GET overview
  *   pnpm admin GET 'log?since=120'
  *   pnpm admin PUT settings '{"xpRate":2}'
+ *   pnpm admin PATCH tuning '{"spell.bolt.damage":20,"force.rune.nova":null}'
  *   pnpm admin backup ./rune-copy.db
  *
  * A path without a leading slash is under /api/admin/; any path must end up there. The token is read from
@@ -17,7 +18,7 @@ import { adminUrl, saveDownload } from './adminClient.js';
 
 const TOKEN_FILE = join(homedir(), '.config', 'arpg', 'admin-token');
 const TOKEN = /^arpg_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/;
-const METHODS = ['GET', 'POST', 'PUT', 'DELETE'] as const;
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 type Method = (typeof METHODS)[number];
 
 function fail(message: string): never {
@@ -65,7 +66,7 @@ function urlFor(path: string, base: URL): URL {
 
 async function main(): Promise<void> {
   const [first, second, third] = process.argv.slice(2);
-  if (!first) fail('Usage: pnpm admin <GET|POST|PUT|DELETE> <path> [json]  or  pnpm admin backup <file>');
+  if (!first) fail('Usage: pnpm admin <GET|POST|PUT|PATCH|DELETE> <path> [json]  or  pnpm admin backup <file>');
   const token = readToken();
   const base = baseUrl();
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
@@ -86,7 +87,7 @@ async function main(): Promise<void> {
   }
 
   const method = first.toUpperCase();
-  if (!isMethod(method) || !second) fail('Usage: pnpm admin <GET|POST|PUT|DELETE> <path> [json]');
+  if (!isMethod(method) || !second) fail('Usage: pnpm admin <GET|POST|PUT|PATCH|DELETE> <path> [json]');
   const url = urlFor(second, base);
   // A redirect would be followed with the token; the admin API never redirects, so one is an error.
   const init: RequestInit = { method, headers, redirect: 'error' };

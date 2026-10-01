@@ -1,4 +1,7 @@
 import {
+  activeTunables,
+  applyTunables,
+  recompileSigils,
   ARENA,
   can,
   resolveChatLinks,
@@ -170,6 +173,8 @@ export class RoomManager implements AdminHooks {
     this.market = store.loadMarket();
     this.townLayout = loadTownLayout();
     this.tuning = new LiveTuning(store.tuning);
+    // Before any room exists, so the first sigil compiled and the first welcome use the stored numbers.
+    applyTunables(store.tunables.load());
   }
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */
@@ -235,6 +240,17 @@ export class RoomManager implements AdminHooks {
 
   setMinionOverride(typeId: MinionTypeId, override: MinionOverride | null): TuningOverrides {
     return this.retune(this.tuning.setMinion(typeId, override));
+  }
+
+  /**
+   * Live tuning changed (tunablesRoutes.ts applied it already): equipped sigils carry their compiled
+   * program and Force price, so every room compiles them again for the next cast, and every client
+   * gets the new set for its tooltips and the forge.
+   */
+  tunablesChanged(): void {
+    for (const room of this.rooms.values()) recompileSigils(room.sim);
+    const msg: ServerMessage = { t: 'tunables', values: activeTunables() };
+    for (const c of this.clients.values()) if (c.characterId !== null) c.send(msg);
   }
 
   /** Every room spawns from the new numbers at once; players only hear about model changes. */

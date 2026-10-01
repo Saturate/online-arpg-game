@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AdminTokenStore } from './adminTokens.js';
 import { events } from './eventLog.js';
 import { TuningStore } from './tuningStore.js';
+import { TunablesStore } from './tunablesStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
@@ -769,5 +770,12 @@ export class AccountStore {
   get tuning(): TuningStore {
     this.tuningStore ??= new TuningStore(this.db);
     return this.tuningStore;
+  }
+
+  private tunablesStore: TunablesStore | null = null;
+  /** Live tuning overrides and their history, kept in their own tables by tunablesStore.ts. */
+  get tunables(): TunablesStore {
+    this.tunablesStore ??= new TunablesStore(this.db);
+    return this.tunablesStore;
   }
 }
