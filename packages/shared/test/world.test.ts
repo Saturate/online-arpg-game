@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUTTON, CLASSES, loadMap, SIM, Simulation, SPELL, STARTER_VESSELS, stepPlayer, WILDS, type InputFrame, type MoveState } from '../src/index.js';
+import { BUTTON, buildMap, CLASSES, GameMap, loadMap, SIM, Simulation, SPELL, STARTER_VESSELS, stepPlayer, WILDS, type InputFrame, type MoveState } from '../src/index.js';
 
 const frame = (seq: number, over: Partial<InputFrame> = {}): InputFrame => ({ seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0, ...over });
 
@@ -43,7 +43,8 @@ describe('wilds generation', () => {
   });
 
   it('places packs away from the camp, with a boss, and none inside obstacles', () => {
-    const { def, game } = loadMap({ kind: 'wilds', seed: 303 });
+    const def = buildMap({ kind: 'wilds', seed: 303 });
+    const game = new GameMap(def);
     expect(def.packs.length).toBeGreaterThan(10);
     expect(def.packs.filter((p) => p.boss)).toHaveLength(1);
     for (const p of def.packs) {
@@ -55,7 +56,8 @@ describe('wilds generation', () => {
   it('packs idle until a player comes near, then wake the whole pack', () => {
     const sim = new Simulation(1, { kind: 'wilds', seed: 404 });
     const pid = sim.addPlayer('c', 'mage');
-    const firstPack = sim.mapDef.packs[0];
+    // A generated zone spawns its packs chunk by chunk; the whole build lists them all.
+    const firstPack = buildMap(sim.mapDesc).packs[0];
     if (!firstPack) throw new Error('no packs');
     for (let i = 0; i < 5; i++) sim.step();
     expect([...sim.world.enemy.values()].every((e) => !e.aggro)).toBe(true);

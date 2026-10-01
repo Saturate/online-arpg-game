@@ -1,4 +1,4 @@
-import type { EntitySnap, WorldMap } from '@rune/shared';
+import type { EntitySnap, Obstacle, WorldMap, ZoneWorld } from '@rune/shared';
 import { cssColor, TIER_COLORS, VIEW } from './config.js';
 
 /**
@@ -119,6 +119,8 @@ export class Minimap {
     private readonly def: WorldMap,
     /** Identifies this map across room changes, so its explored area is remembered. */
     memoryKey: string,
+    /** A generated zone, whose chunks' trees and rocks a tile draws (generating them) when it is first drawn. */
+    private readonly zone: ZoneWorld | null = null,
     /** Camera yaw; the camera never turns during play, so this is fixed per minimap. */
     yawDegrees: number = VIEW.yawDegrees,
   ) {
@@ -165,7 +167,7 @@ export class Minimap {
     const g = c.getContext('2d');
     if (g) {
       g.translate(-col * TILE, -row * TILE);
-      this.drawBase(g);
+      this.drawBase(g, col, row);
     }
     this.baseTiles[i] = c;
     return c;
@@ -242,8 +244,23 @@ export class Minimap {
     }
   }
 
-  /** Draws the whole layout in map pixels; a tile translates `g` first and the canvas clips the rest. */
-  private drawBase(g: CanvasRenderingContext2D): void {
+  /** A zone's chunk obstacles that can show on a tile: those of every chunk whose square, grown by its spill, meets it. */
+  private chunkObstacles(col: number, row: number): Obstacle[] {
+    const zone = this.zone;
+    if (!zone) return [];
+    const x0 = (col * TILE) / this.scale - zone.spill;
+    const x1 = ((col + 1) * TILE) / this.scale + zone.spill;
+    const y0 = (row * TILE) / this.scale - zone.spill;
+    const y1 = ((row + 1) * TILE) / this.scale + zone.spill;
+    const out: Obstacle[] = [];
+    for (let cy = Math.max(0, Math.floor(y0 / zone.size)); cy <= Math.min(zone.rows - 1, Math.floor(y1 / zone.size)); cy++) {
+      for (let cx = Math.max(0, Math.floor(x0 / zone.size)); cx <= Math.min(zone.cols - 1, Math.floor(x1 / zone.size)); cx++) out.push(...zone.obstacles(cx, cy));
+    }
+    return out;
+  }
+
+  /** Draws the layout in map pixels; a tile translates `g` first and the canvas clips the rest. */
+  private drawBase(g: CanvasRenderingContext2D, col: number, row: number): void {
     const s = this.scale;
     g.fillStyle = cssColor(this.def.groundTint);
     g.globalAlpha = 0.55;
@@ -282,7 +299,7 @@ export class Minimap {
       g.arc(b.x * s, b.y * s, 3, 0, Math.PI * 2);
       g.fill();
     }
-    for (const o of this.def.obstacles) {
+    for (const o of [...this.def.obstacles, ...this.chunkObstacles(col, row)]) {
       // Rock is the background underground; the carved floor already shows the layout.
       if (o.kind === 'water' || o.kind === 'cavewall') continue;
       g.fillStyle = o.kind === 'tree' ? '#2a4a22' : o.kind === 'house' || o.kind === 'stall' ? '#8a4a3a' : '#5a5650';

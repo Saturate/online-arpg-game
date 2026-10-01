@@ -23,7 +23,19 @@ export type Anim = (t: number, px: number, py: number) => void;
 /** Builds part of a chunk's meshes into its group, and adds the animations they need while drawn. */
 export type ChunkBuilder = (group: Group, anims: Anim[]) => void;
 
+/**
+ * Registers the content a generated zone's chunk holds (world streaming step 3), through `add`,
+ * `build` and `reach` like anything registered at load. Its pieces may stand in a neighbouring
+ * chunk, so every fill of the 3 by 3 block runs before a chunk is first built.
+ */
+export type ChunkFill = () => void;
+
+/** How far a filled chunk's content may reach past its square before it is filled: a tall canopy or model. */
+const UNFILLED_REACH = 150;
+
 interface Chunk {
+  cx: number;
+  cy: number;
   /** The chunk's own square grown to cover everything anchored in it, for its distance to the camera. */
   bounds: Rect;
   batch: PropBatch;
@@ -65,10 +77,12 @@ export class WorldChunks implements Placer {
   readonly shared = new WeakSet<BufferGeometry>();
   /**
    * `late` counts pop-in: a chunk drawn, or its models arriving, while it was already inside the
-   * view's footprint, after the first frame of the zone.
+   * view's footprint, after the first frame of the zone. `filled` counts a zone's generated chunks registered so far.
    */
-  readonly stats = { chunks: 0, built: 0, visible: 0, builds: 0, releases: 0, late: 0 };
+  readonly stats = { chunks: 0, built: 0, visible: 0, builds: 0, releases: 0, late: 0, filled: 0 };
   private readonly chunks = new Map<number, Chunk>();
+  /** Content of a generated zone's chunks, by chunk key, not registered yet. */
+  private readonly fills = new Map<number, ChunkFill>();
   private disposed = false;
   private first = true;
   /** Chunks loading at the zone's first frame: their models arriving is the zone load, not pop-in. */
@@ -89,7 +103,7 @@ export class WorldChunks implements Placer {
     const key = chunkKey(cx, cy);
     let c = this.chunks.get(key);
     if (!c) {
-      c = { bounds: chunkRect(cx, cy, this.size), batch: new PropBatch(), builders: [], persistent: [], group: null, props: null, anims: [], visible: false, pending: null, generation: 0, inView: Infinity };
+      c = { cx, cy, bounds: chunkRect(cx, cy, this.size), batch: new PropBatch(), builders: [], persistent: [], group: null, props: null, anims: [], visible: false, pending: null, generation: 0, inView: Infinity };
       this.chunks.set(key, c);
       this.stats.chunks = this.chunks.size;
     }
@@ -109,6 +123,31 @@ export class WorldChunks implements Placer {
   /** Grows the bounds of the chunk under (x, y) to cover a circle, for content registered by a shared builder. */
   reach(x: number, y: number, reach: number): void {
     this.chunkAt(x, y, reach);
+  }
+
+  /**
+   * Content generated for chunk (cx, cy) on demand: `fill` registers it the first time this chunk
+   * or a neighbour is about to be built, so a zone's chunks are generated only as the camera nears.
+   */
+  lazy(cx: number, cy: number, fill: ChunkFill): void {
+    const c = this.chunkAt((cx + 0.5) * this.size, (cy + 0.5) * this.size, 0);
+    growRect(c.bounds, (cx + 0.5) * this.size, (cy + 0.5) * this.size, this.size / 2 + UNFILLED_REACH);
+    this.fills.set(chunkKey(cx, cy), fill);
+  }
+
+  /** Runs the fills of the 3 by 3 block around a chunk, so everything that stands in it is registered. */
+  private fillAround(c: Chunk): void {
+    if (this.fills.size === 0) return;
+    for (let y = c.cy - 1; y <= c.cy + 1; y++) {
+      for (let x = c.cx - 1; x <= c.cx + 1; x++) {
+        const key = chunkKey(x, y);
+        const fill = this.fills.get(key);
+        if (!fill) continue;
+        this.fills.delete(key);
+        this.stats.filled++;
+        fill();
+      }
+    }
   }
 
   /** A prebuilt object kept for the world's life, drawn and animated only while its chunk is. */
@@ -163,6 +202,7 @@ export class WorldChunks implements Placer {
   }
 
   private buildChunk(c: Chunk): void {
+    this.fillAround(c);
     const group = new Group();
     const anims: Anim[] = [];
     for (const b of c.builders) b(group, anims);
@@ -196,10 +236,11 @@ export class WorldChunks implements Placer {
     if (!group) return;
     for (const p of c.persistent) group.remove(p.object);
     this.base.remove(group);
-    this.disposeTree(group);
+    this.disposeTree(group, true);
     if (c.props) {
       this.props.remove(c.props);
-      this.disposeTree(c.props);
+      // A prop batch's geometry is every batch's (the asset cache in propBatch.ts): instances only.
+      this.disposeTree(c.props, false);
     }
     c.group = null;
     c.props = null;
@@ -210,19 +251,23 @@ export class WorldChunks implements Placer {
     this.stats.releases++;
   }
 
-  /** Frees the GPU buffers a chunk owns: instance buffers and geometry nobody else uses. */
-  private disposeTree(root: Object3D): void {
+  /**
+   * Frees the GPU buffers a chunk owns: instance buffers, and (with `geometry`) geometry nobody else
+   * uses, instanced or not (a bridge's planks, a camp fire's stones).
+   */
+  private disposeTree(root: Object3D, geometry: boolean): void {
     root.traverse((o) => {
       if (o instanceof InstancedMesh) o.dispose();
-      else if (o instanceof Mesh && o.geometry instanceof BufferGeometry && !this.shared.has(o.geometry)) o.geometry.dispose();
+      if (geometry && o instanceof Mesh && o.geometry instanceof BufferGeometry && !this.shared.has(o.geometry)) o.geometry.dispose();
     });
   }
 
   dispose(): void {
     this.disposed = true;
+    this.fills.clear();
     for (const c of this.chunks.values()) {
       this.release(c);
-      for (const p of c.persistent) this.disposeTree(p.object);
+      for (const p of c.persistent) this.disposeTree(p.object, true);
     }
     this.resolveReady();
   }

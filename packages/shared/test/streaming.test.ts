@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyDev, NET, SKILL_BUTTONS, SIM, Simulation, startArena, STREAMING, type EntityId, type MapDescriptor } from '../src/index.js';
+import { applyDev, buildMap, NET, SKILL_BUTTONS, SIM, Simulation, startArena, STREAMING, type EntityId, type MapDescriptor } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
-import { chunkAwake, isAsleep, setStreaming, sleepingEnemies, streamingStats } from '../src/sim/streaming.js';
+import { chunkAwake, isAsleep, setStreaming, sleepingEnemies, spawnEverywhere, streamingStats } from '../src/sim/streaming.js';
 
 const STEPPE: MapDescriptor = { kind: 'zone', zone: 'steppe', seed: 77 };
 
@@ -36,6 +36,16 @@ function addGodPlayer(sim: Simulation, x: number, y: number): EntityId {
   return id;
 }
 
+/**
+ * A zone room with every pack spawned, as rooms were before chunks spawned their packs on first
+ * wake (step 3, tested in zoneChunks.test.ts): sleep is about monsters that exist far away.
+ */
+function steppe(seed: number): Simulation {
+  const sim = new Simulation(seed, STEPPE);
+  spawnEverywhere(sim);
+  return sim;
+}
+
 function steps(sim: Simulation, n: number): void {
   for (let i = 0; i < n; i++) sim.step();
 }
@@ -53,7 +63,7 @@ describe('world streaming: config', () => {
 
 describe('world streaming: sleep and wake', () => {
   it('leaves far monsters untouched while near ones run', () => {
-    const sim = new Simulation(5, STEPPE);
+    const sim = steppe(5);
     const pid = addGodPlayer(sim, sim.mapDef.spawn.x, sim.mapDef.spawn.y);
     sim.step();
     const sleepers = [...sim.world.enemy.keys()].filter((id) => asleepNow(sim, id));
@@ -64,7 +74,7 @@ describe('world streaming: sleep and wake', () => {
     for (const id of sleepers) expect(monsterState(sim, id), `monster ${id}`).toBe(before.get(id));
 
     // With streaming off the same idle monsters shuffle about, so the check above is not vacuous.
-    const awake = new Simulation(5, STEPPE);
+    const awake = steppe(5);
     setStreaming(awake, false);
     addGodPlayer(awake, awake.mapDef.spawn.x, awake.mapDef.spawn.y);
     steps(awake, 101);
@@ -72,7 +82,7 @@ describe('world streaming: sleep and wake', () => {
   });
 
   it('wakes monsters as a player walks up, and never lets one sleep inside the interest radius', () => {
-    const sim = new Simulation(9, STEPPE);
+    const sim = steppe(9);
     const pid = addGodPlayer(sim, sim.mapDef.spawn.x, sim.mapDef.spawn.y);
     sim.step();
     const far = [...sim.world.enemy.keys()].filter((id) => asleepNow(sim, id));
@@ -91,7 +101,7 @@ describe('world streaming: sleep and wake', () => {
   });
 
   it('wakes a sleeper at once when a player arrives next to it through a portal', () => {
-    const sim = new Simulation(9, STEPPE);
+    const sim = steppe(9);
     const pid = addGodPlayer(sim, sim.mapDef.spawn.x, sim.mapDef.spawn.y);
     sim.step();
     const id = [...sim.world.enemy.keys()].find((e) => asleepNow(sim, e));
@@ -106,7 +116,7 @@ describe('world streaming: sleep and wake', () => {
   });
 
   it('wakes the monsters around the spawn on the tick a player respawns there', () => {
-    const sim = new Simulation(9, STEPPE);
+    const sim = steppe(9);
     const spawn = sim.mapDef.spawn;
     const corners = [
       { x: 150, y: 150 },
@@ -139,7 +149,7 @@ describe('world streaming: sleep and wake', () => {
   });
 
   it('keeps a chasing monster awake outside the awake chunks, and lets it sleep once it is home and idle', () => {
-    const sim = new Simulation(5, STEPPE);
+    const sim = steppe(5);
     const pid = addGodPlayer(sim, sim.mapDef.spawn.x, sim.mapDef.spawn.y);
     sim.step();
     const id = [...sim.world.enemy.keys()].find((e) => asleepNow(sim, e));
@@ -179,19 +189,24 @@ describe('world streaming: sleep and wake', () => {
 /**
  * Compared well past the interest radius, up to near the edge of the awake area: everything a player
  * could meet in the next seconds must match too. The last 200 units are left out, where an awake
- * monster can still brush a sleeper that the run without sleep would have shuffled.
+ * monster can still brush a sleeper that the run without sleep would have shuffled. So are monsters
+ * that slept at any time in the run (players circle about 275 units, so a pack near the edge can
+ * sleep early on and be inside at the end), and monsters pressed against them: they stood still
+ * while their twins shuffled, by design.
  */
 const COMPARE_RADIUS = STREAMING.awakeChunks * STREAMING.chunkSize - 200;
 
 /** Two runs of the same seed, with and without sleep, driven by the same inputs. */
-function twin(desc: MapDescriptor, seed: number, setup: (sim: Simulation) => EntityId[], ticks: number, cast = true): { on: Simulation; off: Simulation; players: EntityId[]; nearEventsOn: string[]; nearEventsOff: string[] } {
+function twin(desc: MapDescriptor, seed: number, setup: (sim: Simulation) => EntityId[], ticks: number, cast = true): { on: Simulation; off: Simulation; players: EntityId[]; nearEventsOn: string[]; nearEventsOff: string[]; slept: Set<EntityId> } {
   const on = new Simulation(seed, desc);
   const off = new Simulation(seed, desc);
+  for (const sim of [on, off]) spawnEverywhere(sim);
   setStreaming(off, false);
   const players = setup(on);
   expect(setup(off)).toEqual(players);
   const nearEventsOn: string[] = [];
   const nearEventsOff: string[] = [];
+  const slept = new Set<EntityId>();
   for (let t = 1; t <= ticks; t++) {
     for (const [sim, log] of [
       [on, nearEventsOn],
@@ -208,15 +223,40 @@ function twin(desc: MapDescriptor, seed: number, setup: (sim: Simulation) => Ent
       }));
       log.push(JSON.stringify(near));
     }
+    touchedBySleep(on, slept);
   }
-  return { on, off, players, nearEventsOn, nearEventsOff };
+  return { on, off, players, nearEventsOn, nearEventsOff, slept };
 }
 
-/** Every monster near a player, with its full state, and the players themselves. */
-function nearWorld(sim: Simulation, players: readonly EntityId[]): string {
+/**
+ * Adds every monster asleep now, and every awake one pressed against one already in the set, as far
+ * as the chain of contacts runs: a pack straddling the edge of the awake area pushes its awake half
+ * about through its sleeping half's twin in the run without sleep (see Limits in world-streaming.md).
+ */
+function touchedBySleep(sim: Simulation, out: Set<EntityId>): void {
+  for (const id of sim.world.enemy.keys()) if (asleepNow(sim, id)) out.add(id);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const id of sim.world.enemy.keys()) {
+      if (out.has(id)) continue;
+      const p = sim.world.position.get(id);
+      const r = sim.world.radius.get(id) ?? 0;
+      for (const o of out) {
+        const q = sim.world.position.get(o);
+        if (!p || !q || Math.hypot(p.x - q.x, p.y - q.y) > r + (sim.world.radius.get(o) ?? 0) + 4) continue;
+        out.add(id);
+        grew = true;
+        break;
+      }
+    }
+  }
+}
+
+/** Every monster near a player that never slept, with its full state, and the players themselves. */
+function nearWorld(sim: Simulation, players: readonly EntityId[], slept: ReadonlySet<EntityId> = new Set()): string {
   const out: string[] = [];
   for (const id of [...sim.world.enemy.keys()].sort((a, b) => a - b)) {
-    if (nearestDist(sim, id, players) <= COMPARE_RADIUS) out.push(`${id}:${monsterState(sim, id)}`);
+    if (!slept.has(id) && nearestDist(sim, id, players) <= COMPARE_RADIUS) out.push(`${id}:${monsterState(sim, id)}`);
   }
   for (const pid of players) {
     const p = sim.world.player.get(pid);
@@ -232,13 +272,13 @@ function allMonsters(sim: Simulation): string {
 
 describe('world streaming: nothing changes near players', () => {
   it('a zone fight plays out identically with and without sleep', () => {
-    const { on, off, players, nearEventsOn, nearEventsOff } = twin(
+    const { on, off, players, nearEventsOn, nearEventsOff, slept } = twin(
       STEPPE,
       21,
       (sim) => {
         // Beside the nearest pack, so the fight starts at once; the rest of the zone sleeps.
         const s = sim.mapDef.spawn;
-        const pack = [...sim.mapDef.packs].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))[0];
+        const pack = [...buildMap(sim.mapDesc).packs].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))[0];
         if (!pack) throw new Error('no packs');
         return [addGodPlayer(sim, pack.x - 250, pack.y), addGodPlayer(sim, pack.x - 200, pack.y + 120)];
       },
@@ -248,7 +288,9 @@ describe('world streaming: nothing changes near players', () => {
     expect(streamingStats(off).asleep).toBe(0);
     expect(nearEventsOn.some((e) => e.includes('"dmg"'))).toBe(true);
     expect(nearEventsOn).toEqual(nearEventsOff);
-    expect(nearWorld(on, players)).toBe(nearWorld(off, players));
+    expect(nearWorld(on, players, slept)).toBe(nearWorld(off, players, slept));
+    // The comparison is not vacuous: most of what is near the players never slept.
+    expect(nearWorld(on, players, slept).split('\n').length).toBeGreaterThan(20);
   });
 
   it('a dungeon plays out identically near players, and its boss wakes when reached', () => {

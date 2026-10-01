@@ -15,6 +15,7 @@ import type { GameMap } from '../world/gamemap.js';
 import { loadMap } from '../world/maps.js';
 import { FlowField } from '../world/nav.js';
 import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
+import type { ZoneWorld } from '../world/zoneGen.js';
 import { HOME_ZONE, type ZoneId } from '../data/zones.js';
 import type { ArenaState } from './arena.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
@@ -99,6 +100,8 @@ export class Simulation {
   readonly seed: number;
   readonly map: GameMap;
   readonly mapDef: WorldMap;
+  /** A generated zone's chunks; its packs spawn chunk by chunk as players come near (`streaming.ts`). */
+  readonly zone: ZoneWorld | null;
   readonly mapDesc: MapDescriptor;
   readonly nav: FlowField;
   tick = 0;
@@ -145,8 +148,9 @@ export class Simulation {
     const loaded = loadMap(mapDesc);
     this.map = loaded.game;
     this.mapDef = loaded.def;
+    this.zone = loaded.zone;
     this.nav = new FlowField(this.map);
-    spawnPacks(this);
+    if (!this.zone) spawnPacks(this);
   }
 
   /**

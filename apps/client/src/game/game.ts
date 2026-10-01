@@ -23,6 +23,7 @@ import {
   type TownLayout,
   type Vec2,
   type WorldMap,
+  type ZoneWorld,
   type ZoneId,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
@@ -107,6 +108,8 @@ type PlayerSnap = Extract<EntitySnap, { k: 'player' }>;
 interface RoomView {
   id: string;
   def: WorldMap;
+  /** A generated zone's chunks; `def` is then its plan only. */
+  zone: ZoneWorld | null;
   map: GameMap;
   world: WorldScene;
   entities: EntityRenderer;
@@ -352,7 +355,7 @@ export class Game {
     const sealed = loaded.def.portals.filter((p) => p.sealed === 'boss');
     const def: WorldMap = { ...loaded.def, portals: loaded.def.portals.filter((p) => p.sealed !== 'boss') };
     useUi.setState({ roomPortals: devPortals(def) });
-    const world = new WorldScene(this.mounts.host, def);
+    const world = new WorldScene(this.mounts.host, def, loaded.zone);
     const fx = new Effects(world.scene, world, this.mounts.fxLayer);
     const entities = new EntityRenderer(world.scene, world.camera, fx.vfx);
     const input = new InputState(
@@ -383,7 +386,8 @@ export class Game {
       interp: new InterpolationBuffer(SIM.tickMs, NET.interpolationDelayMs),
       spells: new SpellTable(),
       mover: new ClickMover(game),
-      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`) : null,
+      zone: loaded.zone,
+      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`, loaded.zone) : null,
       sealed,
       exits: [],
     };
@@ -405,7 +409,7 @@ export class Game {
       this.editor = null;
       this.editorCamera = null;
       // Drop any unsaved preview by rebuilding from the server's layout.
-      if (room) room.world.rebuildWorld(room.def);
+      if (room) room.world.rebuildWorld(room.def, room.zone);
       return;
     }
     if (!room || !this.townLayout) {

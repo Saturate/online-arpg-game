@@ -62,8 +62,9 @@ export class RigBench {
   private sample: { frames: number; entities: number; render: number; wall: number; heap: number; calls: number; tris: number; lastHeap: number | null; done: (r: BenchResult) => void; want: number } | null = null;
 
   constructor(host: HTMLElement, count: number, spread: boolean) {
-    const map = loadMap({ kind: 'wilds', seed: 7 }).def;
-    this.world = new WorldScene(host, map);
+    const loaded = loadMap({ kind: 'wilds', seed: 7 });
+    const map = loaded.def;
+    this.world = new WorldScene(host, map, loaded.zone);
     this.entities = new EntityRenderer(this.world.scene, this.world.camera);
     this.centre = { x: map.width / 2, y: map.height / 2 };
     this.populate(count, spread);

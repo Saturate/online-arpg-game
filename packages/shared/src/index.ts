@@ -40,6 +40,7 @@ export * from './world/gamemap.js';
 export * from './world/maps.js';
 export * from './world/nav.js';
 export * from './world/types.js';
+export * from './world/zoneGen.js';
 export * from './world/town.js';
 export * from './data/gear.js';
 export * from './sim/stats.js';

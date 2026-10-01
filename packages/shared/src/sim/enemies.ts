@@ -6,7 +6,9 @@ import { affixValue, rollAffixes } from '../items/items.js';
 import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';
 import { angleDiff, clamp, distSq, type Vec2 } from './math.js';
+import type { Rng } from './rng.js';
 import type { Simulation } from './simulation.js';
+import type { MonsterPack } from '../world/types.js';
 import { spawnProjectile } from './spells.js';
 import { isAsleep, sleepingEnemies } from './streaming.js';
 
@@ -26,6 +28,8 @@ export interface SpawnOptions {
   level: number;
   aggro: boolean;
   boss?: boolean;
+  /** The stream the monster's own rolls (affixes, staggers) come from; the room's world stream by default. */
+  rng?: Rng;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -90,8 +94,9 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   const def = sim.tuning.enemy(typeId);
   const w = sim.world;
   const boss = opts.boss ?? false;
-  const affixCount = boss ? 3 : sim.rand.world.int(1, 3);
-  const rolled = opts.rare || boss ? rollAffixes(sim.rand.world, 'enemy', affixCount, 2) : [];
+  const rng = opts.rng ?? sim.rand.world;
+  const affixCount = boss ? 3 : rng.int(1, 3);
+  const rolled = opts.rare || boss ? rollAffixes(rng, 'enemy', affixCount, 2) : [];
   // Dropped after rolling rather than excluded from the roll, so the random stream is the same either way.
   // Low levels never get Multishot; bosses never Regenerate, since a long fight on a big life pool
   // with regen turned into a slog the party could not out-damage.
@@ -123,9 +128,9 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     affixes,
     contactCooldown: 0,
     // Stagger the first volley so a group does not fire in perfect unison.
-    fireCooldown: sim.rand.world.range(0.5, 1.5),
-    patternAngle: sim.rand.world.range(0, Math.PI * 2),
-    facing: sim.rand.world.range(0, Math.PI * 2),
+    fireCooldown: rng.range(0.5, 1.5),
+    patternAngle: rng.range(0, Math.PI * 2),
+    facing: rng.range(0, Math.PI * 2),
     speedMult: 1 + affixValue(affixes, 'hasted') / 100,
     extraProjectiles: affixValue(affixes, 'extra_projectiles'),
     reflectChance: affixValue(affixes, 'reflects_projectiles') / 100,
@@ -135,7 +140,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     knockX: 0,
     knockY: 0,
     // Same stagger for abilities, so a pack of casters does not all telegraph on one tick.
-    cooldowns: (mdef?.abilities ?? []).map((a) => sim.rand.world.range(0.4, 1) * Math.min(a.cooldown, 2.5)),
+    cooldowns: (mdef?.abilities ?? []).map((a) => rng.range(0.4, 1) * Math.min(a.cooldown, 2.5)),
     cast: null,
     dash: null,
     leap: null,
@@ -152,19 +157,28 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   return id;
 }
 
-/** Places a map's monster packs once, when the room is created. */
+/** Places a map's monster packs once, when the room is created: maps built whole (dungeons). */
 export function spawnPacks(sim: Simulation): void {
-  for (const pack of sim.mapDef.packs) {
+  spawnPackList(sim, sim.mapDef.packs, sim.rand.world);
+}
+
+/**
+ * Spawns packs idle around their spots, every roll drawn from `rng`. A generated zone spawns each
+ * chunk's packs with a stream of the chunk's own, so a pack comes out the same whenever its chunk
+ * first wakes.
+ */
+export function spawnPackList(sim: Simulation, packs: readonly MonsterPack[], rng: Rng): void {
+  for (const pack of packs) {
     for (let i = 0; i < pack.count; i++) {
-      const a = sim.rand.world.range(0, Math.PI * 2);
-      const d = sim.rand.world.range(0, WILDS.packSpread);
+      const a = rng.range(0, Math.PI * 2);
+      const d = rng.range(0, WILDS.packSpread);
       // A boss pack's first type is the boss itself; only the rest make up its escort.
       const members = pack.boss && pack.types.length > 1 ? pack.types.slice(1) : pack.types;
       const type = members[i % members.length] ?? 'chaser';
-      spawnEnemy(sim, type, pack.x + Math.cos(a) * d, pack.y + Math.sin(a) * d, { rare: false, level: pack.level, aggro: false });
+      spawnEnemy(sim, type, pack.x + Math.cos(a) * d, pack.y + Math.sin(a) * d, { rare: false, level: pack.level, aggro: false, rng });
     }
     if (pack.rareLeader || pack.boss) {
-      spawnEnemy(sim, pack.types[0] ?? 'chaser', pack.x, pack.y, { rare: true, level: pack.level, aggro: false, boss: pack.boss });
+      spawnEnemy(sim, pack.types[0] ?? 'chaser', pack.x, pack.y, { rare: true, level: pack.level, aggro: false, boss: pack.boss, rng });
     }
   }
 }

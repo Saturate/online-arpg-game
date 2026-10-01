@@ -1,4 +1,4 @@
-import type { MapTheme, Vec2, WorldMap } from '@rune/shared';
+import type { MapTheme, Vec2, WorldMap, ZoneWorld } from '@rune/shared';
 import {
   ACESFilmicToneMapping,
   AmbientLight,
@@ -120,6 +120,8 @@ export class WorldScene {
   constructor(
     private readonly host: HTMLElement,
     def: WorldMap,
+    /** A generated zone's chunks, built as the camera comes near (world streaming step 3). */
+    zone: ZoneWorld | null = null,
   ) {
     const light = LIGHTING[def.theme];
     this.base = light;
@@ -162,7 +164,7 @@ export class WorldScene {
     this.playerLight = new PointLight(0xffd6a0, light.playerLight, 520, light.playerDecay ?? 1.4);
     this.scene.add(this.playerLight);
 
-    this.world = buildWorld(def);
+    this.world = buildWorld(def, zone);
     sceneLights.reset();
     sceneLights.setStatic(this.world.lights);
     this.scene.add(this.world.group, this.overlay, sceneLights.group);
@@ -282,13 +284,13 @@ export class WorldScene {
   }
 
   /** Replaces the static world geometry, for the town editor's live preview. */
-  rebuildWorld(def: WorldMap): void {
+  rebuildWorld(def: WorldMap, zone: ZoneWorld | null = null): void {
     this.world.dispose();
     this.scene.remove(this.world.group);
     this.world.group.traverse((o) => {
       if (o instanceof Mesh) o.geometry.dispose();
     });
-    this.world = buildWorld(def);
+    this.world = buildWorld(def, zone);
     sceneLights.setStatic(this.world.lights);
     this.scene.add(this.world.group);
   }

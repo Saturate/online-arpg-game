@@ -226,7 +226,7 @@ export class VfxBench {
     this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', casters: [], monsters: 0 };
     const map: MapDescriptor = this.scene.map === 'town' ? { kind: 'zone', zone: HOME_ZONE, seed: 7, ...(town ? { layout: town } : {}) } : (this.scene.map ?? { kind: 'wilds', seed: 7 });
     const sim = new Simulation(7, map, { waves: false });
-    this.world = new WorldScene(host, sim.mapDef);
+    this.world = new WorldScene(host, sim.mapDef, sim.zone);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
     this.entities = new EntityRenderer(this.world.scene, this.world.camera, this.fx.vfx);
     this.ctx = { fx: this.fx, entities: this.entities, selfId: null, damageNumbers: false, shake: () => {} };

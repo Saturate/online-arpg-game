@@ -1,6 +1,8 @@
 import { STREAMING } from '../config/sim.js';
 import type { EnemyComp, EntityId } from './ecs.js';
 import { clamp } from './math.js';
+import { spawnPackList } from './enemies.js';
+import { Rng } from './rng.js';
 import type { Simulation } from './simulation.js';
 
 /**
@@ -34,6 +36,8 @@ interface StreamState {
   /** Where each player and minion stood at the last recompute. */
   anchors: Map<EntityId, Anchor>;
   lastRecompute: number;
+  /** 1 per chunk of a generated zone whose packs have spawned; null on a map built whole. */
+  spawned: Uint8Array | null;
 }
 
 const states = new WeakMap<Simulation, StreamState>();
@@ -44,13 +48,18 @@ function state(sim: Simulation): StreamState {
   if (!s) {
     const cols = Math.max(1, Math.ceil(sim.map.width / STREAMING.chunkSize));
     const rows = Math.max(1, Math.ceil(sim.map.height / STREAMING.chunkSize));
-    s = { enabled: true, cols, rows, awake: new Uint8Array(cols * rows).fill(1), sleeping: new Set(), anchors: new Map(), lastRecompute: -Infinity };
+    const spawned = sim.zone ? new Uint8Array(cols * rows) : null;
+    s = { enabled: true, cols, rows, awake: new Uint8Array(cols * rows).fill(1), sleeping: new Set(), anchors: new Map(), lastRecompute: -Infinity, spawned };
     states.set(sim, s);
   }
   return s;
 }
 
-/** Turns sleep off (every monster runs every tick, as before streaming) or back on. For tests and the bench. */
+/**
+ * Turns sleep off (every monster runs every tick, as before streaming) or back on. For tests and the
+ * bench. Packs of a generated zone still spawn chunk by chunk as players come near either way, so
+ * a run with sleep and one without see the same monsters.
+ */
 export function setStreaming(sim: Simulation, enabled: boolean): void {
   const s = state(sim);
   s.enabled = enabled;
@@ -85,16 +94,18 @@ export function chunkAwake(sim: Simulation, x: number, y: number): boolean {
   return s.awake[chunkIndex(s, x, y)] === 1;
 }
 
-export function streamingStats(sim: Simulation): { enabled: boolean; chunks: number; awakeChunks: number; asleep: number } {
+export function streamingStats(sim: Simulation): { enabled: boolean; chunks: number; awakeChunks: number; asleep: number; spawnedChunks: number } {
   const s = state(sim);
   let awakeChunks = 0;
   for (const a of s.awake) awakeChunks += a;
+  let spawnedChunks = 0;
+  for (const a of s.spawned ?? []) spawnedChunks += a;
   let asleep = 0;
   for (const id of s.sleeping) {
     const e = sim.world.enemy.get(id);
     if (e && sim.world.isAlive(id) && isAsleep(s.sleeping, id, e)) asleep++;
   }
-  return { enabled: s.enabled, chunks: s.cols * s.rows, awakeChunks, asleep };
+  return { enabled: s.enabled, chunks: s.cols * s.rows, awakeChunks, asleep, spawnedChunks };
 }
 
 /** Everyone whose surroundings must stay live: every player, dead or alive, and every minion. */
@@ -154,7 +165,9 @@ function recompute(sim: Simulation, s: StreamState): void {
   });
   // An empty simulation is never ticked by the server; keeping it awake leaves tests and tools that
   // run monsters without players exactly as they were.
-  if (s.anchors.size === 0) {
+  if (s.anchors.size === 0) s.awake.fill(1);
+  wakeChunks(sim, s);
+  if (s.anchors.size === 0 || !s.enabled) {
     s.awake.fill(1);
     return;
   }
@@ -164,9 +177,39 @@ function recompute(sim: Simulation, s: StreamState): void {
   }
 }
 
+/**
+ * World streaming step 3: the first time a chunk of a generated zone is awake, its static content is
+ * built (`GameMap.ensureChunk`) and its packs spawn, idle, from the chunk's own random stream. A chunk
+ * wakes 2000 units out, well past what any player sees, so a pack is never seen appearing, and it
+ * comes out the same whenever that happens, as if it had stood there asleep since the room opened.
+ */
+function wakeChunks(sim: Simulation, s: StreamState): void {
+  const zone = sim.zone;
+  const spawned = s.spawned;
+  if (!zone || !spawned) return;
+  for (let cy = 0; cy < s.rows; cy++) {
+    for (let cx = 0; cx < s.cols; cx++) {
+      const i = cy * s.cols + cx;
+      if (s.awake[i] !== 1 || spawned[i] === 1) continue;
+      spawned[i] = 1;
+      sim.map.ensureChunk(cx, cy);
+      spawnPackList(sim, zone.packs(cx, cy), Rng.stream(sim.seed, `packs:${cx},${cy}`));
+    }
+  }
+}
+
+/** Spawns every chunk's packs now, as a room built whole would have. For tests and the bench. */
+export function spawnEverywhere(sim: Simulation): void {
+  const s = state(sim);
+  const saved = s.awake;
+  s.awake = new Uint8Array(saved.length).fill(1);
+  wakeChunks(sim, s);
+  s.awake = saved;
+}
+
 /** Runs after input and `updatePlayers` (portals, respawns), before the monsters, so this tick's positions decide who sleeps. */
 export function updateStreaming(sim: Simulation): void {
   const s = state(sim);
-  if (!s.enabled || !due(sim, s)) return;
+  if (!due(sim, s)) return;
   recompute(sim, s);
 }

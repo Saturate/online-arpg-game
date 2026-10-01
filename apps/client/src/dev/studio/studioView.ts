@@ -34,7 +34,7 @@ export class StudioView {
     host: HTMLElement,
     fxLayer: HTMLElement,
   ) {
-    this.world = new WorldScene(host, studio.sim.mapDef);
+    this.world = new WorldScene(host, studio.sim.mapDef, studio.sim.zone);
     this.world.setZoom(ZOOM);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
     this.entities = new EntityRenderer(this.world.scene, this.world.camera, this.fx.vfx);

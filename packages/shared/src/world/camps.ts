@@ -51,11 +51,12 @@ export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: re
 }
 
 /**
- * Places the camps of a generated zone. Runs after everything else is laid out (packs, entrances,
- * the waypoint and the gates), on its own random stream, so the rest of a zone's layout is the same
- * as before camps existed. Only ground reachable from the spawn is used.
+ * Places the camps of a generated zone, as part of its plan: after the waypoint, the gates, the
+ * boss and the entrances, before any chunk content, on its own random stream. Only ground reachable
+ * from the spawn is used. Trees and rocks generated later keep off a camp, and packs keep their
+ * spacing from a guarded one (it is a pack) and `unguardedPackGap` from the rest.
  */
-export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: ReadonlySet<number>, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biome: Biome, scale: number): void {
+export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { has(cell: number): boolean }, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biome: Biome, scale: number): void {
   const rng = Rng.stream(seed, 'camps');
   const wanted = Math.max(1, Math.round(CAMPS.perMap * scale));
   const camps: CampSite[] = [];

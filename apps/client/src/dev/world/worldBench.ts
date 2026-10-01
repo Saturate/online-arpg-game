@@ -1,4 +1,4 @@
-import { HOME_ZONE, loadMap, scaledZoneMap, type TownLayout, type WorldMap } from '@rune/shared';
+import { HOME_ZONE, scaledZone, type TownLayout, type WorldMap, type ZoneWorld } from '@rune/shared';
 import { BufferAttribute, InstancedMesh, InterleavedBufferAttribute, Mesh, Texture, type Object3D } from 'three';
 import { Effects } from '../../render/fx.js';
 import { Minimap } from '../../render/minimap.js';
@@ -7,7 +7,8 @@ import { WorldScene } from '../../render/scene.js';
 export interface WorldBenchScene {
   id: string;
   label: string;
-  map: (town: TownLayout | undefined) => WorldMap;
+  /** Generated afresh on every run, so the build time includes generating the zone's plan. */
+  map: (town: TownLayout | undefined) => { def: WorldMap; zone: ZoneWorld | null };
   /** The walk, as points the camera moves between at WALK_SPEED. */
   path: (def: WorldMap) => { x: number; y: number }[];
 }
@@ -19,7 +20,7 @@ const SCENES: readonly WorldBenchScene[] = [
   {
     id: 'town',
     label: 'Home zone: across the town square and out of the east gate',
-    map: (town) => loadMap({ kind: 'zone', zone: HOME_ZONE, seed: 7, ...(town ? { layout: town } : {}) }).def,
+    map: (town) => scaledZone(HOME_ZONE, 7, 1, town),
     path: (def) => [
       { x: def.spawn.x, y: def.spawn.y },
       { x: def.spawn.x + 900, y: def.spawn.y - 300 },
@@ -29,7 +30,7 @@ const SCENES: readonly WorldBenchScene[] = [
   {
     id: 'wilds',
     label: 'Thornwood (forest zone): spawn to the far east edge',
-    map: () => loadMap({ kind: 'zone', zone: 'thornwood', seed: 7 }).def,
+    map: () => scaledZone('thornwood', 7, 1),
     path: (def) => [
       { x: def.spawn.x, y: def.spawn.y },
       { x: def.width * 0.5, y: def.height * 0.3 },
@@ -39,7 +40,17 @@ const SCENES: readonly WorldBenchScene[] = [
   {
     id: 'big',
     label: 'Thornwood at twice the width and height (4x the area), never live',
-    map: () => scaledZoneMap('thornwood', 7, 2),
+    map: () => scaledZone('thornwood', 7, 2),
+    path: (def) => [
+      { x: def.spawn.x, y: def.spawn.y },
+      { x: def.width * 0.5, y: def.height * 0.2 },
+      { x: def.width - 300, y: def.height * 0.8 },
+    ],
+  },
+  {
+    id: 'huge',
+    label: 'Thornwood at three times the width and height (9x the area), never live',
+    map: () => scaledZone('thornwood', 7, 3),
     path: (def) => [
       { x: def.spawn.x, y: def.spawn.y },
       { x: def.width * 0.5, y: def.height * 0.2 },
@@ -53,8 +64,10 @@ export const WORLD_BENCH_SCENES = SCENES;
 export interface WorldBenchResult {
   scene: string;
   mapSize: string;
-  /** Milliseconds to build the WorldScene (synchronous part). */
+  /** Milliseconds to generate the zone's plan and build the WorldScene (synchronous part). */
   buildMs: number;
+  /** The plan's part of `buildMs`. */
+  genMs: number;
   /** Milliseconds from starting the build to the end of the first frame drawn with the models around the start (shader compiles included). */
   readyMs: number;
   frames: number;
@@ -130,6 +143,9 @@ export class WorldBench {
   readonly minimap: Minimap | null;
   readonly scene: WorldBenchScene;
   readonly def: WorldMap;
+  readonly zone: ZoneWorld | null;
+  /** Milliseconds generating the zone's plan, part of `buildMs`. */
+  readonly genMs: number;
   private readonly path: { x: number; y: number }[];
   private raf = 0;
   private last = performance.now();
@@ -157,14 +173,17 @@ export class WorldBench {
   } | null = null;
 
   constructor(host: HTMLElement, fxLayer: HTMLElement, sceneId: string, town?: TownLayout, minimap?: HTMLCanvasElement) {
-    this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', map: () => scaledZoneMap('thornwood', 7, 1), path: () => [] };
-    this.def = this.scene.map(town);
-    this.path = this.scene.path(this.def);
+    this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', map: () => scaledZone('thornwood', 7, 1), path: () => [] };
     const t0 = performance.now();
-    this.world = new WorldScene(host, this.def);
+    const map = this.scene.map(town);
+    this.genMs = performance.now() - t0;
+    this.def = map.def;
+    this.zone = map.zone;
+    this.path = this.scene.path(this.def);
+    this.world = new WorldScene(host, this.def, this.zone);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
     this.buildMs = performance.now() - t0;
-    this.minimap = minimap ? new Minimap(minimap, this.def, `bench:${this.scene.id}:${performance.now()}`) : null;
+    this.minimap = minimap ? new Minimap(minimap, this.def, `bench:${this.scene.id}:${performance.now()}`, this.zone) : null;
     // The first frame starts the chunks around the start; ready resolves once their models are in.
     this.frame(performance.now());
     this.t0 = t0;
@@ -230,6 +249,7 @@ export class WorldBench {
         scene: this.scene.id,
         mapSize: `${this.def.width}x${this.def.height}`,
         buildMs: this.buildMs,
+        genMs: this.genMs,
         readyMs: this.readyMs ?? -1,
         frames: s.frames,
         drawCalls: Math.round(s.calls / s.frames),
@@ -246,7 +266,8 @@ export class WorldBench {
         meshes: held.meshes,
         chunks: (() => {
           const c = this.world.chunkStats;
-          return `${c.chunks} total, ${c.built} built, ${c.visible} drawn, ${c.builds} builds, ${c.releases} releases, ${c.late} late`;
+          const zone = this.zone ? `, ${c.filled} of ${this.zone.cols * this.zone.rows} zone chunks registered, ${this.zone.generatedChunks} generated` : '';
+          return `${c.chunks} total, ${c.built} built, ${c.visible} drawn, ${c.builds} builds, ${c.releases} releases, ${c.late} late${zone}`;
         })(),
       });
     }

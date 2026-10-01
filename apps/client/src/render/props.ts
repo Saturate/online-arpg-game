@@ -1,4 +1,4 @@
-import { Rng, type Obstacle, type Shape, type WorldMap } from '@rune/shared';
+import { Rng, type Decor, type Obstacle, type Shape, type WorldMap, type ZoneWorld } from '@rune/shared';
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -198,8 +198,12 @@ function lcg(seed: number): () => number {
   };
 }
 
-function repeatTexture(c: HTMLCanvasElement, repeatX: number, repeatY: number): Texture {
+/** GPU resources a built world made for itself, freed with it (the town editor rebuilds the world on every edit). */
+type Owned = { dispose(): void }[];
+
+function repeatTexture(c: HTMLCanvasElement, repeatX: number, repeatY: number, owned: Owned): Texture {
   const tex = new CanvasTexture(c);
+  owned.push(tex);
   tex.wrapS = RepeatWrapping;
   tex.wrapT = RepeatWrapping;
   tex.repeat.set(repeatX, repeatY);
@@ -395,13 +399,23 @@ function shapeCentre(s: Shape): { x: number; y: number } {
 // ---------------------------------------------------------------------------------------------
 // Builders
 
-export function buildWorld(def: WorldMap): BuiltWorld {
+/**
+ * The static world of a map, registered by chunk (`WorldChunks`). A generated zone (`zone`, world
+ * streaming step 3) registers its plan here and each chunk's trees, rocks and bones the first time
+ * that chunk is about to be built, generating them then from the zone's seed.
+ */
+export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltWorld {
   const group = new Group();
   const chunks = new WorldChunks();
   group.add(chunks.group);
   const animated: Anim[] = [];
   const lights: StaticLight[] = [];
   const fires: FireSpot[] = [];
+  const owned: Owned = [];
+  const own = <T extends { dispose(): void }>(x: T): T => {
+    owned.push(x);
+    return x;
+  };
   const { width, height } = def;
 
   // The Arena pit is an underground colosseum carved like a dungeon, lit the same way by torches.
@@ -411,28 +425,30 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   const gw = width + margin * 2;
   const gh = height + margin * 2;
   // Ground. Underground it is the rock itself: near black, with the carved floor laid on top.
-  const groundMat = underground
-    ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 })
-    : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), 1, 1), color: def.groundTint, roughness: 1 });
+  const groundMat = own(
+    underground ? new MeshStandardMaterial({ color: 0x0c0a09, roughness: 1 }) : new MeshStandardMaterial({ map: repeatTexture(grassCanvas(), 1, 1, owned), color: def.groundTint, roughness: 1 }),
+  );
   addGroundTiles(chunks, groundMat, -margin, -margin, gw, gh);
-  const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), new MeshBasicMaterial({ color: COLORS.background }));
+  const voidPlane = new Mesh(new PlaneGeometry(gw * 3, gh * 3), own(new MeshBasicMaterial({ color: COLORS.background })));
   voidPlane.rotation.x = -Math.PI / 2;
   voidPlane.position.set(width / 2, -3, height / 2);
   group.add(voidPlane);
 
-  const stoneTex = repeatTexture(stoneCanvas(), 1, 1);
-  const dirtTex = repeatTexture(dirtCanvas(), 1, 1);
+  const stoneTex = repeatTexture(stoneCanvas(), 1, 1, owned);
+  const dirtTex = repeatTexture(dirtCanvas(), 1, 1, owned);
   // Every road segment draws the same: one material for all of them, not one per segment and chunk build.
-  const roadMat = new MeshStandardMaterial({ map: dirtTex, roughness: 1, transparent: true, opacity: 0.85 });
-  if (underground) addUnderground(chunks, def);
+  const roadMat = own(new MeshStandardMaterial({ map: dirtTex, roughness: 1, transparent: true, opacity: 0.85 }));
+  if (underground) addUnderground(chunks, def, owned);
   for (const patch of def.ground) {
     if (patch.kind === 'floor') continue;
     const s = patch.shape;
     if (s.type === 'circle') {
+      // Made once per patch, not per build: a chunk is rebuilt every time it comes back into range.
+      const tex = own((patch.kind === 'plaza' ? stoneTex : dirtTex).clone());
+      tex.repeat.set(s.r / 90, s.r / 90);
+      const patchMat = own(new MeshStandardMaterial({ map: tex, roughness: 0.95 }));
       chunks.build(s.x, s.y, s.r, (g) => {
-        const tex = (patch.kind === 'plaza' ? stoneTex : dirtTex).clone();
-        tex.repeat.set(s.r / 90, s.r / 90);
-        const m = new Mesh(new CircleGeometry(s.r, 48), new MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+        const m = new Mesh(new CircleGeometry(s.r, 48), patchMat);
         m.rotation.x = -Math.PI / 2;
         m.position.set(s.x, 0.4 + (patch.kind === 'plaza' ? 0.2 : 0), s.y);
         m.receiveShadow = true;
@@ -464,11 +480,11 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
   // Rivers: a muddy bank ribbon under a translucent, flowing water ribbon. A river crosses the whole
   // map as a few hundred vertices in two draws, so it stays whole rather than being cut into chunks.
-  const waterTex = repeatTexture(waterCanvas(), 1, 1);
+  const waterTex = repeatTexture(waterCanvas(), 1, 1, owned);
   for (const river of def.rivers) {
-    const bank = new Mesh(ribbon(river.path, river.width / 2 + 16, 0.5, 200), new MeshStandardMaterial({ color: 0x3a3022, roughness: 1 }));
+    const bank = new Mesh(ribbon(river.path, river.width / 2 + 16, 0.5, 200), own(new MeshStandardMaterial({ color: 0x3a3022, roughness: 1 })));
     bank.receiveShadow = true;
-    const waterMat = new MeshStandardMaterial({ map: waterTex, color: 0x9fd0ff, roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.88 });
+    const waterMat = own(new MeshStandardMaterial({ map: waterTex, color: 0x9fd0ff, roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.88 }));
     const water = new Mesh(ribbon(river.path, river.width / 2 + 2, 1.2, 160), waterMat);
     group.add(bank, water);
     animated.push((t) => {
@@ -477,36 +493,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   }
   for (const b of def.bridges) chunks.build(b.x, b.y, b.length / 2 + b.width, (g) => g.add(bridge(b.x, b.y, b.angle, b.length, b.width)));
 
-  // Obstacles, grouped by kind so the common ones can be instanced.
-  const byKind = new Map<string, Obstacle[]>();
-  for (const o of def.obstacles) {
-    const list = byKind.get(o.kind);
-    if (list) list.push(o);
-    else byKind.set(o.kind, [o]);
-  }
-
-  addRocks(chunks, byKind.get('rock') ?? []);
-  addTrees(chunks, byKind.get('tree') ?? [], def);
-  for (const o of byKind.get('pillar') ?? []) {
-    if (o.shape.type !== 'circle') continue;
-    const h = hash(o.shape.x, o.shape.y);
-    chunks.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
-    if (o.visual < 90) chunks.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
-  }
-  for (const w of byKind.get('wall') ?? []) tileAlong(chunks, w, 'dungeon_wall_broken', 70, true);
-  for (const f of byKind.get('fence') ?? []) tileAlong(chunks, f, 'fence_wood_straight', 44);
-  const BUILDINGS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'];
-  for (const h of byKind.get('house') ?? []) {
-    if (h.shape.type !== 'box') continue;
-    const k = hash(h.shape.x, h.shape.y);
-    const small = Math.max(h.shape.hw, h.shape.hh) < 100;
-    const id = small ? (k % 2 === 0 ? 'building_home_B_red' : 'building_home_B_yellow') : (BUILDINGS[k % BUILDINGS.length] ?? 'building_home_A_red');
-    chunks.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
-  }
-  for (const s of byKind.get('stall') ?? []) if (s.shape.type === 'box') chunks.build(s.shape.x, s.shape.y, Math.hypot(s.shape.hw, s.shape.hh) + 10, (g) => g.add(stall(s)));
-  for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') chunks.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
-  for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
-  for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
+  addObstacles(chunks, def.obstacles, def);
   const addFire = (fire: BuiltFire, x: number, y: number): void => {
     chunks.attach(x, y, 60, fire.group, fire.update);
     lights.push(fire.light);
@@ -518,11 +505,23 @@ export function buildWorld(def: WorldMap): BuiltWorld {
       addFire(fire, d.x, d.y);
       continue;
     }
-    chunks.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
+    addDecorPiece(chunks, d);
     const look = LIT_DECOR[d.asset];
     const light = look ? lightAt(look, d.x, d.y, d.scale) : null;
     if (light) lights.push(light);
     flamesOf(d.asset, d.x, d.y, d.angle, d.scale, light, fires);
+  }
+  // A zone's chunks: generated and registered when first near. Chunk decor is never a light or a
+  // flame (zoneChunks.test.ts in the client checks), since the light budget is fixed at load.
+  if (zone) {
+    for (let cy = 0; cy < zone.rows; cy++) {
+      for (let cx = 0; cx < zone.cols; cx++) {
+        chunks.lazy(cx, cy, () => {
+          addObstacles(chunks, zone.obstacles(cx, cy), def);
+          for (const d of zone.decor(cx, cy)) addDecorPiece(chunks, d);
+        });
+      }
+    }
   }
   for (const l of def.lamps ?? []) {
     const asset = underground ? 'dungeon_torch_lit' : 'grave_post_lantern';
@@ -549,7 +548,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
   if (def.forge) addFire(campfire(def.forge.x + 38, def.forge.y + 22, true), def.forge.x + 38, def.forge.y + 22);
   // Zones with a town arrive in the town; only a bare Wilds gets a camp with a fire.
   if (def.theme === 'wilds' && !def.safeZones?.length) addFire(campfire(def.spawn.x + 40, def.spawn.y + 60, false), def.spawn.x + 40, def.spawn.y + 60);
-  if (!underground) addDecor(chunks, def);
+  if (!underground) addGrass(chunks, def, zone);
 
   return {
     group,
@@ -559,6 +558,7 @@ export function buildWorld(def: WorldMap): BuiltWorld {
     },
     dispose() {
       chunks.dispose();
+      for (const o of owned) o.dispose();
     },
     lights,
     fires,
@@ -569,6 +569,43 @@ export function buildWorld(def: WorldMap): BuiltWorld {
 
 /** The view's ground footprint at the game's own camera on a 16:9 screen, for callers that do not pass one. */
 const DEFAULT_FOOTPRINT = 600;
+
+/** Decor drawn from a model, placed like any other prop. */
+function addDecorPiece(chunks: WorldChunks, d: Decor): void {
+  chunks.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
+}
+
+/** Registers obstacles, grouped by kind so the common ones can be instanced. */
+function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: WorldMap): void {
+  const byKind = new Map<string, Obstacle[]>();
+  for (const o of obstacles) {
+    const list = byKind.get(o.kind);
+    if (list) list.push(o);
+    else byKind.set(o.kind, [o]);
+  }
+  addRocks(chunks, byKind.get('rock') ?? []);
+  addTrees(chunks, byKind.get('tree') ?? [], def);
+  for (const o of byKind.get('pillar') ?? []) {
+    if (o.shape.type !== 'circle') continue;
+    const h = hash(o.shape.x, o.shape.y);
+    chunks.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
+    if (o.visual < 90) chunks.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
+  }
+  for (const w of byKind.get('wall') ?? []) tileAlong(chunks, w, 'dungeon_wall_broken', 70, true);
+  for (const f of byKind.get('fence') ?? []) tileAlong(chunks, f, 'fence_wood_straight', 44);
+  const BUILDINGS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'];
+  for (const h of byKind.get('house') ?? []) {
+    if (h.shape.type !== 'box') continue;
+    const k = hash(h.shape.x, h.shape.y);
+    const small = Math.max(h.shape.hw, h.shape.hh) < 100;
+    const id = small ? (k % 2 === 0 ? 'building_home_B_red' : 'building_home_B_yellow') : (BUILDINGS[k % BUILDINGS.length] ?? 'building_home_A_red');
+    chunks.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
+  }
+  for (const s of byKind.get('stall') ?? []) if (s.shape.type === 'box') chunks.build(s.shape.x, s.shape.y, Math.hypot(s.shape.hw, s.shape.hh) + 10, (g) => g.add(stall(s)));
+  for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') chunks.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
+  for (const c of byKind.get('chest') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_chest', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.2, d: c.shape.hh * 2.2 } } });
+  for (const c of byKind.get('crate') ?? []) if (c.shape.type === 'box') chunks.add('dungeon_crates_stacked', { x: c.shape.x, y: c.shape.y, angle: c.shape.angle, fit: { box: { w: c.shape.hw * 2.4, d: c.shape.hh * 2.4 } } });
+}
 
 /**
  * The ground, one tile per chunk. UVs are in world units (one texture repeat per 420), so the
@@ -611,7 +648,7 @@ interface Landmark {
 
 const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D', 'rock_single_E'];
 
-function addRocks(batch: Placer, rocks: Obstacle[]): void {
+function addRocks(batch: Placer, rocks: readonly Obstacle[]): void {
   for (const o of rocks) {
     if (o.shape.type !== 'circle') continue;
     const h = hash(o.shape.x, o.shape.y);
@@ -632,15 +669,27 @@ function tileAlong(batch: Placer, o: Obstacle, asset: string, segment: number, f
   }
 }
 
+const TREE_MATERIALS = new WeakMap<WorldChunks, MeshStandardMaterial>();
+
+/** One material for every solid tree of a world, also for the trees a zone's chunks register later. */
+function treeMaterial(chunks: WorldChunks): MeshStandardMaterial {
+  let m = TREE_MATERIALS.get(chunks);
+  if (!m) {
+    m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, transparent: true, opacity: 1 });
+    TREE_MATERIALS.set(chunks, m);
+  }
+  return m;
+}
+
 /**
  * Procedural trees, one merged mesh each. Trees near the player fade out, so nobody fights hidden
  * under a canopy. Map themes shift the mix toward dead trees in bleak places. Built per chunk.
  */
-function addTrees(chunks: WorldChunks, trees: Obstacle[], def: WorldMap): void {
+function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap): void {
   const bleak = /Ashen|Gloom/.test(def.name);
   const byChunk = new Map<number, { x: number; y: number; kind: TreeKind; h: number; size: number }[]>();
-  // Shared by every tree while it stands at full opacity; a tree near the hero fades on a copy of its own.
-  const solid = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, transparent: true, opacity: 1 });
+  // Shared by every tree of the world while it stands at full opacity; a tree near the hero fades on a copy of its own.
+  const solid = treeMaterial(chunks);
   for (const o of trees) {
     if (o.shape.type !== 'circle') continue;
     const { x, y } = o.shape;
@@ -977,7 +1026,7 @@ function portal(x: number, y: number, r: number, color: number): Landmark {
   const ring = new Mesh(new TorusGeometry(r, 5, 8, 32), mat(color, { emissive: color, intensity: 1.2 }));
   ring.position.y = r + 14;
   g.add(ring);
-  const tex = new CanvasTexture(swirlCanvas());
+  const tex = sharedTexture('swirl', swirlCanvas);
   const swirl = new Mesh(new CircleGeometry(r * 0.95, 32), new MeshBasicMaterial({ map: tex, color, transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }));
   swirl.position.y = r + 14;
   g.add(swirl);
@@ -1130,6 +1179,22 @@ function arenaBuilding(x: number, y: number, r: number): Landmark {
  * Charred bark split by glowing cracks, for the logs of a camp fire; the cracks are the emissive
  * map, so the fire's flicker only has to move the emissive intensity.
  */
+/**
+ * Textures drawn once and shared by every portal and fire of every world, so rebuilding the world
+ * (the town editor, on every edit) makes no new ones. They live as long as the page.
+ */
+const SHARED_TEXTURES = new Map<string, CanvasTexture>();
+
+function sharedTexture(id: 'swirl' | 'embers', draw: () => HTMLCanvasElement): CanvasTexture {
+  const have = SHARED_TEXTURES.get(id);
+  if (have) return have;
+  const tex = new CanvasTexture(draw());
+  // The ember cracks are colour; the swirl has always been read as raw values.
+  if (id === 'embers') tex.colorSpace = SRGBColorSpace;
+  SHARED_TEXTURES.set(id, tex);
+  return tex;
+}
+
 function emberCanvas(): HTMLCanvasElement {
   const { c, g } = canvas(64);
   if (!g) return c;
@@ -1170,8 +1235,7 @@ function campfire(x: number, y: number, forge: boolean, scale = 1, angle = 0): B
   }
   const sm = instanced(rockGeometry(3), mat(0x6a6460), stones);
   if (sm) g.add(sm);
-  const embers = new CanvasTexture(emberCanvas());
-  embers.colorSpace = SRGBColorSpace;
+  const embers = sharedTexture('embers', emberCanvas);
   const bark = new MeshStandardMaterial({ color: 0x1e1510, roughness: 1, emissive: 0xff5a1a, emissiveMap: embers, emissiveIntensity: 1 });
   const logs: Matrix4[] = [];
   for (let i = 0; i < 4; i++) {
@@ -1230,8 +1294,7 @@ function brazier(x: number, y: number, scale = 1, angle = 0): BuiltFire {
   const rim = new Mesh(new TorusGeometry(15, 1.3, 5, 14), iron);
   rim.rotation.x = Math.PI / 2;
   rim.position.y = BRAZIER_COALS + 2;
-  const embers = new CanvasTexture(emberCanvas());
-  embers.colorSpace = SRGBColorSpace;
+  const embers = sharedTexture('embers', emberCanvas);
   const coalMat = new MeshStandardMaterial({ color: 0x1a120c, roughness: 1, emissive: 0xff5a1a, emissiveMap: embers, emissiveIntensity: 1, flatShading: true });
   const coals = new Mesh(rockGeometry(11), coalMat);
   coals.scale.set(12, 3, 12);
@@ -1404,22 +1467,25 @@ function pointAround(w: number, h: number, depth: number, t: number): { x: numbe
   return { x: -depth, y: h + depth - (t - 2 * W - H) };
 }
 
-/** Grass tufts, flowers and pebbles: thousands of instances, no collision, placed away from obstacles. */
-function addDecor(chunks: WorldChunks, def: WorldMap): void {
+/**
+ * Grass tufts, flowers and pebbles: thousands of instances, no collision, placed away from obstacles.
+ * Generated per chunk when it is built, from a seed of its own, so a zone's grass costs what is near
+ * the camera, and a chunk rebuilt after a release grows the same grass again.
+ */
+function addGrass(chunks: WorldChunks, def: WorldMap, zone: ZoneWorld | null): void {
   if (def.theme === 'flat') return;
-  const rng = new Rng(def.width + def.obstacles.length);
-  const count = Math.floor((def.width * def.height) / 9000);
-  interface Bits {
-    grass: Matrix4[];
-    flowers: Matrix4[];
-    flowerColors: Color[];
-    pebbles: Matrix4[];
-  }
-  const byChunk = new Map<number, Bits>();
   const palette = [0xf5e663, 0xffffff, 0xe06070, 0x9fb4ff];
-  const onPatch = (x: number, y: number): boolean =>
-    def.ground.some((g) => g.kind === 'plaza' && g.shape.type === 'circle' && Math.hypot(x - g.shape.x, y - g.shape.y) < g.shape.r);
-  const nearObstacle = obstacleGrid(def.obstacles, 70);
+  const plazas = def.ground.filter((g) => g.kind === 'plaza' && g.shape.type === 'circle');
+  const onPatch = (x: number, y: number): boolean => plazas.some((g) => g.shape.type === 'circle' && Math.hypot(x - g.shape.x, y - g.shape.y) < g.shape.r);
+  // The map's own obstacles by the chunk their centre is in; a zone's chunks add theirs when built.
+  const planByChunk = new Map<number, Obstacle[]>();
+  for (const o of def.obstacles) {
+    const c = shapeCentre(o.shape);
+    const key = chunkKey(chunkCoord(c.x), chunkCoord(c.y));
+    const list = planByChunk.get(key);
+    if (list) list.push(o);
+    else planByChunk.set(key, [o]);
+  }
   const grassColor = new Color(def.groundTint).offsetHSL(0.01, -0.02, 0.02).getHex();
   // Shared by every chunk, so a chunk released and rebuilt reuses them.
   const cone = new ConeGeometry(1, 1, 3);
@@ -1429,18 +1495,50 @@ function addDecor(chunks: WorldChunks, def: WorldMap): void {
   const grassMat = mat(grassColor, { rough: 1 });
   const flowerMat = mat(0xffffff, { emissive: 0x202020 });
   const pebbleMat = mat(0x7a7468);
-  const bitsAt = (x: number, y: number): Bits => {
-    const key = chunkKey(chunkCoord(x), chunkCoord(y));
-    let b = byChunk.get(key);
-    if (!b) {
-      const own: Bits = { grass: [], flowers: [], flowerColors: [], pebbles: [] };
-      b = own;
-      byChunk.set(key, own);
-      chunks.build(x, y, 0, (group) => {
-        const g1 = instanced(cone, grassMat, own.grass);
-        const g2 = instanced(ico, flowerMat, own.flowers, own.flowerColors);
-        const g3 = instanced(ico, pebbleMat, own.pebbles);
-        for (const m of [g1, g2, g3]) {
+  const size = CHUNK_SIZE;
+  for (let cy = 0; cy * size < def.height; cy++) {
+    for (let cx = 0; cx * size < def.width; cx++) {
+      const x0 = Math.max(20, cx * size);
+      const x1 = Math.min(def.width - 20, (cx + 1) * size);
+      const y0 = Math.max(20, cy * size);
+      const y1 = Math.min(def.height - 20, (cy + 1) * size);
+      if (x1 <= x0 || y1 <= y0) continue;
+      // One tuft, flower or pebble roll per 9000 square units, as across the whole map before.
+      const count = Math.floor(((x1 - x0) * (y1 - y0)) / 9000);
+      chunks.build((x0 + x1) / 2, (y0 + y1) / 2, 0, (group) => {
+        // Obstacles whose centre is within 70 of the chunk: the map's and, in a zone, those of the
+        // chunk and its neighbours (no chunk's trees stand further out than that).
+        const near: Obstacle[] = [];
+        for (let j = cy - 1; j <= cy + 1; j++) {
+          for (let i = cx - 1; i <= cx + 1; i++) {
+            near.push(...(planByChunk.get(chunkKey(i, j)) ?? []));
+            if (zone) near.push(...zone.obstacles(i, j));
+          }
+        }
+        const nearObstacle = obstacleGrid(near, 70);
+        const rng = new Rng((Math.imul(cx + 7919, 73856093) ^ Math.imul(cy + 104729, 19349663) ^ Math.imul(def.width, 83492791)) >>> 0);
+        const grass: Matrix4[] = [];
+        const flowers: Matrix4[] = [];
+        const flowerColors: Color[] = [];
+        const pebbles: Matrix4[] = [];
+        for (let i = 0; i < count; i++) {
+          const x = rng.range(x0, x1);
+          const y = rng.range(y0, y1);
+          if (onPatch(x, y)) continue;
+          const roll = rng.next();
+          if (roll < 0.7) {
+            if (nearObstacle(x, y) && rng.next() < 0.7) continue;
+            const s = rng.range(4, 9);
+            grass.push(matrix(x, s / 2, y, s * 0.5, s, s * 0.5, rng.range(0, 6), rng.range(-0.3, 0.3)));
+          } else if (roll < 0.85) {
+            flowers.push(matrix(x, 3, y, 2.5, 2.5, 2.5));
+            flowerColors.push(new Color(palette[rng.int(0, palette.length - 1)] ?? 0xffffff));
+          } else {
+            const s = rng.range(2, 5);
+            pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
+          }
+        }
+        for (const m of [instanced(cone, grassMat, grass), instanced(ico, flowerMat, flowers, flowerColors), instanced(ico, pebbleMat, pebbles)]) {
           if (!m) continue;
           // Decor is too small to cast useful shadows and there are thousands of instances.
           m.castShadow = false;
@@ -1448,25 +1546,6 @@ function addDecor(chunks: WorldChunks, def: WorldMap): void {
           group.add(m);
         }
       });
-    }
-    return b;
-  };
-  for (let i = 0; i < count; i++) {
-    const x = rng.range(20, def.width - 20);
-    const y = rng.range(20, def.height - 20);
-    if (onPatch(x, y)) continue;
-    const roll = rng.next();
-    if (roll < 0.7) {
-      if (nearObstacle(x, y) && rng.next() < 0.7) continue;
-      const s = rng.range(4, 9);
-      bitsAt(x, y).grass.push(matrix(x, s / 2, y, s * 0.5, s, s * 0.5, rng.range(0, 6), rng.range(-0.3, 0.3)));
-    } else if (roll < 0.85) {
-      const b = bitsAt(x, y);
-      b.flowers.push(matrix(x, 3, y, 2.5, 2.5, 2.5));
-      b.flowerColors.push(new Color(palette[rng.int(0, palette.length - 1)] ?? 0xffffff));
-    } else {
-      const s = rng.range(2, 5);
-      bitsAt(x, y).pebbles.push(matrix(x, s * 0.3, y, s, s * 0.6, s, rng.range(0, 6)));
     }
   }
 }
@@ -1504,9 +1583,10 @@ function obstacleGrid(obstacles: readonly Obstacle[], d: number): (x: number, y:
  * Flagstone quads and rock wall boxes, merged into one floor and one wall mesh per chunk, with UVs
  * in world space so the texture never stretches and runs on across chunk edges.
  */
-function addUnderground(chunks: WorldChunks, def: WorldMap): void {
-  const floorMat = new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0xd0c4b4, roughness: 0.95 });
-  const wallMat = withOccluderFade(new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1), color: 0x8a7e72, roughness: 1, side: DoubleSide }));
+function addUnderground(chunks: WorldChunks, def: WorldMap, owned: Owned): void {
+  const floorMat = new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1, owned), color: 0xd0c4b4, roughness: 0.95 });
+  const wallMat = withOccluderFade(new MeshStandardMaterial({ map: repeatTexture(stoneCanvas(), 1, 1, owned), color: 0x8a7e72, roughness: 1, side: DoubleSide }));
+  owned.push(floorMat, wallMat);
   const byChunk = new Map<number, { floors: Extract<Shape, { type: 'box' }>[]; walls: Extract<Shape, { type: 'box' }>[] }>();
   const at = (x: number, y: number, reach: number) => {
     const key = chunkKey(chunkCoord(x), chunkCoord(y));

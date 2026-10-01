@@ -1,12 +1,12 @@
-import { DUNGEON, WILDS, ZONE_SIZE } from '../config/sim.js';
-import { bossFor, rollPack, type Biome } from '../data/monsterPools.js';
+import { STREAMING, WILDS, ZONE_SIZE } from '../config/sim.js';
+import type { Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
-import { addRiver, emptyMap, fits, inRect, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
+import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { GameMap } from './gamemap.js';
-import { placeCamps } from './camps.js';
-import { arenaGateMap, colosseumMap, dungeonMap, dungeonName, stagingMap } from './dungeon.js';
+import { arenaGateMap, colosseumMap, dungeonMap, stagingMap } from './dungeon.js';
+import { ZoneWorld, type ZoneSpec } from './zoneGen.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
-import type { MapDescriptor, MonsterPack, SafeZone, WorldMap } from './types.js';
+import type { MapDescriptor, SafeZone, WorldMap } from './types.js';
 import type { Vec2 } from '../sim/math.js';
 import { HOME_ZONE, nextZone, previousZone, ZONES, type ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
@@ -80,8 +80,15 @@ interface WildsOptions {
   biome: Biome;
 }
 
-/** A generated wilderness. Every seed gives a different layout: rivers, ridges, forests, ruins and monster packs. */
-function generateWilds(o: WildsOptions): WorldMap {
+/**
+ * The zone-wide part of a generated wilderness: rivers, the road, ridges and ruins (and the camp of
+ * a bare Wilds). Every seed gives a different layout. Forests, loose rocks, bones and packs are
+ * generated per chunk by `ZoneWorld` from the spec this returns.
+ *
+ * Rivers, the road and the ridges draw from the seed's main stream exactly as the whole-zone
+ * generator did, so they are where they always were; ruins and the camp have streams of their own.
+ */
+function wildsPlan(o: WildsOptions): { map: WorldMap; spec: ZoneSpec } {
   const rng = new Rng(o.seed);
   const { width, height, spawn } = o;
   const map = emptyMap({ name: o.name, theme: 'wilds', width, height, spawn, waves: false, safe: false, groundTint: o.tint });
@@ -116,7 +123,8 @@ function generateWilds(o: WildsOptions): WorldMap {
   // Counts in WILDS are for the standard map size; bigger maps get proportionally more.
   const scale = (width * height) / (WILDS.width * WILDS.height);
 
-  // Ridges: chains of big rocks with gaps, which funnel movement without sealing areas off.
+  // Ridges: chains of big rocks with gaps, which funnel movement without sealing areas off. They
+  // run across chunks, so they are planned whole; at this point the map holds only water and ridges.
   for (let r = 0; r < Math.round(WILDS.ridges * scale); r++) {
     let x = rng.range(Math.min(west, width - 500), width - 400);
     let y = rng.range(300, height - 300);
@@ -132,72 +140,34 @@ function generateWilds(o: WildsOptions): WorldMap {
       y += Math.sin(dir) * 90;
     }
   }
-  for (let f = 0; f < Math.round(WILDS.forests * scale); f++) {
-    const fx = rng.range(300, width - 300);
-    const fy = rng.range(300, height - 300);
-    const count = rng.int(12, 26);
-    for (let k = 0, placed = 0; k < count * 8 && placed < count; k++) {
-      const x = fx + rng.range(-320, 320);
-      const y = fy + rng.range(-260, 260);
-      if (!fits(map, x, y, 24, place)) continue;
-      map.obstacles.push(tree(x, y, rng));
-      placed++;
-    }
-  }
+  // Ruins turn into old graveyards. A ruin keeps 280 clear around it, as it always had to find.
+  const ruinRng = Rng.stream(o.seed, 'ruins');
+  const keepOutCircles: ZoneSpec['keepOutCircles'] = [];
   for (let rr = 0; rr < Math.round(WILDS.ruins * scale); rr++) {
-    const x = rng.range(Math.min(west, width - 500), width - 400);
-    const y = rng.range(400, height - 400);
+    const x = ruinRng.range(Math.min(west, width - 500), width - 400);
+    const y = ruinRng.range(400, height - 400);
     if (!fits(map, x, y, 280, place)) continue;
     map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 200 } });
-    pillarRing(map, x, y, 250, rng.int(8, 12), rng);
-    if (rng.next() < 0.7) map.obstacles.push(wall(x - 300, y - 150, x - 300, y + 120));
+    pillarRing(map, x, y, 250, ruinRng.int(8, 12), ruinRng);
+    if (ruinRng.next() < 0.7) map.obstacles.push(wall(x - 300, y - 150, x - 300, y + 120));
+    scatterDecor(map, ruinRng, x, y, 200, ['grave_grave_A', 'grave_grave_B', 'grave_gravestone', 'grave_gravemarker_A', 'grave_lantern_standing', 'grave_skull', 'grave_ribcage', 'grave_post_skull'], 16);
+    keepOutCircles.push({ x, y, r: 280 });
   }
-  for (let k = 0, placed = 0; k < 5000 && placed < Math.round(WILDS.looseRocks * scale); k++) {
-    const x = rng.range(100, width - 100);
-    const y = rng.range(100, height - 100);
-    const r = rng.range(14, 44);
-    if (!fits(map, x, y, r, place)) continue;
-    map.obstacles.push(rock(x, y, r, rng));
-    placed++;
-  }
-
   if (o.camp) {
     map.portals.push({ x: spawn.x - 120, y: spawn.y, r: 44, target: 'town', label: 'Town' });
     // The camp: tents, supplies and a weapon rack around the fire.
-    scatterDecor(map, rng, spawn.x + 40, spawn.y + 60, 190, ['tent', 'barrel', 'crate_A_big', 'sack', 'weaponrack', 'resource_lumber', 'bucket_water'], 11);
+    scatterDecor(map, Rng.stream(o.seed, 'camp'), spawn.x + 40, spawn.y + 60, 190, ['tent', 'barrel', 'crate_A_big', 'sack', 'weaponrack', 'resource_lumber', 'bucket_water'], 11);
   }
-  // Ruins turn into old graveyards; loose bones and dead trees are scattered across the wilds.
-  for (const g of map.ground.filter((p) => p.kind === 'plaza')) {
-    if (g.shape.type !== 'circle') continue;
-    scatterDecor(map, rng, g.shape.x, g.shape.y, g.shape.r, ['grave_grave_A', 'grave_grave_B', 'grave_gravestone', 'grave_gravemarker_A', 'grave_lantern_standing', 'grave_skull', 'grave_ribcage', 'grave_post_skull'], 16);
-  }
-  for (let i = 0; i < Math.round(40 * scale); i++) {
-    const x = rng.range(200, width - 200);
-    const y = rng.range(200, height - 200);
-    if (clearRects.some((z) => inRect(x, y, z, z.pad))) continue;
-    scatterDecor(map, rng, x, y, 60, ['grave_bone_A', 'grave_skull', 'grave_ribcage', 'grave_tree_dead_small', 'dungeon_rubble_half', 'grave_pumpkin_orange'], 2);
-  }
-  const levelAt = levelFunction(map, o.levels);
-  map.packs = placePacks(map, rng, levelAt, clearRects, scale, o.biome);
-  placeEntrances(map, rng, o.seed, levelAt, clearRects);
-  return map;
-}
-
-/** Monster level rises with distance from the spawn, across the zone's band. */
-function levelFunction(map: WorldMap, levels: readonly [number, number]): (x: number, y: number) => number {
-  const far = Math.max(1, Math.hypot(map.width, map.height) - 400);
-  return (x, y) => {
-    const t = Math.min(1, Math.hypot(x - map.spawn.x, y - map.spawn.y) / far);
-    return Math.round(levels[0] + (levels[1] - levels[0]) * t);
-  };
+  const spec: ZoneSpec = { seed: o.seed, biome: o.biome, levels: o.levels, scale, clearRects, keepClear: o.keepClear, spawnClear: camp, keepOutCircles, keepOutRects: [], camps: false };
+  return { map, spec };
 }
 
 /** A standalone Wilds with its own camp, used by the tests and the arena-side tools. */
-function wildsMap(seed: number): WorldMap {
+function wildsZone(seed: number): ZoneWorld {
   const rng = new Rng(seed);
   const theme = THEMES[rng.int(0, THEMES.length - 1)] ?? THEMES[0];
   const spawn = { x: 320, y: rng.range(WILDS.height * 0.3, WILDS.height * 0.7) };
-  return generateWilds({
+  const { map, spec } = wildsPlan({
     name: theme?.name ?? 'The Wilds',
     tint: theme?.tint ?? 0x5c6b3e,
     width: WILDS.width,
@@ -209,6 +179,7 @@ function wildsMap(seed: number): WorldMap {
     seed,
     biome: 'meadow',
   });
+  return new ZoneWorld(map, spec);
 }
 
 /**
@@ -216,14 +187,14 @@ function wildsMap(seed: number): WorldMap {
  * south gates opening straight onto the wilderness, so leaving town is a walk. Every zone has a
  * waypoint near where you arrive, and transitions to its neighbours at the west and east edges.
  */
-function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined, size: { width: number; height: number } = ZONE_SIZE): WorldMap {
+function overworldZone(zoneId: ZoneId, seed: number, layout: TownLayout | undefined, size: { width: number; height: number } = ZONE_SIZE): ZoneWorld {
   const zone = ZONES[zoneId];
   const town = zoneId === HOME_ZONE ? layoutToMap(layout ?? DEFAULT_TOWN_LAYOUT) : null;
   const width = (town?.width ?? 0) + size.width;
   const height = Math.max(size.height, town?.height ?? 0);
   const spawn = town ? town.spawn : { x: 260, y: height / 2 };
   const keepClear: SafeZone[] = town ? [{ x: 0, y: 0, w: town.width, h: town.height }] : [];
-  const map = generateWilds({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed, biome: zone.biome });
+  const { map, spec } = wildsPlan({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed, biome: zone.biome });
   map.safeZones = keepClear;
 
   if (town) {
@@ -238,26 +209,27 @@ function zoneMap(zoneId: ZoneId, seed: number, layout: TownLayout | undefined, s
     // The town's own Wilds portal is replaced by the open gates; the rest (the Arena) stays.
     map.portals.push(...town.portals.filter((p) => p.target !== 'wilds' && p.target !== 'town'));
   }
-  const gm = new GameMap(map);
+  // Only open spots are looked up here, so nav cells are never needed: no chunk source, no obstacles in chunks.
+  const gm = new GameMap(map, { cols: Math.ceil(width / STREAMING.chunkSize), rows: Math.ceil(height / STREAMING.chunkSize), size: STREAMING.chunkSize, spill: 0, obstacles: () => [] });
   const wp = gm.findOpen(spawn.x + (town ? 170 : 150), spawn.y - 90, 60);
   map.portals.push({ x: wp.x, y: wp.y, r: 46, target: 'waypoint', label: `Waypoint: ${zone.name}`, zone: zoneId });
+  spec.keepOutCircles.push({ x: wp.x, y: wp.y, r: 80 });
   const prev = previousZone(zoneId);
-  if (prev) addGate(map, 'west', spawn.y, prev);
+  if (prev) addGate(map, spec, 'west', spawn.y, prev);
   const next = nextZone(zoneId);
-  if (next) addGate(map, 'east', gm.findOpen(width - 130, height / 2, 60).y, next);
-  // Camps come last, so they keep clear of the waypoint and the gates' roads.
-  const laidOut = new GameMap(map);
-  const scale = (width * height) / (WILDS.width * WILDS.height);
-  placeCamps(map, seed, laidOut, reachable(laidOut, spawn.x, spawn.y), keepClear, levelFunction(map, zone.levels), zone.biome, scale);
-  return map;
+  if (next) addGate(map, spec, 'east', gm.findOpen(width - 130, height / 2, 60).y, next);
+  // Camps, the boss and the entrances are planned by the zone, after the waypoint and gates, so they keep clear of them.
+  return new ZoneWorld(map, { ...spec, camps: true });
 }
 
 /**
- * A zone `scale` times the usual width and height, for the client's world streaming bench, so a much
- * bigger zone can be measured without changing the live ones. Nothing in the game builds it.
+ * A zone `scale` times the usual width and height, for the world streaming benches, so a much bigger
+ * zone can be measured without changing the live ones; generated afresh, never from the cache.
+ * Nothing in the game builds it.
  */
-export function scaledZoneMap(zoneId: ZoneId, seed: number, scale: number): WorldMap {
-  return zoneMap(zoneId, seed, undefined, { width: ZONE_SIZE.width * scale, height: ZONE_SIZE.height * scale });
+export function scaledZone(zoneId: ZoneId, seed: number, scale: number, layout?: TownLayout): { def: WorldMap; game: GameMap; zone: ZoneWorld } {
+  const zone = overworldZone(zoneId, seed, layout, { width: ZONE_SIZE.width * scale, height: ZONE_SIZE.height * scale });
+  return { def: zone.def, game: new GameMap(zone.def, zone), zone };
 }
 
 /** How far inside the map edge a gate's trigger sits, and how deep the cleared road into it runs. */
@@ -265,10 +237,10 @@ const GATE = { inset: 40, triggerRadius: 60, road: 280, halfWidth: 75 } as const
 
 /**
  * A zone exit, D2 style: a stone arch on the map edge with lanterns and a dirt road leading out.
- * Walking through the arch changes zone. The road is cleared of obstacles so the gate can always be
- * walked into from the zone side.
+ * Walking through the arch changes zone. The road is kept clear of obstacles so the gate can always
+ * be walked into from the zone side: the plan's are removed, and chunks keep out of it.
  */
-function addGate(map: WorldMap, side: 'west' | 'east', y: number, zone: ZoneId): void {
+function addGate(map: WorldMap, spec: ZoneSpec, side: 'west' | 'east', y: number, zone: ZoneId): void {
   const dir = side === 'west' ? 1 : -1;
   const edge = side === 'west' ? 0 : map.width;
   const x = edge + dir * GATE.inset;
@@ -280,6 +252,7 @@ function addGate(map: WorldMap, side: 'west' | 'east', y: number, zone: ZoneId):
     return !inCorridor(c.x, c.y);
   });
   map.decor = map.decor.filter((d) => !inCorridor(d.x, d.y));
+  spec.keepOutRects.push({ x: minX - 40, y: y - GATE.halfWidth - 40, w: maxX - minX + 80, h: (GATE.halfWidth + 40) * 2, pad: 0 });
   // The road runs on past the edge into the gap in the border forest, so the gate leads somewhere.
   map.ground.push({ kind: 'dirt', shape: { type: 'capsule', ax: edge - dir * 360, ay: y, bx: inner, by: y, r: GATE.halfWidth * 0.7 } });
   // The arch spans the road, so it faces along it.
@@ -298,88 +271,21 @@ export function zoneArrival(desc: Extract<MapDescriptor, { kind: 'zone' }>, from
   return game.findOpen(portal.x + dir * (portal.r + 70), portal.y, 20);
 }
 
-/**
- * Packs get harder with distance from the spawn. Only positions reachable from the spawn are used,
- * so a pack can never be sealed behind a ridge or river.
- */
-function placePacks(map: WorldMap, rng: Rng, levelAt: (x: number, y: number) => number, clear: NonNullable<Placement['avoidRects']>, scale: number, biome: Biome): MonsterPack[] {
-  const gm = new GameMap(map);
-  const reach = reachable(gm, map.spawn.x, map.spawn.y);
-  const packs: MonsterPack[] = [];
-  const wanted = Math.round(WILDS.packs * scale);
-  let farthest: { x: number; y: number; d: number } | null = null;
-  for (let attempt = 0; attempt < 4000 && packs.length < wanted; attempt++) {
-    const x = rng.range(200, map.width - 200);
-    const y = rng.range(200, map.height - 200);
-    const d = Math.hypot(x - map.spawn.x, y - map.spawn.y);
-    if (d < WILDS.safeRadius || !reach.has(gm.navCell(x, y)) || gm.pointBlocked(x, y, 40, 'move')) continue;
-    // Packs keep out of aggro range of a town, so nobody gets jumped at the gate.
-    if (clear.some((z) => inRect(x, y, z, z.pad + WILDS.aggroRadius))) continue;
-    if (packs.some((p) => Math.hypot(p.x - x, p.y - y) < WILDS.packSpacing)) continue;
-    const level = levelAt(x, y);
-    packs.push({ x, y, ...rollPack(rng, biome, level), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
-    if (!farthest || d > farthest.d) farthest = { x, y, d };
-  }
-  if (farthest) {
-    // The zone's boss holds the far end, with an escort drawn from the local pool.
-    const level = levelAt(farthest.x, farthest.y) + 1;
-    const escort = rollPack(rng, biome, level);
-    packs.push({ x: farthest.x, y: farthest.y, types: [bossFor(biome, level), ...escort.types], count: Math.max(3, Math.round(escort.count * 0.6)), rareLeader: true, level, boss: true });
-  }
-  return packs;
-}
-
-
-/** Dungeon entrances: a ring of rubble around a staging portal, out in reachable ground far from the spawn. */
-function placeEntrances(map: WorldMap, rng: Rng, seed: number, levelAt: (x: number, y: number) => number, clear: NonNullable<Placement['avoidRects']>): void {
-  const gm = new GameMap(map);
-  const reach = reachable(gm, map.spawn.x, map.spawn.y);
-  for (let attempt = 0, placed = 0; attempt < 2000 && placed < DUNGEON.entrances; attempt++) {
-    const x = rng.range(300, map.width - 300);
-    const y = rng.range(300, map.height - 300);
-    const d = Math.hypot(x - map.spawn.x, y - map.spawn.y);
-    if (d < DUNGEON.entranceMinDistance || !reach.has(gm.navCell(x, y)) || gm.pointBlocked(x, y, 90, 'move')) continue;
-    if (clear.some((z) => inRect(x, y, z, z.pad))) continue;
-    if (map.packs.some((p) => Math.hypot(p.x - x, p.y - y) < 260) || map.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 1200)) continue;
-    const level = levelAt(x, y) + 1;
-    // Derived from the map seed so everyone in one instance shares the same antechamber.
-    const dungeonSeed = ((Math.imul(seed + 1, 2246822519) + placed * 3266489917) >>> 0) % 1_000_000;
-    map.portals.push({ x, y, r: 46, target: 'staging', label: dungeonName(dungeonSeed), dungeon: { seed: dungeonSeed, level } });
-    map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 130 } });
-    scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10);
-    placed++;
-  }
-}
-
-function reachable(gm: GameMap, x: number, y: number): Set<number> {
-  const start = gm.navCell(x, y);
-  const seen = new Set<number>([start]);
-  const queue = [start];
-  while (queue.length > 0) {
-    const c = queue.pop() ?? 0;
-    const cx = c % gm.navCols;
-    const cy = (c - cx) / gm.navCols;
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
-      if (!gm.isWalkable(cx + dx, cy + dy)) continue;
-      const n = (cy + dy) * gm.navCols + cx + dx;
-      if (seen.has(n)) continue;
-      seen.add(n);
-      queue.push(n);
-    }
-  }
-  return seen;
-}
-
 function flatMap(): WorldMap {
   return emptyMap({ name: 'Sandbox', theme: 'flat', width: 2800, height: 2000, spawn: { x: 1400, y: 1000 }, waves: true, safe: false, groundTint: 0x606060 });
 }
 
-/** Builds a map from scratch, skipping the cache; `loadMap` is what the game uses. */
+/** The generated zone behind a descriptor, or null for a map built whole (town, dungeons, the Arena). */
+function zoneWorld(desc: MapDescriptor): ZoneWorld | null {
+  if (desc.kind === 'wilds') return wildsZone(desc.seed);
+  if (desc.kind === 'zone') return overworldZone(desc.zone, desc.seed, desc.layout);
+  return null;
+}
+
+/**
+ * Builds a map from scratch and whole, skipping the cache: a generated zone has every chunk in it.
+ * For tests and tools; `loadMap` is what the game uses.
+ */
 export function buildMap(desc: MapDescriptor): WorldMap {
   switch (desc.kind) {
     case 'arena':
@@ -392,18 +298,26 @@ export function buildMap(desc: MapDescriptor): WorldMap {
       return layoutToMap(desc.layout ?? DEFAULT_TOWN_LAYOUT);
     case 'flat':
       return flatMap();
-    case 'wilds':
-      return wildsMap(desc.seed);
     case 'staging':
       return stagingMap(desc);
     case 'dungeon':
       return dungeonMap(desc, desc.run);
+    case 'wilds':
     case 'zone':
-      return zoneMap(desc.zone, desc.seed, desc.layout);
+      return zoneWorld(desc)?.whole() ?? flatMap();
   }
 }
 
-const cache = new Map<string, { def: WorldMap; game: GameMap }>();
+export interface LoadedMap {
+  /** The map; for a generated zone, its plan only (no chunk content, no packs). */
+  def: WorldMap;
+  /** Collision and navigation; a generated zone's builds its chunks as they are asked about. */
+  game: GameMap;
+  /** A generated zone's chunks, or null for a map built whole. */
+  zone: ZoneWorld | null;
+}
+
+const cache = new Map<string, LoadedMap>();
 
 export function mapKey(desc: MapDescriptor): string {
   if (desc.kind === 'wilds') return `wilds:${desc.seed}`;
@@ -414,13 +328,18 @@ export function mapKey(desc: MapDescriptor): string {
   return desc.kind;
 }
 
-/** Deterministic: the same descriptor always yields the same map, on the server and on every client. */
-export function loadMap(desc: MapDescriptor): { def: WorldMap; game: GameMap } {
+/**
+ * Deterministic: the same descriptor always yields the same map, on the server and on every client.
+ * A generated zone comes back as its plan, with chunks generated when first needed; the server and
+ * the clients each build theirs from the same seed, so nothing about them goes over the network.
+ */
+export function loadMap(desc: MapDescriptor): LoadedMap {
   const key = mapKey(desc);
   const hit = cache.get(key);
   if (hit) return hit;
-  const def = buildMap(desc);
-  const entry = { def, game: new GameMap(def) };
+  const zone = zoneWorld(desc);
+  const def = zone ? zone.def : buildMap(desc);
+  const entry: LoadedMap = { def, game: new GameMap(def, zone), zone };
   // Instances come and go; keep the cache small so a long-running server does not grow forever.
   if (cache.size > 32) {
     const first = cache.keys().next().value;
