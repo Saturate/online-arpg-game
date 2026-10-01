@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
+import { BIOMES, bodyGap, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
+import { spawnProjectile } from '../src/sim/spells.js';
 
 function setup(seed = 1, desc: ConstructorParameters<typeof Simulation>[1] = { kind: 'flat' }) {
   const sim = new Simulation(seed, desc);
@@ -150,17 +151,61 @@ describe('new monster behaviours', () => {
     // Through the wind-up and the dash, but not the walk back to the player afterwards.
     const ticks = Math.ceil((ability.windup + ability.duration) * SIM.tickRate) + 2;
     for (let i = 0; i < ticks; i++) sim.step();
-    return { tele, lifeAfter: sim.world.health.get(pid)?.life ?? -1 };
+    // One charge hit at this level, as the same hero takes it (armour and Iron Skin included).
+    const ref = setup(13);
+    const refPlayer = ref.sim.world.player.get(ref.pid);
+    if (!refPlayer) throw new Error('no player');
+    refPlayer.god = false;
+    for (let i = 0; i < tele.tick + ticks; i++) ref.sim.step();
+    const refBefore = ref.sim.world.health.get(ref.pid)?.life ?? 0;
+    dealDamage(ref.sim, ref.pid, ability.damage * e.damageMult, ref.pid, []);
+    const expected = refBefore - (ref.sim.world.health.get(ref.pid)?.life ?? 0);
+    return { tele, lifeAfter: sim.world.health.get(pid)?.life ?? -1, expected };
   }
 
   it("a charger's charge is a telegraphed line that a step aside dodges", () => {
     const stood = charge(() => {});
     expect(stood.tele.line).toBe(true);
-    expect(stood.lifeAfter).toBeLessThan(stood.tele.life);
+    expect(stood.tele.life - stood.lifeAfter).toBeCloseTo(stood.expected, 1);
     const dodged = charge((pos) => {
       pos.y += 220;
     });
     expect(dodged.lifeAfter).toBe(dodged.tele.life);
+  });
+
+  it("a charger's range is its dash, so it never charges at someone the dash cannot reach", () => {
+    const def = ENEMIES.charger;
+    const a = def.behaviour === 'monster' ? def.abilities[0] : undefined;
+    if (a?.kind !== 'charge') throw new Error('no charge');
+    expect(a.range).toBeCloseTo(a.speed * a.duration);
+  });
+
+  it("a bolt aimed at a charger's flank or tail hits, on whichever side its body is", () => {
+    // A side shot `offset` units along the x axis from its collider, which faces `facing`.
+    const shoot = (facing: number, offset: number) => {
+      const { sim, pid, pos } = setup(14);
+      const id = spawnEnemy(sim, 'charger', pos.x + 700, pos.y, { rare: false, level: 6, aggro: false });
+      const e = sim.world.enemy.get(id);
+      const epos = sim.world.position.get(id);
+      if (!e || !epos) throw new Error('no charger');
+      e.facing = facing;
+      const before = sim.world.health.get(id)?.life ?? 0;
+      spawnProjectile(sim, { ownerId: pid, team: 'players', x: epos.x + offset, y: epos.y + 120, angle: -Math.PI / 2, speed: 900, radius: 6, range: 300, damage: 20 });
+      for (let i = 0; i < 10; i++) sim.step();
+      return before - (sim.world.health.get(id)?.life ?? 0);
+    };
+    // Facing +x, the trunk and tail lie toward -x; well clear of the 26-unit collider either way.
+    expect(shoot(0, -45)).toBeGreaterThan(0);
+    expect(shoot(0, -110)).toBeGreaterThan(0);
+    expect(shoot(0, 80)).toBe(0);
+    expect(shoot(Math.PI, 80)).toBeGreaterThan(0);
+    expect(shoot(Math.PI, -110)).toBe(0);
+  });
+
+  it('a body grows with a rare, as its model does', () => {
+    expect(bodyGap('charger', 26, 0, 0, 0, -126 - 9, 0)).toBeCloseTo(0);
+    expect(bodyGap('charger', 26 * 1.45, 0, 0, 0, (-126 - 9) * 1.45, 0)).toBeCloseTo(0);
+    expect(bodyGap('grave_hound', 17, 0, 0, 0, 0, 0)).toBe(Infinity);
   });
 
   it('gargoyles hold perfectly still until a player comes close, then wake', () => {

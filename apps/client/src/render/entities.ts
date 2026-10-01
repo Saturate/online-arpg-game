@@ -1,4 +1,4 @@
-import { CLASSES, ENEMIES, familyOf, MINION_DEFS, STATUS, type ClassId, type EnemyTypeId, type EntityId, type EntitySnap } from '@rune/shared';
+import { bodyPivot, CLASSES, ENEMIES, familyOf, MINION_DEFS, STATUS, type ClassId, type EnemyTypeId, type EntityId, type EntitySnap } from '@rune/shared';
 import {
   Box3,
   AdditiveBlending,
@@ -102,6 +102,42 @@ interface View {
   spell: SpellView | null;
   /** Ribbon behind a dashing hero, or -1. */
   dashRibbon: number;
+  /** A long body's visual turning point (traits.body.pivot), in world units; null for everything else. */
+  pivot: { x: number; y: number; lastX: number; lastY: number; ready: boolean } | null;
+}
+
+/** How fast a long body's drawn middle settles back onto where the sim puts it, per second. */
+const PIVOT_FOLLOW = 4;
+
+/**
+ * Turns a long body about its middle instead of its collider, so a turn swings the head rather
+ * than sweeping the tail through walls. The drawn middle moves with the entity and stays put
+ * when it only turns, then eases onto where the sim puts the middle, so the drawn head never
+ * drifts far from the collider. Only the model moves; the collider, bars and hit tests do not.
+ */
+function placeAboutPivot(view: View, model: Object3D, x: number, y: number, s: Extract<EntitySnap, { k: 'enemy' }>, dt: number): void {
+  const p = view.pivot;
+  const along = bodyPivot(s.et, s.r);
+  if (!p || along === 0) return;
+  const fx = Math.cos(s.a);
+  const fy = Math.sin(s.a);
+  const tx = x + fx * along;
+  const ty = y + fy * along;
+  if (!p.ready) {
+    p.x = tx;
+    p.y = ty;
+    p.ready = true;
+  } else {
+    p.x += x - p.lastX;
+    p.y += y - p.lastY;
+    const k = Math.min(1, dt * PIVOT_FOLLOW);
+    p.x += (tx - p.x) * k;
+    p.y += (ty - p.y) * k;
+  }
+  p.lastX = x;
+  p.lastY = y;
+  // The model's origin is its collider point; place it so its middle lands on the drawn middle.
+  model.position.set(p.x - fx * along - x, model.position.y, p.y - fy * along - y);
 }
 
 interface Corpse {
@@ -439,6 +475,7 @@ function makeView(item: RenderItem, vfx: Vfx | null): View {
     typeId: s.k === 'enemy' ? s.et : null,
     spell,
     dashRibbon: -1,
+    pivot: s.k === 'enemy' && bodyPivot(s.et, s.r) !== 0 ? { x: 0, y: 0, lastX: 0, lastY: 0, ready: false } : null,
   };
   if (character) attachCharacter(view, character, s);
   else if (rig && s.k === 'enemy' && s.rare) {
@@ -731,6 +768,7 @@ export class EntityRenderer {
       view.attack = Math.max(0, view.attack - dt * 4);
       if (view.character) {
         view.character.root.rotation.y = -s.a;
+        if (s.k === 'enemy') placeAboutPivot(view, view.character.root, item.x, item.y, s, dt);
         driveCharacter(view.character, {
           speed: view.speed,
           attack: view.attackPending,
@@ -741,6 +779,7 @@ export class EntityRenderer {
         view.attackPending = false;
       } else if (rig) {
         rig.root.rotation.y = -s.a;
+        if (s.k === 'enemy') placeAboutPivot(view, rig.root, item.x, item.y, s, dt);
         rigDrive.speed = view.speed;
         rigDrive.dead = s.k === 'player' && s.dead;
         rigDrive.dormant = s.k === 'enemy' && s.dormant;

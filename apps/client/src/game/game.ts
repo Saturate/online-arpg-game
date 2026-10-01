@@ -26,6 +26,7 @@ import {
   type ZoneWorld,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
+  bodyGap,
   parseModelOverrides,
   placeName,
   planChecksum,
@@ -935,7 +936,8 @@ export class Game {
     if (aim) {
       for (const e of this.renderedEnemies) {
         // Generous pick radius: monsters move and the cursor is usually a little ahead of them.
-        const d = Math.hypot(e.x - aim.x, e.y - aim.y) - e.r;
+        // A long body (the Charger's flank and tail) can be picked anywhere along it.
+        const d = Math.min(Math.hypot(e.x - aim.x, e.y - aim.y) - e.r, bodyGap(e.snap.et, e.r, e.x, e.y, e.snap.a, aim.x, aim.y));
         if (d < 28 && d < bestD) {
           best = e;
           bestD = d;

@@ -3,6 +3,7 @@ import { castCooldownSeconds, misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
 import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
 import { acquireLink } from './auras.js';
+import { withinHurt } from './body.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
 import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
@@ -599,8 +600,8 @@ function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numb
     if (proj.hitIds.has(eid) || !w.isAlive(eid) || enemy.burrowed) continue;
     const epos = w.position.get(eid);
     if (!epos) continue;
+    if (!withinHurt(sim, eid, x, y, r + SIM.enemyHitLeniency)) continue;
     const reach = r + (w.radius.get(eid) ?? 0) + SIM.enemyHitLeniency;
-    if (distSq(x, y, epos.x, epos.y) > reach * reach) continue;
     proj.hitIds.add(eid);
 
     if (blocksProjectile(sim, eid, x - Math.cos(angle) * reach, y - Math.sin(angle) * reach)) {
@@ -705,10 +706,7 @@ export function updateNovas(sim: Simulation, dt: number): void {
 
     for (const tid of areaTargets(sim)) {
       if (nova.hitIds.has(tid)) continue;
-      const tpos = w.position.get(tid);
-      if (!tpos) continue;
-      const reach = radius + (w.radius.get(tid) ?? 0);
-      if (distSq(pos.x, pos.y, tpos.x, tpos.y) > reach * reach) continue;
+      if (!withinHurt(sim, tid, pos.x, pos.y, radius)) continue;
       nova.hitIds.add(tid);
       applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.nova.damage, heal: SPELL.nova.heal, shield: SPELL.nova.shield });
     }
@@ -770,10 +768,7 @@ export function updateZones(sim: Simulation, dt: number): void {
       zone.tickTimer += zone.tickInterval;
       const kind = zoneKind(inst);
       for (const tid of areaTargets(sim)) {
-        const tpos = w.position.get(tid);
-        if (!tpos) continue;
-        const reach = radius + (w.radius.get(tid) ?? 0);
-        if (distSq(pos.x, pos.y, tpos.x, tpos.y) > reach * reach) continue;
+        if (!withinHurt(sim, tid, pos.x, pos.y, radius)) continue;
         if (!takeZoneTick(sim, tid, kind, zone.tickInterval)) continue;
         applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
@@ -800,8 +795,7 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
     if (ds.hitIds.has(eid) || !w.isAlive(eid)) continue;
     const epos = w.position.get(eid);
     if (!epos) continue;
-    const reach = SPELL.dash.hitRadius + (w.radius.get(eid) ?? 0);
-    if (distSq(pos.x, pos.y, epos.x, epos.y) > reach * reach) continue;
+    if (!withinHurt(sim, eid, pos.x, pos.y, SPELL.dash.hitRadius)) continue;
     ds.hitIds.add(eid);
     applySpellHit(sim, inst, eid, pos.x, pos.y, { damage: SPELL.dash.damage, heal: 0, shield: 0 });
     if (!ds.hitFired) {

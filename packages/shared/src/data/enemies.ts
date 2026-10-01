@@ -104,6 +104,12 @@ export interface MonsterTraits {
   dormant?: { wakeRange: number };
   /** Players within this radius are cursed and deal less damage while they stay near. */
   curse?: { radius: number };
+  /**
+   * A long body (sim/body.ts): hurt circles beyond the collider, `along` units ahead of its centre
+   * along the facing (negative is behind), and where the model turns about, all at the code radius.
+   * Hits and targeting use them; movement and pathing keep the collider.
+   */
+  body?: { circles: readonly { along: number; radius: number }[]; pivot: number };
 }
 
 interface EnemyBase {
@@ -451,8 +457,21 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     'charger',
     'melee',
     { life: 160, speed: 72, radius: 26, contact: 12, contactCooldown: 1.1, color: 0x5a5a48 },
-    [{ kind: 'charge', cooldown: 5, range: 460, windup: 0.9, speed: 600, duration: 0.7, damage: 28, width: 30 }],
-    { knockbackImmune: true },
+    // Range is the dash itself (600 x 0.7), so it never charges at someone the dash cannot reach.
+    [{ kind: 'charge', cooldown: 5, range: 420, windup: 0.9, speed: 600, duration: 0.7, damage: 28, width: 30 }],
+    // The collider covers the head; the trunk and tail behind it, measured off the model at height 80.
+    {
+      knockbackImmune: true,
+      body: {
+        circles: [
+          { along: -45, radius: 32 },
+          { along: -78, radius: 18 },
+          { along: -104, radius: 12 },
+          { along: -126, radius: 9 },
+        ],
+        pivot: -50,
+      },
+    },
   ),
 
   // Exploders: kill them at range, or pay for it.
