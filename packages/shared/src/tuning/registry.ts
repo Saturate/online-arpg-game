@@ -404,7 +404,7 @@ function valueIn(values: Readonly<TunableValues>, path: string): number | undefi
  * its highest, and the tiers in order from the weakest up without overlapping (neighbours may share
  * an end, as whole-number tiers must), so the tier a roll counts as, and its price, is never in
  * doubt. A better tier may not unlock at a lower item level than a worse one, and the weakest
- * unlocks at level 1, since a Concentrated rune must always find a roll.
+ * unlocks at level 1 with a weight above 0, since a Concentrated rune must always find a roll.
  */
 function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string | null {
   const def = AFFIXES[id];
@@ -419,6 +419,8 @@ function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string
     const name = `${id} T${def.tiers.length - tier}`;
     if (min > max) return `${name}: its lowest roll ${min} is above its highest ${max}`;
     if (!prev && ilvl !== undefined && ilvl !== 1) return `${name} must unlock at item level 1, so every drop can roll the affix`;
+    const weight = valueIn(values, affixTierPath(id, tier, 'weight'));
+    if (!prev && weight !== undefined && weight <= 0) return `${name} must keep a weight above 0, so every drop can roll the affix`;
     if (prev) {
       // A shorter pulse is the better roll, so its tiers run downward.
       if (!lower && min < prev.max) return `${name} (${min} to ${max}) overlaps or sits below ${prev.name} (${prev.min} to ${prev.max})`;

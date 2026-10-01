@@ -207,6 +207,8 @@ describe('affix ranges in live tuning', () => {
     expect(tunableSetProblem({ [dmg(1, 'min')]: 18 })).toBeNull();
     expect(tunableSetProblem({ [dmg(5, 'ilvl')]: 4 })).toMatch(/unlocks at item level 4/);
     expect(tunableSetProblem({ [dmg(0, 'ilvl')]: 2 })).toMatch(/rune_damage T6 must unlock at item level 1/);
+    expect(tunableSetProblem({ [affixTierPath('rune_damage', 0, 'weight')]: 0 })).toMatch(/rune_damage T6 must keep a weight above 0/);
+    expect(tunableSetProblem({ [affixTierPath('rune_damage', 5, 'weight')]: 0 })).toBeNull();
     const every = (tier: number, key: 'min' | 'max'): string => affixTierPath('release_every', tier, key);
     expect(tunableSetProblem({ [every(5, 'max')]: 0.25 })).toMatch(/shorter is better/);
     expect(tunableSetProblem({ [affixTierPath('damage_increased', 2, 'min')]: 30 })).toMatch(/damage_increased T1/);
@@ -261,10 +263,15 @@ describe('affix ranges in live tuning', () => {
     const sigils = Array.from({ length: 300 }, (_, i) => createSigil(i, new Rng(i), 'magic', { ilvl: 1 })).flatMap((s) => s.affixes.filter((a) => a.id === 'damage_increased'));
     expect(sigils.length).toBeGreaterThan(5);
     expect(sigils.every((a) => a.value === 30)).toBe(true);
-    // Extraction clamps to the tuned best.
-    expect(clampRoll({ id: 'rune_damage', tier: 5, value: 300 }).value).toBe(90);
+    // Extraction clamps to the lower of the tuned best and the code's: a raise for a while cannot
+    // let an old +300% roll out at the raised best for good.
+    const codeBest = Math.max(...codeAffixTiers('rune_damage').map((t) => t.max));
+    expect(clampRoll({ id: 'rune_damage', tier: 5, value: 300 }).value).toBe(codeBest);
+    applyTunables({ [affixTierPath('rune_damage', 5, 'max')]: codeBest - 1 });
+    expect(clampRoll({ id: 'rune_damage', tier: 5, value: 300 }).value).toBe(codeBest - 1);
+    // How often a tier drops does not move the clamp.
     applyTunables({ [affixTierPath('rune_damage', 5, 'weight')]: 0 });
-    expect(clampRoll({ id: 'rune_damage', tier: 5, value: 300 }).value).toBe(55);
+    expect(clampRoll({ id: 'rune_damage', tier: 5, value: 300 }).value).toBe(codeBest);
   });
 
   it('make new kits inside the tuned table, below T1', () => {

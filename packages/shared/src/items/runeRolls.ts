@@ -6,8 +6,9 @@ import type { AffixRoll, RuneItem } from './items.js';
  * hand-set rolls no drop can reach (Multishot's +300% damage Bolt), and some of those sigils are
  * unbound. A rune keeps its rolls inside the sigil and casts them as stored; once it comes out
  * (forge refund, bench, the rune roll pass) each affix value is brought back to the best its affix
- * can roll now (the live table, so tuning a range moves where extraction clamps), and the rune
- * cannot be sold, traded or reused above what the loot table allows. Values already inside the
+ * can roll: the lower of the live table's best and the code's, so a range tuned down clamps lower at
+ * once, while a range raised for a while cannot let an old +300% roll out at the raised best for
+ * good. The rune cannot be sold, traded or reused above what the loot table allows. Values already inside the
  * table, or weaker than it (the negative speeds of old slow orbs), are left alone.
  */
 
@@ -30,10 +31,13 @@ interface Range {
   max: { value: number; tier: number };
 }
 
-/** Tiers that can drop (weight above 0), with their index; all of them when none can. */
+/**
+ * The tiers with their index, up to `upTo`. Weights are left out on purpose: a tier tuned to weight
+ * 0 stops dropping but stays a tier, so the clamp and the tier a value counts as do not move with
+ * how often it drops.
+ */
 function liveTiers(tiers: readonly AffixTierDef[], upTo = Infinity): { t: AffixTierDef; tier: number }[] {
-  const all = tiers.map((t, tier) => ({ t, tier })).filter(({ tier }) => tier <= upTo);
-  return all.some(({ t }) => t.weight > 0) ? all.filter(({ t }) => t.weight > 0) : all;
+  return tiers.map((t, tier) => ({ t, tier })).filter(({ tier }) => tier <= upTo);
 }
 
 /** The lowest and highest value the given tiers can roll, and the tier each comes from. */
@@ -50,11 +54,20 @@ function rangeOf(tiers: readonly AffixTierDef[], upTo = Infinity): Range | null 
   return range;
 }
 
-/** The lowest and highest value any live tier of the affix can roll. */
+/**
+ * The range extraction clamps into: the live table's, with its best end no better than the code
+ * table's best. Fuse times have no better end, so they follow the live table alone.
+ */
 function rollRange(id: AffixId): Range | null {
   // Saves can hold an affix id the game no longer has (a retired affix); it has no table to clamp to.
   if (!isAffixId(id)) return null;
-  return rangeOf(AFFIXES[id].tiers);
+  const live = rangeOf(AFFIXES[id].tiers);
+  const code = rangeOf(codeAffixTiers(id));
+  if (!live || !code) return live;
+  const better = betterOf(id);
+  if (better === 'higher' && code.max.value < live.max.value) return { ...live, max: code.max };
+  if (better === 'lower' && code.min.value > live.min.value) return { ...live, min: code.min };
+  return live;
 }
 
 function clampInto(a: AffixRoll, range: Range | null): AffixRoll {
