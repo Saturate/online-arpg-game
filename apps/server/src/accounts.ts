@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -108,6 +108,13 @@ function logTabsConversion(accountId: number, r: StashTabsReport): void {
   for (const w of r.warnings) events.log('conversion', `  account ${accountId} stash tabs: ${w}`);
 }
 
+/** A pre-world save's waypoints converted on load; logged so the server log shows what each character got. */
+function logWorldConversion(name: string, r: WorldConversionReport): void {
+  const mapped = r.mapped.map((m) => `${m.from}->${m.to}`).join(', ') || 'none';
+  events.log('conversion', `world waypoints of character ${name} converted: ${mapped}; dropped ${r.dropped.join(', ') || 'none'}; unknown kept ${r.unknown.join(', ') || 'none'}; gates the old zones lay behind (not granted) ${r.gatesPassed.join(', ') || 'none'}`);
+  for (const w of r.warnings) events.log('conversion', `  world ${name}: ${w}`);
+}
+
 /** A v1 row converted on load; logged so the server log shows what each account got. */
 function logConversion(what: string, r: ConversionReport): void {
   const mapped = r.runesMapped.map((m) => `${m.from}->${m.to} x${m.count}`).join(', ') || 'none';
@@ -125,10 +132,13 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     if (conversion) logConversion(`character ${conversion.save.name}`, conversion.report);
     const v: unknown = conversion ? conversion.save : raw;
     if (!isPlayerSave(v, classId)) return null;
-    // Saves from before waypoints existed have none. The old zones' waypoint ids are kept as they
-    // are until the save conversion maps them; the town's waypoint is everyone's without being listed.
+    // Saves from before waypoints existed have none; the town's waypoint is everyone's without being
+    // listed. Saves from before the seamless world list the old zones' ids, which are mapped once.
     const waypoints: unknown = Reflect.get(v, 'waypoints');
-    const found = Array.isArray(waypoints) ? waypoints.filter(isWaypointId) : [];
+    const listed = Array.isArray(waypoints) ? waypoints.filter(isWaypointId) : [];
+    const world = isWorldFormat1(v) ? null : convertWorldWaypoints(listed);
+    if (world) logWorldConversion(v.name, world.report);
+    const found = world ? world.waypoints : listed;
     // Saves from before levels existed start at level 1.
     const level: unknown = Reflect.get(v, 'level');
     const xp: unknown = Reflect.get(v, 'xp');
@@ -144,6 +154,7 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
       runeFormat: 2,
+      worldFormat: 1,
     };
   } catch (err) {
     events.error('save', 'save could not be read', err);

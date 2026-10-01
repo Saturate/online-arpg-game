@@ -228,7 +228,7 @@ describe('v1 character conversion', () => {
     const items = [v1Sigil(1, ['bolt', 'fire', 'onhit', 'nova', 'timer', 'zone', 'linger'], 'fireball', { bound: true }), v1Rune(2, 'linger', 2, { tier: 'magic' })];
     const { save } = convertCharacterSave(v1Save(items, { sigils: [1, null, null, null] }));
     const sim = new Simulation(4);
-    const pid = sim.addPlayer('a', 'mage', 'Old', save);
+    const pid = sim.addPlayer('a', 'mage', 'Old', { ...save, worldFormat: 1 });
     const p = sim.world.player.get(pid);
     if (!p) throw new Error('setup');
     expect(p.gold).toBe(5 + 24);

@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r typecheck",
     "town:pull": "pnpm --filter @rune/server town:pull",
     "runes:convert-check": "apps/server/node_modules/.bin/tsx scripts/runes-convert-check.ts",
+    "world:convert-check": "apps/server/node_modules/.bin/tsx scripts/world-convert-check.ts",
     "model:check": "apps/server/node_modules/.bin/tsx scripts/model-check.ts",
     "admin": "apps/server/node_modules/.bin/tsx scripts/admin.ts",
     "bench:streaming": "apps/server/node_modules/.bin/tsx scripts/streaming-bench.ts"

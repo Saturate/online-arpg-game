@@ -125,27 +125,6 @@ describe('the world room', () => {
     expect(notices(a).at(-1)).toBe('Stand on a waypoint to travel');
   });
 
-  it('keeps an old save\'s zone waypoints for the conversion, and loads it in town', async () => {
-    const { store, rooms, sockets, ids } = await setup(1);
-    const [a] = sockets;
-    const id = ids[0];
-    if (!a || !id) throw new Error('no socket');
-    a.close();
-    const save = store.loadCharacter(id.account, id.character)?.save;
-    if (!save) throw new Error('no save');
-    // As a character saved in the zones before the world would have it.
-    store.saveCharacter(id.character, { ...save, waypoints: ['barrens', 'steppe', 'thornwood'] });
-    const again = new FakeSocket();
-    rooms.connect(again);
-    again.emit({ t: 'join', token: store.createSession(id.account), characterId: id.character });
-    expect(welcome(again).map.kind).toBe('world');
-    const def = loadMap(welcome(again).map).def;
-    const pos = at(rooms, again);
-    expect(Math.hypot(pos.x - def.spawn.x, pos.y - def.spawn.y)).toBeLessThan(80);
-    again.close();
-    expect(store.loadCharacter(id.account, id.character)?.save?.waypoints).toEqual(['barrens', 'steppe', 'thornwood']);
-  });
-
   it('enters a dungeon from its entrance and the antechamber leads back beside it', async () => {
     const { rooms, sockets } = await setup(1);
     const [a] = sockets;

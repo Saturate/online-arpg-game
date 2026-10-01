@@ -33,6 +33,14 @@ export const TOWN_WAYPOINT = 'town';
 /** Region themes per road (today's zones), roads taken clockwise from the west: first region, then the one past its gate. */
 const ROAD_THEMES: readonly (readonly ZoneId[])[] = [['gloomvale', 'hollows'], ['steppe', 'dunes'], ['thornwood']];
 
+/** A road's three waypoint ids by its regions: entrance, crossroads and just past the gate. */
+function roadWaypointIds(inner: ZoneId, outer: ZoneId): readonly [string, string, string] {
+  return [`${inner}-1`, `${inner}-2`, outer === inner ? `${inner}-3` : `${outer}-1`];
+}
+
+/** Every waypoint id a world can hold, the town's first. The same for every seed, so saves can be checked against it. */
+export const WORLD_WAYPOINT_IDS: readonly string[] = [TOWN_WAYPOINT, ...ROAD_THEMES.flatMap((t) => roadWaypointIds(t[0] ?? 'thornwood', t[1] ?? t[0] ?? 'thornwood'))];
+
 export interface WorldNode {
   readonly id: number;
   readonly x: number;
@@ -313,9 +321,10 @@ export class WorldPlan {
     const fork = Math.min(gate - 1, Math.max(hub + 1, mark(0.22, hub)));
     const innerName = ZONES[inner].name;
     const outerName = outer === inner ? `Deep ${innerName}` : ZONES[outer].name;
-    waypoints.push({ id: `${inner}-1`, name: innerName, node: idAt(hub), region: inner });
-    waypoints.push({ id: `${inner}-2`, name: `${innerName} Crossroads`, node: idAt(fork), region: inner });
-    waypoints.push({ id: outer === inner ? `${inner}-3` : `${outer}-1`, name: outerName, node: idAt(gate + 1), region: outer });
+    const [entranceId, crossroadsId, pastGateId] = roadWaypointIds(inner, outer);
+    waypoints.push({ id: entranceId, name: innerName, node: idAt(hub), region: inner });
+    waypoints.push({ id: crossroadsId, name: `${innerName} Crossroads`, node: idAt(fork), region: inner });
+    waypoints.push({ id: pastGateId, name: outerName, node: idAt(gate + 1), region: outer });
     const g = at(gate);
     const after = at(gate + 1);
     gates.push({ id: gateId, node: idAt(gate), road: k, region: outer, angle: Math.atan2(after.y - g.y, after.x - g.x) });

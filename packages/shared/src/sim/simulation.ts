@@ -47,16 +47,15 @@ export interface PlayerSave {
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
   stance: Stance;
-  /**
-   * Waypoints this character has touched, by id. Ids of the zones before the seamless world stay
-   * in the list untouched until the save conversion maps them.
-   */
+  /** Waypoints this character has touched, by world waypoint id (`steppe-1`); the town's is never listed. */
   waypoints: string[];
   level: number;
   xp: number;
   gold: number;
   /** Rune items and sigil slots (v2). A save without it is v1 and is converted before it is read. */
   runeFormat: 2;
+  /** Waypoints hold world ids. A save without it lists the old zones' ids and is converted before it is read. */
+  worldFormat: 1;
 }
 
 export interface PortalRequest {
@@ -261,6 +260,7 @@ export class Simulation {
       xp: p.xp,
       gold: p.gold,
       runeFormat: 2,
+      worldFormat: 1,
     };
   }
 

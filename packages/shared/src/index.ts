@@ -42,6 +42,7 @@ export * from './world/nav.js';
 export * from './world/types.js';
 export * from './world/zoneGen.js';
 export * from './world/worldPlan.js';
+export * from './world/convertWorld.js';
 export * from './world/town.js';
 export * from './data/gear.js';
 export * from './sim/stats.js';

@@ -59,8 +59,11 @@ export interface ConversionReport {
   warnings: string[];
 }
 
+/** A v2 save from before the seamless world: its waypoints still list the old zones' ids. */
+export type PreWorldSave = Omit<PlayerSave, 'worldFormat'>;
+
 export interface CharacterConversion {
-  save: PlayerSave;
+  save: PreWorldSave;
   report: ConversionReport;
 }
 
@@ -565,7 +568,7 @@ export function convertCharacterSave(raw: unknown): CharacterConversion {
   const inventory = c.loose.length > 0 ? asGrid(inventoryRaw, BAG, items) : inventoryRaw;
   c.placeLoose(items, inventory, BAG, true);
 
-  const save: PlayerSave = {
+  const save: PreWorldSave = {
     classId,
     name,
     items,

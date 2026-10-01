@@ -11,6 +11,7 @@ pnpm test
 pnpm typecheck
 pnpm town:pull    # copy the live town into apps/server/data/town-layout.json
 pnpm runes:convert-check <db>   # dry-run the v1 to v2 save conversion on a copy of a rune.db
+pnpm world:convert-check <db>   # dry-run the seamless world's waypoint conversion on a copy of a rune.db
 ```
 
 Live at https://arpg.akj.io. A push to `main` deploys it (GitHub Actions builds the image, Flux rolls it out, the server restarts), so only push when a deploy is wanted. The deployment manifests live in the separate `server` repo under `k3s/apps/arpg/`.
@@ -52,7 +53,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 **How the rework was deployed (repeat for any change that converts saves).**
 
 1. Take a copy of `/data/rune.db` first; it is the only rollback, since conversion is one-way. For example: `ssh akj@svr.akj.io 'kubectl -n arpg exec deploy/arpg -- node -e "..."'` with `VACUUM INTO`, as done this session, then copy it off the pod.
-2. Run `pnpm runes:convert-check <copy>` on it. On the 2026-09-29 copy: 7 characters, 2 stashes and the 50-item shelf convert; 95 starter sigils, 3 runes to 36 gold, all checks passed. One hand-inscribed sigil ("Wraith Song", a lone Cold rune) fizzles, as it did in v1.
+2. Run `pnpm runes:convert-check <copy>` on it. On the 2026-09-29 copy: 7 characters, 2 stashes and the 50-item shelf convert; 95 starter sigils, 3 runes to 36 gold, all checks passed. One hand-inscribed sigil ("Wraith Song", a lone Cold rune) fizzles, as it did in v1. For the seamless world, also run `pnpm world:convert-check <copy>` (see `docs/features/world-map.md`, Save conversion).
 3. Push `main` (the push skill runs the gates and a review loop). The server converts each character on its first join after the deploy and logs it.
 4. Check the pod log for conversion lines and any "unreadable" character. To roll back: restore the copy and redeploy the previous image.
 
