@@ -73,7 +73,7 @@ Four sigils sit on keys 1 to 4; left and right mouse cast the picked skill slots
 
 ### Starter sigils
 
-The 20 built-in skills are common sigils holding pre-rolled runes, so their numbers are readable, copyable and improvable. A sigil only shows its starter name and description while its slots still hold the starter's runes, in order. Hand-set rolls above the drop tables only cast while the sigil holds the whole recipe, rolls included; a piece of a starter (Multishot's +300% Bolt alone, or with an infusion added) casts with its rolls clamped to the tables ([forge.md](forge.md), "Rolls clamp on the way out"). Starter rolls carry the tier their value falls in, so they sell and price honestly. 30% of sigil drops carry a random starter's runes, unbound.
+The 20 built-in skills are common sigils holding pre-rolled runes, so their numbers are readable, copyable and improvable. A sigil only shows its starter name and description while its slots still hold the starter's runes, in order. Hand-set rolls above the drop tables only cast while the sigil holds the whole recipe, rolls included; a piece of a starter (Multishot's +300% Bolt alone, or with an infusion added) casts with its rolls clamped to the tables ([forge.md](forge.md), "Rolls clamp on the way out"). Starter rolls carry the tier their value falls in, so they sell and price honestly. 30% of sigil drops carry a random starter's runes, unbound. The admin can scale one starter's damage live while a sigil holds its whole recipe (see "Starter damage multipliers" below).
 
 | Class | Starter | Runes |
 |---|---|---|
@@ -369,13 +369,31 @@ Measured with the parity harness at base 5 (per Force as a share of the best sta
 
 A Concentrated Nova buys damage at about the plain Nova's rate per Force, and on a Bolt at a worse one, so it is a way to put more damage in one cast for more Force and a slot, not a cheaper way to deal damage. The random search with Concentrated, one per shape (206 of 300 compiled), found nothing above 1.67x (`zone[after 0.7s, +31% duration] nova[+12% size, +55% damage] lightning lightning concentrated(54)`). The harness packs stand close together, so the smaller area costs less there than it will in play.
 
-## Planned: starter damage multipliers in admin (owner, 2026-10-01)
+## Starter damage multipliers (owner, 2026-10-01; built 2026-10-01, not yet deployed)
 
 "Bone spear is a bit bad? Can we buff via admin?" Starter numbers live on each player's sigil item, and shape base damage (`SPELL.bolt.damage`) is shared by every spell of that shape, so neither is a live knob for one skill.
 
-- **A live damage multiplier per starter skill** on the admin page (ServerSettings or its own table, like monster tuning), default 1, validated range 0.5 to 3. It applies only while a sigil holds its starter's full recipe (`holdsStarterRecipe`), never to a player-made spell, and changes no items. Running casts pick it up on the next cast; tooltips and the forge show the multiplied numbers.
-- **Balance:** the damage-per-Force tests run at the defaults; the admin page shows each starter's damage per Force against the 2x cap at the chosen value, so a tweak that breaks the cap is visible.
-- **First use:** Bone Spear (`bolt[pierce 4, +50% speed, +40% damage]`).
+- **A live damage multiplier per starter skill:** `starterDamage` in ServerSettings, a sparse map of starter id to multiplier (only values off 1 are stored), each 0.5 to 3, default 1. It sits in ServerSettings rather than its own table like monster tuning because it is one small map that rides the existing settings PUT, storage and change path, so `http.ts` needed no new route. A PUT replaces the whole map; an unknown id or a value out of range refuses the whole body (400). A stored map keeps its good entries and drops the rest with a log line, so a starter renamed later does not reset the others; a row from before this has none and loads `{}`.
+- **Only starters that deal damage:** the 13 the balance harness measures as dealing damage (`starterDealsDamage`, the keys of `STARTER_DAMAGE_PER_FORCE`). Holy Nova, Prayer, Sanctuary, Iron Skin, Soul Link, Blink and Evade take none: the PUT refuses an entry for them, a stored one is dropped, they always read 1, and their admin row is disabled. So no heal or ward ever shows a "tuned" line that changes nothing.
+- **Only the whole starter:** `starterDamageFor` in `runes/v2/compile.ts` gives the multiplier only while `holdsStarterRecipe` holds (the same runes with the same rolls, in order). A player-made spell with the same runes, a starter with a roll changed, a rune added, removed or reordered, all cast at 1. No item or save changes; putting the starter back together brings the multiplier back.
+- **Damage only, like Concentrated:** `compileSigilItem(item, classId, starterDamage)` multiplies `tuning.damage` on every shape of the program, payloads and Split copies included (Multishot's five arrows each deal double at 2x; Frozen Orb's orb and shards do too). `damageScale` is left alone, so heals, shields and the strength of Ward, Restore and Impact auras would keep theirs even on a starter that mixed them with damage. Impact knockback does not change either; its damage does. An elemental aura would take it through its damage tuning, but no starter has one.
+- **The Arena follows it** (owner, 2026-10-01): runs cast the live multipliers like every other room, so Arena scores before and after a change are not comparable. Accepted.
+- **Live, next cast:** equipped sigils carry their compiled program, so `Simulation.setRates` recompiles every equipped sigil when the map changes (`recompileSigils` in `sim/inventory.ts`); every equip, load and inscribe compiles with `sim.rates.starterDamage`. A spell already in flight keeps the damage it was cast with.
+- **Clients:** the welcome carries `starterDamage` and each change sends `{ t: 'starterDamage', damage }`, checked entry by entry (`isStarterDamage`; a bad table is ignored and the last good one kept) and kept in `useStarterTuning` (`apps/client/src/game/starterTuning.ts`). `compileFor` compiles with it, so the forge's preview dummy and its damage per second show the tuned numbers, and the forge lists a note ("Bone Spear is tuned to deal 150% damage while the sigil holds its whole starter"). The sigil tooltip shows a muted line under the starter name while it applies. The Spell Studio and the VFX bench compile at 1.
+- **Admin page:** a compact table on the Settings tab (starter, class, multiplier, damage per Force to one target and to a pack, and that as a share of the best starter's), saved with the other settings. A row over 2x gets a red "over 2x" badge. A box holding a value out of range holds Save and names the starter. The form sends only the fields the admin changed; for the table it re-reads the server's current table and lays only the changed rows over it, so a page left open does not undo a change made meanwhile with `pnpm admin`. The damage per Force column is labelled an estimate: it is `STARTER_DAMAGE_PER_FORCE` (`data/starterTuning.ts`, the balance harness's numbers at 1x) times the multiplier. The harness's dummies never die, so damage per Force scales with the multiplier; `test/starterTuning.test.ts` checks that against the harness at 1.5x and 2x and fails, printing the new numbers, when a balance change moves any starter's 1x value. The best starter is fixed at the defaults (Freezing Arrow 2.13 single, Exploding Arrow 7.71 pack), the reference player-made spells are held to; a buffed starter does not raise that bound.
+- **Balance tests** compile without the map, so at the defaults every starter compiles exactly as before and the parity and damage-per-Force tests are unchanged.
+
+Bone Spear (`bolt[pierce 4, +50% speed, +40% damage]`), measured with the harness, single / pack per Force and the larger share of the best starter's:
+
+| Multiplier | Per Force | x best |
+|---|---|---|
+| 1 | 1.40 / 2.79 | 0.66 |
+| 1.5 | 2.09 / 4.19 | 0.98 |
+| 2 | 2.79 / 5.58 | 1.31 |
+
+It is a single-target spear, so the single number is the one that moves against the bound; 3x, the cap, reaches 1.97x.
+
+Open: the multiplier is server-wide, so it does not tell classes apart, and a starter's estimate at the live 0.5 s cooldown is not shown (the harness casts at 0.35 s, as above).
 
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 

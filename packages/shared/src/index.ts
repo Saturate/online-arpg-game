@@ -5,6 +5,7 @@ export * from './data/enemies.js';
 export * from './data/minions.js';
 export * from './data/monsterPools.js';
 export * from './data/starterSigils.js';
+export * from './data/starterTuning.js';
 export * from './items/convertV2.js';
 export * from './items/convertRuneRolls.js';
 export * from './data/tuning.js';

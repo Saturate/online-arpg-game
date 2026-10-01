@@ -12,6 +12,7 @@ import {
   type MapTheme,
   type ClientMessage,
   type SigilCompile,
+  type StarterDamage,
   type EntityId,
   type InscribeReply,
   type InventoryMessage,
@@ -23,6 +24,7 @@ import {
   type StagingMessage,
   type PlayerStats,
 } from '@rune/shared';
+import { useStarterTuning } from '../game/starterTuning.js';
 import { create } from 'zustand';
 import { closeStation, openStation, openWaypointMenu, type ItemStation, type WaypointMenu } from './stations.js';
 
@@ -465,8 +467,9 @@ export function initSkillPicks(inv: InventoryMessage): void {
   useUi.setState({ leftSkill: castable[0] ?? 0, rightSkill: castable[1] ?? castable[0] ?? 1 });
 }
 
-export function compileFor(item: SigilItem, classId: ClassId): SigilCompile {
-  return compileSigilItem(item, classId);
+/** With the server's starter damage table, so tooltips and the forge show what the server casts. */
+export function compileFor(item: SigilItem, classId: ClassId, starterDamage: StarterDamage = useStarterTuning.getState().damage): SigilCompile {
+  return compileSigilItem(item, classId, starterDamage);
 }
 
 // Game state lives in module scope. A hot update would split it between an old and a new copy
