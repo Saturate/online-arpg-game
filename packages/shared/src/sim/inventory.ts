@@ -11,7 +11,7 @@ import {
   isBound,
   isPlainRune,
   ITEM_TIERS,
-  matchingStarter,
+  castingStarter,
   reissueUids,
   RUNE_STACK,
   sigilCapacity,
@@ -53,7 +53,7 @@ export interface PlayerNotice {
 }
 
 function sigilName(item: SigilItem): string {
-  return matchingStarter(item)?.name ?? item.name;
+  return castingStarter(item)?.name ?? item.name;
 }
 
 /**

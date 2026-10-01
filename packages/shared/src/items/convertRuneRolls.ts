@@ -1,7 +1,7 @@
 import { starterSigilById } from '../data/starterSigils.js';
 import { tokenizeSpell } from '../runes/v2/tokenize.js';
 import type { RuneInstance } from '../runes/v2/runes.js';
-import { affixSigilName, runeItemFromInstance, runeRecipeKey, type Item, type ItemUid, type RuneItem, type SigilItem } from './items.js';
+import { affixSigilName, holdsStarterRecipe, matchingStarter, runeItemFromInstance, runeRecipeKey, slotHoldsRecipeRune, type Item, type ItemUid, type RuneItem, type SigilItem } from './items.js';
 import { clampRuneRolls, retierRoll } from './runeRolls.js';
 import { BAG, findSpot, itemSize, place } from './grid.js';
 
@@ -30,7 +30,11 @@ export const RETIRED_SIGIL_AFFIXES: ReadonlySet<string> = new Set(['first_rune_f
 /** The name word each retired affix gave a sigil named from its affixes. */
 const RETIRED_NAME_WORDS: readonly string[] = ['Primed'];
 
-/** The recipes the buffed starters had before 2026-10-01, in the Spell Lab's text form. */
+/**
+ * The recipes the buffed starters had before 2026-10-01, in the Spell Lab's text form. A change to
+ * a starter's numbers needs no entry: a sigil holding its starter's runes in order casts the live
+ * recipe whatever its rolls (castingSlots). Only a change to which runes a recipe holds does.
+ */
 export const OLD_STARTER_RUNES: Readonly<Record<string, string>> = {
   multishot: 'bolt[pierce 2, +60% damage] split(3) split(3)',
   flame_cleave: 'bolt[-50% duration, +60% size] fire split(3)',
@@ -168,4 +172,29 @@ export function placeReturned(cells: readonly (ItemUid | null)[], runes: readonl
     if (spot) place(out, BAG, r.uid, itemSize(r), spot.x, spot.y);
   }
   return out;
+}
+
+const affixKinds = (affixes: readonly { id: string }[]): string => affixes.map((a) => a.id).sort().join(',');
+const runeKinds = (r: RuneInstance | undefined): string | null => (r ? `${r.id}|${affixKinds(runeItemFromInstance(0, r, false).affixes)}` : null);
+
+/**
+ * The starter's own runes in a sigil that holds its starter's runes in order but no longer casts
+ * as it: a sign that the recipe changed in code (its affix kinds, or a roll's honest tier went up)
+ * without an OLD_STARTER_RUNES entry, so every copy casts clamped. A rune is the starter's own when
+ * it is not from the bench, is bound or rolled past every drop table (no player can make one), and
+ * has the rune id and affix kinds this starter's recipe, now or in OLD_STARTER_RUNES, had at that
+ * slot. A kit rune moved in from another starter, or the player's own find, is theirs to change.
+ */
+export function starterRunesOffRecipe(sigil: SigilItem): RuneItem[] {
+  if (holdsStarterRecipe(sigil)) return [];
+  const def = matchingStarter(sigil);
+  if (!def) return [];
+  const old = oldStarterRunes(def.id);
+  return sigil.slots.filter((slot, i) => {
+    const recipe = def.runes[i];
+    if (recipe === undefined || slotHoldsRecipeRune(slot, recipe) || slot.bench === true) return false;
+    if (slot.bound !== true && clampRuneRolls(slot) === slot) return false;
+    const own = `${slot.rune}|${affixKinds(slot.affixes)}`;
+    return own === runeKinds(recipe) || own === runeKinds(old?.[i]);
+  });
 }

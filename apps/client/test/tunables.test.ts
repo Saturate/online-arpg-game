@@ -1,7 +1,9 @@
-import { activeTunables, compileSigilItem, createStarterSigil, resetTunables, SPELL, starterSigilById, type SigilItem } from '@rune/shared';
+import { activeTunables, compileSigilItem, createStarterSigil, describeTree, resetTunables, shownSlots, SPELL, starterSigilById, type SigilItem } from '@rune/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseReplay, Recorder } from '../src/game/replay.js';
 import { receiveTunables, useTunables } from '../src/game/tunables.js';
+import { compileSkill, studioSkillOf } from '../src/dev/studio/studioSim.js';
+import { rollWithStored } from '../src/ui/parts.js';
 
 afterEach(() => resetTunables());
 
@@ -19,6 +21,32 @@ function tooltipForce(): number {
 }
 
 describe('the client follows the server live tuning', () => {
+  it('shows a whole starter at its live numbers in tooltips, the forge, the HUD and the Spell Studio', () => {
+    const def = starterSigilById('fireball');
+    if (!def) throw new Error('no Fireball starter');
+    const sigil = fireball();
+    const plain = compileSigilItem(sigil, 'mage');
+    receiveTunables({ 'starter.fireball.0.damage': 300, 'starter.fireball.3.duration': 90 });
+    const tuned = compileSigilItem(sigil, 'mage');
+    expect(tuned.ok && plain.ok && tuned.force).toBeGreaterThan(plain.ok ? plain.force : Infinity);
+    expect(tuned.ok && tuned.program.roots[0]?.tuning.damage).toBeCloseTo(4, 5);
+    expect(tuned.ok && describeTree(tuned.tree)).not.toBe(plain.ok && describeTree(plain.tree));
+    expect(shownSlots(sigil)[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(300);
+    // The item itself keeps the rolls it was made with.
+    expect(sigil.slots[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(100);
+    // The chip and the forge hover show the rune's own roll beside the live one.
+    const [live] = shownSlots(sigil);
+    const damage = live?.affixes.find((a) => a.id === 'rune_damage');
+    expect(damage && rollWithStored(damage, sigil.slots[0])).toMatch(/300.*\(rune: .*100/);
+    const skill = studioSkillOf(def);
+    expect(skill.text).toContain('+300% damage');
+    const studio = compileSkill(skill);
+    expect(studio.ok && tuned.ok && studio.force).toBeCloseTo(tuned.ok ? tuned.force : 0, 5);
+    // An edited draft in the studio casts what it says, not the live recipe.
+    const edited = compileSkill({ ...skill, text: skill.text.replace('+300% damage', '+50% damage') });
+    expect(edited.ok && edited.program.roots[0]?.tuning.damage).toBeCloseTo(1.5, 5);
+  });
+
   it('applies a change to the numbers tooltips compile from, and bumps the version memos watch', () => {
     const before = tooltipForce();
     const version = useTunables.getState().version;

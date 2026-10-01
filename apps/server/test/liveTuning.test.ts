@@ -284,5 +284,60 @@ describe('live tuning writes', () => {
     expect(socket.sent.some((m) => m.t === 'notice' && m.text === 'Prayer was unequipped: a balance change raised its spirit past your pool')).toBe(true);
     server.close();
   });
+
+  it('refuses a set of numbers that would leave a starter not compiling, naming it, and a revert into one', async () => {
+    const { server, call, store } = await setup();
+    const bad = await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.0.every': 0.14, 'starter.frozen_orb.2.count': 5 });
+    expect(bad.status).toBe(400);
+    const body: unknown = await bad.json();
+    expect(typeof body === 'object' && body !== null && 'error' in body ? body.error : '').toMatch(/^Frozen Orb would not compile: /);
+    expect(activeTunables()).toEqual({});
+    expect(store.tunables.load()).toEqual({});
+    // Each half alone is fine; the revert of the first, once the second is in, would break it again.
+    expect((await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.2.count': 5 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.0.every': 0.3 })).status).toBe(200);
+    const [row] = store.tunables.commit([{ path: 'starter.frozen_orb.0.every', old: 0.14, new: 0.3 }], { account: 'boss', token: null });
+    if (!row) throw new Error('no row');
+    const revert = await call('POST', '/api/admin/tuning/revert', { id: row.id });
+    expect(revert.status).toBe(400);
+    expect(activeTunables()['starter.frozen_orb.0.every']).toBe(0.3);
+    server.close();
+  });
+
+  it('retunes a starter in a running room on its next cast, from the stored rolls of the copy the player owns', async () => {
+    const { store, rooms, server, call } = await setup();
+    const acc = await store.register('binder', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const ch = store.createCharacter(acc.id, 'Bonecaller', 'binder');
+    if (typeof ch === 'string') throw new Error(ch);
+    const socket = new FakeSocket();
+    rooms.connect(socket);
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
+    rooms.tick();
+    const w = welcome(socket);
+    const room = rooms.roomById(w.roomId);
+    const p = room?.sim.world.player.get(w.playerId);
+    if (!room || !p) throw new Error('no binder');
+    const slot = p.sigils.findIndex((eq) => {
+      const item = eq ? p.items.get(eq.uid) : undefined;
+      return item?.kind === 'sigil' && item.starter === 'bone_spear';
+    });
+    expect(slot).toBeGreaterThanOrEqual(0);
+    let seq = 0;
+    const spear = (): number => {
+      while (p.castCooldown > 0) rooms.tick();
+      p.heat = 0;
+      const before = new Set(room.sim.world.projectile.keys());
+      socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: SKILL_BUTTONS[slot] ?? 0 });
+      rooms.tick();
+      socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0 });
+      for (const [id, proj] of room.sim.world.projectile) if (proj.ownerId === w.playerId && !before.has(id)) return proj.damage;
+      throw new Error('no spear');
+    };
+    const plain = spear();
+    expect((await call('PATCH', '/api/admin/tuning', { 'starter.bone_spear.0.damage': 140 })).status).toBe(200);
+    expect(spear()).toBeCloseTo((plain * 2.4) / 1.4, 5);
+    server.close();
+  });
 });
 

@@ -42,7 +42,8 @@ function isTunableSpec(v: unknown): v is TunableSpec {
     typeof v.min === 'number' &&
     typeof v.max === 'number' &&
     typeof v.int === 'boolean' &&
-    (v.note === undefined || typeof v.note === 'string')
+    (v.note === undefined || typeof v.note === 'string') &&
+    (v.group === undefined || typeof v.group === 'string')
   );
 }
 

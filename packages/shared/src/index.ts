@@ -59,4 +59,5 @@ export { nearStash, STASH_REACH } from './sim/stash.js';
 export * from './items/stash.js';
 export * from './tuning/registry.js';
 export * from './tuning/api.js';
+export * from './tuning/starterCheck.js';
 export { fitSpirit, recompileSigils, type PlayerNotice } from './sim/inventory.js';

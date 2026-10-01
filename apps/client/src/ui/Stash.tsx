@@ -7,7 +7,7 @@ import {
   isRuneAffixId,
   isStashTabName,
   ITEM_TIERS,
-  matchingStarter,
+  castingStarter,
   placements,
   RUNE_IDS,
   RUNE_SORT_KEYS,
@@ -534,7 +534,7 @@ function sigilMatches(s: SigilItem, tier: ItemTier | 'all', contents: SigilConte
   if (tier !== 'all' && s.tier !== tier) return false;
   if (contents === 'blank') return s.slots.length === 0;
   if (contents === 'runes') return s.slots.length > 0;
-  if (contents === 'starter') return matchingStarter(s) !== undefined;
+  if (contents === 'starter') return castingStarter(s) !== undefined;
   return true;
 }
 

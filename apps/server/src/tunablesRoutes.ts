@@ -2,6 +2,7 @@ import {
   activeTunables,
   applyTunables,
   parseTunablePatch,
+  starterTuningProblem,
   TUNABLES,
   TUNING_HISTORY_LIMIT,
   tunableProblem,
@@ -40,17 +41,32 @@ function state(warning?: string): TunablesState {
   return { schema: [...TUNABLES], values: activeTunables(), ...(warning === undefined ? {} : { warning }) };
 }
 
+function nextValues(changes: readonly TunableChange[]): TunableValues {
+  const next: TunableValues = activeTunables();
+  for (const c of changes) {
+    if (c.new === null) delete next[c.path];
+    else next[c.path] = c.new;
+  }
+  return next;
+}
+
+/**
+ * Saves the changes unless they would leave a starter that does not compile (a 400 naming it and
+ * the rule), else as commit. Numbers can each be in range and still combine into a broken starter.
+ */
+function commitChecked(req: TunablesRequest, store: TunablesStore, hooks: TunablesHooks, changes: TunableChange[], revertOf: number | null): [number, unknown] {
+  const broken = starterTuningProblem(nextValues(changes));
+  if (broken !== null) return [400, { error: broken }];
+  return [200, state(commit(req, store, hooks, changes, revertOf))];
+}
+
 /**
  * Saves the changes, applies the new set and logs one staff line for them. The change is stored and
  * applied before the rooms and clients hear of it, so if that last step fails the reply still says
  * it was saved, with a warning, rather than an error for a change that took effect.
  */
 function commit(req: TunablesRequest, store: TunablesStore, hooks: TunablesHooks, changes: TunableChange[], revertOf: number | null): string | undefined {
-  const next: TunableValues = activeTunables();
-  for (const c of changes) {
-    if (c.new === null) delete next[c.path];
-    else next[c.path] = c.new;
-  }
+  const next = nextValues(changes);
   store.commit(changes, req.by, revertOf);
   applyTunables(next);
   const what = changes.map((c) => `${c.path} ${fmt(c.old)} -> ${fmt(c.new)}`).join(', ');
@@ -87,7 +103,7 @@ export async function tunablesRoute(req: TunablesRequest, store: TunablesStore, 
       const old = current[p] ?? null;
       if (next !== old) changes.push({ path: p, old, new: next });
     }
-    return [200, state(changes.length > 0 ? commit(req, store, hooks, changes, null) : undefined)];
+    return changes.length > 0 ? commitChecked(req, store, hooks, changes, null) : [200, state()];
   }
   if (path === '/api/admin/tuning/history') {
     if (method !== 'GET') return [405, { error: 'Use GET' }];
@@ -113,7 +129,7 @@ export async function tunablesRoute(req: TunablesRequest, store: TunablesStore, 
     const target = entry.old === spec.default ? null : entry.old;
     const old = activeTunables()[entry.path] ?? null;
     if (old === target) return [409, { error: `${entry.path} is already ${fmt(target)}` }];
-    return [200, state(commit(req, store, hooks, [{ path: entry.path, old, new: target }], id))];
+    return commitChecked(req, store, hooks, [{ path: entry.path, old, new: target }], id);
   }
   return null;
 }
