@@ -351,9 +351,10 @@ function stepToward(pos: Vec2, tx: number, ty: number, step: number, stopAt: num
 }
 
 /**
- * `stepToward` against the map, in steps no longer than the minion's radius. A catching-up minion
- * moves about 23 units a tick, more than a fence's reach from its line (radius 13 plus 8): one
- * step from touching it could land past the line, and settling then pushed it out the far side.
+ * `stepToward` against the map, in steps no longer than the minion's radius. A Hound packmate
+ * catching up moves about 24 units a tick (265 speed, x1.15 for a mate, x1.6 to catch up), more
+ * than a fence's reach from its line (its radius 10 plus 8): one step from touching it could land
+ * past the line, and settling then pushed it out the far side.
  */
 function walkToward(sim: Simulation, pos: Vec2, tx: number, ty: number, step: number, stopAt: number, radius: number): void {
   const d = Math.hypot(tx - pos.x, ty - pos.y);
@@ -959,6 +960,8 @@ function startLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, tpos
   const a = leapOf(m.def);
   if (!a || m.leapCooldown > 0 || dist < a.minRange || dist > a.range) return false;
   if (!sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, 8, 'shots')) return false;
+  // Fences and water let shots through but not walkers; the pounce is a walker's jump, not a flight.
+  if (!sim.map.lineClear(pos.x, pos.y, tpos.x, tpos.y, radius * 0.8, 'move')) return false;
   const angle = Math.atan2(tpos.y - pos.y, tpos.x - pos.x);
   // Lands against the target, not on top of it.
   const reach = Math.max(0, Math.min(dist, a.range) - radius);

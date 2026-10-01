@@ -97,4 +97,40 @@ describe('fast movers and the town fence', () => {
       }
     }
   });
+
+  it('the Hound Leader does not pounce over a fence at a monster on the other side', () => {
+    const sim = new Simulation(4, { kind: 'world', seed: 1 });
+    const T = sim.mapDef.townAt ?? { x: 0, y: 0 };
+    const id = sim.addPlayer('c', 'binder');
+    const p = sim.world.player.get(id);
+    if (!p) throw new Error('setup');
+    p.stats.spiritMax = 1000;
+    p.level = 30;
+    sim.step();
+    const v = { ...createVessel(sim.newItemUid(), sim.rng, 'relic', 'hound', 1), affixes: [], pack: 2 };
+    p.items.set(v.uid, v);
+    p.inventory[p.inventory.indexOf(null)] = v.uid;
+    expect(sim.equipVessel(id, v.uid, 1)).toBeNull();
+    sim.step();
+    const leader = [...sim.world.minion.entries()].find(([, m]) => m.ownerId === id && m.pack?.role === 'leader');
+    if (!leader) throw new Error('no leader');
+    const [lid, lm] = leader;
+    const lpos = sim.world.position.get(lid);
+    const mp = sim.world.position.get(id);
+    if (!lpos || !mp) throw new Error('setup');
+    // Leader and master inside the north fence, a monster just outside it, well inside leap range.
+    const inside = sim.map.findOpen(T.x + 500, T.y + FENCE_Y + 70, 24);
+    const master = sim.map.findOpen(T.x + 500, T.y + FENCE_Y + 140, SIM.playerRadius);
+    Object.assign(lpos, inside);
+    Object.assign(mp, master);
+    const enemy = sim.spawnEnemy('chaser', inside.x, T.y + FENCE_Y - 160);
+    const eh = sim.world.health.get(enemy);
+    if (eh) eh.life = eh.maxLife = 100_000;
+    lm.targetId = enemy;
+    lm.leapCooldown = 0;
+    for (let t = 0; t < 10; t++) {
+      sim.step();
+      expect(lm.leap, `tick ${t}: leapt over the fence`).toBeNull();
+    }
+  });
 });

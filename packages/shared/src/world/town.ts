@@ -148,11 +148,10 @@ export function decorCollision(d: TownDecor): Shape | null {
   const inset = 0.85;
   if (spec.shape === 'trunk') return { type: 'circle', x: at.x, y: at.y, r: Math.max(8, Math.min(spec.w, spec.d) * 0.2) * d.scale };
   if (spec.shape === 'round') return { type: 'circle', x: at.x, y: at.y, r: (Math.min(spec.w, spec.d) / 2) * inset * d.scale };
-  const hw = (spec.w / 2) * inset * d.scale;
-  const hh = (spec.d / 2) * inset * d.scale;
-  // Only the thin side is thickened; a piece small both ways is not made any longer than it draws.
-  if (hw < hh) return { type: 'box', x: at.x, y: at.y, hw: Math.max(MIN_SOLID_HALF, hw), hh, angle: d.angle };
-  return { type: 'box', x: at.x, y: at.y, hw, hh: Math.max(MIN_SOLID_HALF, hh), angle: d.angle };
+  // Each side on its own: a long thin piece is only thickened, a small one grows both ways.
+  const hw = Math.max(MIN_SOLID_HALF, (spec.w / 2) * inset * d.scale);
+  const hh = Math.max(MIN_SOLID_HALF, (spec.d / 2) * inset * d.scale);
+  return { type: 'box', x: at.x, y: at.y, hw, hh, angle: d.angle };
 }
 
 /** Oak versus pine is a render choice; the map only knows "tree". This hint rides on the visual size. */

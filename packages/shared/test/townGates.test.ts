@@ -121,36 +121,58 @@ describe('leaving town through its gates', () => {
 
 describe('thin solid decor', () => {
   // The graveyard's split fence is 2 units thick and the wood fence 5: placed solid, a dashing hero
-  // crossed its middle in a single sub-step and came out the far side.
-  for (const asset of ['grave_fence_seperate', 'grave_fence', 'fence_wood_straight']) {
-    it(`${asset} placed solid stops a hero walking or dashing into it from either side`, () => {
+  // crossed its middle in a single sub-step and came out the far side. A small piece can be thin
+  // both ways: the wood fence at scale 0.2 is about 1 by 9, the fence pillar at 1.84 about 10 by 10.
+  const cases: { asset: string; scale: number; angle: number }[] = [
+    { asset: 'grave_fence_seperate', scale: 1, angle: 0 },
+    { asset: 'grave_fence', scale: 1, angle: 0 },
+    { asset: 'fence_wood_straight', scale: 1, angle: 0 },
+    { asset: 'fence_wood_straight', scale: 0.2, angle: 0.3 },
+    { asset: 'grave_fence_pillar', scale: 1.84, angle: Math.PI / 4 },
+  ];
+  for (const { asset, scale, angle } of cases) {
+    it(`${asset} at scale ${scale} placed solid stops a hero walking or dashing into it along either axis`, () => {
       const map = emptyMap({ name: 't', theme: 'town', width: 2000, height: 2000, spawn: { x: 1000, y: 1000 }, waves: false, safe: true, groundTint: 0 });
-      const shape = decorCollision({ asset, x: 1000, y: 1000, angle: 0, scale: 1, solid: true });
+      const shape = decorCollision({ asset, x: 1000, y: 1000, angle, scale, solid: true });
       if (!shape || shape.type !== 'box') throw new Error('no box');
+      expect(Math.min(shape.hw, shape.hh), `${asset} thinnest half`).toBeGreaterThanOrEqual(8);
       map.obstacles.push({ kind: 'decor', shape, blocksMove: true, blocksShots: false, visual: 30 });
       const gm = new GameMap(map);
-      // Across the thin side, through the middle of the piece.
-      const across = shape.hh < shape.hw ? { x: 0, y: 1 } : { x: 1, y: 0 };
-      for (const side of [-1, 1]) {
-        const from = { x: shape.x - across.x * side * 120, y: shape.y - across.y * side * 120 };
-        const depth = (p: Vec2): number => ((p.x - shape.x) * across.x + (p.y - shape.y) * across.y) * side;
-        const lateral = (p: Vec2): number => Math.abs((p.x - shape.x) * across.y - (p.y - shape.y) * across.x);
-        const longHalf = Math.max(shape.hw, shape.hh);
-        // Sliding round the end of a short piece is fine; reaching the far side within its length is not.
-        const through = (a: Vec2, b: Vec2): boolean => depth(a) < 0 && depth(b) >= 0 && lateral(b) < longHalf + SIM.playerRadius - 1;
-        let walk: MoveState = { ...from, dash: null };
-        for (let t = 0; t < 40; t++) {
-          const next = stepPlayer(gm, walk, { x: across.x * side, y: across.y * side }, CLASSES.warrior.moveSpeed * 1.2, SIM.dt, SIM.playerRadius);
-          expect(through(walk, next), `${asset} walking from side ${side}`).toBe(false);
-          walk = next;
-        }
-        let dash: MoveState = { ...from, dash: { vx: across.x * side * 2400, vy: across.y * side * 2400, ticksLeft: 6 } };
-        for (let t = 0; t < 6; t++) {
-          const next = stepPlayer(gm, dash, { x: 0, y: 0 }, 0, SIM.dt, SIM.playerRadius);
-          expect(through(dash, next), `${asset} dashing from side ${side}`).toBe(false);
-          dash = next;
+      const c = Math.cos(angle);
+      const sn = Math.sin(angle);
+      // The box's own two axes, each with the half extent across it.
+      const axes = [
+        { dir: { x: c, y: sn }, side: shape.hh },
+        { dir: { x: -sn, y: c }, side: shape.hw },
+      ];
+      for (const { dir: across, side: sideHalf } of axes) {
+        for (const side of [-1, 1]) {
+          const from = { x: shape.x - across.x * side * 120, y: shape.y - across.y * side * 120 };
+          const depth = (p: Vec2): number => ((p.x - shape.x) * across.x + (p.y - shape.y) * across.y) * side;
+          const lateral = (p: Vec2): number => Math.abs((p.x - shape.x) * across.y - (p.y - shape.y) * across.x);
+          // Sliding round the end of a short piece is fine; reaching the far side within its length is not.
+          const through = (a: Vec2, b: Vec2): boolean => depth(a) < 0 && depth(b) >= 0 && lateral(b) < sideHalf + SIM.playerRadius - 1;
+          let walk: MoveState = { ...from, dash: null };
+          for (let t = 0; t < 40; t++) {
+            const next = stepPlayer(gm, walk, { x: across.x * side, y: across.y * side }, CLASSES.warrior.moveSpeed * 1.2, SIM.dt, SIM.playerRadius);
+            expect(through(walk, next), `${asset} walking from side ${side}`).toBe(false);
+            walk = next;
+          }
+          let dash: MoveState = { ...from, dash: { vx: across.x * side * 2400, vy: across.y * side * 2400, ticksLeft: 6 } };
+          for (let t = 0; t < 6; t++) {
+            const next = stepPlayer(gm, dash, { x: 0, y: 0 }, 0, SIM.dt, SIM.playerRadius);
+            expect(through(dash, next), `${asset} dashing from side ${side}`).toBe(false);
+            dash = next;
+          }
         }
       }
     });
   }
+
+  it('a long thin piece is thickened but not made longer', () => {
+    const shape = decorCollision({ asset: 'grave_fence_seperate', x: 0, y: 0, angle: 0, scale: 1, solid: true });
+    if (!shape || shape.type !== 'box') throw new Error('no box');
+    expect(shape.hh).toBe(8);
+    expect(shape.hw).toBeCloseTo((50 / 2) * 0.85, 5);
+  });
 });
