@@ -43,10 +43,17 @@ export interface StashLayout {
 /** The account stash as stored, apart from any character. */
 export interface StashSave extends StashLayout {
   runeFormat: 2;
-  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
-  runeTiers?: 6;
+  /**
+   * Rune affix rolls count six tiers (2026-10-01). Required on what is written, so no writer can
+   * leave it out and have the next load re-tier the row again; data read from storage may lack it
+   * (StoredStash) and goes through convertRuneRolls once.
+   */
+  runeTiers: 6;
   items: Item[];
 }
+
+/** A stash as read from storage, before the one-time rune roll pass: it may predate the six tiers. */
+export type StoredStash = Omit<StashSave, 'runeTiers'> & { runeTiers?: 6 };
 
 /** The stash before tabs: one grid. Only ever read, to be converted. */
 export interface StashSaveV1 {
@@ -248,11 +255,11 @@ export function saveStashLayout(raw: unknown): StashLayout {
   return parseStashLayout(raw);
 }
 
-export function parseStashSave(raw: unknown): StashSave {
+export function parseStashSave(raw: unknown): StoredStash {
   if (!isRecord(raw) || raw.runeFormat !== 2) fail('not rune format 2');
   if (!Array.isArray(raw.items)) fail('items is not a list');
   const items = raw.items.map((it: unknown) => (isItemShape(it) ? it : fail(`item ${isRecord(it) ? String(it.uid) : '?'} is damaged`)));
-  return { ...parseStashLayout(raw), runeFormat: 2, items };
+  return { ...parseStashLayout(raw), runeFormat: 2, ...(raw.runeTiers === 6 ? { runeTiers: 6 } : {}), items };
 }
 
 export function isStashFormat2(raw: unknown): boolean {
@@ -290,7 +297,7 @@ function bump(rows: StashTabsReport['stayed'], reason: StashTabsReport['stayed']
  * One grid holds at most 120 items, fewer than either list's cap, so `caps` only changes anything
  * in a test of the over-cap path.
  */
-export function convertStashTabs(raw: unknown, caps: { runeCap: number; sigilCap: number } = STASH_TABS): { stash: StashSave; report: StashTabsReport } {
+export function convertStashTabs(raw: unknown, caps: { runeCap: number; sigilCap: number } = STASH_TABS): { stash: StoredStash; report: StashTabsReport } {
   const report: StashTabsReport = { runesToTab: 0, runeUnitsToTab: 0, sigilsToTab: 0, stayed: [], warnings: [] };
   if (isStashFormat2(raw)) return { stash: parseStashSave(raw), report };
   if (!isRecord(raw) || raw.runeFormat !== 2) fail('convert the runes first');

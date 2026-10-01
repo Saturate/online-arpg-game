@@ -369,7 +369,7 @@ describe('loading the stash', () => {
   it('keeps items past a list cap as pending, never dropped', () => {
     const { sim, pid, p } = town();
     const sigils = Array.from({ length: STASH_TABS.sigilCap + 3 }, () => createSigil(sim.newItemUid(), sim.rand.loot, 'common'));
-    const stored: StashSave = { ...emptyStash(), runeFormat: 2, items: sigils };
+    const stored: StashSave = { ...emptyStash(), runeFormat: 2, runeTiers: 6, items: sigils };
     stored.sigils.list = sigils.map((s) => s.uid);
     // Tab 1 full, so the three past the cap cannot go there either.
     const filler = createGear(sim.newItemUid(), sim.rand.loot, 'common', 1, { category: 'ring' });

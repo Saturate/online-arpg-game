@@ -48,8 +48,9 @@ async function world() {
       { id: 2, price: buyPrice(shelfFire), item: shelfFire },
     ],
     runeFormat: 2,
+    runeTiers: 6,
   };
-  const stash: StashSave = { ...emptyStash(), items: [], runeFormat: 2 };
+  const stash: StashSave = { ...emptyStash(), items: [], runeFormat: 2, runeTiers: 6 };
   store.saveCharacterAndStash(ch.id, save, acc.id, stash, market);
   return { file, store, raw: new DatabaseSync(file), accountId: acc.id, characterId: ch.id, witness, shelfSigil };
 }
@@ -216,6 +217,29 @@ describe('trades are atomic', () => {
     expect(after).toEqual({ ...before, where: after.where });
     expect(after.where('Shelf Sigil')).toEqual(['character']);
     expect(after.where('Witness Sigil')).toEqual(['shelf']);
+    raw.close();
+  });
+
+  it('a sale writes the shelf marked six tiers, so a restart leaves a roll on a shared tier end at its tier', async () => {
+    const { file, store, raw, accountId, characterId } = await world();
+    const { rooms, socket, p } = atTrader(store, accountId, characterId);
+    // Pierce 2 can be a T5 (1 to 2) or a T4 (2) roll; this one dropped as T4. A re-tier by value would make it T5.
+    const rune: Item = { ...createRune(95_001, 'bolt'), name: 'Edge Bolt', tier: 'rare', affixes: [{ id: 'rune_pierce', tier: 2, value: 2 }] };
+    p.items.set(rune.uid, rune);
+    p.inventory[p.inventory.indexOf(null)] = rune.uid;
+    const price = buyPrice(rune);
+    socket.emit({ t: 'sell', uid: rune.uid });
+    rooms.saveAll();
+    const row: unknown = raw.prepare("SELECT value FROM settings WHERE key = 'trader'").get();
+    const json = typeof row === 'object' && row !== null ? Reflect.get(row, 'value') : undefined;
+    expect(typeof json === 'string' && JSON.parse(json).runeTiers).toBe(6);
+    for (let restart = 0; restart < 2; restart++) {
+      const again = new AccountStore(file);
+      const entry = again.loadMarket().stock.find((e) => e.item.name === 'Edge Bolt');
+      again.close();
+      expect(entry?.item.affixes).toEqual([{ id: 'rune_pierce', tier: 2, value: 2 }]);
+      expect(entry?.price).toBe(price);
+    }
     raw.close();
   });
 });

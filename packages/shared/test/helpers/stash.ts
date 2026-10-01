@@ -9,7 +9,7 @@ export function tab1(p: { stash: StashLayout }): (ItemUid | null)[] {
 
 /** A stored account stash with one general tab holding `cells`. */
 export function stashOf(items: Item[], cells: (ItemUid | null)[] = emptyStash().general[0]?.cells ?? []): StashSave {
-  return { ...legacyLayout(cells), runeFormat: 2, items };
+  return { ...legacyLayout(cells), runeFormat: 2, runeTiers: 6, items };
 }
 
 /** Whether an item sits anywhere in the character's stash (any tab or list). */

@@ -55,13 +55,16 @@ export interface PlayerSave {
   gold: number;
   /** Rune items and sigil slots (v2). A save without it is v1 and is converted before it is read. */
   runeFormat: 2;
-  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
-  runeTiers?: 6;
+  /** Rune affix rolls count six tiers (2026-10-01). Required on what is written; see StoredPlayerSave for what is read. */
+  runeTiers: 6;
   /** Waypoints hold world ids. A save without it lists the old zones' ids and is converted before it is read. */
   worldFormat: 1;
   /** Gates this character has opened (`sim/gates.ts`). A save from before gate bosses has none. */
   gates?: string[];
 }
+
+/** A character save as read from storage, before the one-time rune roll pass: it may predate the six tiers. */
+export type StoredPlayerSave = Omit<PlayerSave, 'runeTiers'> & { runeTiers?: 6 };
 
 export interface PortalRequest {
   playerId: EntityId;

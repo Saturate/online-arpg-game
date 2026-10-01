@@ -7,7 +7,7 @@ import { isWaypointId } from '../world/worldPlan.js';
 import type { TraderEntry } from '../protocol/messages.js';
 import type { RuneId } from '../runes/v2/runes.js';
 import { legacyLayout, saveStashLayout, type StashSaveV1 } from './stash.js';
-import type { PlayerSave } from '../sim/simulation.js';
+import type { PlayerSave, StoredPlayerSave } from '../sim/simulation.js';
 import { BAG, emptyGrid, findSpot, itemSize, place, STASH, type GridSize } from './grid.js';
 import {
   createRune,
@@ -60,7 +60,7 @@ export interface ConversionReport {
 }
 
 /** A v2 save from before the seamless world: its waypoints still list the old zones' ids. */
-export type PreWorldSave = Omit<PlayerSave, 'worldFormat'>;
+export type PreWorldSave = Omit<StoredPlayerSave, 'worldFormat'>;
 
 export interface CharacterConversion {
   save: PreWorldSave;
@@ -77,12 +77,15 @@ export interface TraderShelfSave {
   nextId: number;
   stock: TraderEntry[];
   runeFormat: 2;
-  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
-  runeTiers?: 6;
+  /** Rune affix rolls count six tiers (2026-10-01). Required on what is written; see StoredTraderShelf for what is read. */
+  runeTiers: 6;
 }
 
+/** A shelf as read from storage, before the one-time rune roll pass. */
+export type StoredTraderShelf = Omit<TraderShelfSave, 'runeTiers'> & { runeTiers?: 6 };
+
 export interface TraderShelfConversion {
-  shelf: TraderShelfSave;
+  shelf: StoredTraderShelf;
   report: ConversionReport;
 }
 
@@ -536,7 +539,7 @@ function isV2Stash(v: unknown): v is StashSaveV1 {
   return isRecord(v) && v.runeFormat === 2 && Array.isArray(v.items) && Array.isArray(v.cells);
 }
 
-function isV2Shelf(v: unknown): v is TraderShelfSave {
+function isV2Shelf(v: unknown): v is StoredTraderShelf {
   return isRecord(v) && v.runeFormat === 2 && typeof v.nextId === 'number' && Array.isArray(v.stock);
 }
 
