@@ -106,7 +106,7 @@ Tests:
 
 ## Limits and open questions
 
-- **The world regenerates with fresh monsters when a builder saves the town**, everywhere, and its whole plan changes if the town's gates moved. Everyone stays where they stood, with the loot on the ground and the opened chests (by spot: if the plan changed, a chest at a new spot is closed).
+- **The world regenerates with fresh monsters when a builder saves the town**, everywhere, and its whole plan changes if the town's gates moved. Everyone stays where they stood, with the loot on the ground and the opened chests (by spot: a save that moves a gate moves every chest, so every chest in every copy fills again, and a builder can repeat that). Bags carried over land on open ground near where they lay.
 - **A town with fewer than three gates** gets roads from the middle of its north, east and south edges whether or not its fence has a gap there, so a builder could save a town nobody can walk out of. Nothing refuses such a layout yet.
 - **Server and client must build the same plan:** every turn and check of a road is decided on `Math.atan2`, `cos`, `sin` and `hypot`, which browsers are not required to compute bit for bit alike. One flipped comparison would change that road's later branches and everything placed by them on that client (collision prediction would then disagree near them). The zones had the same exposure, over fewer decisions. A checksum of the plan in the welcome, reported back on a mismatch, would show whether it ever happens.
 - **The town editor's preview shows the town alone** in its own coordinates, as before; other players and monsters keep drawing at their world positions, so in the editor they appear off to the side of the town.

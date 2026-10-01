@@ -301,7 +301,8 @@ export function loadMap(desc: MapDescriptor): LoadedMap {
   const key = mapKey(desc);
   const hit = cache.get(key);
   if (hit) {
-    // Kept most recently used last, so a world in use is never the one dropped for a dungeon run's map.
+    // Most recently used last, so what is dropped is what nobody asked for longest. A room keeps its
+    // own map, so a dropped entry only costs a rebuild for the next room or client that asks.
     cache.delete(key);
     cache.set(key, hit);
     return hit;
@@ -311,8 +312,12 @@ export function loadMap(desc: MapDescriptor): LoadedMap {
   const entry: LoadedMap = { def, game: new GameMap(def, zone), zone };
   // Instances come and go; keep the cache small so a long-running server does not grow forever.
   if (cache.size > 32) {
-    const first = cache.keys().next().value;
-    if (first !== undefined && first !== 'arena' && first !== 'flat') cache.delete(first);
+    // The Arena pit and the flat field are shared by every run and sandbox, so they stay.
+    for (const k of cache.keys()) {
+      if (k === 'arena' || k === 'flat') continue;
+      cache.delete(k);
+      break;
+    }
   }
   cache.set(key, entry);
   return entry;
