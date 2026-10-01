@@ -201,6 +201,7 @@ A new monster on a model the owner's brother made (`Charger.blend` and `Charger.
 
 - **Role:** a monster in the charger family: it winds up a telegraphed charge in a line (the circle or line fills while it stands still), then rams; dodgeable like every big attack.
 - **Where:** mid regions, from about level 6, in the regions past the first gate (the biome pools by level, `monsterPool`).
+- **Movement (owner):** "Should move like a T-rex plus a tadpole": a heavy two-legged stride with the body pitched forward and the head low, and a travelling side-to-side wave along the tail, bigger when it runs and charges.
 - **Model:** fixed by the model-artist agent from the `.blend` without changing the look: face +Z, lift the near-black base colours to dark grey or lighter so it reads at night, make the Idle and Walk loops seamless, give the stray `Cube.001` a material or remove it, add Hit and Death clips. `pnpm model:check` must pass; then a visual review by day and night.
 
 ## Limits and open questions
