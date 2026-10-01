@@ -39,6 +39,7 @@ export function parseStarterDamage(value: unknown): StarterDamage | string {
   const out: Record<string, number> = {};
   for (const [id, v] of Object.entries(value)) {
     if (!STARTER_IDS.has(id)) return `starterDamage: ${id} is not a starter skill`;
+    if (!starterDealsDamage(id)) return `starterDamage: ${id} deals no damage, so it takes no multiplier`;
     if (!inRange(v)) return `starterDamage.${id} must be between ${STARTER_DAMAGE_LIMITS.min} and ${STARTER_DAMAGE_LIMITS.max}`;
     if (v !== 1) out[id] = v;
   }
@@ -54,7 +55,7 @@ export function storedStarterDamage(value: unknown): { table: StarterDamage; dro
   const dropped: string[] = [];
   if (!isRecord(value)) return { table: out, dropped: value === undefined ? [] : ['the whole table'] };
   for (const [id, v] of Object.entries(value)) {
-    if (STARTER_IDS.has(id) && inRange(v)) {
+    if (starterDealsDamage(id) && inRange(v)) {
       if (v !== 1) out[id] = v;
     } else dropped.push(id);
   }
@@ -63,11 +64,12 @@ export function storedStarterDamage(value: unknown): { table: StarterDamage; dro
 
 /** The client compiles tooltips and the forge with this, so a bad table is ignored rather than shown. */
 export function isStarterDamage(value: unknown): value is StarterDamage {
-  return isRecord(value) && Object.entries(value).every(([id, v]) => STARTER_IDS.has(id) && inRange(v));
+  return isRecord(value) && Object.entries(value).every(([id, v]) => starterDealsDamage(id) && inRange(v));
 }
 
+/** A starter that deals no damage (heals, wards, auras, plain dashes) always reads 1, so nothing claims it is tuned. */
 export function starterDamageOf(table: StarterDamage, starterId: string): number {
-  const v = STARTER_IDS.has(starterId) ? table[starterId] : undefined;
+  const v = starterDealsDamage(starterId) ? table[starterId] : undefined;
   return typeof v === 'number' ? v : 1;
 }
 
@@ -97,6 +99,13 @@ export const STARTER_DAMAGE_PER_FORCE: Readonly<Record<string, { single: number;
   corpse_blast: { single: 0.792, pack: 4.748 },
   frost_mire: { single: 0.466, pack: 2.799 },
 };
+
+const DAMAGE_STARTER_IDS: ReadonlySet<string> = new Set(Object.keys(STARTER_DAMAGE_PER_FORCE));
+
+/** Whether the starter takes a multiplier: the harness measures it as dealing damage. */
+export function starterDealsDamage(starterId: string): boolean {
+  return DAMAGE_STARTER_IDS.has(starterId);
+}
 
 /** The best starter at the defaults: the reference player-made spells are held to. */
 export const BEST_STARTER_PER_FORCE = {

@@ -1,4 +1,4 @@
-import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, settingsConflict, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
+import { ASSIGNABLE_ROLES, can, DEFAULT_SERVER_SETTINGS, isSeason, seasonOf, type LeaderboardResponse, CLASSES, dayPhaseAt, hourOfPhase, phaseOfHour, isAssignableRole, rank, ROLE_INFO, SETTINGS_LIMITS, STARTER_DAMAGE_LIMITS, settingsConflict, type AdminAccount, type AdminOverview, type Permission, type Role, type ServerSettings } from '@rune/shared';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { adminApi, api } from '../net/api.js';
 import { StaffGate, type StaffAccess } from './access.js';
@@ -8,6 +8,7 @@ import { TuningTab } from './monsters/TuningTab.js';
 import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
 import { StarterDamageTable } from './StarterDamageTable.js';
+import { changedSettings, mergeStarterChanges, settingsDirty, starterChanges } from './settingsDiff.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -392,6 +393,9 @@ function ClockControl({ draft, setDraft }: { draft: ServerSettings; setDraft: (s
 function Settings({ token, role, notify }: TabProps) {
   const [saved, setSaved] = useState<ServerSettings | null>(null);
   const [draft, setDraft] = useState<ServerSettings | null>(null);
+  const [badStarters, setBadStarters] = useState<readonly string[]>([]);
+  // Bumped on Revert so the starter table drops half-typed text along with the draft.
+  const [tableKey, setTableKey] = useState(0);
 
   useEffect(() => {
     void adminApi.settings(token).then((r) => {
@@ -402,10 +406,19 @@ function Settings({ token, role, notify }: TabProps) {
   }, [token, notify]);
 
   if (!draft || !saved) return <p className="muted">Loading</p>;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const dirty = settingsDirty(saved, draft);
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    const r = await adminApi.saveSettings(token, draft);
+    if (badStarters.length > 0) return;
+    const patch = changedSettings(saved, draft);
+    const changes = starterChanges(saved.starterDamage, draft.starterDamage);
+    if (changes.size > 0) {
+      // The PUT replaces the whole table, so the rows changed here go onto the server's table as it is now.
+      const current = await adminApi.settings(token);
+      if (!current.ok) return notify(current.error);
+      patch.starterDamage = mergeStarterChanges(current.data.starterDamage, changes);
+    }
+    const r = await adminApi.saveSettings(token, patch);
     if (!r.ok) return notify(r.error);
     setSaved(r.data);
     setDraft(r.data);
@@ -523,7 +536,7 @@ function Settings({ token, role, notify }: TabProps) {
           />
           <small className="muted">{`Seconds between any two spell casts, before cast delay and cast speed shorten it. Force is the magazine, this is the fire rate. Default ${DEFAULT_SERVER_SETTINGS.castCooldownSeconds}.`}</small>
         </label>
-        <StarterDamageTable value={draft.starterDamage} onChange={(starterDamage) => setDraft({ ...draft, starterDamage })} />
+        <StarterDamageTable key={tableKey} value={draft.starterDamage} onChange={(starterDamage) => setDraft({ ...draft, starterDamage })} onInvalid={setBadStarters} />
         {respawn('respawnMinutes', 'Monster respawn', `Minutes a stretch of the world must go with no player or minion within about 2000 units before its killed packs and opened chests come back. Default ${DEFAULT_SERVER_SETTINGS.respawnMinutes}.`)}
         {respawn('bossRespawnMinutes', 'Boss respawn', `The same for region bosses and their escorts. Default ${DEFAULT_SERVER_SETTINGS.bossRespawnMinutes}.`)}
         {respawn('gateRespawnMinutes', 'Gate boss respawn', `Minutes from a gate boss's death until it comes back for the next character. Default ${DEFAULT_SERVER_SETTINGS.gateRespawnMinutes}.`)}
@@ -602,10 +615,19 @@ function Settings({ token, role, notify }: TabProps) {
       </fieldset>
       {editable && (
         <div className="adm-actions">
-          <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>
+          {badStarters.length > 0 && <span className="badge red">{`Starter damage for ${badStarters.join(', ')} must be between ${STARTER_DAMAGE_LIMITS.min} and ${STARTER_DAMAGE_LIMITS.max}`}</span>}
+          <button
+            type="button"
+            disabled={!dirty && badStarters.length === 0}
+            onClick={() => {
+              setDraft(saved);
+              setTableKey((k) => k + 1);
+              setBadStarters([]);
+            }}
+          >
             Revert
           </button>
-          <button type="submit" className="primary" disabled={!dirty || zoomProblem !== null}>
+          <button type="submit" className="primary" disabled={!dirty || zoomProblem !== null || badStarters.length > 0}>
             Save
           </button>
         </div>

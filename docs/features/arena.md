@@ -21,6 +21,7 @@ Status: Live since 2026-09-29 (plan approved and built that day); the undergroun
 - **Waves only spawn inside the pit's floor** (`WorldMap.playArea`), since the rock around it has no colliders.
 - **A wave still alive after 90 s is joined by the next one,** without its clear bonus, so a party cannot stall a wave to farm a summoner's adds and a stuck monster cannot freeze a run.
 - **Score uses the monster's XP value before the level-gap penalty,** so outlevelling the waves does not shrink it. Monsters that pay no rewards (raised corpses) score nothing. Admin XP overrides do not change score, so a season stays comparable ([monsters.md](monsters.md)).
+- **The admin's starter damage multipliers apply in the Arena** as everywhere else (owner, 2026-10-01): a run casts the live values, so scores from before and after a change are not comparable within a season. Accepted; see [runes.md](runes.md) ("Starter damage multipliers").
 - **Reduced rewards:** Arena kills come fast and in bulk, so full XP would outpace the world; no loot or gold for the same reason.
 - **One life:** the fallen see what lies within the interest radius (1100 units) from where they fell. A fallen Binder's minions are desummoned at the death and come back at the gate ([minions.md](minions.md)), so a dead member's warband neither fights on for the living nor idles in the pit. After 10 s on the score screen, everyone still there goes back to the gate on their feet.
 - **Runs never pause and refuse dev commands.**

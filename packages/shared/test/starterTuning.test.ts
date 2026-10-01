@@ -10,6 +10,7 @@ import {
   parseSettingsPatch,
   parseStarterDamage,
   Simulation,
+  SKILL_BUTTONS,
   STARTER_DAMAGE_PER_FORCE,
   STARTER_SIGILS,
   starterDamageEstimate,
@@ -118,15 +119,75 @@ describe('starter damage multiplier', () => {
     });
   });
 
-  it('leaves heals and shields alone: they read damageScale, which it does not touch', () => {
-    for (const id of ['holy_nova', 'sanctuary', 'prayer', 'iron_skin', 'soul_link']) {
-      const s = sigil(id);
+  it('takes no multiplier on a starter that deals no damage: no note, no tuned line, heals and shields measured unchanged', () => {
+    for (const id of ['holy_nova', 'sanctuary', 'prayer', 'iron_skin', 'soul_link', 'blink', 'evade']) {
       const d = def(id);
-      const plain = nodes(compileSigilItem(s, d.classId));
-      const tuned = nodes(compileSigilItem(s, d.classId, { [id]: 3 }));
-      tuned.forEach((n, i) => expect(n.damageScale).toBe(plain[i]?.damageScale));
+      const s = sigil(id);
+      expect(starterDamageFor(s, { [id]: 3 }), id).toBe(1);
+      expect(compileSigilItem(s, d.classId, { [id]: 3 }), id).toEqual(compileSigilItem(s, d.classId));
+      expect(parseStarterDamage({ [id]: 2 }), id).toMatch(/deals no damage/);
     }
+    expect(storedStarterDamage({ holy_nova: 2, bone_spear: 2 })).toEqual({ table: { bone_spear: 2 }, dropped: ['holy_nova'] });
+    expect(isStarterDamage({ holy_nova: 2 })).toBe(false);
+
+    // Measured in a live sim: Holy Nova's heal and Prayer's regeneration on a priest, Iron Skin's
+    // damage reduction on a warrior, with every starter's table entry at 3 and without.
+    const everything: StarterDamage = Object.fromEntries(STARTER_SIGILS.map((x) => [x.id, 3]));
+    const priest = (table: StarterDamage): { healed: number; regen: number } => {
+      const sim = new Simulation(5, { kind: 'flat' });
+      sim.setRates({ ...sim.rates, starterDamage: table });
+      const pid = sim.addPlayer('p', 'priest', 'Priest');
+      const h = sim.world.health.get(pid);
+      const p = sim.world.player.get(pid);
+      if (!h || !p) throw new Error('no priest');
+      const slot = p.sigils.findIndex((eq) => eq !== null && p.items.get(eq.uid)?.name === 'Holy Nova');
+      expect(slot).toBeGreaterThanOrEqual(0);
+      h.life = 1;
+      sim.applyInput(pid, { seq: 1, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: SKILL_BUTTONS[slot] ?? 0 });
+      for (let t = 0; t < 20; t++) sim.step();
+      return { healed: h.life - 1, regen: sim.world.buffs.get(pid)?.regenPerSecond ?? 0 };
+    };
+    const warrior = (table: StarterDamage): number => {
+      const sim = new Simulation(5, { kind: 'flat' });
+      sim.setRates({ ...sim.rates, starterDamage: table });
+      const pid = sim.addPlayer('w', 'warrior', 'Warrior');
+      sim.step();
+      return sim.world.buffs.get(pid)?.damageReduction ?? 0;
+    };
+    const plain = priest({});
+    expect(plain.healed).toBeGreaterThan(0);
+    expect(priest(everything)).toEqual(plain);
+    expect(warrior({})).toBeGreaterThan(0);
+    expect(warrior(everything)).toBe(warrior({}));
   });
+
+  it('a split starter in a live sim: every arrow of Multishot deals double at 2x, and there are as many', () => {
+    const volley = (table: StarterDamage): number[] => {
+      const sim = new Simulation(9, { kind: 'flat' });
+      sim.setRates({ ...sim.rates, starterDamage: table });
+      const pid = sim.addPlayer('r', 'ranger', 'Ranger');
+      const p = sim.world.player.get(pid);
+      if (!p) throw new Error('no ranger');
+      const slot = p.sigils.findIndex((eq) => eq !== null && p.items.get(eq.uid)?.name === 'Multishot');
+      expect(slot).toBeGreaterThanOrEqual(0);
+      sim.applyInput(pid, { seq: 1, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: SKILL_BUTTONS[slot] ?? 0 });
+      sim.step();
+      return [...sim.world.projectile.values()].filter((pr) => pr.ownerId === pid).map((pr) => pr.damage);
+    };
+    const plain = volley({});
+    const tuned = volley({ multishot: 2 });
+    expect(plain.length).toBe(5);
+    expect(tuned.length).toBe(plain.length);
+    tuned.forEach((d, i) => expect(d).toBeCloseTo((plain[i] ?? 0) * 2, 6));
+  });
+
+  it('a multi-shape starter through the harness: Frozen Orb, orb and shard payload, deals double at 2x', () => {
+    const base = STARTER_DAMAGE_PER_FORCE.frozen_orb;
+    if (!base) throw new Error('frozen_orb missing');
+    const pf = perForce(measureTuned(def('frozen_orb'), { frozen_orb: 2 }));
+    expect(pf.single).toBeCloseTo(base.single * 2, 2);
+    expect(pf.pack).toBeCloseTo(base.pack * 2, 2);
+  }, 60_000);
 
   it('never reaches a starter with any rune changed, nor a player-made spell with the same runes', () => {
     const table = { bone_spear: 2 };
