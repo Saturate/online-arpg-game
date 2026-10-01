@@ -294,7 +294,25 @@ let version = 0;
  * of range are skipped, so a client older or newer than the server keeps the rest. The same values
  * always give the same numbers, whatever was applied before.
  */
-export function applyTunables(values: Readonly<TunableValues>): void {
+/**
+ * Splits a set into what can be applied and the affix tables it would leave broken (a partial set:
+ * one number of a table dropped as out of range on load or by an older client). A broken table keeps
+ * its code defaults whole rather than half its tuning; `dropped` names each with the paths it loses.
+ */
+export function withoutBrokenAffixTables(values: Readonly<TunableValues>): { kept: TunableValues; dropped: { why: string; paths: string[] }[] } {
+  const kept: TunableValues = { ...values };
+  const dropped: { why: string; paths: string[] }[] = [];
+  for (const id of AFFIX_IDS) {
+    const why = affixTableProblem(id, kept);
+    if (why === null) continue;
+    const paths = Object.keys(kept).filter((p) => p.startsWith(`affix.${id}.`));
+    for (const p of paths) delete kept[p];
+    dropped.push({ why, paths });
+  }
+  return { kept, dropped };
+}
+
+export function applyTunables(values: Readonly<TunableValues>, onDropped?: (why: string) => void): void {
   for (const s of slots) Reflect.set(s.target, s.key, s.spec.default);
   const valid: TunableValues = {};
   for (const path of Object.keys(values).sort()) {
@@ -303,16 +321,12 @@ export function applyTunables(values: Readonly<TunableValues>): void {
     if (!slot || v === undefined || tunableProblem(slot.spec, v) !== null || v === slot.spec.default) continue;
     valid[path] = v;
   }
-  // An affix table that a partial set leaves broken (one of its numbers dropped as out of range)
-  // keeps its code defaults whole rather than half its tuning.
-  for (const id of AFFIX_IDS) {
-    if (affixTableProblem(id, valid) === null) continue;
-    for (const path of Object.keys(valid)) if (path.startsWith(`affix.${id}.`)) delete valid[path];
-  }
+  const { kept, dropped } = withoutBrokenAffixTables(valid);
+  for (const d of dropped) onDropped?.(`${d.why}; ${d.paths.join(', ')} left at the code table`);
   const next: TunableValues = {};
-  for (const path of Object.keys(valid).sort()) {
+  for (const path of Object.keys(kept).sort()) {
     const slot = byPath.get(path);
-    const v = valid[path];
+    const v = kept[path];
     if (!slot || v === undefined) continue;
     Reflect.set(slot.target, slot.key, v);
     next[path] = v;

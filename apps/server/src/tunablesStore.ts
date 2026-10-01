@@ -1,4 +1,4 @@
-import { parseTunableValues, TUNING_HISTORY_LIMIT, type TunableHistoryEntry, type TunableValues } from '@rune/shared';
+import { parseTunableValues, TUNING_HISTORY_LIMIT, withoutBrokenAffixTables, type TunableHistoryEntry, type TunableValues } from '@rune/shared';
 import type { DatabaseSync } from 'node:sqlite';
 import { events } from './eventLog.js';
 
@@ -49,11 +49,22 @@ export class TunablesStore {
     `);
   }
 
-  /** Every row is validated again, so a range narrowed since it was saved cannot let a bad number through. */
+  /**
+   * Every row is validated again, so a range narrowed since it was saved cannot let a bad number
+   * through. An affix table those drops leave broken loses its other rows too, logged and deleted,
+   * so the stored set is the one in force and no hidden value comes back with a later change.
+   */
   load(): TunableValues {
     const raw: Record<string, unknown> = {};
     for (const r of this.db.prepare('SELECT path, value FROM tunable_values').all()) if (typeof r.path === 'string') raw[r.path] = r.value;
-    return parseTunableValues(raw, (why) => events.warn('server', `[tuning] ignoring stored override: ${why}`));
+    const parsed = parseTunableValues(raw, (why) => events.warn('server', `[tuning] ignoring stored override: ${why}`));
+    const { kept, dropped } = withoutBrokenAffixTables(parsed);
+    const remove = this.db.prepare('DELETE FROM tunable_values WHERE path = ?');
+    for (const d of dropped) {
+      events.warn('server', `[tuning] dropping stored overrides ${d.paths.join(', ')}: ${d.why}`);
+      for (const p of d.paths) remove.run(p);
+    }
+    return kept;
   }
 
   /** Writes the values and one history row per change in one transaction; returns the rows. */

@@ -185,7 +185,7 @@ export class RoomManager implements AdminHooks {
     this.townLayout = loadTownLayout();
     this.tuning = new LiveTuning(store.tuning);
     // Before any room exists, so the first sigil compiled and the first welcome use the stored numbers.
-    applyTunables(store.tunables.load());
+    applyTunables(store.tunables.load(), (why) => events.warn('server', `[tuning] ${why}`));
   }
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */

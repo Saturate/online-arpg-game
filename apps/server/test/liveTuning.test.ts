@@ -4,8 +4,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { activeTunables, applyTunables, isTunableHistoryEntry, isTunablesState, resetTunables, SKILL_BUTTONS, SPELL, TUNABLES, type ServerMessage, type TunableHistoryEntry, type TunablesState } from '@rune/shared';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
+import { events } from '../src/eventLog.js';
 import { AccountApi } from '../src/http.js';
 import { RoomManager } from '../src/manager.js';
 import { FakeSocket } from './fakeSocket.js';
@@ -207,6 +209,30 @@ describe('live tuning storage', () => {
 
     store.tunables.commit([{ path: 'spell.zone.radius', old: 120, new: -1 }], { account: 'boss', token: null });
     expect(store.tunables.load()).toEqual({ 'force.rune.nova': 20 });
+    store.close();
+  });
+
+  it('drops, logs and deletes the rest of an affix table a refused stored value leaves broken', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'tunables-')), 'rune.db');
+    const store = new AccountStore(file);
+    // T6 lowered to make room, T5 moved down into it: valid together.
+    store.tunables.commit(
+      [
+        { path: 'affix.rune_damage.t6.max', old: null, new: 14 },
+        { path: 'affix.rune_damage.t5.min', old: null, new: 15 },
+        { path: 'force.rune.nova', old: null, new: 20 },
+      ],
+      { account: 'boss', token: null },
+    );
+    expect(store.tunables.load()).toEqual({ 'affix.rune_damage.t6.max': 14, 'affix.rune_damage.t5.min': 15, 'force.rune.nova': 20 });
+    // A later range refuses the T6 number; T5 alone would overlap the code T6, so it goes too.
+    store.tunables.commit([{ path: 'affix.rune_damage.t6.max', old: 14, new: 1e9 }], { account: 'boss', token: null });
+    const warn = vi.spyOn(events, 'warn');
+    expect(store.tunables.load()).toEqual({ 'force.rune.nova': 20 });
+    expect(warn.mock.calls.some(([, text]) => typeof text === 'string' && text.includes('dropping stored overrides affix.rune_damage.t5.min'))).toBe(true);
+    warn.mockRestore();
+    const left = new DatabaseSync(file).prepare('SELECT path FROM tunable_values ORDER BY path').all().map((r) => r.path);
+    expect(left).toEqual(['affix.rune_damage.t6.max', 'force.rune.nova']);
     store.close();
   });
 });
