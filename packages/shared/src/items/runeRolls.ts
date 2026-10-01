@@ -105,6 +105,17 @@ export function honestTier(id: AffixId, value: number): number {
 }
 
 /**
+ * The tier a roll counts as: its stored tier while its value lies inside that tier's range, since
+ * tiers share their ends (a 35% size roll can be a T2 or a T3 drop), else the honest tier of its
+ * value (old starter rolls stored at tier 0 whatever their value).
+ */
+export function affixRollTier(a: AffixRoll): number {
+  if (!isAffixId(a.id)) return 0;
+  const t = AFFIXES[a.id].tiers[a.tier];
+  return t && a.value >= t.min && a.value <= t.max ? a.tier : honestTier(a.id, a.value);
+}
+
+/**
  * A roll stronger than its own tier allows (only hand-set starter rolls are) moves to its honest
  * tier; any roll inside or below its tier's range, which every drop is, is left alone.
  */

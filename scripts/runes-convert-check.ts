@@ -27,6 +27,7 @@ import {
   applyTunables,
   clampRuneRolls,
   holdsStarterRecipe,
+  starterRunesOffRecipe,
   liveStarterRunes,
   slotHoldsRecipeRune,
   starterTuningProblem,
@@ -383,19 +384,22 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
   console.log(`  rune rolls: ${changed} of ${before.length} items changed; "first rune is free" removed from ${r.affixesRemoved.length} sigils${r.affixesRemoved.length > 0 ? ` (${r.affixesRemoved.join(', ')})` : ''}; renamed ${r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none'}; starters rebuilt: ${r.startersRebuilt.map((x) => `${x.starter} ${x.sigil} (bound ${x.runesRemoved.join(', ') || 'none'} removed, unbound ${x.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none'}; ${r.runesRetiered.length} runes re-tiered`);
   if (edited.length > 0) console.log(`  buffed starters changed at the forge, left alone: ${edited.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
   if (clamped.length > 0) console.log(`  starter sigils not holding their starter's runes in order, cast with clamped rolls: ${clamped.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
-  // A starter that holds its runes in order but no longer matches the recipe through a rune the
-  // starter itself made (bound and not from the bench, or rolled past every drop table) was not
-  // refilled by its player: the recipe's affix kinds changed, or a roll's honest tier went up, in
-  // code. Every such copy would cast clamped, so the change needs its old recipe in OLD_STARTER_RUNES.
-  // A slot refilled with the player's own find is theirs to change and is only listed above.
-  for (const it of clamped) {
-    const def = matchingStarter(it);
-    if (!def) continue;
-    const made = it.slots.filter((slot, i) => {
-      const recipe = def.runes[i];
-      return recipe !== undefined && !slotHoldsRecipeRune(slot, recipe) && slot.bench !== true && (slot.bound === true || clampRuneRolls(slot) !== slot);
-    });
-    if (made.length > 0) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order, but ${made.map((r) => r.uid).join(', ')} made by the starter no longer match the recipe's affix kinds or tiers, so it casts clamped; add the old recipe to OLD_STARTER_RUNES`);
+  // A starter that holds its runes in order but no longer matches its recipe through a rune the
+  // starter itself made was not changed by its player: the recipe's affix kinds changed, or a roll's
+  // honest tier went up, in code. Every such copy would cast clamped, so the change needs its old
+  // recipe in OLD_STARTER_RUNES (starterRunesOffRecipe says which runes are the starter's own).
+  // Checked on every sigil, not only those that cast clamped: most starters hold only rolls inside
+  // the tables.
+  for (const it of after) {
+    if (it.kind !== 'sigil') continue;
+    const made = starterRunesOffRecipe(it);
+    if (made.length > 0) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order, but its own runes ${made.map((r) => r.uid).join(', ')} no longer match the recipe's affix kinds or tiers, so it casts clamped; add the old recipe to OLD_STARTER_RUNES`);
+    // A bound rune of the recipe's rune id with other affix kinds is either a kit rune moved in from
+    // another starter or a recipe whose affix kinds changed in code without an entry; nothing on the
+    // item tells them apart, so it is listed for a person to look at rather than failed.
+    const def = it.starter !== undefined && !holdsStarterRecipe(it) ? matchingStarter(it) : undefined;
+    const unsure = def ? it.slots.filter((slot, i) => slot.bound === true && slot.bench !== true && !made.includes(slot) && def.runes[i] !== undefined && !slotHoldsRecipeRune(slot, def.runes[i])) : [];
+    if (unsure.length > 0) console.log(`  WARN ${it.starter} sigil ${it.uid}: bound runes ${unsure.map((r) => r.uid).join(', ')} do not match the recipe; a kit rune moved from another starter, or a recipe change that needs OLD_STARTER_RUNES`);
   }
   // A whole starter casts the live recipe, whatever values its runes were made with, so a retune of
   // the numbers within their tiers needs no OLD_STARTER_RUNES entry. Each whole starter must cast

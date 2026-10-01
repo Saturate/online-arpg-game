@@ -5,11 +5,11 @@ import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type Ge
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { liveStarterRunes, starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
-import { clampRuneRolls, honestTier } from './runeRolls.js';
+import { clampRuneRolls, honestTier, affixRollTier } from './runeRolls.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
-export { clampRoll, clampRuneRolls, honestTier, isNoStronger, retierRoll, rollLosses } from './runeRolls.js';
+export { clampRoll, clampRuneRolls, honestTier, isNoStronger, retierRoll, rollLosses, affixRollTier } from './runeRolls.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
@@ -301,10 +301,11 @@ export function runeRecipeKey(item: RuneItem): string {
 
 /**
  * Whether a rune in a starter's slot stands for the recipe's rune there: the same rune with the
- * same affix kinds, and each roll at least the honest tier of the recipe's roll (its value read
- * fresh, not the stored tier, which old saves have wrong). Values inside a tier are ignored, so a
- * copy made before a retune still matches; a weaker roll does not, so swapping a starter's rune for
- * a cheaper one and keeping the starter's numbers can never upgrade what the player holds.
+ * same affix kinds, and each roll at least the honest tier of the recipe's roll (the roll's own
+ * tier by affixRollTier, so a T3 drop at a shared tier end counts as T3). Values inside a tier are
+ * ignored, so a copy made before a retune still matches; a weaker roll does not, so swapping a
+ * starter's rune for a cheaper one and keeping the starter's numbers never upgrades what the
+ * player holds.
  */
 export function slotHoldsRecipeRune(slot: RuneItem, recipe: RuneInstance): boolean {
   if (slot.bench === true || slot.rune !== recipe.id) return false;
@@ -312,7 +313,7 @@ export function slotHoldsRecipeRune(slot: RuneItem, recipe: RuneInstance): boole
   if (want.length !== slot.affixes.length) return false;
   return want.every((w) => {
     const have = slot.affixes.find((a) => a.id === w.id);
-    return have !== undefined && honestTier(have.id, have.value) >= honestTier(w.id, w.value);
+    return have !== undefined && affixRollTier(have) >= honestTier(w.id, w.value);
   });
 }
 
@@ -368,11 +369,12 @@ export function castingSlots(item: SigilItem): RuneItem[] {
 }
 
 /**
- * The runes to show with their rolls: a whole starter's live numbers, which is what it casts, and
- * otherwise the stored rolls, which are what come out of the sigil.
+ * The runes to show with their rolls: what the sigil casts (a whole starter's live numbers, or
+ * rolls clamped into the tables), shown beside the stored rolls where they differ, since those are
+ * what come out of the sigil.
  */
 export function shownSlots(item: SigilItem): RuneItem[] {
-  return holdsStarterRecipe(item) ? castingSlots(item) : item.slots;
+  return castingSlots(item);
 }
 
 /**

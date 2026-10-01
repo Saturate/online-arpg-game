@@ -37,9 +37,9 @@ import { useSigilCooldown } from './useSigilCooldown.js';
 import { useTunables } from '../game/tunables.js';
 
 /**
- * A roll as a whole starter casts it, with the rune's own roll beside it when they differ (a live
- * retune, or a refill with another roll), since the rune's own roll is what it sells for and keeps
- * when it comes out.
+ * A roll as the sigil casts it, with the rune's own roll beside it when they differ (a live retune,
+ * a refill with another roll, or a starter roll clamped outside its whole starter), since the rune's
+ * own roll is what it sells for and keeps when it comes out.
  */
 export function rollWithStored(a: AffixRoll, stored: RuneItem | undefined): string {
   const own = stored?.affixes.find((s) => s.id === a.id);
@@ -48,7 +48,7 @@ export function rollWithStored(a: AffixRoll, stored: RuneItem | undefined): stri
 
 /**
  * A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover, and `stored`
- * when `item` carries a whole starter's live rolls rather than the rune's own.
+ * when `item` carries the rolls it casts with rather than the rune's own.
  */
 export function RuneChip({ id, item, stored, small = false, onClick }: { id: RuneId; item?: RuneItem; stored?: RuneItem | undefined; small?: boolean; onClick?: () => void }) {
   const kind = runeKind(id);

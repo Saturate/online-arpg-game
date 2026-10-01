@@ -243,7 +243,7 @@ export function ForgeEditor() {
   const drafted = useMemo(() => (sigil && resolution ? draftSigil(sigil, resolution) : null), [sigil, resolution]);
   const tunables = useTunables((s) => s.version);
   const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId, tunables]);
-  // A whole starter shows the live numbers it casts on hover; the weakening warning still reads the stored rolls.
+  // The hover shows what each rune casts as (a whole starter's live numbers, or clamped rolls); the weakening warning reads the stored rolls.
   const shown = useMemo(() => (drafted ? shownSlots(drafted) : []), [drafted, tunables]);
 
   if (!open || !inv || !classId) return null;
@@ -392,7 +392,7 @@ export function ForgeEditor() {
                   const weakens = slot.origin === 'sigil' ? weakening(slot.item) : null;
                   const live = shown[i];
                   const own = live && live !== slot.item ? live.affixes.map((a) => rollWithStored(a, slot.item)).filter((t) => t.includes('(rune: ')) : [];
-                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}${own.length > 0 ? ` · Casts the starter's numbers: ${own.join('; ')}` : ''}`;
+                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}${own.length > 0 ? ` · Casts as ${own.join('; ')}` : ''}`;
                   return (
                     <li key={`${refKey(slot.ref)}-${i}`} className={cls} onDragOver={(e) => dragOver(e, i)} onDragLeave={() => setDropAt(null)} onDrop={(e) => onSlotDrop(e, i)}>
                       <button

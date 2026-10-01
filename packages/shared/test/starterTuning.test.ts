@@ -22,6 +22,7 @@ import {
   TUNABLES,
   tunableValue,
   starterTuningProblem,
+  starterRunesOffRecipe,
   sellPrice,
   buyPrice,
   forgeInsertPrice,
@@ -332,5 +333,43 @@ describe('refusing tuning that breaks a starter', () => {
     starterTuningProblem({ 'starter.frozen_orb.0.every': 0.14, 'starter.frozen_orb.2.count': 5 });
     expect(tunableValue('starter.bone_spear.0.damage')).toBe(60);
     expect(tunableValue('starter.frozen_orb.0.every')).toBe(0.18);
+  });
+});
+
+describe('tier ends and what convert-check calls the starter\'s own runes', () => {
+  it('counts a roll at a shared tier end by its stored tier', () => {
+    const nova = made('static_nova');
+    const at35 = runeItemFromInstance(710, { id: 'nova', affixes: { size: 35 } }, false);
+    const t3: SigilItem = { ...nova, slots: [{ ...at35, affixes: at35.affixes.map((a) => ({ ...a, tier: 2 })) }, ...nova.slots.slice(1)] };
+    const t2: SigilItem = { ...nova, slots: [{ ...at35, affixes: at35.affixes.map((a) => ({ ...a, tier: 1 })) }, ...nova.slots.slice(1)] };
+    expect(holdsStarterRecipe(t3)).toBe(true);
+    expect(holdsStarterRecipe(t2)).toBe(false);
+  });
+
+  it('flags a bound starter rune of the recipe kinds a tier low, not a kit rune moved from another starter or a player find', () => {
+    let uid = 800;
+    const kit = (id: string) => createStarterSigil(() => uid++, starter(id), { bound: true });
+    const fireball = kit('fireball');
+    const novaFromStatic = kit('static_nova').slots[0];
+    if (!novaFromStatic) throw new Error('no nova');
+    const moved: SigilItem = { ...fireball, slots: fireball.slots.map((r, i) => (i === 2 ? novaFromStatic : r)) };
+    expect(holdsStarterRecipe(moved)).toBe(false);
+    expect(starterRunesOffRecipe(moved)).toEqual([]);
+    // As a recipe whose pierce went up a tier in code would leave every kit Bone Spear.
+    const spear = kit('bone_spear');
+    const low = { ...runeItemFromInstance(uid++, { id: 'bolt', affixes: { pierce: 1, speed: 50, damage: 40 } }, true) };
+    const stale: SigilItem = { ...spear, slots: [low] };
+    expect(starterRunesOffRecipe(stale).map((r) => r.uid)).toEqual([low.uid]);
+    // The same rolls on an unbound rune inside the tables are a player's own refill.
+    const find: SigilItem = { ...spear, bound: false, slots: [{ ...low, bound: false }] };
+    expect(starterRunesOffRecipe(find)).toEqual([]);
+    expect(starterRunesOffRecipe(spear)).toEqual([]);
+  });
+
+  it('shows an incomplete starter\'s runes at the clamped rolls it casts', () => {
+    const fb = made('fireball');
+    const piece: SigilItem = { ...fb, slots: fb.slots.slice(0, 2) };
+    expect(shownSlots(piece)[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(55);
+    expect(piece.slots[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(100);
   });
 });
