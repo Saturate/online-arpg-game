@@ -473,6 +473,8 @@ export const GATES = {
    * boss standing 170 back rather than on top of it.
    */
   returnBack: 520,
+  /** Longest a due gate boss waits for the players it is sealed to to look away before it returns anyway. */
+  maxRespawnDelaySeconds: 120,
 } as const;
 
 export const DUNGEON = {

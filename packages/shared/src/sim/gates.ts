@@ -1,4 +1,4 @@
-import { GATES, NET } from '../config/sim.js';
+import { GATES, NET, SIM } from '../config/sim.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { GateInfo } from '../world/types.js';
 import type { EnemyComp, EntityId } from './ecs.js';
@@ -82,12 +82,17 @@ export function gateBoss(sim: Simulation, gateId: string): EntityId | null {
   return sim.world.enemy.get(b.entity)?.gate === gateId ? b.entity : null;
 }
 
-/** `living` false counts the dead too: someone waiting to respawn still sees the screen. */
-function playerNear(sim: Simulation, x: number, y: number, range: number, living = true): boolean {
+/**
+ * `living` false counts the dead too: someone waiting to respawn still sees the screen. `sealedTo`
+ * counts only players the gate is still sealed for, so people idling past an opened gate (its
+ * waypoint stands about 640 away) do not hold the boss back from the newcomers who need it.
+ */
+function playerNear(sim: Simulation, x: number, y: number, range: number, living = true, sealedTo: string | null = null): boolean {
   const w = sim.world;
   const r2 = range * range;
   for (const [id, p] of w.player) {
     if (living && p.respawnIn !== null) continue;
+    if (sealedTo !== null && p.gates.includes(sealedTo)) continue;
     const pos = w.position.get(id);
     if (pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) return true;
   }
@@ -125,7 +130,14 @@ export function updateGates(sim: Simulation): void {
       b.entity = null;
       b.diedAt ??= sim.tick;
     }
-    if (b.diedAt !== null && (sim.tick - b.diedAt < wait || playerNear(sim, g.bossX, g.bossY, NET.interestRadius, false))) continue;
+    if (b.diedAt !== null) {
+      const since = sim.tick - b.diedAt;
+      if (since < wait) continue;
+      // A newcomer camping the spot would otherwise hold it back for good; past the extra wait it
+      // comes back regardless, which is better than a gate nobody can open.
+      const overdue = since >= wait + GATES.maxRespawnDelaySeconds * SIM.tickRate;
+      if (!overdue && playerNear(sim, g.bossX, g.bossY, NET.interestRadius, false, g.id)) continue;
+    }
     if (playerNear(sim, g.x, g.y, GATES.spawnRange)) spawnGateBoss(sim, g, b);
   }
 }

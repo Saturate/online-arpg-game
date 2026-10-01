@@ -175,12 +175,15 @@ describe('gate bosses', () => {
     dealDamage(sim, first, 1e9, a, []);
     for (let i = 0; i < 50; i++) sim.step();
     expect(gateBoss(sim, g.id)).toBeNull();
-    // Due, but the hero stands within view of the boss's spot: it waits rather than appear in plain sight.
+    // Due, but a newcomer the gate is sealed to stands within view of the boss's spot: it waits rather
+    // than appear in plain sight. The killer has the gate, so they do not hold it back.
+    const b = hero(sim, 'b', beforeGate(g, 400));
     for (let i = 0; i < 40; i++) sim.step();
     expect(gateBoss(sim, g.id)).toBeNull();
     // Out of view of the spot (the interest radius, 1100) but still near enough the gate to spawn it.
+    sim.world.position.set(b, sim.map.findOpen(beforeGate(g, 1500).x, beforeGate(g, 1500).y, 16));
     sim.world.position.set(a, sim.map.findOpen(beforeGate(g, 1500).x, beforeGate(g, 1500).y, 16));
-    expect(Math.hypot((sim.world.position.get(a)?.x ?? 0) - g.bossX, (sim.world.position.get(a)?.y ?? 0) - g.bossY)).toBeGreaterThan(NET.interestRadius);
+    expect(Math.hypot((sim.world.position.get(b)?.x ?? 0) - g.bossX, (sim.world.position.get(b)?.y ?? 0) - g.bossY)).toBeGreaterThan(NET.interestRadius);
     for (let i = 0; i < 6; i++) sim.step();
     const second = gateBoss(sim, g.id);
     expect(second).not.toBeNull();
