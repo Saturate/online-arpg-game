@@ -1,4 +1,4 @@
-import { AFFIXES, type AffixId } from '../data/affixes.js';
+import { AFFIXES, isAffixId, type AffixId } from '../data/affixes.js';
 import type { AffixRoll, RuneItem } from './items.js';
 
 /**
@@ -31,6 +31,8 @@ interface Range {
 
 /** The lowest and highest value any tier of the affix can roll, and the tier each comes from. */
 function rollRange(id: AffixId): Range | null {
+  // Saves can hold an affix id the game no longer has (a retired affix); it has no table to clamp to.
+  if (!isAffixId(id)) return null;
   const tiers = AFFIXES[id].tiers;
   // Tiers that never roll (weight 0) are not something a drop can have.
   const live = tiers.some((t) => t.weight > 0) ? tiers.map((t, tier) => ({ t, tier })).filter(({ t }) => t.weight > 0) : tiers.map((t, tier) => ({ t, tier }));
@@ -89,6 +91,7 @@ export function rollLosses(item: RuneItem): { before: AffixRoll; after: AffixRol
  * value and forge price count tiers, so a starter's split(5) prices as the tier 3 roll it is.
  */
 export function honestTier(id: AffixId, value: number): number {
+  if (!isAffixId(id)) return 0;
   const tiers = AFFIXES[id].tiers.map((t, tier) => ({ t, tier }));
   const live = tiers.some(({ t }) => t.weight > 0) ? tiers.filter(({ t }) => t.weight > 0) : tiers;
   const holding = live.find(({ t }) => value >= t.min && value <= t.max);
@@ -106,6 +109,8 @@ export function honestTier(id: AffixId, value: number): number {
  * tier; any roll inside or below its tier's range, which every drop is, is left alone.
  */
 export function retierRoll(a: AffixRoll): AffixRoll {
+  // An affix id the game no longer has is left as it is, so loading a save or the shelf never throws on it.
+  if (!isAffixId(a.id)) return a;
   const t = AFFIXES[a.id].tiers[a.tier];
   if (!t) return a;
   const better = betterOf(a.id);

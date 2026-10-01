@@ -25,6 +25,7 @@ import {
   RETIRED_SIGIL_AFFIXES,
   castingSlots,
   holdsStarterRecipe,
+  matchingStarter,
   retierRoll,
   runeRollsChanged,
   type RuneItem,
@@ -375,6 +376,11 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
   console.log(`  rune rolls: ${changed} of ${before.length} items changed; "first rune is free" removed from ${r.affixesRemoved.length} sigils${r.affixesRemoved.length > 0 ? ` (${r.affixesRemoved.join(', ')})` : ''}; renamed ${r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none'}; starters rebuilt: ${r.startersRebuilt.map((x) => `${x.starter} ${x.sigil} (bound ${x.runesRemoved.join(', ') || 'none'} removed, unbound ${x.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none'}; ${r.runesRetiered.length} runes re-tiered`);
   if (edited.length > 0) console.log(`  buffed starters changed at the forge, left alone: ${edited.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
   if (clamped.length > 0) console.log(`  starter sigils not holding their whole recipe, now cast with clamped rolls: ${clamped.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
+  // One that still holds its starter's runes in order but not its current rolls is a retune that
+  // forgot OLD_STARTER_RUNES: every copy out there would quietly lose its numbers.
+  for (const it of clamped) {
+    if (matchingStarter(it)) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order but not the current rolls, so it would cast clamped; add the old recipe to OLD_STARTER_RUNES`);
+  }
 
   check(problems, after.length === before.length, `item count ${before.length} -> ${after.length}`);
   before.forEach((b, i) => {

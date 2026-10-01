@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AFFIXES,
   BAG,
+  clampRuneRolls,
   compileSigilItem,
   convertRuneRolls,
   createGear,
@@ -219,6 +220,24 @@ describe('the buffed starters on load', () => {
     const placed = placeReturned(bag, runes);
     expect(placed.filter((u) => u === 1)).toHaveLength(1);
     expect(placed.includes(2)).toBe(false);
+  });
+});
+
+describe('affix ids the game no longer has', () => {
+  it('are left as they are on runes, loose or in a sigil, and nothing throws', () => {
+    const rune = fromJson({ ...createRune(1, 'bolt'), tier: 'magic', affixes: [{ id: 'retired_someday', tier: 2, value: 400 }, { id: 'rune_damage', tier: 0, value: 300 }] });
+    if (rune.kind !== 'rune') throw new Error('setup');
+    const sigil = fromJson({ ...createSigil(2, new Rng(1), 'magic'), slots: [{ ...rune, uid: 3 }] });
+    const { items, report } = convertRuneRolls([rune, sigil]);
+    const [loose, held] = items;
+    if (loose?.kind !== 'rune' || held?.kind !== 'sigil') throw new Error('kind changed');
+    expect(loose.affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });
+    // The known roll beside it still moves to its honest tier.
+    expect(loose.affixes[1]).toEqual({ id: 'rune_damage', tier: 2, value: 300 });
+    expect(held.slots[0]?.affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });
+    expect(report.runesRetiered).toEqual([1, 3]);
+    expect(clampRuneRolls(loose).affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });
+    expect(() => compileSigilItem(held, 'mage')).not.toThrow();
   });
 });
 

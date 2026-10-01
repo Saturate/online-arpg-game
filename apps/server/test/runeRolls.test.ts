@@ -113,6 +113,20 @@ function storedItems(raw: DatabaseSync, sql: string, id: number): Item[] {
 }
 
 describe('rune roll decisions on the server', () => {
+  it('load a shelf whose items carry an affix id the game no longer has', async () => {
+    const { store, raw } = await database();
+    const smite = starterSigilById('smite');
+    if (!smite) throw new Error('smite');
+    const odd = { ...createStarterSigil(next, smite, { bound: false }), uid: 0 };
+    const rune = { uid: 0, kind: 'rune', tier: 'magic', name: 'Bolt Rune', ilvl: 4, rune: 'bolt', count: 1, affixes: [{ id: 'retired_someday', tier: 2, value: 1 }] };
+    const shelf = { nextId: 3, runeFormat: 2, stock: [{ id: 1, price: 10, item: rune }, { id: 2, price: 10, item: { ...odd, slots: odd.slots.map((s) => ({ ...s, affixes: [...s.affixes, { id: 'retired_someday', tier: 0, value: 1 }] })) } }] };
+    raw.prepare("INSERT INTO settings (key, value) VALUES ('trader', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(shelf));
+    const market = store.loadMarket();
+    expect(market.stock.map((e) => e.id)).toEqual([1, 2]);
+    expect(market.stock[0]?.item.affixes).toEqual([{ id: 'retired_someday', tier: 2, value: 1 }]);
+    raw.close();
+  });
+
   it('convert characters, pending items, stashes and the shelf on load, and write them back converted', async () => {
     const { store, raw, accountId, characterId } = await database();
     const loaded = store.loadCharacter(accountId, characterId)?.save;
