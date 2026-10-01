@@ -118,6 +118,12 @@ describe('Concentrated in the grammar', () => {
     expect(CONCENTRATED.defaultMore).toBe(CONCENTRATED.minMore);
   });
 
+  it('leaves Aura and Bond without a damage affix, as the drop table does', () => {
+    expect(errorOf('aura[+50% damage] fire', 'affix-not-allowed').message).toContain('cannot carry a damage affix');
+    expect(errorOf('bond[+20% damage] ward', 'affix-not-allowed').runeIndex).toBe(0);
+    expect(root('nova[+50% damage]').stats.damage).toBe(50);
+  });
+
   it('carries no other affix, and is no shape to start with', () => {
     expect(errorOf('nova concentrated[+20% damage]', 'affix-not-allowed').runeIndex).toBe(1);
     expect(errorOf('concentrated nova', 'first-rune-shape').runeIndex).toBe(0);
@@ -312,18 +318,33 @@ function holding(spell: string) {
   return { sim, id, p, compiled: eq.compiled };
 }
 
-const AURA_TYPES = ['fire', 'cold', 'lightning', 'impact', 'ward', 'restore'] as const;
-type AuraType = (typeof AURA_TYPES)[number];
+type AuraKind = 'damage' | 'impact' | 'ward' | 'restore';
 
-/** What one aura does in a second: damage to an enemy beside the caster, its push, or the caster's own buff. */
-function auraStrength(type: AuraType, extra: string): { strength: number; spirit: number } {
-  const { sim, id, compiled } = holding(`aura ${type}${extra}`);
+/** Every aura type, and the element mixes Concentrated multiplies all at once. */
+const AURAS: readonly { runes: string; kind: AuraKind }[] = [
+  { runes: 'fire', kind: 'damage' },
+  { runes: 'cold', kind: 'damage' },
+  { runes: 'lightning', kind: 'damage' },
+  { runes: 'fire cold lightning', kind: 'damage' },
+  { runes: 'fire fire fire', kind: 'damage' },
+  { runes: 'lightning lightning cold', kind: 'damage' },
+  { runes: 'impact', kind: 'impact' },
+  { runes: 'ward', kind: 'ward' },
+  { runes: 'restore', kind: 'restore' },
+];
+
+/** At a 60% roll; the spirit share holds it at 1.6 / 1.35 for any mix, plus rounding. */
+const MAX_DAMAGE_PER_SPIRIT = 1.2;
+
+/** What one aura does in a tick: damage to an enemy beside the caster, its push, or the caster's own buff. */
+function auraStrength(runes: string, kind: AuraKind): { strength: number; spirit: number } {
+  const { sim, id, compiled } = holding(`aura ${runes}`);
   const pos = sim.world.position.get(id);
   if (!pos) throw new Error('no position');
-  if (type === 'ward' || type === 'restore') {
+  if (kind === 'ward' || kind === 'restore') {
     sim.step();
     const b = sim.world.buffs.get(id);
-    return { strength: type === 'ward' ? (b?.damageReduction ?? 0) : (b?.regenPerSecond ?? 0), spirit: compiled.spirit };
+    return { strength: kind === 'ward' ? (b?.damageReduction ?? 0) : (b?.regenPerSecond ?? 0), spirit: compiled.spirit };
   }
   const eid = spawnEnemy(sim, 'chaser', pos.x + 30, pos.y, { rare: false, level: 1, aggro: false, boss: false });
   const h = sim.world.health.get(eid);
@@ -333,27 +354,35 @@ function auraStrength(type: AuraType, extra: string): { strength: number; spirit
   sim.step();
   // An idle enemy keeps its knockback queued, so the push one tick adds is readable there.
   const e = sim.world.enemy.get(eid);
-  return { strength: type === 'impact' ? Math.hypot(e?.knockX ?? 0, e?.knockY ?? 0) : 1e9 - h.life, spirit: compiled.spirit };
+  return { strength: kind === 'impact' ? Math.hypot(e?.knockX ?? 0, e?.knockY ?? 0) : 1e9 - h.life, spirit: compiled.spirit };
 }
 
 describe('Concentrated adds damage only', () => {
-  for (const type of AURA_TYPES) {
-    it(`on a ${type} aura: ${type === 'fire' || type === 'cold' || type === 'lightning' ? 'more damage per tick, at no better than 1.25x the damage per spirit' : 'the same strength, so less per spirit'}`, () => {
+  for (const { runes, kind } of AURAS) {
+    const what = kind === 'damage' ? `more damage per tick, at most ${MAX_DAMAGE_PER_SPIRIT}x the damage per spirit` : 'the same strength, so less per spirit';
+    it(`on aura ${runes}: ${what}`, () => {
       for (const large of ['', ' large']) {
-        const plain = auraStrength(type, large);
-        const conc = auraStrength(type, `${large} concentrated(60)`);
-        expect(plain.strength, `${type}${large}`).toBeGreaterThan(0);
+        const plain = auraStrength(`${runes}${large}`, kind);
+        const conc = auraStrength(`${runes}${large} concentrated(60)`, kind);
+        expect(plain.strength, `${runes}${large}`).toBeGreaterThan(0);
         expect(conc.spirit).toBeGreaterThan(plain.spirit);
-        if (type === 'fire' || type === 'cold' || type === 'lightning') {
+        const perSpirit = conc.strength / conc.spirit / (plain.strength / plain.spirit);
+        if (kind === 'damage') {
           expect(conc.strength / plain.strength).toBeCloseTo(1.6, 2);
-          expect(conc.strength / conc.spirit / (plain.strength / plain.spirit)).toBeLessThanOrEqual(1.25);
+          expect(perSpirit, `${runes}${large}`).toBeLessThanOrEqual(MAX_DAMAGE_PER_SPIRIT);
         } else {
           expect(conc.strength).toBeCloseTo(plain.strength, 6);
-          expect(conc.strength / conc.spirit).toBeLessThan(plain.strength / plain.spirit);
+          expect(perSpirit).toBeLessThan(1);
         }
       }
     });
   }
+
+  it('reserves at least 10 spirit, and 35% of the rest of a bigger aura', () => {
+    const spirit = (text: string): number => compiled(text).spirit;
+    expect(spirit('aura concentrated') - spirit('aura')).toBe(11);
+    expect(spirit('aura fire cold lightning large concentrated') - spirit('aura fire cold lightning large')).toBe(24);
+  });
 
   it('heals and shields no more per cast, and less per Force', () => {
     for (const spell of ['nova restore', 'nova ward', 'zone restore', 'nova restore fire']) {

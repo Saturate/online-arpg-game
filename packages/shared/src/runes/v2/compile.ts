@@ -125,8 +125,16 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   restore: 12,
   swift: 5,
   large: 8,
-  concentrated: 15,
+  /** The least Concentrated reserves; it reserves CONCENTRATED_SPIRIT_SHARE of the rest when that is more. */
+  concentrated: 10,
 };
+
+/**
+ * Concentrated multiplies every element on an aura, so a flat price let a three-element aura reach
+ * 1.31x the damage per spirit. As a share of the rest of the aura it costs the same per damage for
+ * any mix: a 60% roll gives 1.6 / 1.35, at most 1.19x the damage per spirit.
+ */
+const CONCENTRATED_SPIRIT_SHARE = 0.35;
 
 /**
  * Runes that only change the shape they sit on. On a payload they pay HEAT.payloadAffixShare like a
@@ -299,9 +307,14 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
 }
 
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {
-  let spirit = 0;
-  for (const r of runes) spirit += RUNE_SPIRIT[r.id] ?? 0;
-  return Math.round(spirit * mult);
+  let rest = 0;
+  let concentrated = 0;
+  for (const r of runes) {
+    if (r.id === 'concentrated') concentrated++;
+    else rest += RUNE_SPIRIT[r.id] ?? 0;
+  }
+  const each = Math.max(RUNE_SPIRIT.concentrated ?? 0, rest * CONCENTRATED_SPIRIT_SHARE);
+  return Math.round((rest + concentrated * each) * mult);
 }
 
 /** Everything the engine cannot run yet, named. Empty when the tree is castable. */

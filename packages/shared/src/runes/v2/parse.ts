@@ -329,7 +329,11 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       if (a.speed !== undefined) node.stats.speed += a.speed;
       if (a.size !== undefined) node.stats.size += a.size;
       if (a.duration !== undefined) node.stats.duration += a.duration;
-      if (a.damage !== undefined) node.stats.damage += a.damage;
+      if (a.damage !== undefined) {
+        // Matches the drop table (rune_damage never rolls on Aura or Bond): spirit does not price damage.
+        if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry a damage affix.`);
+        else node.stats.damage += a.damage;
+      }
       if (a.pierce !== undefined) {
         if (PROJECTILE_SHAPES.includes(shape)) node.stats.pierce += a.pierce;
         else fail('AFFIX_NOT_ALLOWED', i, `${label(i)} does not fly, so it cannot pierce.`);
