@@ -114,6 +114,8 @@ export interface CharacterModel {
   /** Per-instance GPU resources to free with the model. The file's geometry and shared materials are not listed. */
   owned: { dispose(): void }[];
   attackRole: AnimRole;
+  /** Seconds the wind-up's clamped last frame is still held while waiting for the attack event. */
+  windupHold: number;
 }
 
 /** Small deterministic hash so the same entity always gets the same variation. */
@@ -242,6 +244,7 @@ function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): Charact
     tintMeshes,
     owned,
     attackRole: def.clips?.attack === 'Spellcast_Shoot' || def.id === 'hero_mage' || def.id === 'hero_rogue' || def.id === 'skel_mage' ? 'cast' : 'attack',
+    windupHold: 0,
   };
 }
 
@@ -285,8 +288,15 @@ export function locomotionRole(speed: number, current: AnimRole | null): 'idle' 
 }
 
 /**
+ * Past the telegraph's end the coiled pose is held this long for the attack event, which can
+ * arrive a tick or a network hitch late; a cast is never cancelled, so this only bounds the hold.
+ */
+const WINDUP_GRACE = 0.5;
+
+/**
  * A telegraphed ability began: plays the model's wind-up clip, if it has one, stretched to the
- * telegraph so it ends coiled the moment the ability lands. Models without one keep standing.
+ * telegraph so it ends coiled the moment the ability lands, and held there until the attack.
+ * Models without one keep standing.
  */
 export function windupCharacter(cm: CharacterModel, seconds: number): void {
   const a = cm.actions.get('windup');
@@ -294,6 +304,7 @@ export function windupCharacter(cm: CharacterModel, seconds: number): void {
   if (cm.current === 'windup') a.reset().play();
   else play(cm, 'windup', 0.12);
   a.timeScale = a.getClip().duration / seconds;
+  cm.windupHold = seconds + WINDUP_GRACE;
 }
 
 /**
@@ -302,6 +313,7 @@ export function windupCharacter(cm: CharacterModel, seconds: number): void {
  */
 export function driveCharacter(cm: CharacterModel, s: DriveState): void {
   cm.mixer.update(s.dt);
+  cm.windupHold = Math.max(0, cm.windupHold - s.dt);
   if (s.dead) {
     play(cm, 'death', 0.1);
     return;
@@ -321,7 +333,10 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     const role = cm.actions.has(cm.attackRole) ? cm.attackRole : 'attack';
     const a = cm.actions.get(role);
     // The attack starts from the coiled wind-up pose, which must let go or it holds under the strike.
-    if (cm.current === 'windup') cm.actions.get('windup')?.fadeOut(0.08);
+    if (cm.current === 'windup') {
+      cm.actions.get('windup')?.fadeOut(0.08);
+      cm.windupHold = 0;
+    }
     if (a) {
       a.reset().play();
       cm.current = role;
@@ -329,6 +344,8 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     return;
   }
   if (oneShotRunning) return;
+  // The clip has ended clamped on its coiled frame; locomotion would relax it before the ram.
+  if (cm.current === 'windup' && cm.windupHold > 0) return;
   const loco = locomotionRole(s.speed, cm.current);
   play(cm, loco === 'walk' && !cm.actions.has('walk') ? 'run' : loco);
   const walk = cm.actions.get('walk');
