@@ -1,6 +1,6 @@
 # Live tuning
 
-Status: phase 1 (shapes and runes) built 2026-10-01 on `feat/live-tuning`, not deployed. Phases 2 to 4 planned (owner, 2026-10-01).
+Status: phase 1 (shapes and runes) built 2026-10-01 on `feat/live-tuning`, phase 2 (starters) built 2026-10-01 on `feat/tuning-starters`; neither deployed. Phases 3 and 4 planned (owner, 2026-10-01).
 
 "I want base damage settings for all runes, skills etc. All entities need to be able to be configured via API, deployless."
 
@@ -27,7 +27,7 @@ Every gameplay number that matters for balance can be changed through the admin 
 ## How (plan)
 
 1. **Framework and shapes and runes** (built, below): the registry, storage (an overrides table and a history table in SQLite), the API (`GET /api/admin/tuning` for schema plus current values, `PATCH` for changes, `GET .../history`, `POST .../revert`), delivery to clients, the admin page (a dark table by category, search, the code default beside each value, reset to default per field, the history list with revert), and the first category: shapes and runes.
-2. **Starters:** every starter's own rune numbers (each roll in its recipe) are tunable. A starter sigil that holds its starter's runes in order casts the live recipe numbers rather than the rolls stored on the item, so a tweak reaches every existing copy and never clamps them; the item keeps its stored rolls for prices and extraction.
+2. **Starters** (built, below): every starter's own rune numbers (each roll in its recipe) are tunable. A starter sigil that holds its starter's runes in order casts the live recipe numbers rather than the rolls stored on the item, so a tweak reaches every existing copy and never clamps them; the item keeps its stored rolls for prices and extraction.
 3. **Minions and monster abilities and traits.**
 4. **Players and loot.**
 
@@ -86,11 +86,44 @@ Each phase ships on its own. Loot and prices touch the economy, so phase 4 gets 
 - `apps/client/test/tunables.test.ts`: the client applies a change to the numbers its tooltips compile from, drops bad entries, goes back to defaults on a welcome without tuning, and a recording carries the tuning.
 - Every other test runs with no overrides and still checks the code defaults.
 
+## How (phase 2, starters, built)
+
+**What is tunable (28 numbers).** The Starters category, one group per starter (a heading row on the Tuning tab; `TunableSpec.group`), one row per roll in each recipe in `data/starterSigils.ts`: `starter.<id>.<rune index>.<key>`, for example `starter.bone_spear.0.damage` (Bone Spear's Bolt, +40% damage), `starter.bone_spear.0.pierce`, `starter.bone_spear.0.speed`, `starter.frozen_orb.0.every` (its 0.18 s pulse), `starter.fireball.2.after`, `starter.multishot.1.count`. Starters with no numbers (Iron Skin's `aura ward`, Exploding Arrow's `bolt[onhit] fire nova`) have no rows; an on-hit or on-land release has no number to tune. Defaults are the code recipe.
+
+**Ranges.** Percentages (speed, size, duration, damage) from -90 to 10x the default's size (at least 100): -90 is where the engine's own floor (a tenth) sits, so a buff can be tuned into a drawback but never below what the engine runs. Pierce 0 to 10x, whole. Split copies 2 to 6, whole (the grammar's `SPLIT_COUNT_RANGE`). Release seconds from 0.1 (`MIN_RELEASE_SECONDS`) to 10x the default, at least 1. Concentrated, should a starter carry it, 40 to 60. Every starter compiles at both ends of every range, with the shapes at theirs too, in under 15 ms.
+
+**Mechanism.** `data/starterSigils.ts` keeps a live copy of each recipe (`liveStarterRunes`); the registry points each row at a number in that copy, so `applyTunables` overwrites it in place like every phase 1 number. `STARTER_SIGILS` keeps the code defaults: new starter sigils (the starter kit, drops, the v1 conversion, the rebuild of old Multishot and Flame Cleave) are always made with them, so tuning never changes what an item stores, sells for or extracts to.
+
+**The starter rule** ([runes.md](runes.md), "The starter rule"). `holdsStarterRecipe` is now a rune-id match: the sigil's own `starter` names the starter, and its slots hold that starter's runes in order with the same count, any rolls, no bench runes. Such a sigil casts the live recipe (`castingSlots` gives its slot items with the live rolls, at their honest tiers); anything else casts its stored rolls clamped, as before. The exact-roll match it replaces is why a retune used to need `OLD_STARTER_RUNES`; it no longer does, and the rebuild of the old Multishot and Flame Cleave recipes stays for saves from before.
+
+**Where the live numbers show.** Everything that compiles a sigil goes through `castingSlots`, so the sentence, Force and cooldown follow at once in the tooltip, the forge readout and preview, the skill bar and the stash's sigil list (all already re-render on `useTunables().version` or key on `tunablesVersion()`). The rune chips in the sigil tooltip and the forge's slot hover show the live rolls for a whole starter (`shownSlots`); the forge's "taking this rune out weakens it" warning reads the stored rolls, since those are what come out. The Spell Studio opens a starter at its live recipe text, and a draft there casts its own numbers as written, so an edited roll is what the studio measures and exports (the game would cast the live recipe instead).
+
+**Reaching play.** A change goes through the phase 1 path: `recompileSigils` in every room (the next cast), and the `tunables` message to every client.
+
+**Exploits checked.**
+
+- A sigil without that `starter` never gets starter numbers, even holding the same runes with the same rolls: a player-made `bolt[pierce 4, +50% speed, +40% damage]` casts clamped (pierce 3). `starter` is only set when a sigil is made as a starter; the forge keeps it on the sigil it edits and never sets it.
+- A starter sigil names only its own starter, so it cannot borrow another's numbers by holding its runes.
+- A starter with a rune appended, swapped, missing or reordered casts clamped and is untouched by a tweak. The forge redesign's appending rule is not built.
+- Bench runes are free, so a starter refilled from the builders' bench casts them plain.
+- **A starter refilled with found runes of the same ids casts the recipe.** This is the brief's rule and it already held before with exact rolls, but no drop can carry those, so in practice it is new: each starter sigil can yield its own runes once (they come out clamped, bound if they were) and keep casting with plain refills. It is one rune set per starter sigil, not a loop, because the refill comes out plain. Unbound starter drops (30% of sigil drops) make it a supply of clamped top-tier rolled runes; whether that is acceptable is open for the owner (runes.md, "Limits").
+
+**Tests:**
+
+- `packages/shared/test/starterTuning.test.ts`: every roll of every starter recipe is in the registry under Starters, grouped by starter, at its code default, with the ranges above; every starter casts its stored rolls exactly at the defaults; every starter compiles fast at the ends of its ranges; a Bone Spear damage tweak reaches every copy without changing its stored rolls or its extraction, and shows in `shownSlots`; a copy made with other rolls and one refilled with a plain Bolt cast the recipe; bench runes cast plain; a Bone Spear with a rune appended, a player-made Bolt with Bone Spear's rolls and a sigil naming another starter are untouched by the tweak; in a running simulation, after `recompileSigils`, the next Bone Spear hits for the tuned damage and a player-made Bolt for the same as before; old Multishot and Flame Cleave recipes still convert and then cast the live recipe.
+- `apps/server/test/liveTuning.test.ts`: a PATCH of `starter.bone_spear.0.damage` changes a binder's next Bone Spear in a running room.
+- `apps/client/test/tunables.test.ts`: a received starter change shows in the compiled Force, damage and sentence, in `shownSlots`, and in the Spell Studio's text and price, while the item keeps its rolls; an edited studio draft casts what it says.
+- `pnpm runes:convert-check` on a copy of `rune.db.live-pre-batch-20261001`: all checks passed; 87 starter sigils cast their live recipe, none clamped.
+- The balance tests (`skillParity`, `forcePerDamage` and the rest) are unchanged and pass at the code defaults.
+
 ## Limits and open questions
 
 - A change mid-fight applies on the next cast or spawn for what a spell stores when it spawns: a projectile's damage, speed and radius, a nova's or zone's size and duration. Nova, Zone and Dash damage, heal and shield, the ailment numbers, Impact knockback, Ward shield seconds and the aura and Bond numbers are read at hit time, so spells already alive feel those changes mid-flight.
 - Tuning is global: every room and every world copy shares one set. Arena runs and dungeons in progress take a change on the next cast too.
-- The forge's gold prices, rune drop and roll tables, starter recipes and the Force bar are not in phase 1; the cast cooldown, cost multiplier and Force bar stay on the Settings tab.
+- Starters: a tuned starter's numbers are not checked against the balance tests (no balance guard); its Force still comes from the formula, so a stronger roll costs more Force. The admin page shows no damage per Force for a starter yet.
+- Starters: which runes a recipe holds is not tunable, only its numbers; a change to the runes is a code change with an `OLD_STARTER_RUNES` entry.
+- Starters: rune and sigil prices follow the stored rolls (the code defaults), not the live numbers, by design.
+- The forge's gold prices, rune drop and roll tables and the Force bar are not in phase 1 or 2; the cast cooldown, cost multiplier and Force bar stay on the Settings tab.
 - Concentrated's 40 to 60% roll range is fixed (it must match the drop table in `data/affixes.ts`); only its default inside that range is tunable.
 - Rune descriptions are hand-written text ("30% less size", "half a second"); they do not follow a change. The forge sentence and Force and spirit numbers do.
 - A newer server's paths are dropped by an older client (and the reverse), so a mixed deploy shows defaults for the new numbers until the client reloads.
