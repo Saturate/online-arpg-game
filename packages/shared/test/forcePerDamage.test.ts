@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileRunes, compileSigilItem, createRune, createStarterSigil, DEFAULT_SIGIL_CONTEXT, HEAT, STARTER_SIGILS, tokenizeSpell, type ClassId, type RuneId, type SigilCompile, type SigilItem } from '../src/index.js';
+import { AFFIXES, compileRunes, compileSigilItem, createRune, createStarterSigil, DEFAULT_SIGIL_CONTEXT, HEAT, STARTER_SIGILS, tokenizeSpell, type AffixId, type ClassId, type RuneId, type SigilCompile, type SigilItem } from '../src/index.js';
 import { measureStarter } from './harness/parity.js';
 import { measureSkill, type SkillDpsResult } from './harness/skillDps.js';
 
@@ -91,6 +91,18 @@ const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId }[]
   { text: 'orb[every 0.2s] cold split(3) bolt concentrated(60)' },
   { text: 'nova[onexpire] zone[after 0.3s, +55% damage] fire cold concentrated(60) nova[+55% damage, +50% size] lightning concentrated(60)' },
   { text: 'orb[onhit] fire concentrated(60) split(6) nova concentrated(60)' },
+  // T1 rolls (the rare top tier): the worst payloads above at T1 damage and size, fast pulses, deep pierce.
+  { text: 'nova[onexpire] zone[after 0.3s, +58% damage] fire cold nova[+58% damage, +50% size] lightning' },
+  { text: 'nova[onexpire] zone[after 0.3s, +58% damage, +75% size, +100% duration] fire cold nova[+58% damage, +75% size] lightning' },
+  { text: 'nova[onexpire] zone[after 0.3s, +58% damage] fire cold concentrated(60) nova[+58% damage, +75% size] lightning concentrated(60)' },
+  { text: 'zone[after 0.7s, +38% duration] nova[+14% size, +58% damage] lightning lightning concentrated(60)' },
+  { text: 'bolt[after 0.3s] nova[+75% size, +58% damage]', classId: 'ranger' },
+  { text: 'bolt[onhit] nova[+75% size, +58% damage] lightning lightning concentrated(60) large', classId: 'ranger' },
+  { text: 'bolt[pierce 5, +58% damage, +70% speed] lightning lightning', classId: 'ranger' },
+  { text: 'zone[every 0.15s] lightning bolt', classId: 'ranger' },
+  { text: 'zone[every 0.15s, +100% duration, +58% damage] fire lightning bolt', classId: 'ranger' },
+  { text: 'orb[every 0.15s] cold split(5) bolt' },
+  { text: 'zone[every 0.15s] lightning nova' },
 ];
 
 const SELF_CENTRED = new Set(['nova', 'zone', 'dash']);
@@ -130,24 +142,37 @@ function seeded(seed: number): () => number {
 }
 
 /**
- * Random spells from the castable runes, with affixes inside their drop tables (data/affixes.ts):
- * speed and size up to +50%, duration up to +75%, damage up to +55%, pierce up to 3, every 0.2 to
- * 0.6 s, after 0.3 to 1.2 s, Split 2 to 6. With `concentrated`, shapes with an area also get
- * Concentrated runes (40 to 60%, at most one on a shape) and sometimes a Large beside them.
+ * The lowest and highest roll of an affix over all its tiers, T1 included, as the drop table has
+ * them; with `top`, only its best tier (T1, the last), so a search can be made of the rarest rolls.
  */
-function randomSpell(rnd: () => number, concentrated = false): { text: string; multicast: number } {
+function span(id: AffixId, top = false): [number, number] {
+  const all = AFFIXES[id].tiers;
+  const tiers = top ? all.slice(-1) : all;
+  return [Math.min(...tiers.map((t) => t.min)), Math.max(...tiers.map((t) => t.max))];
+}
+
+/**
+ * Random spells from the castable runes, with affixes anywhere in their drop tables
+ * (data/affixes.ts), the rare T1 included: speed, size, duration, damage, pierce, every and after
+ * from the table, Split 2 to 6. With `concentrated`, shapes with an area also get Concentrated
+ * runes (40 to 60%, at most one on a shape) and sometimes a Large beside them. With `top`, every
+ * number affix rolls in its T1 range.
+ */
+function randomSpell(rnd: () => number, concentrated = false, top = false): { text: string; multicast: number } {
   const pick = <T,>(list: readonly T[], fallback: T): T => list[Math.floor(rnd() * list.length)] ?? fallback;
   const between = (lo: number, hi: number): number => lo + rnd() * (hi - lo);
-  const pct = (lo: number, hi: number): string => `+${Math.round(between(lo, hi))}%`;
+  const pct = (id: AffixId): string => `+${Math.round(between(...span(id, top)))}%`;
+  const [pierceLo, pierceHi] = span('rune_pierce', top);
+  const pierce = (): string => `pierce ${pierceLo + Math.floor(rnd() * (pierceHi - pierceLo + 1))}`;
   const numbers: Record<string, (() => string)[]> = {
-    orb: [() => `${pct(10, 55)} damage`, () => `${pct(15, 75)} duration`, () => `${pct(10, 50)} size`, () => `${pct(10, 50)} speed`, () => `pierce ${1 + Math.floor(rnd() * 3)}`],
-    bolt: [() => `${pct(10, 55)} damage`, () => `${pct(15, 75)} duration`, () => `${pct(10, 50)} size`, () => `${pct(10, 50)} speed`, () => `pierce ${1 + Math.floor(rnd() * 3)}`],
-    zone: [() => `${pct(10, 55)} damage`, () => `${pct(15, 75)} duration`, () => `${pct(10, 50)} size`],
-    nova: [() => `${pct(10, 55)} damage`, () => `${pct(10, 50)} size`],
-    dash: [() => `${pct(10, 55)} damage`, () => `${pct(10, 50)} speed`],
+    orb: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_duration')} duration`, () => `${pct('rune_size')} size`, () => `${pct('rune_speed')} speed`, pierce],
+    bolt: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_duration')} duration`, () => `${pct('rune_size')} size`, () => `${pct('rune_speed')} speed`, pierce],
+    zone: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_duration')} duration`, () => `${pct('rune_size')} size`],
+    nova: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_size')} size`],
+    dash: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_speed')} speed`],
   };
-  const every = (): string => `every ${between(0.2, 0.6).toFixed(2)}s`;
-  const after = (): string => `after ${between(0.3, 1.2).toFixed(1)}s`;
+  const every = (): string => `every ${between(...span('release_every', top)).toFixed(2)}s`;
+  const after = (): string => `after ${between(...span('release_after')).toFixed(1)}s`;
   const releases: Record<string, readonly string[]> = {
     orb: ['onhit', 'onexpire', 'after', 'every'],
     bolt: ['onhit', 'onexpire', 'after', 'every'],
@@ -233,6 +258,7 @@ function starterPieces(): { label: string; sigil: SigilItem }[] {
 const RANDOM_SPELLS = 300;
 const RANDOM_SEED = 20260930;
 const CONCENTRATED_SEED = 20261001;
+const T1_SEED = 20261002;
 
 describe('damage per Force', () => {
   const starters = STARTER_SIGILS.map((def) => ({ id: def.id, r: measureStarter(def) })).filter((s) => s.r.kind === 'damage');
@@ -294,13 +320,14 @@ describe('damage per Force', () => {
   for (const search of [
     { what: 'random spells', seed: RANDOM_SEED, concentrated: false },
     { what: 'random spells with Concentrated', seed: CONCENTRATED_SEED, concentrated: true },
+    { what: 'random spells of T1 rolls only', seed: T1_SEED, concentrated: true, top: true },
   ]) {
     it(`${RANDOM_SPELLS} ${search.what} with in-table affixes stay within ${BOUND}x on their cheapest class`, () => {
       const rnd = seeded(search.seed);
       let measured = 0;
       let worst = { text: '', ratio: 0 };
       for (let i = 0; i < RANDOM_SPELLS; i++) {
-        const { text, multicast } = randomSpell(rnd, search.concentrated);
+        const { text, multicast } = randomSpell(rnd, search.concentrated, search.top === true);
         const found = cheapest(text, multicast);
         if (!found) continue;
         measured++;

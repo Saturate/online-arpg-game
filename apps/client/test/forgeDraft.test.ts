@@ -130,17 +130,17 @@ describe('forge draft', () => {
   });
 
   it('shows refunds as they come out: rolls past the table clamped, bench runes gone', () => {
-    const strong: RuneItem = { ...createRune(10, 'orb'), affixes: [{ id: 'rune_damage', tier: 0, value: 100 }] };
+    const strong: RuneItem = { ...createRune(10, 'orb'), affixes: [{ id: 'rune_damage', tier: 0, value: 300 }] };
     const benchRune: RuneItem = { ...createRune(11, 'fire'), bound: true, bench: true };
     const plain = createRune(12, 'cold');
     const res = resolveDraft(sigilWith([strong, benchRune, plain]), [], runeStock(inventory([])), priceOf);
     expect(res.refunds.map((r) => r.uid)).toEqual([10, 12]);
-    expect(res.refunds[0]?.affixes[0]?.value).toBe(55);
-    expect(res.refundWeakened.map((w) => [w.rune, w.before.value, w.after.value])).toEqual([['orb', 100, 55]]);
+    expect(res.refunds[0]?.affixes[0]?.value).toBe(58);
+    expect(res.refundWeakened.map((w) => [w.rune, w.before.value, w.after.value])).toEqual([['orb', 300, 58]]);
     expect(res.benchGone).toBe(1);
     // Kept in place, nothing is lost.
     const kept = resolveDraft(sigilWith([strong, benchRune, plain]), keepAll(sigilWith([strong, benchRune, plain])), runeStock(inventory([])), priceOf);
     expect(kept.refundWeakened).toEqual([]);
-    expect(kept.slots[0]?.item.affixes[0]?.value).toBe(100);
+    expect(kept.slots[0]?.item.affixes[0]?.value).toBe(300);
   });
 });

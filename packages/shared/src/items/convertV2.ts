@@ -77,6 +77,8 @@ export interface TraderShelfSave {
   nextId: number;
   stock: TraderEntry[];
   runeFormat: 2;
+  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
+  runeTiers?: 6;
 }
 
 export interface TraderShelfConversion {
@@ -86,6 +88,11 @@ export interface TraderShelfConversion {
 
 export function emptyReport(): ConversionReport {
   return { starterSigils: [], runesMapped: [], runesReplaced: [], runesRefunded: [], gold: 0, runesReturned: 0, runesPending: 0, testSigilsUnpacked: 0, warnings: [] };
+}
+
+/** Stored JSON whose rune affix rolls already count six tiers; anything without it goes through convertRuneRolls once. */
+export function isRuneTiers6(raw: unknown): boolean {
+  return typeof raw === 'object' && raw !== null && Reflect.get(raw, 'runeTiers') === 6;
 }
 
 /** Stored JSON carries this marker once it is v2; anything without it is v1. */

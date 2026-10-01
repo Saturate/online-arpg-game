@@ -259,8 +259,9 @@ export function LootTab() {
                 <tr>
                   <th>Affix</th>
                   <th>Rolls</th>
+                  {/* Columns run from the weakest tier to T1, the best, so affixes with fewer tiers line up at T1. */}
                   {Array.from({ length: maxAffixTier }, (_, i) => (
-                    <th key={i}>T{i + 1}</th>
+                    <th key={i}>T{maxAffixTier - i}</th>
                   ))}
                   <th>Min</th>
                   <th>Avg</th>
@@ -272,9 +273,10 @@ export function LootTab() {
                   <tr key={a.id}>
                     <td title={a.id}>{AFFIXES[a.id].text.replace('{v}', '#')}</td>
                     <td>{fmt(a.count)}</td>
-                    {Array.from({ length: maxAffixTier }, (_, i) => (
-                      <td key={i}>{fmt(a.tiers[i] ?? 0)}</td>
-                    ))}
+                    {Array.from({ length: maxAffixTier }, (_, i) => {
+                      const index = AFFIXES[a.id].tiers.length - (maxAffixTier - i);
+                      return <td key={i}>{index >= 0 ? fmt(a.tiers[index] ?? 0) : ''}</td>;
+                    })}
                     <td>{fmt(a.min, 2)}</td>
                     <td>{fmt(a.avg, 2)}</td>
                     <td>{fmt(a.max, 2)}</td>

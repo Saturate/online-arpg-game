@@ -18,6 +18,7 @@ import {
   OLD_STARTER_RUNES,
   oldStarterRunes,
   placeReturned,
+  runeItemFromInstance,
   Rng,
   sellPrice,
   starterSigilById,
@@ -41,11 +42,13 @@ function tierZero(s: SigilItem): SigilItem {
   return { ...s, slots: s.slots.map((r) => ({ ...r, affixes: r.affixes.map((a) => ({ ...a, tier: 0 })) })) };
 }
 
-/** A sigil of a buffed starter as it was made before 2026-10-01. */
+/** A sigil of a buffed starter as it was made before 2026-10-01, with its hand-set rolls as written. */
 function oldStarter(id: string, newUid: () => ItemUid, bound: boolean): SigilItem {
   const runes = oldStarterRunes(id);
   if (!runes) throw new Error(`no old recipe for ${id}`);
-  return tierZero(createStarterSigil(newUid, { ...def(id), runes }, { bound }));
+  const sigil: SigilItem = { uid: newUid(), kind: 'sigil', tier: 'common', name: def(id).name, ilvl: 1, affixes: [], slots: runes.map((r) => runeItemFromInstance(newUid(), r, bound)), corrupted: false, starter: id };
+  if (bound) sigil.bound = true;
+  return tierZero(sigil);
 }
 
 /** An item as JSON.parse gives it, so a save can carry an affix id the game no longer knows. */
@@ -151,13 +154,13 @@ describe('the buffed starters on load', () => {
     }
   });
 
-  it('gives the new rolls their honest tier, so split(5) prices as the tier 3 roll it is', () => {
+  it('gives the new rolls their honest tier, so split(5) prices as the T3 roll it is', () => {
     let uid = 1;
     const [after] = convertRuneRolls([oldStarter('multishot', () => uid++, false)]).items;
     if (after?.kind !== 'sigil') throw new Error('not a sigil');
-    expect(after.slots[1]?.affixes).toEqual([{ id: 'split_count', tier: 2, value: 5 }]);
+    expect(after.slots[1]?.affixes).toEqual([{ id: 'split_count', tier: 3, value: 5 }]);
     const fresh = createStarterSigil(() => uid++, def('multishot'), { bound: false });
-    expect(fresh.slots[1]?.affixes).toEqual([{ id: 'split_count', tier: 2, value: 5 }]);
+    expect(fresh.slots[1]?.affixes).toEqual([{ id: 'split_count', tier: 3, value: 5 }]);
     expect(sellPrice(after)).toBe(sellPrice(fresh));
   });
 
@@ -230,8 +233,8 @@ describe('affix ids the game no longer has', () => {
     const [loose, held] = items;
     if (loose?.kind !== 'rune' || held?.kind !== 'sigil') throw new Error('kind changed');
     expect(loose.affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });
-    // The known roll beside it still moves to its honest tier.
-    expect(loose.affixes[1]).toEqual({ id: 'rune_damage', tier: 2, value: 300 });
+    // The known roll beside it still moves to its tier among the six: past every table, T1.
+    expect(loose.affixes[1]).toEqual({ id: 'rune_damage', tier: 5, value: 300 });
     expect(held.slots[0]?.affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });
     expect(report.runesRetiered).toEqual([1, 3]);
     expect(clampRuneRolls(loose).affixes[0]).toEqual({ id: 'retired_someday', tier: 2, value: 400 });

@@ -209,7 +209,7 @@ describe('Concentrated runes as items', () => {
       expect(r.affixes.map((a) => a.id)).toEqual(['rune_concentrated']);
       expect(r.affixes[0]?.tier).toBe(0);
       expect(r.affixes[0]?.value).toBeGreaterThanOrEqual(40);
-      expect(r.affixes[0]?.value).toBeLessThanOrEqual(46);
+      expect(r.affixes[0]?.value).toBeLessThanOrEqual(43);
       expect(r.tier).not.toBe('common');
       expect(r.name).toContain('Concentrated Rune');
       expect(r.count).toBe(1);
@@ -218,8 +218,9 @@ describe('Concentrated runes as items', () => {
     const values = high.map((r) => r.affixes[0]?.value ?? 0);
     expect(Math.min(...values)).toBeGreaterThanOrEqual(40);
     expect(Math.max(...values)).toBeLessThanOrEqual(60);
-    expect(Math.max(...values)).toBeGreaterThanOrEqual(54);
-    expect(new Set(high.map((r) => r.affixes[0]?.tier))).toEqual(new Set([0, 1, 2]));
+    expect(Math.max(...values)).toBeGreaterThanOrEqual(56);
+    // T6 to T2 by item level 8; T1 waits for level 12.
+    expect(new Set(high.map((r) => r.affixes[0]?.tier))).toEqual(new Set([0, 1, 2, 3, 4]));
   });
 
   it('never drop plain from monsters', () => {
@@ -245,7 +246,7 @@ describe('Concentrated runes as items', () => {
     expect(toRuneInstance(rune)).toEqual({ id: 'concentrated', affixes: { concentration: 51 } });
     expect(toRuneInstance(createRune(2, 'concentrated'))).toEqual({ id: 'concentrated', affixes: {} });
     const back = runeItemFromInstance(3, { id: 'concentrated', affixes: { concentration: 58 } }, false);
-    expect(back.affixes).toEqual([{ id: 'rune_concentrated', tier: 2, value: 58 }]);
+    expect(back.affixes).toEqual([{ id: 'rune_concentrated', tier: 4, value: 58 }]);
     expect(clampRoll({ id: 'rune_concentrated', tier: 2, value: 90 })).toEqual({ id: 'rune_concentrated', tier: 2, value: 60 });
     expect(AFFIXES.rune_concentrated.text.replace('{v}', '51')).toBe('51% more damage');
   });

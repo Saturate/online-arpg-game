@@ -45,6 +45,6 @@ describe('loot simulator', () => {
   it('never rolls affix tiers above what item level allows', () => {
     const low = simulateLoot({ ...BASE, source: { level: 1, rare: true, boss: false } });
     expect(low.affixes.every((a) => a.tiers.slice(1).every((n) => n === 0))).toBe(true);
-    expect(low.firsts.find((f) => f.label === 'Any T3 affix')?.firstKill).toBeNull();
+    expect(low.firsts.find((f) => f.label === 'Any T1 affix')?.firstKill).toBeNull();
   });
 });

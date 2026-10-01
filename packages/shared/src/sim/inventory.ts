@@ -943,7 +943,7 @@ export function splitStash(save: PlayerSave): { character: PlayerSave; stash: St
   const inStash = new Set(stashItemUids(save.stash));
   return {
     character: { ...save, items: save.items.filter((i) => !inStash.has(i.uid)), stash: emptyStash() },
-    stash: { ...cloneLayout(save.stash), runeFormat: 2, items: save.items.filter((i) => inStash.has(i.uid)) },
+    stash: { ...cloneLayout(save.stash), runeFormat: 2, runeTiers: 6, items: save.items.filter((i) => inStash.has(i.uid)) },
   };
 }
 

@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type SearchAccount, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isRuneTiers6, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type SearchAccount, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -157,7 +157,8 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     // Saves from before the stash have none, and saves from before tabs hold a grid; the account's
     // stash is loaded separately anyway. A layout that cannot be read throws, so the save is kept.
     const stash = saveStashLayout(Reflect.get(v, 'stash'));
-    const rolls = convertRuneRolls(v.items);
+    // The rune roll pass runs once, on data written before the six rune tiers.
+    const rolls = isRuneTiers6(v) ? { items: v.items, returned: [], report: emptyRuneRollsReport() } : convertRuneRolls(v.items);
     logRuneRolls(`character ${v.name}`, rolls.report);
     return {
       ...v,
@@ -170,6 +171,7 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
       runeFormat: 2,
+      runeTiers: 6,
       worldFormat: 1,
       gates,
     };
@@ -621,13 +623,13 @@ export class AccountStore {
       const tabs = convertStashTabs(runes);
       if (!isStashFormat2(runes)) logTabsConversion(accountId, tabs.report);
       if (!tabs.stash.items.every(isStoredItem)) return 'unreadable';
-      const rolls = convertRuneRolls(tabs.stash.items);
+      const rolls = isRuneTiers6(runes) ? { items: tabs.stash.items, returned: [], report: emptyRuneRollsReport() } : convertRuneRolls(tabs.stash.items);
       logRuneRolls(`account ${accountId} stash`, rolls.report);
       // Returned runes are unbound, so the rune tab takes them; past its cap they have no place and
       // go to the joining character as pending, like any account item that lost its place.
       const list = [...tabs.stash.runes.list];
       for (const r of rolls.returned) if (list.length < STASH_TABS.runeCap) list.push(r.uid);
-      return { stash: { ...tabs.stash, runes: { kind: 'runes', list }, items: [...rolls.items, ...rolls.returned] }, refundGold: conversion?.report.gold ?? 0 };
+      return { stash: { ...tabs.stash, runeTiers: 6, runes: { kind: 'runes', list }, items: [...rolls.items, ...rolls.returned] }, refundGold: conversion?.report.gold ?? 0 };
     } catch (err) {
       events.error('save', `account ${accountId} stash could not be read`, err);
       return 'unreadable';
@@ -724,12 +726,12 @@ export class AccountStore {
   /** The trader's shared stock; empty when never saved. A damaged row starts a fresh shelf. */
   loadMarket(): Market {
     const raw = row(this.db.prepare("SELECT value FROM settings WHERE key = 'trader'").get())?.value;
-    if (typeof raw !== 'string') return { nextId: 1, stock: [], runeFormat: 2 };
+    if (typeof raw !== 'string') return { nextId: 1, stock: [], runeFormat: 2, runeTiers: 6 };
     // Shelf items belong to nobody (their sellers were paid), so a damaged row may start a fresh
     // shelf; it is logged first, since the next trade writes over it.
     const fresh = (why: string): Market => {
       events.error('save', `trader shelf unreadable (${why}); starting an empty one. Old row: ${raw.slice(0, 200)}`);
-      return { nextId: 1, stock: [], runeFormat: 2 };
+      return { nextId: 1, stock: [], runeFormat: 2, runeTiers: 6 };
     };
     let stored: unknown;
     try {
@@ -745,9 +747,10 @@ export class AccountStore {
     if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
     const rolls = emptyRuneRollsReport();
     const returned: Item[] = [];
+    const sixTiers = isRuneTiers6(v);
     const stock = v.stock.flatMap((e: unknown) => {
       if (!isRecord(e) || typeof e.id !== 'number' || typeof e.price !== 'number' || !isStoredItem(e.item)) return [];
-      const r = convertItemRolls(e.item, rolls);
+      const r = sixTiers ? { item: e.item, returned: [] } : convertItemRolls(e.item, rolls);
       returned.push(...r.returned);
       return [{ id: e.id, price: buyPrice(r.item), item: r.item }];
     });
@@ -760,7 +763,7 @@ export class AccountStore {
       const item = { ...r, uid: 0 };
       stock.push({ id: nextId++, price: buyPrice(item), item });
     }
-    return { nextId, stock, runeFormat: 2 };
+    return { nextId, stock, runeFormat: 2, runeTiers: 6 };
   }
 
   /** Stores a finished run and returns its place on its season's board (1 is the top). */

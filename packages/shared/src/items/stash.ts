@@ -43,6 +43,8 @@ export interface StashLayout {
 /** The account stash as stored, apart from any character. */
 export interface StashSave extends StashLayout {
   runeFormat: 2;
+  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
+  runeTiers?: 6;
   items: Item[];
 }
 

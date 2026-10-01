@@ -1,8 +1,10 @@
 import {
+  AFFIXES,
   gearBase,
   rollDrops,
   Rng,
   type AffixId,
+  type AffixRoll,
   type ClassId,
   type DropSource,
   type DropTuning,
@@ -63,11 +65,17 @@ interface Milestone {
   test: (item: Item) => boolean;
 }
 
+/** The best tier (T1) of an affix that has more than one. */
+function isTopTier(a: AffixRoll): boolean {
+  const n = AFFIXES[a.id].tiers.length;
+  return n > 1 && a.tier === n - 1;
+}
+
 const MILESTONES: readonly Milestone[] = [
   { label: 'Rare or better', test: (i) => i.tier === 'rare' || i.tier === 'relic' },
   { label: 'Relic', test: (i) => i.tier === 'relic' },
-  { label: 'Any T3 affix', test: (i) => i.affixes.some((a) => a.tier >= 2) },
-  { label: 'Relic with a T3 affix', test: (i) => i.tier === 'relic' && i.affixes.some((a) => a.tier >= 2) },
+  { label: 'Any T1 affix', test: (i) => i.affixes.some(isTopTier) },
+  { label: 'Relic with a T1 affix', test: (i) => i.tier === 'relic' && i.affixes.some(isTopTier) },
   { label: '5-affix item', test: (i) => i.affixes.length >= 5 },
 ];
 

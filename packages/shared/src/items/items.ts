@@ -9,7 +9,7 @@ import { clampRuneRolls, honestTier } from './runeRolls.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
-export { clampRoll, clampRuneRolls, honestTier, isNoStronger, retierRoll, rollLosses, affixRollTier } from './runeRolls.js';
+export { clampRoll, clampRuneRolls, honestTier, isNoStronger, kitRoll, rollLosses, sixTierRoll } from './runeRolls.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
@@ -25,6 +25,12 @@ const TIER_ROLLS: Record<ItemTier, { min: number; max: number; maxAffixTier: num
   rare: { min: 3, max: 4, maxAffixTier: 2 },
   relic: { min: 4, max: 5, maxAffixTier: 2 },
 };
+
+/**
+ * The highest rune affix tier (index) a rune drop of each tier can roll, on top of each tier's own
+ * item-level gate: common and magic stop at T4, as magic once stopped at the old middle tier.
+ */
+const RUNE_AFFIX_TIER_CAP: Record<ItemTier, number> = { common: 2, magic: 2, rare: 5, relic: 5 };
 
 const MAX_PER_SLOT = 3;
 
@@ -181,10 +187,10 @@ export function dropsRolled(rune: RuneId): boolean {
 export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: number, rune?: RuneId): RuneItem {
   const id = rune ?? weightedPick(rng, ROLLABLE_RUNES.map((r) => ({ item: r, weight: RUNE_WEIGHT[runeTier(r)] }))) ?? 'orb';
   const n = FORGE.rolledRuneAffixes[tier];
-  const maxAffixTier = Math.min(TIER_ROLLS[tier === 'common' ? 'magic' : tier].maxAffixTier, ilvlAffixTier(ilvl));
   // A rune rolled for its amount always gets that roll, whatever the drop tier allows.
   const count = Math.max(rng.int(n.min, n.max), dropsRolled(id) ? 1 : 0);
-  const affixes = rollAffixes(rng, 'rune', count, maxAffixTier, { rune: id, allow: (a) => runeMayCarry(id, a) });
+  // Rune affix tiers carry their own item-level gates; the drop's tier only caps how high they go.
+  const affixes = rollAffixes(rng, 'rune', count, RUNE_AFFIX_TIER_CAP[tier], { rune: id, allow: (a) => runeMayCarry(id, a), ilvl });
   const itemTier = ITEM_TIERS[Math.max(ITEM_TIERS.indexOf(tier), ITEM_TIERS.indexOf(runeTier(id)), 1)] ?? 'magic';
   return { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
 }
@@ -343,7 +349,7 @@ export function reissueUids(item: Item, newUid: () => ItemUid): Item {
   return { ...item, uid, affixes: [...item.affixes] };
 }
 
-/** Affix tier unlocked by item level: T2 from level 3, T3 from level 5. */
+/** Highest affix tier index unlocked by item level for three-tier affixes (gear, sigils, vessels): the middle from level 3, the best from 5. Rune affix tiers carry their own gates. */
 export function ilvlAffixTier(ilvl: number): number {
   return ilvl >= 5 ? 2 : ilvl >= 3 ? 1 : 0;
 }
@@ -382,9 +388,9 @@ export function rollAffixes(
   target: AffixTarget,
   count: number,
   maxAffixTier: number,
-  filter: { category?: GearCategory; rune?: RuneId; allow?: (id: AffixId) => boolean } = {},
+  filter: { category?: GearCategory; rune?: RuneId; allow?: (id: AffixId) => boolean; ilvl?: number } = {},
 ): AffixRoll[] {
-  const { category, rune, allow } = filter;
+  const { category, rune, allow, ilvl } = filter;
   const out: AffixRoll[] = [];
   const usedGroups = new Set<string>();
   const slotCounts = { prefix: 0, suffix: 0 };
@@ -398,7 +404,9 @@ export function rollAffixes(
       if (allow && !allow(id)) continue;
       if (slotCounts[def.slot] >= MAX_PER_SLOT) continue;
       def.tiers.forEach((t, tier) => {
-        if (tier <= maxAffixTier && t.weight > 0) candidates.push({ item: { id, tier }, weight: t.weight });
+        if (tier > maxAffixTier || t.weight <= 0) return;
+        if (t.ilvl !== undefined && ilvl !== undefined && ilvl < t.ilvl) return;
+        candidates.push({ item: { id, tier }, weight: t.weight });
       });
     }
     const pick = weightedPick(rng, candidates);

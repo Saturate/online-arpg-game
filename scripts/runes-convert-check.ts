@@ -6,9 +6,11 @@
  * Converts every character, every account stash and the trader shelf in memory, prints what each
  * one gets, and checks nothing is lost or doubled. Account stashes then go through the second
  * one-time conversion, from one grid to tabs (convertStashTabs), which is checked the same way.
- * Then every character, stash and shelf goes through the rune roll pass that runs on every load
- * (convertRuneRolls: "first rune is free" removed, old Multishot and Flame Cleave rebuilt), which is
- * checked for lost or doubled items and against what the server's own load path gives. It never
+ * Then every character, stash and shelf without `runeTiers: 6` goes through the one-time rune roll
+ * pass (convertRuneRolls: "first rune is free" removed, old Multishot and Flame Cleave rebuilt,
+ * every rune affix roll re-tiered by value among the six tiers), which is checked for lost or
+ * doubled items, for values that moved, for gold a re-tier could mint, and against what the
+ * server's own load path gives; rows already marked must load exactly as stored. It never
  * writes the given file: it is copied to a temp directory first and only the copy is opened.
  * Exits non-zero when any check fails.
  */
@@ -25,7 +27,11 @@ import {
   RETIRED_SIGIL_AFFIXES,
   applyTunables,
   clampRuneRolls,
-  retierRoll,
+  sixTierRoll,
+  isRuneTiers6,
+  FORGE,
+  sellPrice,
+  buyPrice,
   runeRollsChanged,
   type RuneItem,
   type SigilItem,
@@ -318,10 +324,10 @@ function reportTabs(title: string, before: StashSaveV1): void {
   } else console.log('  tab checks: ok');
 }
 
-const rollTotals = { containers: 0, sigils: 0, affixesRemoved: 0, renamed: 0, rebuilt: new Map<string, number>(), runesRemoved: 0, runesReturned: 0, retiered: 0, unchanged: 0, edited: 0 };
+const rollTotals = { kitRetiered: 0, kitGold: 0, marked: 0, goldBefore: 0, goldAfter: 0, tierMoves: new Map<string, number>(), containers: 0, sigils: 0, affixesRemoved: 0, renamed: 0, rebuilt: new Map<string, number>(), runesRemoved: 0, runesReturned: 0, retiered: 0, unchanged: 0, edited: 0 };
 
 const recipeText = (s: SigilItem): string => stable(s.slots.map(toRuneInstance));
-/** A rune with its roll tiers left out: the pass may only move tiers of rolls stronger than their tier. */
+/** A rune with its roll tiers left out: the pass may only move tiers, to the tier each value falls in among the six. */
 const withoutTiers = (r: RuneItem): string => stable({ ...r, affixes: r.affixes.map((a) => ({ id: a.id, value: a.value })) });
 
 /** Every uid with how often it appears, runes inside sigils included. Shelf items all carry uid 0, so only their runes count. */
@@ -334,12 +340,71 @@ function uidCounts(items: readonly Item[], shelf: boolean): Counts {
   return m;
 }
 
-/** Each tier change raises a roll that was stronger than its tier to its honest tier, and nothing else. */
+/** Each tier change moves a rune roll to the tier its value falls in among the six, and nothing else changes. */
 function tiersHonest(before: RuneItem, after: RuneItem): boolean {
   return withoutTiers(before) === withoutTiers(after) && after.affixes.every((a, i) => {
     const b = before.affixes[i];
-    return b !== undefined && (a.tier === b.tier || stable(retierRoll(b)) === stable(a));
+    return b !== undefined && (a.tier === b.tier || stable(sixTierRoll(b)) === stable(a));
   });
+}
+
+/** Sell value per rune affix tier before the six tiers (old T1, T2, T3). */
+const OLD_AFFIX_VALUE = [4, 10, 25];
+
+/** Every rune affix roll in a list, loose or in a sigil, by position, so before and after line up. */
+function runeRolls(items: readonly Item[]): RuneItem[] {
+  return items.flatMap((i) => (i.kind === 'rune' ? [i] : i.kind === 'sigil' ? i.slots : []));
+}
+
+/** What an item sold for before the six tiers: the same base value, rune affixes at the old three tiers' worth. */
+function oldSellPrice(item: Item): number {
+  if (item.kind === 'sigil') return sellPrice({ ...item, slots: [] }) + item.slots.reduce((n, r) => n + oldSellPrice(r), 0);
+  if (item.kind !== 'rune' || item.bound === true) return sellPrice(item);
+  const affixes = item.affixes.reduce((n, a) => n + (OLD_AFFIX_VALUE[a.tier] ?? OLD_AFFIX_VALUE[OLD_AFFIX_VALUE.length - 1] ?? 0), 0);
+  return (sellPrice({ ...item, affixes: [], count: 1 }) + affixes) * item.count;
+}
+
+/** The three tiers every number rune affix had before 2026-10-01, to tell a drop from an old kit roll. */
+const OLD_TIERS: Readonly<Record<string, readonly (readonly [number, number])[]>> = {
+  rune_speed: [[10, 20], [20, 35], [35, 50]],
+  rune_size: [[10, 20], [20, 35], [35, 50]],
+  rune_duration: [[15, 30], [30, 50], [50, 75]],
+  rune_damage: [[10, 20], [20, 35], [35, 55]],
+  rune_pierce: [[1, 1], [1, 2], [2, 3]],
+  split_count: [[2, 3], [3, 4], [5, 6]],
+  rune_concentrated: [[40, 46], [47, 53], [54, 60]],
+  release_every: [[0.4, 0.6], [0.3, 0.45], [0.2, 0.3]],
+};
+
+/**
+ * Gold a re-tier could mint. A drop's roll (inside its old tier) that now sells for 3x what it sold
+ * for (the trader's buy multiplier) or more would let anyone who bought it before the deploy sell it
+ * back for profit, so it fails. Old kit rolls (outside their stored tier, usually tier 0 whatever
+ * the value) go up to their real tier once, as the first rune roll pass did; on unbound runes that
+ * is a one-time rise, counted and printed. Bound runes sell for nothing either way.
+ */
+function goldProblems(before: readonly RuneItem[], after: readonly RuneItem[]): string[] {
+  const out: string[] = [];
+  before.forEach((b, i) => {
+    const a = after[i];
+    if (!a || a.uid !== b.uid || b.bound === true) return;
+    b.affixes.forEach((x, j) => {
+      const y = a.affixes[j];
+      // A rebuilt old Multishot or Flame Cleave takes new rolls; only a re-tier keeps the value.
+      if (!y || y.tier === x.tier || y.id !== x.id || y.value !== x.value) return;
+      const was = OLD_AFFIX_VALUE[x.tier] ?? OLD_AFFIX_VALUE[OLD_AFFIX_VALUE.length - 1] ?? 0;
+      const now = FORGE.runeAffixValue[y.tier] ?? 0;
+      const old = OLD_TIERS[x.id]?.[x.tier];
+      const drop = old !== undefined && x.value >= old[0] && x.value <= old[1];
+      if (!drop) {
+        rollTotals.kitRetiered++;
+        rollTotals.kitGold += (now - was) * b.count;
+        return;
+      }
+      if (now >= was * 3) out.push(`rune ${b.uid} ${x.id} ${x.value}: affix worth ${was} -> ${now}, past the 3x buy price`);
+    });
+  });
+  return out;
 }
 
 /**
@@ -347,10 +412,34 @@ function tiersHonest(before: RuneItem, after: RuneItem): boolean {
  * the server's load path (`loaded`) gives the same result. Only sigils (name, affixes, slots) and
  * rune roll tiers may change; rebuilt old starters hand back their unbound extra runes.
  */
-function reportRolls(title: string, before: readonly Item[], loaded: readonly Item[] | null, classId: ClassId, opts: { shelf?: boolean } = {}): void {
+function reportRolls(title: string, before: readonly Item[], loaded: readonly Item[] | null, classId: ClassId, opts: { shelf?: boolean; marked?: boolean } = {}): void {
   rollTotals.containers++;
   const problems: string[] = [];
+  if (opts.marked) {
+    // Already six tiers: the server must load it exactly as stored.
+    rollTotals.marked++;
+    console.log('  rune rolls: already runeTiers 6; the pass does not run');
+    if (loaded !== null) check(problems, stable(loaded) === stable(opts.shelf ? before.map((x) => ({ ...x, uid: 0 })) : before), 'the server load path changed a row already marked runeTiers 6');
+    if (problems.length > 0) {
+      failures += problems.length;
+      for (const p of problems) console.log(`  FAIL rolls: ${p}`);
+    } else console.log('  roll checks: ok');
+    return;
+  }
   const { items: after, returned, report: r } = convertRuneRolls(before);
+  const oldRolls = runeRolls(before);
+  const newRolls = runeRolls(after);
+  for (const p of goldProblems(oldRolls, newRolls)) problems.push(p);
+  rollTotals.goldBefore += before.reduce((n, i) => n + oldSellPrice(i), 0);
+  rollTotals.goldAfter += [...after, ...returned].reduce((n, i) => n + sellPrice(i), 0);
+  newRolls.forEach((a, i) => {
+    const b = oldRolls[i];
+    if (!b || b.uid !== a.uid) return;
+    a.affixes.forEach((y, j) => {
+      const x = b.affixes[j];
+      if (x && x.tier !== y.tier && x.id === y.id && x.value === y.value) add(rollTotals.tierMoves, `old T${x.tier + 1} -> T${6 - y.tier}`, 1);
+    });
+  });
   const removed = r.startersRebuilt.flatMap((x) => x.runesRemoved);
   const back = r.startersRebuilt.flatMap((x) => x.runesReturned);
   rollTotals.sigils += before.filter((i) => i.kind === 'sigil').length;
@@ -490,7 +579,7 @@ function main(): void {
           failures++;
           console.log('  FAIL rolls: the server cannot load this save');
         }
-        reportRolls(title, save.items, loaded?.items ?? null, classId);
+        reportRolls(title, save.items, loaded?.items ?? null, classId, { marked: isRuneTiers6(raw) });
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -517,7 +606,7 @@ function main(): void {
           failures++;
           console.log('  FAIL rolls: the server cannot load this stash');
         }
-        reportRolls(title, convertStashTabs(tabbed).stash.items, loaded === null || loaded === 'unreadable' ? null : loaded.stash.items, classId);
+        reportRolls(title, convertStashTabs(tabbed).stash.items, loaded === null || loaded === 'unreadable' ? null : loaded.stash.items, classId, { marked: isRuneTiers6(raw) });
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -530,7 +619,7 @@ function main(): void {
         const { shelf, report: r } = convertTraderShelf(raw);
         const rawItems = isRecord(raw) && Array.isArray(raw.stock) ? raw.stock.map((e: unknown) => (isRecord(e) ? e.item : undefined)) : [];
         report(`trader shelf (${shelf.stock.length} entries)`, rawItems, 0, null, shelf.stock.map((e) => e.item), r, 'mage', { shelf: true, alreadyV2: isRuneFormat2(raw) });
-        reportRolls('trader shelf', shelf.stock.map((e) => e.item), store.loadMarket().stock.map((e) => e.item), 'mage', { shelf: true });
+        reportRolls('trader shelf', shelf.stock.map((e) => e.item), store.loadMarket().stock.map((e) => e.item), 'mage', { shelf: true, marked: isRuneTiers6(raw) });
       } catch (err) {
         failures++;
         console.log(`\ntrader shelf\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -541,7 +630,7 @@ function main(): void {
     rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.unchanged} items untouched`,
+    `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered (${show(rollTotals.tierMoves)}); sell value of every row ${rollTotals.goldBefore} gold before, ${rollTotals.goldAfter} after; ${rollTotals.kitRetiered} unbound old kit rolls rose to their tier once (+${rollTotals.kitGold} gold of sell value); ${rollTotals.marked} rows already runeTiers 6; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.unchanged} items untouched`,
   );
   console.log(
     `summary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,

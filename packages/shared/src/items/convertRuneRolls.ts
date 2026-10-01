@@ -2,15 +2,14 @@ import { starterSigilById } from '../data/starterSigils.js';
 import { tokenizeSpell } from '../runes/v2/tokenize.js';
 import type { RuneInstance } from '../runes/v2/runes.js';
 import { affixSigilName, runeItemFromInstance, runeRecipeKey, type Item, type ItemUid, type RuneItem, type SigilItem } from './items.js';
-import { clampRuneRolls, retierRoll } from './runeRolls.js';
+import { clampRuneRolls, sixTierRoll } from './runeRolls.js';
 import { BAG, findSpot, itemSize, place } from './grid.js';
 
 /**
- * The owner's decisions of 2026-10-01, applied to items already in saves, stashes and the trader
- * shelf. It runs on every load instead of behind a format marker: what it looks for can no longer
- * be made (no drop rolls the retired affix, the old starter recipes hold rolls no rune outside its
- * first sigil can have, and new starter rolls are made at their honest tier), so a second pass
- * finds nothing.
+ * The owner's decisions of 2026-10-01, applied once to items in saves, stashes and the trader shelf
+ * written before them: the caller runs it on data without `runeTiers: 6` (isRuneTiers6) and writes
+ * the marker back. A second pass over its own output changes nothing, so data from before the
+ * marker existed, which already went through the earlier parts on every load, is safe to pass.
  *
  * - "Nothing is free": the sigil affix "first rune is free" is removed. The sigil keeps its uid,
  *   tier, slots and every other affix; a name built from its affixes is built again without it.
@@ -20,8 +19,9 @@ import { BAG, findSpot, itemSize, place } from './grid.js';
  *   goes back to the player if it is unbound (it may be their own find), clamped like any rune
  *   leaving a sigil; a bound one was a starter-kit rune and goes. A sigil changed at the forge in
  *   any way is left alone.
- * - Hand-set starter rolls made before the change sit at tier 0 (T1) whatever their value; each
- *   roll stronger than its tier allows moves to the tier its value falls in (retierRoll).
+ * - Six rune tiers: every rune affix roll, loose or in a sigil, moves to the tier its value falls
+ *   in among the six (sixTierRoll, by the code's table). Values never change, only the tier and
+ *   with it the price. Old kit rolls past every table land in T1.
  */
 
 /** Sigil affix ids no longer in the game. They are not AffixIds any more, so they are matched as text. */
@@ -85,7 +85,7 @@ function sameRune(slot: RuneItem, inst: RuneInstance): boolean {
 }
 
 function retierRune(rune: RuneItem, report: RuneRollsReport): RuneItem {
-  const affixes = rune.affixes.map(retierRoll);
+  const affixes = rune.affixes.map(sixTierRoll);
   if (affixes.every((a, i) => a === rune.affixes[i])) return rune;
   report.runesRetiered.push(rune.uid);
   return { ...rune, affixes };

@@ -20,6 +20,10 @@ export const FORGE = {
     rare: { min: 2, max: 3 },
     relic: { min: 3, max: 3 },
   } satisfies Record<ItemTier, { min: number; max: number }>,
-  /** Sell value each rune affix adds, by affix tier (T1, T2, T3), so better rolls are worth more. */
-  runeAffixValue: [4, 10, 25],
+  /**
+   * Sell value each rune affix adds, by tier index from the weakest (T6) to the best (T1), so better
+   * rolls are worth more. Release affixes have one tier and add the first value. T1 is a rare find
+   * above every old roll; the old three tiers were worth 4, 10 and 25.
+   */
+  runeAffixValue: [4, 6, 9, 13, 20, 60],
 } as const;

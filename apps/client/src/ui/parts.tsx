@@ -3,6 +3,7 @@ import {
   HEAT,
   bracketTree,
   describeTree,
+  affixTierLabel,
   formatAffix,
   isCastableRune,
   MINION_DEFS,
@@ -39,7 +40,7 @@ import { useTunables } from '../game/tunables.js';
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
   const kind = runeKind(id);
   const style: CSSProperties & Record<'--rune', string> = { '--rune': cssColor(runeColor(id)) };
-  const rolls = item?.affixes.map(formatAffix) ?? [];
+  const rolls = item?.affixes.map((a) => `${formatAffix(a)} ${affixTierLabel(a.id, a.tier)}`) ?? [];
   return (
     <span
       className={`rune-chip cat-${kind === 'shape' ? 'form' : kind}${small ? ' small' : ''}`}
@@ -96,11 +97,17 @@ function Affixes({ item }: { item: Item }) {
     <ul className="affixes tt-sec">
       {item.affixes.map((a, i) => (
         <li key={i}>
-          {formatAffix(a)} <span className={`tier t${a.tier + 1}`}>T{a.tier + 1}</span>
+          {formatAffix(a)} <AffixTier roll={a} />
         </li>
       ))}
     </ul>
   );
+}
+
+/** A roll's tier, numbered from the best (T1) as players read it, coloured by that number. */
+function AffixTier({ roll }: { roll: AffixRoll }) {
+  const label = affixTierLabel(roll.id, roll.tier);
+  return <span className={`tier ${label.toLowerCase()}`}>{label}</span>;
 }
 
 const TIER_NAMES: Record<Item['tier'], string> = { common: 'Common', magic: 'Magic', rare: 'Rare', relic: 'Relic' };
@@ -166,7 +173,7 @@ function RuneAffixLines({ item }: { item: RuneItem }) {
         const why = runeAffixDescription(a.id);
         return (
           <li key={i}>
-            {formatAffix(a)} <span className={`tier t${a.tier + 1}`}>T{a.tier + 1}</span>
+            {formatAffix(a)} <AffixTier roll={a} />
             {why && <small className="affix-why">{why}</small>}
           </li>
         );

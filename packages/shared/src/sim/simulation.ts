@@ -55,6 +55,8 @@ export interface PlayerSave {
   gold: number;
   /** Rune items and sigil slots (v2). A save without it is v1 and is converted before it is read. */
   runeFormat: 2;
+  /** Rune affix rolls count six tiers (2026-10-01). Data without it is re-tiered once on load (convertRuneRolls). */
+  runeTiers?: 6;
   /** Waypoints hold world ids. A save without it lists the old zones' ids and is converted before it is read. */
   worldFormat: 1;
   /** Gates this character has opened (`sim/gates.ts`). A save from before gate bosses has none. */
@@ -281,6 +283,7 @@ export class Simulation {
       xp: p.xp,
       gold: p.gold,
       runeFormat: 2,
+      runeTiers: 6,
       worldFormat: 1,
       gates: [...p.gates],
     };

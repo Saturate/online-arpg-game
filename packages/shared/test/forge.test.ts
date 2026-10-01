@@ -181,8 +181,11 @@ describe('rolled rune drops', () => {
       for (let i = 0; i < 400; i++) for (const a of createRolledRune(i, rng, 'relic', ilvl).affixes) best = Math.max(best, a.tier);
       return best;
     };
+    // Six rune tiers, gated by item level: T6 at 1, up to T2 at 8, and T1 (index 5) from 12.
     expect(maxTier(1)).toBe(0);
-    expect(maxTier(8)).toBe(2);
+    expect(maxTier(3)).toBe(2);
+    expect(maxTier(8)).toBe(4);
+    expect(maxTier(30)).toBe(5);
   });
 
   it('can be given with the dev tools, bound like every dev item', () => {

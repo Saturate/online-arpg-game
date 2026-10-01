@@ -1,4 +1,4 @@
-import { runeItemFromInstance, type ItemUid, type SigilItem } from '../items/items.js';
+import { kitRoll, runeItemFromInstance, type ItemUid, type RuneItem, type SigilItem } from '../items/items.js';
 import { tokenizeSpell } from '../runes/v2/tokenize.js';
 import type { RuneInstance } from '../runes/v2/runes.js';
 import type { ClassId } from './classes.js';
@@ -100,6 +100,12 @@ export function classStarterSigils(classId: ClassId): StarterSigilDef[] {
   return STARTER_SIGILS.filter((s) => s.classId === classId);
 }
 
+/** A kit rune with every roll inside the live drop table below T1 (kitRoll), so tuning a range keeps new kits in the table. */
+function kitRune(r: RuneItem): RuneItem {
+  const affixes = r.affixes.map(kitRoll);
+  return affixes.every((a, i) => a === r.affixes[i]) ? r : { ...r, affixes };
+}
+
 /**
  * A common sigil holding the starter's runes. `newUid` is called once for the sigil and once per
  * rune, since each rune in a slot is its own item. `bound` binds the sigil and every rune in it
@@ -114,7 +120,7 @@ export function createStarterSigil(newUid: () => ItemUid, def: StarterSigilDef, 
     name: def.name,
     ilvl: 1,
     affixes: [],
-    slots: def.runes.map((r) => runeItemFromInstance(newUid(), r, opts.bound)),
+    slots: def.runes.map((r) => kitRune(runeItemFromInstance(newUid(), r, opts.bound))),
     corrupted: false,
     starter: def.id,
   };

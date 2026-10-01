@@ -1,4 +1,4 @@
-import { BAG, convertRuneRolls, createSigil, createStarterSigil, emptyGrid, emptyStash, isItemShape, oldStarterRunes, Rng, starterSigilById, toRuneInstance, type Item, type ItemUid, type SigilItem } from '@rune/shared';
+import { applyTunables, BAG, convertRuneRolls, createSigil, createStarterSigil, resetTunables, runeItemFromInstance, tokenizeSpell, emptyGrid, emptyStash, isItemShape, oldStarterRunes, Rng, starterSigilById, toRuneInstance, type Item, type ItemUid, type SigilItem } from '@rune/shared';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,8 +19,9 @@ function oldStarter(id: string, bound: boolean): SigilItem {
   const def = starterSigilById(id);
   const runes = oldStarterRunes(id);
   if (!def || !runes) throw new Error(id);
-  // Saves from before 2026-10-01 hold starter rolls at tier 0.
-  const s = createStarterSigil(next, { ...def, runes }, { bound });
+  // Saves from before 2026-10-01 hold starter rolls at tier 0, with the hand-set values as written.
+  const s: SigilItem = { uid: next(), kind: 'sigil', tier: 'common', name: def.name, ilvl: 1, affixes: [], slots: runes.map((r) => runeItemFromInstance(next(), r, bound)), corrupted: false, starter: id };
+  if (bound) s.bound = true;
   return { ...s, slots: s.slots.map((r) => ({ ...r, affixes: r.affixes.map((a) => ({ ...a, tier: 0 })) })) };
 }
 
@@ -169,5 +170,43 @@ describe('rune roll decisions on the server', () => {
     if (!again) throw new Error('no save');
     expect(convertRuneRolls(again.items).report).toEqual({ affixesRemoved: [], renamed: [], startersRebuilt: [], runesRetiered: [] });
     raw.close();
+  });
+
+  it('re-tier rune rolls once, by value among the six tiers, and leave marked saves byte-identical', async () => {
+    const { store, raw, accountId, characterId } = await database();
+    // An old Fireball kit as saves hold it: +100% damage past every table, at the old top tier index.
+    const fireball = starterSigilById('fireball');
+    if (!fireball) throw new Error('fireball');
+    const runes = tokenizeSpell('orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+30% duration]').runes;
+    const old: SigilItem = { uid: next(), kind: 'sigil', tier: 'common', name: 'Fireball', ilvl: 1, affixes: [], slots: runes.map((r) => runeItemFromInstance(next(), r, true)), corrupted: false, starter: 'fireball', bound: true };
+    const threeTier: SigilItem = { ...old, slots: old.slots.map((r) => ({ ...r, affixes: r.affixes.map((x) => ({ ...x, tier: Math.min(x.tier, 2) })) })) };
+    const save = { ...rangerSave(), items: [threeTier], inventory: emptyGrid(BAG), sigils: [threeTier.uid, null, null, null] };
+    raw.prepare('UPDATE characters SET save_json = ? WHERE id = ?').run(JSON.stringify(save), characterId);
+    // A range tuned before the first load must not move the re-tier: it reads the code's tables.
+    applyTunables({ 'affix.rune_damage.t1.max': 200 });
+    try {
+      const loaded = store.loadCharacter(accountId, characterId)?.save;
+      if (!loaded) throw new Error('no save');
+      expect(loaded.runeTiers).toBe(6);
+      const [sigil] = sigils(loaded.items);
+      if (!sigil) throw new Error('no sigil');
+      // Values, uids, binding and order unchanged; only the tiers moved.
+      const strip = (x: SigilItem): unknown => ({ ...x, slots: x.slots.map((r) => ({ ...r, affixes: r.affixes.map((y) => ({ id: y.id, value: y.value })) })) });
+      expect(strip(sigil)).toEqual(strip(threeTier));
+      const orb = sigil.slots[0]?.affixes;
+      expect(orb?.find((y) => y.id === 'rune_damage')).toEqual({ id: 'rune_damage', tier: 5, value: 100 });
+      expect(sigil.slots[3]?.affixes).toEqual([{ id: 'rune_duration', tier: 1, value: 30 }]);
+      // Written back with the marker, a second load leaves the sigil exactly as it is.
+      store.saveCharacter(characterId, loaded);
+      const again = store.loadCharacter(accountId, characterId)?.save;
+      expect(JSON.stringify(again?.items)).toBe(JSON.stringify(loaded.items));
+      // A marked save is never re-tiered, even where a roll's tier and value disagree.
+      const odd = { ...loaded, items: [{ ...sigil, slots: sigil.slots.map((r) => ({ ...r, affixes: r.affixes.map((y) => ({ ...y, tier: 0 })) })) }] };
+      raw.prepare('UPDATE characters SET save_json = ? WHERE id = ?').run(JSON.stringify(odd), characterId);
+      expect(JSON.stringify(store.loadCharacter(accountId, characterId)?.save?.items)).toBe(JSON.stringify(odd.items));
+    } finally {
+      resetTunables();
+      raw.close();
+    }
   });
 });

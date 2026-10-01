@@ -460,14 +460,24 @@
 .tt .affixes li {
   margin: 2px 0;
 }
+/* Tiers count from the best, T1, as in Path of Exile: rune affixes have six, other affixes three. */
 .affixes .tier.t1 {
-  color: #8a8a8a;
+  color: #c97a3a;
 }
 .affixes .tier.t2 {
-  color: #7ad08a;
+  color: #d8b04a;
 }
 .affixes .tier.t3 {
-  color: #f0c050;
+  color: #7ab884;
+}
+.affixes .tier.t4 {
+  color: #6f9a76;
+}
+.affixes .tier.t5 {
+  color: #8a8a8a;
+}
+.affixes .tier.t6 {
+  color: #6e6e6e;
 }
 .tt-req .requirement {
   margin: 1px 0 !important;

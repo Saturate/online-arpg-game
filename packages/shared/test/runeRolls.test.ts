@@ -65,8 +65,8 @@ function fillBag(sim: Simulation, p: PlayerComp): void {
 describe('rolls past the loot table', () => {
   it('clamp a higher-is-better roll down to the best any tier rolls', () => {
     const top = best('rune_damage', 'max');
-    expect(clampRoll({ id: 'rune_damage', tier: 0, value: 100 })).toEqual({ id: 'rune_damage', tier: 0, value: top });
-    expect(clampRoll({ id: 'rune_damage', tier: 9, value: 100 })).toEqual({ id: 'rune_damage', tier: AFFIXES.rune_damage.tiers.length - 1, value: top });
+    expect(clampRoll({ id: 'rune_damage', tier: 0, value: 300 })).toEqual({ id: 'rune_damage', tier: 0, value: top });
+    expect(clampRoll({ id: 'rune_damage', tier: 9, value: 300 })).toEqual({ id: 'rune_damage', tier: AFFIXES.rune_damage.tiers.length - 1, value: top });
     const inside: AffixRoll = { id: 'rune_damage', tier: 1, value: 25 };
     expect(clampRoll(inside)).toBe(inside);
     // Weaker than any drop (a slow starter orb) is left as it is.
@@ -75,7 +75,7 @@ describe('rolls past the loot table', () => {
   });
 
   it('clamp a faster pulse up to the fastest a drop can have', () => {
-    expect(clampRoll({ id: 'release_every', tier: 0, value: 0.18 }).value).toBe(best('release_every', 'min'));
+    expect(clampRoll({ id: 'release_every', tier: 0, value: 0.1 }).value).toBe(best('release_every', 'min'));
     const slower: AffixRoll = { id: 'release_every', tier: 0, value: 0.9 };
     expect(clampRoll(slower)).toBe(slower);
   });
@@ -90,15 +90,15 @@ describe('rolls past the loot table', () => {
     expect(clampRuneRolls(fine)).toBe(fine);
     expect(rollLosses(fine)).toEqual([]);
     const strong = rolled([
-      { id: 'rune_damage', tier: 0, value: 100 },
+      { id: 'rune_damage', tier: 0, value: 300 },
       { id: 'rune_speed', tier: 0, value: -15 },
     ]);
     const out = clampRuneRolls(strong);
     expect(out).not.toBe(strong);
     expect(out.uid).toBe(strong.uid);
     expect(out.affixes.map((a) => a.value)).toEqual([best('rune_damage', 'max'), -15]);
-    expect(strong.affixes[0]?.value).toBe(100);
-    expect(rollLosses(strong).map((l) => [l.before.value, l.after.value])).toEqual([[100, best('rune_damage', 'max')]]);
+    expect(strong.affixes[0]?.value).toBe(300);
+    expect(rollLosses(strong).map((l) => [l.before.value, l.after.value])).toEqual([[300, best('rune_damage', 'max')]]);
   });
 
   it('no kit rune is past the table: kits are ordinary sigils', () => {
@@ -153,7 +153,7 @@ describe('clamped runes are worth no more', () => {
 describe('taking a rune out of a sigil', () => {
   it('clamps its rolls at the forge, for an unbound old kit sigil; putting it back keeps the clamped rolls', () => {
     const { sim, pid, p } = town();
-    const s = oldKitSigil('fireball', () => sim.newItemUid(), false);
+    const s = oldKitSigil('multishot', () => sim.newItemUid(), false);
     addItem(p, s);
     const index = s.slots.findIndex((r) => rollLosses(r).length > 0);
     const out = s.slots[index];
@@ -173,18 +173,18 @@ describe('taking a rune out of a sigil', () => {
 
   it('clamps bound old kit runes too, and keeps rolls while runes only move inside the sigil', () => {
     const { sim, pid, p } = town();
-    const s = oldKitSigil('fireball', () => sim.newItemUid(), true);
+    const s = oldKitSigil('multishot', () => sim.newItemUid(), true);
     addItem(p, s);
     const rolls = JSON.stringify(s.slots.map((r) => r.affixes));
     const reversed: RuneRef[] = s.slots.map((_, i): RuneRef => ({ from: 'keep', index: s.slots.length - 1 - i }));
     expect(sim.inscribe(pid, s.uid, reversed)).toBeNull();
     expect(JSON.stringify([...s.slots].reverse().map((r) => r.affixes))).toBe(rolls);
-    const orb = s.slots.find((r) => r.rune === 'orb');
-    if (!orb) throw new Error('fireball has no orb');
+    const orb = s.slots.find((r) => r.rune === 'bolt');
+    if (!orb) throw new Error('multishot has no bolt');
     expect(rollLosses(orb).length).toBeGreaterThan(0);
     expect(sim.inscribe(pid, s.uid, [])).toBeNull();
     const back = p.items.get(orb.uid);
-    if (back?.kind !== 'rune') throw new Error('orb not back');
+    if (back?.kind !== 'rune') throw new Error('bolt not back');
     expect(back.bound).toBe(true);
     expect(rollLosses(back)).toEqual([]);
     expect(back.affixes).not.toEqual(orb.affixes);
