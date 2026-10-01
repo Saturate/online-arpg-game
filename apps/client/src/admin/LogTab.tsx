@@ -1,6 +1,7 @@
 import type { ServerEvent, ServerEventKind } from '@rune/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { liveApi } from './live/liveApi.js';
+import { nextPollDelay } from './live/poll.js';
 import { searchId, type Jump } from './tabs.js';
 import './live/live.css';
 
@@ -28,33 +29,47 @@ export function LogTab({ token, notify, focus }: { token: string; notify: (t: st
 
   useEffect(() => {
     let live = true;
-    const poll = () => {
-      void liveApi.log(token, cursor.current.next).then((r) => {
-        if (!live) return;
-        if (!r.ok) return notify(r.error);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = POLL_MS;
+    let warned = false;
+    /** Reads until the server has nothing more, then waits; returns the last status. */
+    const read = async (): Promise<number> => {
+      for (;;) {
+        const r = await liveApi.log(token, cursor.current.next);
+        if (!live) return 0;
+        if (!r.ok) {
+          if (r.status !== 429) notify(r.error);
+          return r.status;
+        }
         setLoaded(true);
         // A restart starts the ids again: what the page holds belongs to the old process, and the
         // old cursor would skip the new one's first lines, so it reads again from the start.
         if (cursor.current.startedAt !== 0 && r.data.startedAt !== cursor.current.startedAt) {
           cursor.current = { next: 0, startedAt: r.data.startedAt };
           setEntries([]);
-          poll();
-          return;
+          continue;
         }
         cursor.current = { next: r.data.next, startedAt: r.data.startedAt };
-        if (r.data.entries.length === 0) return;
-        setEntries((old) => [...old, ...r.data.entries].slice(-KEEP));
+        if (r.data.entries.length > 0) setEntries((old) => [...old, ...r.data.entries].slice(-KEEP));
         // A full page means more is waiting (the route sends 1000 at most), so read on now.
-        if (r.data.entries.length >= PAGE) poll();
-      });
+        if (r.data.entries.length < PAGE) return 200;
+      }
     };
-    poll();
-    const t = setInterval(() => {
-      if (!document.hidden) poll();
-    }, POLL_MS);
+    const tick = async () => {
+      const status = document.hidden ? 200 : await read();
+      if (!live) return;
+      if (status === 429 && !warned) {
+        warned = true;
+        notify('The server is limiting requests; the log updates more slowly until it recovers');
+      }
+      if (status !== 429) warned = false;
+      delay = nextPollDelay(delay, POLL_MS, status === 429);
+      timer = setTimeout(() => void tick(), delay);
+    };
+    void tick();
     return () => {
       live = false;
-      clearInterval(t);
+      clearTimeout(timer);
     };
   }, [token, notify]);
 

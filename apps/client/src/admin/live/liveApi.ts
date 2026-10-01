@@ -39,7 +39,7 @@ function isWorld(v: unknown): v is LiveWorld {
   const r = v.regions;
   const regionsOk = r === null || (isRecord(r) && num(r.cols) && num(r.rows) && numList(r.cells) && Array.isArray(r.names) && r.names.every(str));
   const dotsOk = Array.isArray(v.dots) && v.dots.every((d) => isRecord(d) && num(d.x) && num(d.y) && str(d.name) && typeof d.inParty === 'boolean');
-  return str(v.game) && str(v.name) && num(v.width) && num(v.height) && (v.town === null || isRect(v.town)) && regionsOk && dotsOk;
+  return str(v.game) && str(v.name) && num(v.width) && num(v.height) && (v.town === null || isRect(v.town)) && (v.planHash === null || str(v.planHash)) && regionsOk && dotsOk;
 }
 
 const eventsOrNull = (v: unknown): boolean => v === null || listOf(v, isServerEvent);
@@ -61,7 +61,7 @@ function isLogResponse(v: unknown): v is ServerLogResponse {
 }
 
 export const liveApi = {
-  live: async (token: string) => narrow(await call('GET', '/api/admin/live', token), isAdminLive),
+  live: async (token: string, have = '') => narrow(await call('GET', `/api/admin/live${have ? `?have=${encodeURIComponent(have)}` : ''}`, token), isAdminLive),
   search: async (token: string, q: string) => narrow(await call('GET', `/api/admin/search?q=${encodeURIComponent(q)}`, token), isSearch),
   log: async (token: string, since: number) => narrow(await call('GET', `/api/admin/log?since=${since}`, token), isLogResponse),
 };

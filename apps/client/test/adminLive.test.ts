@@ -3,10 +3,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { isAdminLive } from '../src/admin/live/liveApi.js';
+import { MAX_POLL_MS, nextPollDelay, RegionCache } from '../src/admin/live/poll.js';
 import { duration, HealthPanel, LogTail, PlayersTable, RoomsTable, Sparkline, tickClass, WorldMinimap, type PlayerActions } from '../src/admin/live/parts.js';
 
 const worldRoom: LiveRoom = { id: 'i1-world', name: 'The World', kind: 'world', game: 'i1', players: 2, monsters: 140, minions: 3, spells: 12, tickMs: 2.1, tickMaxMs: 9 };
-const world: LiveWorld = { game: 'i1', name: 'Public world 1', width: 1000, height: 800, town: { x: 400, y: 300, w: 200, h: 200 }, regions: { cols: 4, rows: 2, cells: [0, 0, 1, 1, 0, 2, 2, 1], names: ['Mossy Barrens', 'Gloomvale', 'Ashen Steppe'] }, dots: [{ x: 500, y: 400, name: 'Ashcaller', inParty: true }] };
+const world: LiveWorld = { game: 'i1', name: 'Public world 1', width: 1000, height: 800, town: { x: 400, y: 300, w: 200, h: 200 }, planHash: '0a1b2c3d', regions: { cols: 4, rows: 2, cells: [0, 0, 1, 1, 0, 2, 2, 1], names: ['Mossy Barrens', 'Gloomvale', 'Ashen Steppe'] }, dots: [{ x: 500, y: 400, name: 'Ashcaller', inParty: true }] };
 
 const live: AdminLive = {
   health: { build: 'abcdef1234', uptimeSeconds: 3700, memoryMb: 210, heapMb: 90, tickMs: 3.2, tickMaxMs: 61, tickHistory: { mean: [2, 3, 4], max: [5, 61, 8] }, connections: 3, inGame: 2, messagesIn: 40, messagesOut: 380 },
@@ -82,5 +83,28 @@ describe('the Live view parts', () => {
     expect(map).toContain('<title>Gloomvale</title>');
     // Runs of one region in a row are one rect: row 0 is two runs, row 1 three.
     expect(map.match(/<rect [^>]*fill=/g)).toHaveLength(5);
+  });
+});
+
+describe('Live view polling', () => {
+  it('backs off on 429 up to 30 s and returns to its interval on the next answer', () => {
+    let d = 3000;
+    const seen: number[] = [];
+    for (let i = 0; i < 6; i++) seen.push((d = nextPollDelay(d, 3000, true)));
+    expect(seen).toEqual([6000, 12000, 24000, MAX_POLL_MS, MAX_POLL_MS, MAX_POLL_MS]);
+    expect(nextPollDelay(d, 3000, false)).toBe(3000);
+  });
+
+  it('keeps each world copy\'s region grid after the first reply and asks for it no more', () => {
+    const cache = new RegionCache();
+    expect(cache.have()).toBe('');
+    expect(cache.resolve([world])[0]?.regions).toBe(world.regions);
+    expect(cache.have()).toBe('i1:0a1b2c3d');
+    // Later replies leave the grid out; the cache fills it back in for the same plan only.
+    expect(cache.resolve([{ ...world, regions: null }])[0]?.regions).toBe(world.regions);
+    expect(cache.resolve([{ ...world, planHash: 'ffffffff', regions: null }])[0]?.regions).toBeNull();
+    // A copy that closed is forgotten.
+    cache.resolve([]);
+    expect(cache.have()).toBe('');
   });
 });

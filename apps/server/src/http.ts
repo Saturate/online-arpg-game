@@ -23,6 +23,7 @@ import {
   type AdminLive,
   type AdminSearch,
   LIVE_TAIL,
+  parseLiveHave,
   SEARCH_LIMITS,
   SEARCH_QUERY,
   type ServerEvent,
@@ -130,8 +131,8 @@ export type TownSaveResult = { ok: true; rooms: number; players: number } | { ok
 /** What the admin API needs from the running game; the room manager provides it. */
 export interface AdminHooks extends TuningHooks, TunablesHooks {
   overview(): AdminOverview;
-  /** The Live view without the log tails, which the API adds by permission. */
-  live(): Omit<AdminLive, 'log' | 'staff'>;
+  /** The Live view without the log tails, which the API adds by permission; `have` is from parseLiveHave. */
+  live(have?: ReadonlyMap<string, string>): Omit<AdminLive, 'log' | 'staff'>;
   settings(): ServerSettings;
   updateSettings(patch: Partial<ServerSettings>): ServerSettings;
   announce(text: string): number;
@@ -265,9 +266,10 @@ const POLLED_ROUTES: ReadonlySet<string> = new Set(['/api/admin/log', '/api/admi
 
 /**
  * The Live view's staff tail shows changes. A token's reads are staff lines too (`... token "x": GET
- * /api/admin/overview`), and a script polling would push every change out of the tail.
+ * /api/admin/overview`), and a script polling would push every change out of the tail. Matched on
+ * the whole line, so an announcement quoting that text is still shown.
  */
-const TOKEN_READ = /token "[^"]*": GET \/api\/admin\/\S*$/;
+const TOKEN_READ = /^\[admin\] \S+ \(\w+\) token "[^"]*": GET \/api\/admin\/\S+$/;
 
 export function isStaffChange(e: ServerEvent): boolean {
   return e.kind === 'staff' && !TOKEN_READ.test(e.text);
@@ -522,7 +524,7 @@ export class AccountApi {
       // The tails are left out, not blanked on the page: a role without serverLog never gets them.
       const logs = allowed('serverLog');
       const live: AdminLive = {
-        ...this.admin.live(),
+        ...this.admin.live(parseLiveHave(query.get('have'))),
         log: logs ? events.recent(LIVE_TAIL.log, (e) => e.kind !== 'staff') : null,
         staff: logs ? events.recent(LIVE_TAIL.staff, isStaffChange) : null,
       };

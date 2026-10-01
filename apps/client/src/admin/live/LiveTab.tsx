@@ -1,7 +1,8 @@
 import { can, type AdminLive, type LivePlayer, type Role } from '@rune/shared';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { adminApi } from '../../net/api.js';
 import { liveApi } from './liveApi.js';
+import { nextPollDelay, RegionCache } from './poll.js';
 import { HealthPanel, LogTail, PlayersTable, RoomsTable, WorldMinimap, type PlayerActions } from './parts.js';
 import './live.css';
 
@@ -18,34 +19,48 @@ export function LiveTab({ token, role, notify, openPlayer }: { token: string; ro
   const [stopped, setStopped] = useState<string | null>(null);
   const [text, setText] = useState('');
 
-  const load = useCallback(() => {
-    void liveApi.live(token).then((r) => {
-      if (r.ok) {
-        setData(r.data);
-        return;
-      }
-      // An expired session will not fix itself, so stop polling instead of toasting every 3 s.
-      if (r.status === 401) setStopped('Session expired, log in to the game again');
-      else notify(r.error);
-    });
+  const regions = useRef(new RegionCache());
+  const load = useCallback(async (): Promise<number> => {
+    const r = await liveApi.live(token, regions.current.have());
+    if (r.ok) {
+      setData({ ...r.data, worlds: regions.current.resolve(r.data.worlds) });
+      return 200;
+    }
+    // An expired session will not fix itself, so stop polling instead of toasting every 3 s.
+    if (r.status === 401) setStopped('Session expired, log in to the game again');
+    else if (r.status !== 429) notify(r.error);
+    return r.status;
   }, [token, notify]);
 
   useEffect(() => {
     if (stopped) return;
-    load();
-    const t = setInterval(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = POLL_MS;
+    let warned = false;
+    const tick = async () => {
       // A tab in the background polls nothing; it catches up the moment it is shown again.
-      if (!document.hidden) load();
-    }, POLL_MS);
+      const status = document.hidden ? 200 : await load();
+      if (!live) return;
+      if (status === 429 && !warned) {
+        warned = true;
+        notify('The server is limiting requests; the live view slows down until it recovers');
+      }
+      if (status !== 429) warned = false;
+      delay = nextPollDelay(delay, POLL_MS, status === 429);
+      timer = setTimeout(() => void tick(), delay);
+    };
+    void tick();
     const onShow = () => {
-      if (!document.hidden) load();
+      if (!document.hidden) void load();
     };
     document.addEventListener('visibilitychange', onShow);
     return () => {
-      clearInterval(t);
+      live = false;
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', onShow);
     };
-  }, [load, stopped]);
+  }, [load, stopped, notify]);
 
   const announce = async (e: FormEvent) => {
     e.preventDefault();
@@ -67,7 +82,7 @@ export function LiveTab({ token, role, notify, openPlayer }: { token: string; ro
       if (!confirm(`Kick ${p.name}?`)) return;
       void adminApi.kick(token, p.characterId).then((r) => {
         notify(r.ok ? (r.data.kicked ? `Kicked ${p.name}` : `${p.name} had already left`) : r.error);
-        load();
+        void load();
       });
     },
   };

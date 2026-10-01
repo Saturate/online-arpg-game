@@ -530,7 +530,16 @@ function AdminPage({ access }: { access: StaffAccess }) {
         <h1>Allan's ARPG admin</h1>
         <nav>
           {tabs.map((t) => (
-            <button key={t} type="button" className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
+            <button
+              key={t}
+              type="button"
+              className={tab === t ? 'on' : ''}
+              onClick={() => {
+                // A tab opened by hand must not replay the last search jump into it.
+                setJump(null);
+                setTab(t);
+              }}
+            >
               {TAB_NAMES[t]}
             </button>
           ))}

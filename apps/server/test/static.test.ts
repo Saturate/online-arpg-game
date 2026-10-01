@@ -56,4 +56,12 @@ describe('static pages', () => {
     const res = await get('/%2Fadmin');
     expect(res.headers.get('location')).toBe('/admin/');
   });
+
+  it('lets pages load the self-hosted fonts and Google Fonts, nothing else', async () => {
+    for (const path of ['/', '/admin/']) {
+      const csp = (await get(path)).headers.get('content-security-policy') ?? '';
+      const fonts = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('font-src'));
+      expect(fonts).toBe("font-src 'self' https://fonts.gstatic.com");
+    }
+  });
 });

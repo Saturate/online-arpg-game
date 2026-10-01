@@ -172,6 +172,20 @@ describe('the live view and search', () => {
     expect(Number(health.messagesOut)).toBeGreaterThanOrEqual(0);
   });
 
+  it('sends a world copy\'s region grid only to a caller that does not hold it for that plan', async () => {
+    const first = rec(list((await get('/api/admin/live', sessions.boss ?? '')).worlds)[0]);
+    const hash = first.planHash;
+    if (typeof hash !== 'string') throw new Error('no plan hash');
+    expect(first.regions).not.toBeNull();
+    const held = rec(list((await get(`/api/admin/live?have=i1:${hash}`, sessions.boss ?? '')).worlds)[0]);
+    expect(held.regions).toBeNull();
+    expect(held.planHash).toBe(hash);
+    // Another plan, another copy, or an unreadable entry gets the grid again.
+    for (const have of ['i1:00000000', `i2:${hash}`, `i1:${hash}x`, 'garbage']) {
+      expect(rec(list((await get(`/api/admin/live?have=${encodeURIComponent(have)}`, sessions.boss ?? '')).worlds)[0]).regions).not.toBeNull();
+    }
+  });
+
   it('sends the log tails only to roles with serverLog, and never token reads in the staff tail', async () => {
     for (const who of ['boss', 'admin1']) {
       const live = await get('/api/admin/live', sessions[who] ?? '');
@@ -214,6 +228,9 @@ describe('the live view and search', () => {
     expect(isStaffChange({ id: 2, at, kind: 'staff', text: '[admin] a (admin) token "x": GET /api/admin/tuning/history' })).toBe(false);
     expect(isStaffChange({ id: 3, at, kind: 'staff', text: '[admin] a (admin) token "x": PATCH /api/admin/tuning' })).toBe(true);
     expect(isStaffChange({ id: 4, at, kind: 'error', text: 'boom' })).toBe(false);
+    // Text that looks like a token read inside another line does not hide that line.
+    expect(isStaffChange({ id: 5, at, kind: 'staff', text: '[admin] mod1 (moderator): announce "free gold token "x": GET /api/admin/live"' })).toBe(true);
+    expect(isStaffChange({ id: 6, at, kind: 'staff', text: 'noise [admin] a (admin) token "x": GET /api/admin/overview' })).toBe(true);
   });
 
   it('searches accounts by name and by character, names that start with it first', async () => {

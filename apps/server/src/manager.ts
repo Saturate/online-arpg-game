@@ -413,7 +413,7 @@ export class RoomManager implements AdminHooks {
    * The Live view's game part; the admin API adds the log tails for callers with `serverLog`. Read
    * every few seconds per open admin page, so it may allocate; the tick never does for it.
    */
-  live(): Omit<AdminLive, 'log' | 'staff'> {
+  live(have: ReadonlyMap<string, string> = new Map()): Omit<AdminLive, 'log' | 'staff'> {
     const now = Date.now();
     const players: LivePlayer[] = [];
     for (const c of this.clients.values()) {
@@ -455,7 +455,9 @@ export class RoomManager implements AdminHooks {
         dots.push({ x: Math.round(pos.x), y: Math.round(pos.y), name: p.name, inParty: this.partyOf(m.client.accountId) !== null });
       }
       const town = def.safeZones?.[0];
-      worlds.push({ game: inst.id, name: inst.name, width: def.width, height: def.height, town: town ? { x: town.x, y: town.y, w: town.w, h: town.h } : null, regions: this.regionGrid(room), dots });
+      const planHash = room.planHash ?? null;
+      const held = planHash !== null && have.get(inst.id) === planHash;
+      worlds.push({ game: inst.id, name: inst.name, width: def.width, height: def.height, town: town ? { x: town.x, y: town.y, w: town.w, h: town.h } : null, planHash, regions: held ? null : this.regionGrid(room), dots });
     }
     const mem = process.memoryUsage();
     let inGame = 0;
@@ -614,11 +616,12 @@ export class RoomManager implements AdminHooks {
 
   /** One server tick for every room. Public so tests can drive the world without timers. */
   tick(): void {
+    // Before the autosave, so a tick that saves everyone shows as the slow tick it is.
+    const tickStart = performance.now();
     if (++this.ticksSinceSave >= AUTOSAVE_SECONDS * SIM.tickRate) {
       this.ticksSinceSave = 0;
       this.saveAll();
     }
-    const tickStart = performance.now();
     this.syncParties();
     for (const room of [...this.rooms.values()]) {
       const roomStart = performance.now();

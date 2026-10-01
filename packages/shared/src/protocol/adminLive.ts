@@ -15,6 +15,24 @@ export const TICK_BUDGET_MS = 50;
 /** Per-second tick time samples the health sparkline covers. */
 export const TICK_HISTORY_SECONDS = 300;
 
+/**
+ * `GET /api/admin/live?have=i1:0a1b2c3d,i2:...`: the region grids the caller holds, by world copy and
+ * plan checksum, so they are not sent again.
+ */
+export const LIVE_HAVE = { max: 32, pattern: /^[A-Za-z0-9_-]{1,32}:[0-9a-f]{1,16}$/ } as const;
+
+/** Parses `have`; unreadable entries are dropped, so the worst case is a grid sent again. */
+export function parseLiveHave(raw: string | null): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!raw) return out;
+  for (const part of raw.split(',').slice(0, LIVE_HAVE.max)) {
+    if (!LIVE_HAVE.pattern.test(part)) continue;
+    const at = part.indexOf(':');
+    out.set(part.slice(0, at), part.slice(at + 1));
+  }
+  return out;
+}
+
 /** How many lines each log tail carries. */
 export const LIVE_TAIL = { log: 60, staff: 40 } as const;
 
@@ -94,6 +112,12 @@ export interface LiveWorld {
   width: number;
   height: number;
   town: { x: number; y: number; w: number; h: number } | null;
+  /** The world plan's checksum; null for a world without a plan. */
+  planHash: string | null;
+  /**
+   * Sent only when the caller does not already hold this copy's grid for `planHash` (the `have`
+   * query); null otherwise, and for a world without a plan. It never changes while the room is open.
+   */
   regions: LiveRegionGrid | null;
   dots: LiveWorldDot[];
 }

@@ -75,7 +75,8 @@ export class Room {
    * open (it closes after standing empty while people are still inside the dungeon).
    */
   entranceGate: GateInfo | null = null;
-  private planHash: string | undefined;
+  /** The world plan's checksum, for rooms built from one. */
+  planHash: string | undefined;
 
   constructor(
     readonly id: string,
