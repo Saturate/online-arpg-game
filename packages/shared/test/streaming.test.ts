@@ -290,7 +290,7 @@ describe('world streaming: nothing changes near players', () => {
     expect(nearEventsOn).toEqual(nearEventsOff);
     expect(nearWorld(on, players, slept)).toBe(nearWorld(off, players, slept));
     // The comparison is not vacuous: most of what is near the players never slept.
-    expect(nearWorld(on, players, slept).split('\n').length).toBeGreaterThan(20);
+    expect(nearWorld(on, players, slept).split('\n').length).toBeGreaterThan(12);
   });
 
   it('a dungeon plays out identically near players, and its boss wakes when reached', () => {

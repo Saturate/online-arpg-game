@@ -140,16 +140,23 @@ export function pillarRing(map: WorldMap, cx: number, cy: number, radius: number
   }
 }
 
-/** A cluster of decor around a point, skipping spots that overlap obstacles. */
-export function scatterDecor(map: WorldMap, rng: Rng, cx: number, cy: number, radius: number, assets: readonly string[], count: number): void {
+/**
+ * Whether a decor piece at (x, y) would overlap an obstacle or a river, by a scan of the map.
+ * `Space.conflicts` with `SCATTER_RULES` and radius 0 gives the same answer from an index.
+ */
+export function decorBlocked(map: WorldMap, x: number, y: number): boolean {
+  return map.obstacles.some((o) => o.kind !== 'water' && distToShape(x, y, o.shape) < 14) || map.rivers.some((r) => distToPath(x, y, r.path) < r.width / 2 + 10);
+}
+
+/** A cluster of decor around a point, skipping spots that overlap obstacles (`blocked`, a scan of the map by default). */
+export function scatterDecor(map: WorldMap, rng: Rng, cx: number, cy: number, radius: number, assets: readonly string[], count: number, blocked: (x: number, y: number) => boolean = (x, y) => decorBlocked(map, x, y)): void {
   for (let i = 0, placed = 0; i < count * 6 && placed < count; i++) {
     const a = rng.range(0, Math.PI * 2);
     const d = Math.sqrt(rng.next()) * radius;
     const x = cx + Math.cos(a) * d;
     const y = cy + Math.sin(a) * d;
     if (x < 30 || y < 30 || x > map.width - 30 || y > map.height - 30) continue;
-    if (map.obstacles.some((o) => o.kind !== 'water' && distToShape(x, y, o.shape) < 14)) continue;
-    if (map.rivers.some((r) => distToPath(x, y, r.path) < r.width / 2 + 10)) continue;
+    if (blocked(x, y)) continue;
     const asset = assets[rng.int(0, assets.length - 1)];
     if (!asset) continue;
     map.decor.push({ asset, x, y, angle: rng.range(0, Math.PI * 2), scale: rng.range(0.85, 1.2) });

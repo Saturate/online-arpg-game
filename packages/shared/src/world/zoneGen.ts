@@ -5,7 +5,7 @@ import { CAMPS, placeCamps } from './camps.js';
 import { dungeonName } from './dungeon.js';
 import { inRect, rock, scatterDecor, tree } from './gen.js';
 import { GameMap, type ChunkObstacleSource } from './gamemap.js';
-import { Space, type PlacementRules } from './placement.js';
+import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import type { Decor, MonsterPack, Obstacle, SafeZone, WorldMap } from './types.js';
 
 /**
@@ -32,8 +32,6 @@ export const SPILL = 345;
 
 /** What a chunk's trees and rocks keep clear of, as generation always has (`Placement` in gen.ts). */
 const SCENERY: PlacementRules = { spacing: 46, riverPad: 40, keepOut: true, bridges: true };
-/** Scattered bones only keep off obstacles and water, as `scatterDecor` does. */
-const SCATTER: PlacementRules = { spacing: 14, riverPad: 10, keepOut: false, bridges: false };
 
 const BONES = ['grave_bone_A', 'grave_skull', 'grave_ribcage', 'grave_tree_dead_small', 'dungeon_rubble_half', 'grave_pumpkin_orange'] as const;
 
@@ -170,16 +168,26 @@ export class ZoneWorld implements ChunkObstacleSource {
     const reach = { has: (cell: number): boolean => this.reach[cell] === 1 };
 
     map.packs = [];
+    // The plan's obstacles, water and bridges, indexed for everything placed from here on.
+    for (const o of map.obstacles) this.plan.obstacle(o);
+    for (const r of map.rivers) this.plan.river(r.path, r.width);
+    for (const b of map.bridges) this.plan.bridge(b.x, b.y, b.length);
     this.placeBoss(map, gm);
     this.entrances = this.placeEntrances(map, gm);
-    if (spec.camps) placeCamps(map, spec.seed, gm, reach, spec.keepClear, this.levelAt, spec.biome, spec.scale);
+    if (spec.camps) {
+      const before = map.obstacles.length;
+      const campRules: PlacementRules = { spacing: 8, riverPad: 40, keepOut: false, bridges: true };
+      placeCamps(map, spec.seed, gm, reach, spec.keepClear, this.levelAt, spec.biome, spec.scale, (x, y, r) => fitsIn(this.plan, map.width, map.height, x, y, r, campRules));
+      // The tents.
+      for (const o of map.obstacles.slice(before)) this.plan.obstacle(o);
+    }
     this.openCamps = (map.camps ?? []).filter((c) => !c.guarded);
     this.allPlanPacks = map.packs;
     this.planPacks = Array.from({ length: this.cols * this.rows }, () => []);
     for (const p of map.packs) this.planPacks[this.chunkIndex(p.x, p.y)]?.push(p);
     this.def = { ...map, packs: [] };
 
-    this.indexPlan(map);
+    this.indexKeepOuts(map);
     this.quotas = this.apportionAll(map);
     const n = this.cols * this.rows;
     this.obstacleCache = new Array<Obstacle[] | undefined>(n);
@@ -242,7 +250,7 @@ export class ZoneWorld implements ChunkObstacleSource {
       const dungeonSeed = ((Math.imul(seed + 1, 2246822519) + placed * 3266489917) >>> 0) % 1_000_000;
       map.portals.push({ x, y, r: 46, target: 'staging', label: dungeonName(dungeonSeed), dungeon: { seed: dungeonSeed, level } });
       map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 130 } });
-      scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10);
+      scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10, (px, py) => this.plan.conflicts(px, py, 0, SCATTER_RULES));
       // The rubble ring reaches 170 out; trees and rocks generated later keep off it.
       this.spec.keepOutCircles.push({ x, y, r: 170 });
       out.push({ x, y });
@@ -251,11 +259,9 @@ export class ZoneWorld implements ChunkObstacleSource {
     return out;
   }
 
-  private indexPlan(map: WorldMap): void {
+  /** What chunk content keeps out of, once the plan has placed everything of its own. */
+  private indexKeepOuts(map: WorldMap): void {
     const s = this.plan;
-    for (const o of map.obstacles) s.obstacle(o);
-    for (const r of map.rivers) s.river(r.path, r.width);
-    for (const b of map.bridges) s.bridge(b.x, b.y, b.length);
     const c = this.spec.spawnClear;
     s.keepOutCircle(c.x, c.y, c.r);
     for (const k of this.spec.keepOutCircles) s.keepOutCircle(k.x, k.y, k.r);
@@ -273,17 +279,17 @@ export class ZoneWorld implements ChunkObstacleSource {
     return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
   }
 
-  /** The part of a chunk's span where `ok` holds, by an 8 by 8 sample, times its area. */
+  /** The part of a chunk's span where `ok` holds, by a 4 by 4 sample, times its area. */
   private usableArea(cx: number, cy: number, m: number, ok: (x: number, y: number) => boolean): number {
     const s = this.span(cx, cy, m);
     if (!s) return 0;
     let hits = 0;
-    for (let j = 0; j < 8; j++) {
-      for (let i = 0; i < 8; i++) {
-        if (ok(s.x0 + ((i + 0.5) / 8) * (s.x1 - s.x0), s.y0 + ((j + 0.5) / 8) * (s.y1 - s.y0))) hits++;
+    for (let j = 0; j < 4; j++) {
+      for (let i = 0; i < 4; i++) {
+        if (ok(s.x0 + ((i + 0.5) / 4) * (s.x1 - s.x0), s.y0 + ((j + 0.5) / 4) * (s.y1 - s.y0))) hits++;
       }
     }
-    return (hits / 64) * (s.x1 - s.x0) * (s.y1 - s.y0);
+    return (hits / 16) * (s.x1 - s.x0) * (s.y1 - s.y0);
   }
 
   /**
@@ -467,7 +473,7 @@ export class ZoneWorld implements ChunkObstacleSource {
         const px = x + Math.cos(a) * d;
         const py = y + Math.sin(a) * d;
         if (px < 30 || py < 30 || px > width - 30 || py > height - 30) continue;
-        if (this.plan.conflicts(px, py, 0, SCATTER) || local.conflicts(px, py, 0, SCATTER)) continue;
+        if (this.plan.conflicts(px, py, 0, SCATTER_RULES) || local.conflicts(px, py, 0, SCATTER_RULES)) continue;
         const asset = BONES[rng.int(0, BONES.length - 1)] ?? 'grave_bone_A';
         out.push({ asset, x: px, y: py, angle: rng.range(0, Math.PI * 2), scale: rng.range(0.85, 1.2) });
         placed++;

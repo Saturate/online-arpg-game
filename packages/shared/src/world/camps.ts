@@ -33,8 +33,11 @@ export interface CampSite {
 
 const SUPPLIES = ['crate_A_big', 'crate_B_big', 'crate_A_small', 'barrel', 'sack', 'sack', 'dungeon_barrel_small', 'bucket_water', 'dungeon_keg', 'crate_open'] as const;
 
+/** The obstacle test of a camp site: `fits` with a little spacing, by a scan of the map unless given an index. */
+export type CampFits = (x: number, y: number, r: number) => boolean;
+
 /** Whether a camp at (x, y) keeps clear of every road, plaza, portal, gate and camp already placed. */
-export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: readonly SafeZone[]): boolean {
+export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: readonly SafeZone[], fitsAt: CampFits = (px, py, r) => fits(map, px, py, r, { spacing: 8, riverPad: 40, avoid: [] })): boolean {
   const r = CAMPS.radius;
   if (Math.hypot(x - map.spawn.x, y - map.spawn.y) < WILDS.safeRadius) return false;
   // As far from a town as packs keep, since a camp may be guarded.
@@ -47,7 +50,7 @@ export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: re
     if (d < r + CAMPS.pathClearance) return false;
   }
   if ((map.camps ?? []).some((c) => Math.hypot(c.x - x, c.y - y) < CAMPS.spacing)) return false;
-  return fits(map, x, y, r, { spacing: 8, riverPad: 40, avoid: [] });
+  return fitsAt(x, y, r);
 }
 
 /**
@@ -56,7 +59,7 @@ export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: re
  * from the spawn is used. Trees and rocks generated later keep off a camp, and packs keep their
  * spacing from a guarded one (it is a pack) and `unguardedPackGap` from the rest.
  */
-export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { has(cell: number): boolean }, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biome: Biome, scale: number): void {
+export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { has(cell: number): boolean }, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biome: Biome, scale: number, fitsAt?: CampFits): void {
   const rng = Rng.stream(seed, 'camps');
   const wanted = Math.max(1, Math.round(CAMPS.perMap * scale));
   const camps: CampSite[] = [];
@@ -64,7 +67,7 @@ export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { ha
   for (let attempt = 0; attempt < 3000 && camps.length < wanted; attempt++) {
     const x = rng.range(300, map.width - 300);
     const y = rng.range(300, map.height - 300);
-    if (!reach.has(gm.navCell(x, y)) || !campSiteClear(map, x, y, keepClear)) continue;
+    if (!reach.has(gm.navCell(x, y)) || !campSiteClear(map, x, y, keepClear, fitsAt)) continue;
     const nearest = map.packs.reduce((best, p) => Math.min(best, Math.hypot(p.x - x, p.y - y)), Infinity);
     // A camp can only take a guard where a new pack keeps the usual spacing from the others.
     const guarded = nearest >= WILDS.packSpacing && rng.next() < CAMPS.guardChance;

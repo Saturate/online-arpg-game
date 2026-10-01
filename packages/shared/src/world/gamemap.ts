@@ -97,9 +97,10 @@ export class GameMap {
   readonly walkable: Uint8Array;
   private readonly cols: number;
   private readonly rows: number;
-  private readonly grid: Obstacle[][];
+  /** Obstacles per hash cell; a cell with none has no array, so a big empty map costs little. */
+  private readonly grid: (Obstacle[] | undefined)[];
   /** Roads per hash cell. Every mover asks for its ground speed every tick, so no full scan. */
-  private readonly roadGrid: Shape[][];
+  private readonly roadGrid: (Shape[] | undefined)[];
   /** Per streaming chunk: 1 once its obstacles are in the hash, 2 once its nav cells are worked out too. */
   private readonly chunkState: Uint8Array | null;
   /** Where each obstacle sorts within a hash cell, on a map built by chunk. */
@@ -114,10 +115,17 @@ export class GameMap {
     this.height = def.height;
     this.cols = Math.ceil(def.width / HASH_CELL) + 1;
     this.rows = Math.ceil(def.height / HASH_CELL) + 1;
-    this.grid = Array.from({ length: this.cols * this.rows }, () => []);
-    this.roadGrid = Array.from({ length: this.cols * this.rows }, () => []);
+    this.grid = new Array<Obstacle[] | undefined>(this.cols * this.rows);
+    this.roadGrid = new Array<Shape[] | undefined>(this.cols * this.rows);
     for (const [i, o] of def.obstacles.entries()) this.insert(o, i);
-    for (const g of def.ground) if (g.kind === 'road') this.forCells(g.shape, (i) => this.roadGrid[i]?.push(g.shape));
+    for (const g of def.ground) {
+      if (g.kind !== 'road') continue;
+      this.forCells(g.shape, (i) => {
+        const list = this.roadGrid[i];
+        if (list) list.push(g.shape);
+        else this.roadGrid[i] = [g.shape];
+      });
+    }
 
     const cell = NAV.cellSize;
     this.navCols = Math.ceil(def.width / cell);
@@ -148,7 +156,10 @@ export class GameMap {
     if (this.source) this.order.set(o, rank);
     this.forCells(o.shape, (i) => {
       const list = this.grid[i];
-      if (!list) return;
+      if (!list) {
+        this.grid[i] = [o];
+        return;
+      }
       let at = list.length;
       // Chunks arrive in any order; a cell's list stays sorted, usually by appending.
       while (at > 0 && (this.order.get(list[at - 1] ?? o) ?? 0) > rank) at--;
@@ -187,7 +198,8 @@ export class GameMap {
   /** Builds every chunk a rectangle touches. */
   private ensureRect(x0: number, y0: number, x1: number, y1: number): void {
     const src = this.source;
-    if (!src) return;
+    // Every collision test comes through here; once the whole map is built it costs one compare.
+    if (!src || this.chunksBuilt === src.cols * src.rows) return;
     const size = src.size;
     const cx0 = clamp(Math.floor(x0 / size), 0, src.cols - 1);
     const cy0 = clamp(Math.floor(y0 / size), 0, src.rows - 1);
@@ -317,14 +329,18 @@ export class GameMap {
 
   isWalkable(cx: number, cy: number): boolean {
     if (cx < 0 || cy < 0 || cx >= this.navCols || cy >= this.navRows) return false;
+    const i = cy * this.navCols + cx;
+    // Only a built chunk has open cells, so an open cell needs no more checks: the flow field
+    // asks this eight times per cell it searches.
+    if (this.walkable[i] === 1) return true;
     const src = this.source;
-    if (src && this.chunkState) {
-      const per = src.size / NAV.cellSize;
-      const k = Math.floor(cx / per);
-      const j = Math.floor(cy / per);
-      if (this.chunkState[j * src.cols + k] !== 2) this.ensureChunk(k, j);
-    }
-    return this.walkable[cy * this.navCols + cx] === 1;
+    if (!src || !this.chunkState) return false;
+    const per = src.size / NAV.cellSize;
+    const k = Math.floor(cx / per);
+    const j = Math.floor(cy / per);
+    if (this.chunkState[j * src.cols + k] === 2) return false;
+    this.ensureChunk(k, j);
+    return this.walkable[i] === 1;
   }
 
   /** Nearest free spot to (x, y), searching outward in rings. Used for spawns and portal arrivals. */

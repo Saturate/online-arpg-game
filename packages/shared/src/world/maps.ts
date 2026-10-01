@@ -2,11 +2,12 @@ import { STREAMING, WILDS, ZONE_SIZE } from '../config/sim.js';
 import type { Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
+import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { GameMap } from './gamemap.js';
 import { arenaGateMap, colosseumMap, dungeonMap, stagingMap } from './dungeon.js';
 import { ZoneWorld, type ZoneSpec } from './zoneGen.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
-import type { MapDescriptor, SafeZone, WorldMap } from './types.js';
+import type { MapDescriptor, Obstacle, SafeZone, WorldMap } from './types.js';
 import type { Vec2 } from '../sim/math.js';
 import { HOME_ZONE, nextZone, previousZone, ZONES, type ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
@@ -119,9 +120,21 @@ function wildsPlan(o: WildsOptions): { map: WorldMap; spec: ZoneSpec } {
     ry = ny;
   }
 
-  const place: Placement = { spacing: 46, riverPad: 40, avoid: [camp], avoidRects: clearRects };
   // Counts in WILDS are for the standard map size; bigger maps get proportionally more.
   const scale = (width * height) / (WILDS.width * WILDS.height);
+  // What `fits` scanned the whole map for, indexed, so the plan's cost does not grow with the square
+  // of a zone's size. Same answers: ridges land exactly where they always did.
+  const space = new Space();
+  space.keepOutCircle(camp.x, camp.y, camp.r);
+  for (const z of clearRects) space.keepOutRect(z);
+  for (const r of map.rivers) space.river(r.path, r.width);
+  for (const b of map.bridges) space.bridge(b.x, b.y, b.length);
+  const ridgeRules: PlacementRules = { spacing: 4, riverPad: 40, keepOut: true, bridges: true };
+  const ruinRules: PlacementRules = { spacing: 46, riverPad: 40, keepOut: true, bridges: true };
+  const push = (o: Obstacle): void => {
+    map.obstacles.push(o);
+    space.obstacle(o);
+  };
 
   // Ridges: chains of big rocks with gaps, which funnel movement without sealing areas off. They
   // run across chunks, so they are planned whole; at this point the map holds only water and ridges.
@@ -133,7 +146,7 @@ function wildsPlan(o: WildsOptions): { map: WorldMap; spec: ZoneSpec } {
     for (let k = 0; k < len; k++) {
       if (rng.next() > 0.2) {
         const rad = rng.range(34, 60);
-        if (fits(map, x, y, rad, { ...place, spacing: 4 })) map.obstacles.push(rock(x, y, rad, rng));
+        if (fitsIn(space, width, height, x, y, rad, ridgeRules)) push(rock(x, y, rad, rng));
       }
       dir += rng.range(-0.5, 0.5);
       x += Math.cos(dir) * 90;
@@ -146,11 +159,13 @@ function wildsPlan(o: WildsOptions): { map: WorldMap; spec: ZoneSpec } {
   for (let rr = 0; rr < Math.round(WILDS.ruins * scale); rr++) {
     const x = ruinRng.range(Math.min(west, width - 500), width - 400);
     const y = ruinRng.range(400, height - 400);
-    if (!fits(map, x, y, 280, place)) continue;
+    if (!fitsIn(space, width, height, x, y, 280, ruinRules)) continue;
     map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 200 } });
+    const before = map.obstacles.length;
     pillarRing(map, x, y, 250, ruinRng.int(8, 12), ruinRng);
     if (ruinRng.next() < 0.7) map.obstacles.push(wall(x - 300, y - 150, x - 300, y + 120));
-    scatterDecor(map, ruinRng, x, y, 200, ['grave_grave_A', 'grave_grave_B', 'grave_gravestone', 'grave_gravemarker_A', 'grave_lantern_standing', 'grave_skull', 'grave_ribcage', 'grave_post_skull'], 16);
+    for (const o of map.obstacles.slice(before)) space.obstacle(o);
+    scatterDecor(map, ruinRng, x, y, 200, ['grave_grave_A', 'grave_grave_B', 'grave_gravestone', 'grave_gravemarker_A', 'grave_lantern_standing', 'grave_skull', 'grave_ribcage', 'grave_post_skull'], 16, (px, py) => space.conflicts(px, py, 0, SCATTER_RULES));
     keepOutCircles.push({ x, y, r: 280 });
   }
   if (o.camp) {

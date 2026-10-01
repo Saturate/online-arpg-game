@@ -19,6 +19,14 @@ export interface PlacementRules {
   bridges: boolean;
 }
 
+/** The rules of `scatterDecor`: off obstacles by 14 and rivers by 10, nothing else. */
+export const SCATTER_RULES: PlacementRules = { spacing: 14, riverPad: 10, keepOut: false, bridges: false };
+
+/** `fits` from gen.ts, answered from `space`: inside the map with the same margin, and no rule broken. */
+export function fitsIn(space: Space, width: number, height: number, x: number, y: number, r: number, rules: PlacementRules): boolean {
+  return x >= r + 50 && y >= r + 50 && x <= width - r - 50 && y <= height - r - 50 && !space.conflicts(x, y, r, rules);
+}
+
 type Entry =
   | { t: 'circle'; x: number; y: number; r: number; mark: number }
   | { t: 'rect'; x: number; y: number; w: number; h: number; pad: number; mark: number }
