@@ -248,7 +248,7 @@ describe('damage per Force', () => {
       if (!best1 || !best1.compiled.ok || best1.compiled.persistent) continue;
       const r = measureSkill({
         classId: best1.classId,
-        equip: () => ({ uid: -1, compiled: best1.compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds }),
+        equip: () => ({ uid: -1, compiled: best1.compiled, misfireMultiplier: 1, castDelayShare: 1 }),
         ...(SELF_CENTRED.has(sigil.slots[0]?.rune ?? 'bolt') ? { distance: 40 } : {}),
       });
       if (r.kind !== 'damage') continue;
