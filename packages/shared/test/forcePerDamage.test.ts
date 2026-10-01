@@ -7,11 +7,13 @@ import { measureSkill, type SkillDpsResult } from './harness/skillDps.js';
 declare const console: { log(message: string): void };
 
 /**
- * Force has to buy damage at about the starters' rate, whatever the runes. Each spell here is
- * measured with the same harness as the parity pass and held to at most BOUND times the best
- * starter's damage per Force, to one target and to a pack.
+ * Force has to buy damage at about the kits' rate, whatever the runes. Each spell here is measured
+ * with the same harness as the parity pass against the best kit skill's damage per Force, to one
+ * target and to a pack. The owner made that a report, not a limit (2026-10-01): the tests fail only
+ * above LIMIT times the best kit, to catch a broken combination, and print every spell past REPORT.
  */
-const BOUND = 2;
+const LIMIT = 5;
+const REPORT = 2;
 
 /** Spells that once dealt far more per Force than any starter, and neighbours of them. */
 const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId }[] = [
@@ -92,15 +94,15 @@ const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId }[]
   { text: 'nova[onexpire] zone[after 0.3s, +55% damage] fire cold concentrated(60) nova[+55% damage, +50% size] lightning concentrated(60)' },
   { text: 'orb[onhit] fire concentrated(60) split(6) nova concentrated(60)' },
   // T1 rolls (the rare top tier): the worst payloads above at T1 damage and size, fast pulses, deep pierce.
-  { text: 'nova[onexpire] zone[after 0.3s, +58% damage] fire cold nova[+58% damage, +50% size] lightning' },
-  { text: 'nova[onexpire] zone[after 0.3s, +58% damage, +75% size, +100% duration] fire cold nova[+58% damage, +75% size] lightning' },
-  { text: 'nova[onexpire] zone[after 0.3s, +58% damage] fire cold concentrated(60) nova[+58% damage, +75% size] lightning concentrated(60)' },
-  { text: 'zone[after 0.7s, +38% duration] nova[+14% size, +58% damage] lightning lightning concentrated(60)' },
-  { text: 'bolt[after 0.3s] nova[+75% size, +58% damage]', classId: 'ranger' },
-  { text: 'bolt[onhit] nova[+75% size, +58% damage] lightning lightning concentrated(60) large', classId: 'ranger' },
-  { text: 'bolt[pierce 5, +58% damage, +70% speed] lightning lightning', classId: 'ranger' },
+  { text: 'nova[onexpire] zone[after 0.3s, +100% damage] fire cold nova[+100% damage, +50% size] lightning' },
+  { text: 'nova[onexpire] zone[after 0.3s, +100% damage, +75% size, +100% duration] fire cold nova[+100% damage, +75% size] lightning' },
+  { text: 'nova[onexpire] zone[after 0.3s, +100% damage] fire cold concentrated(60) nova[+100% damage, +75% size] lightning concentrated(60)' },
+  { text: 'zone[after 0.7s, +38% duration] nova[+14% size, +100% damage] lightning lightning concentrated(60)' },
+  { text: 'bolt[after 0.3s] nova[+75% size, +100% damage]', classId: 'ranger' },
+  { text: 'bolt[onhit] nova[+75% size, +100% damage] lightning lightning concentrated(60) large', classId: 'ranger' },
+  { text: 'bolt[pierce 4, +100% damage, +70% speed] lightning lightning', classId: 'ranger' },
   { text: 'zone[every 0.15s] lightning bolt', classId: 'ranger' },
-  { text: 'zone[every 0.15s, +100% duration, +58% damage] fire lightning bolt', classId: 'ranger' },
+  { text: 'zone[every 0.15s, +100% duration, +100% damage] fire lightning bolt', classId: 'ranger' },
   { text: 'orb[every 0.15s] cold split(5) bolt' },
   { text: 'zone[every 0.15s] lightning nova' },
 ];
@@ -227,10 +229,9 @@ function cheapest(text: string, multicast: number): { classId: ClassId; compiled
 }
 
 /**
- * Starter runes kept in their sigil but not as the whole starter: every prefix left in place, every
- * single rune moved to the front, each alone and with an infusion or a Split appended. A starter's
- * hand-set rolls are balanced only for the whole starter (Multishot's Bolt alone at +300% damage
- * dealt 2.85x), so these must cast like any in-table spell.
+ * Kit runes kept in their sigil but not as the whole kit: every prefix left in place, every single
+ * rune moved to the front, each alone and with an infusion or a Split appended. Kits hold only
+ * in-table rolls, so these are ordinary spells; they stay to show how the kits' pieces measure.
  */
 const APPENDED: readonly (readonly RuneId[])[] = [[], ['lightning'], ['fire'], ['cold'], ['lightning', 'lightning']];
 
@@ -271,7 +272,7 @@ describe('damage per Force', () => {
   it('prints the table', () => {
     const f = (n: number): string => n.toFixed(2);
     const lines = [
-      `best starter: ${f(best.single)} single / ${f(best.pack)} pack per Force; bound ${BOUND}x`,
+      `best kit: ${f(best.single)} single / ${f(best.pack)} pack per Force; fails above ${LIMIT}x, reports past ${REPORT}x`,
       ['spell', 'Force', 'single / pack', 'per Force', 'x best'].join(' | '),
       ...rows.map(({ text, r }) => {
         const pf = perForce(r);
@@ -282,15 +283,19 @@ describe('damage per Force', () => {
     expect(rows.length).toBe(SPELLS.length);
   });
 
-  it(`no spell deals more than ${BOUND}x the best starter's damage per Force`, () => {
+  it(`no spell deals more than ${LIMIT}x the best kit's damage per Force, and those past ${REPORT}x are listed`, () => {
+    const past: string[] = [];
     for (const { text, r } of rows) {
       const pf = perForce(r);
-      expect(pf.single, `${text} single`).toBeLessThanOrEqual(best.single * BOUND);
-      expect(pf.pack, `${text} pack`).toBeLessThanOrEqual(best.pack * BOUND);
+      const ratio = Math.max(pf.single / best.single, pf.pack / best.pack);
+      if (ratio > REPORT) past.push(`${ratio.toFixed(2)}x ${text}`);
+      expect(pf.single, `${text} single`).toBeLessThanOrEqual(best.single * LIMIT);
+      expect(pf.pack, `${text} pack`).toBeLessThanOrEqual(best.pack * LIMIT);
     }
+    console.log(`\nhand-picked spells past ${REPORT}x: ${past.length > 0 ? `\n${past.join('\n')}` : 'none'}\n`);
   });
 
-  it(`starter runes kept without the rest of their starter stay within ${BOUND}x on their cheapest class`, () => {
+  it(`kit runes kept without the rest of their kit stay within ${LIMIT}x on their cheapest class`, () => {
     let measured = 0;
     let worst = { label: '', ratio: 0 };
     for (const { label, sigil } of starterPieces()) {
@@ -310,10 +315,10 @@ describe('damage per Force', () => {
       const pf = perForce(r);
       const ratio = Math.max(pf.single / best.single, pf.pack / best.pack);
       if (ratio > worst.ratio) worst = { label: `${best1.classId}: ${label}`, ratio };
-      expect(pf.single, `${label} single on ${best1.classId}`).toBeLessThanOrEqual(best.single * BOUND);
-      expect(pf.pack, `${label} pack on ${best1.classId}`).toBeLessThanOrEqual(best.pack * BOUND);
+      expect(pf.single, `${label} single on ${best1.classId}`).toBeLessThanOrEqual(best.single * LIMIT);
+      expect(pf.pack, `${label} pack on ${best1.classId}`).toBeLessThanOrEqual(best.pack * LIMIT);
     }
-    console.log(`\nstarter pieces: ${measured} measured; worst ${worst.ratio.toFixed(2)}x, ${worst.label}\n`);
+    console.log(`\nkit pieces: ${measured} measured; worst ${worst.ratio.toFixed(2)}x, ${worst.label}\n`);
     expect(measured).toBeGreaterThan(50);
   }, 60_000);
 
@@ -322,7 +327,7 @@ describe('damage per Force', () => {
     { what: 'random spells with Concentrated', seed: CONCENTRATED_SEED, concentrated: true },
     { what: 'random spells of T1 rolls only', seed: T1_SEED, concentrated: true, top: true },
   ]) {
-    it(`${RANDOM_SPELLS} ${search.what} with in-table affixes stay within ${BOUND}x on their cheapest class`, () => {
+    it(`${RANDOM_SPELLS} ${search.what} with in-table affixes stay within ${LIMIT}x on their cheapest class`, () => {
       const rnd = seeded(search.seed);
       let measured = 0;
       let worst = { text: '', ratio: 0 };
@@ -334,8 +339,8 @@ describe('damage per Force', () => {
         const pf = perForce(measureCompiled(text, found.classId, found.compiled));
         const ratio = Math.max(pf.single / best.single, pf.pack / best.pack);
         if (ratio > worst.ratio) worst = { text: `${found.classId}${multicast > 1 ? ' multicast 2' : ''}: ${text}`, ratio };
-        expect(pf.single, `${text} single on ${found.classId}`).toBeLessThanOrEqual(best.single * BOUND);
-        expect(pf.pack, `${text} pack on ${found.classId}`).toBeLessThanOrEqual(best.pack * BOUND);
+        expect(pf.single, `${text} single on ${found.classId}`).toBeLessThanOrEqual(best.single * LIMIT);
+        expect(pf.pack, `${text} pack on ${found.classId}`).toBeLessThanOrEqual(best.pack * LIMIT);
       }
       console.log(`\n${search.what}: ${measured} of ${RANDOM_SPELLS} compiled; worst ${worst.ratio.toFixed(2)}x, ${worst.text}\n`);
       // Most random lists compile, so the search is not quietly measuring nothing.

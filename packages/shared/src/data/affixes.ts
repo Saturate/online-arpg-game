@@ -403,17 +403,16 @@ function buildAffixes(): Record<AffixId, AffixDef> {
       tiers: runeTiers([[0.52, 0.6], [0.44, 0.51], [0.36, 0.43], [0.28, 0.35], [0.2, 0.27], [0.15, 0.19]]),
     },
     release_onland: releaseAffix('release_onland', 'onland', 'Releases its payload on landing', 'of Landing'),
-    // T1 takes the old kits' hand-set rolls as its reference (Blink's +69% speed, Bone Spear's
-    // pierce 4), except damage: a payload spell already at 1.97x the best kit's damage per Force
-    // with +55% passes the 2x cap from +60%, so T1 damage stops at 58 (Fireball's old +100% reached
-    // 2.31x). docs/features/runes.md, "Six rune tiers".
+    // T1 is "super good" (owner): it reaches the old kits' hand-set rolls (Fireball's +100% damage
+    // Orb, Blink's +69% speed, Bone Spear's pierce 4) and stays rare by weight and item level. The
+    // damage-per-Force cap is a report, not a limit; docs/features/runes.md, "Rolled runes".
     rune_speed: runeAffix('rune_speed', '{v}% speed', 'Fleet', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'dash'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 70]]),
     rune_size: runeAffix('rune_size', '{v}% size', 'Broad', shapesWhere((s) => s !== 'dash' && s !== 'bond'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 75]]),
     rune_duration: runeAffix('rune_duration', '{v}% duration', 'Lasting', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'zone'), [[15, 26], [27, 38], [39, 50], [51, 62], [63, 75], [76, 100]]),
-    rune_damage: runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 58]]),
+    rune_damage: runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 100]]),
     // Whole numbers with few values: neighbouring tiers share an end.
     rune_pierce: {
-      ...runeAffix('rune_pierce', 'Pierces {v} enemies', 'Piercing', shapesWhere((s) => PROJECTILE_SHAPES.includes(s)), [[1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [4, 5]]),
+      ...runeAffix('rune_pierce', 'Pierces {v} enemies', 'Piercing', shapesWhere((s) => PROJECTILE_SHAPES.includes(s)), [[1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [4, 4]]),
       signed: false,
     },
     split_count: {

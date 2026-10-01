@@ -245,7 +245,7 @@ describe('affix ranges in live tuning', () => {
       [affixTierPath('rune_damage', 1, 'min')]: 30,
       [affixTierPath('rune_damage', 1, 'max')]: 30,
       [affixTierPath('rune_damage', 2, 'min')]: 30,
-      [affixTierPath('rune_damage', 5, 'max')]: 90,
+      [affixTierPath('rune_damage', 5, 'max')]: 150,
       [affixTierPath('damage_increased', 0, 'min')]: 30,
       [affixTierPath('damage_increased', 0, 'max')]: 30,
       [affixTierPath('damage_increased', 1, 'min')]: 30,

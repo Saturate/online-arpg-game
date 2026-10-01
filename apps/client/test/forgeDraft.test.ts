@@ -135,8 +135,8 @@ describe('forge draft', () => {
     const plain = createRune(12, 'cold');
     const res = resolveDraft(sigilWith([strong, benchRune, plain]), [], runeStock(inventory([])), priceOf);
     expect(res.refunds.map((r) => r.uid)).toEqual([10, 12]);
-    expect(res.refunds[0]?.affixes[0]?.value).toBe(58);
-    expect(res.refundWeakened.map((w) => [w.rune, w.before.value, w.after.value])).toEqual([['orb', 300, 58]]);
+    expect(res.refunds[0]?.affixes[0]?.value).toBe(100);
+    expect(res.refundWeakened.map((w) => [w.rune, w.before.value, w.after.value])).toEqual([['orb', 300, 100]]);
     expect(res.benchGone).toBe(1);
     // Kept in place, nothing is lost.
     const kept = resolveDraft(sigilWith([strong, benchRune, plain]), keepAll(sigilWith([strong, benchRune, plain])), runeStock(inventory([])), priceOf);
