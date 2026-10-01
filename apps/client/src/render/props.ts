@@ -593,13 +593,26 @@ function addDecorPiece(chunks: WorldChunks, d: Decor): void {
  */
 export function houseModel(o: Obstacle): string | null {
   if (o.kind !== 'house' || o.shape.type !== 'box') return null;
-  return o.look?.model ?? pickHouseModel(hash(o.shape.x, o.shape.y), o.shape.hw, o.shape.hh);
+  return o.look?.model ?? pickHouseModel(lookSeed(o), o.shape.hw, o.shape.hh);
 }
 
 /** A pillar's model, chosen like a house's (`houseModel`). */
 export function pillarModel(o: Obstacle): string | null {
   if (o.kind !== 'pillar' || o.shape.type !== 'circle') return null;
-  return o.look?.model ?? pickPillarModel(hash(o.shape.x, o.shape.y));
+  return o.look?.model ?? pickPillarModel(lookSeed(o));
+}
+
+/** The hash an obstacle's look varies by: a town prop's own, in town coordinates, else its world position's. */
+export function lookSeed(o: Obstacle): number {
+  if (o.look) return o.look.seed;
+  const s = o.shape;
+  return s.type === 'capsule' ? hash(s.ax, s.ay) : hash(s.x, s.y);
+}
+
+const STALL_CLOTHS = [0xc0392b, 0x2e86c1, 0xd4ac0d, 0x7d3c98];
+
+export function stallCloth(o: Obstacle): number {
+  return STALL_CLOTHS[lookSeed(o) % STALL_CLOTHS.length] ?? 0xc0392b;
 }
 
 /** Registers obstacles, grouped by kind so the common ones can be instanced. */
@@ -614,7 +627,7 @@ function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: 
   addTrees(chunks, byKind.get('tree') ?? [], def, placed);
   for (const o of byKind.get('pillar') ?? []) {
     if (o.shape.type !== 'circle') continue;
-    const h = o.look?.seed ?? hash(o.shape.x, o.shape.y);
+    const h = lookSeed(o);
     chunks.add(pillarModel(o) ?? 'dungeon_column', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
     if (o.visual < 90) chunks.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
   }
@@ -715,7 +728,7 @@ const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D
 function addRocks(batch: Placer, rocks: readonly Obstacle[]): void {
   for (const o of rocks) {
     if (o.shape.type !== 'circle') continue;
-    const h = hash(o.shape.x, o.shape.y);
+    const h = lookSeed(o);
     batch.add(ROCKS[h % ROCKS.length] ?? 'rock_single_A', { x: o.shape.x, y: o.shape.y, angle: h / 160, fit: { radius: o.shape.r * 1.15 } });
   }
 }
@@ -757,7 +770,7 @@ function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap
   for (const o of trees) {
     if (o.shape.type !== 'circle') continue;
     const { x, y } = o.shape;
-    const h = hash(x, y);
+    const h = lookSeed(o);
     const listed = placed && def.oaks !== undefined;
     const isOak = listed ? (def.oaks ?? []).some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
     const kind: TreeKind = !listed && h % 100 < (bleakAt(def, x, y) ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
@@ -953,8 +966,7 @@ function stall(o: Obstacle): Group {
   counter.position.y = 9;
   counter.castShadow = true;
   g.add(counter);
-  const colors = [0xc0392b, 0x2e86c1, 0xd4ac0d, 0x7d3c98];
-  const cloth = new Mesh(new BoxGeometry(hw * 2 + 10, 4, hh * 2 + 10), mat(colors[hash(x, y) % colors.length] ?? 0xc0392b));
+  const cloth = new Mesh(new BoxGeometry(hw * 2 + 10, 4, hh * 2 + 10), mat(stallCloth(o)));
   cloth.position.y = 46;
   cloth.rotation.z = 0.12;
   cloth.castShadow = true;

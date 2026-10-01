@@ -20,10 +20,11 @@ export interface Obstacle {
   /** Visual-only size hint for the renderer (tree canopy, rock height, roof height). */
   visual: number;
   /**
-   * How a town prop looks, fixed by the town layout: the model, and the hash the renderer varies
-   * turn and rubble by. Absent elsewhere, where the renderer picks by world position.
+   * How a town prop looks, fixed by the town layout: its model (houses and pillars), and the hash
+   * the renderer varies everything else by (turn, tree shape, cloth colour), taken in town
+   * coordinates. Absent elsewhere, where the renderer hashes the world position.
    */
-  look?: { model: string; seed: number };
+  look?: { model?: string; seed: number };
 }
 
 export interface Bridge {

@@ -246,8 +246,9 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     if (!def.obstacle) continue;
     const o: Obstacle = { kind: def.obstacle, shape: def.shape(p), blocksMove: true, blocksShots: def.blocksShots, visual: def.visual(p) };
     const model = townPropModel(p);
-    // The seed is the town-local hash too, so a pillar's turn and rubble survive `placeTown` as well.
-    if (model !== null) o.look = { model, seed: lookHash(p.x, p.y) };
+    // Hashed in town coordinates, so `placeTown` moving the town leaves every prop looking the same.
+    const seed = lookHash(p.x, p.y);
+    o.look = model === null ? { seed } : { model, seed };
     map.obstacles.push(o);
     if (p.kind === 'oak') map.oaks.push({ x: p.x, y: p.y });
   }

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { DEFAULT_TOWN_LAYOUT, layoutToMap, loadMap, lookHash, pickHouseModel, validateLayout, type Obstacle, type TownLayout, type WorldMap } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { keepModel } from '../src/game/townEditor.js';
-import { houseModel, pillarModel } from '../src/render/props.js';
+import { houseModel, lookSeed, pillarModel, stallCloth } from '../src/render/props.js';
 
 const liveRaw: unknown = JSON.parse(readFileSync(new URL('../../../packages/shared/test/fixtures/town-layout-live.json', import.meta.url), 'utf8'));
 const live = validateLayout(liveRaw, { unknownDecor: 'drop' });
@@ -33,15 +33,22 @@ function oldPick(o: Obstacle): string | null {
 
 const picked = (o: Obstacle): string | null => houseModel(o) ?? pillarModel(o);
 
-/** The town's houses and pillars in a map, in layout order (ruins out in the world have pillars too). */
-function townPieces(def: WorldMap): Obstacle[] {
-  const at = def.townAt ?? { x: 0, y: 0 };
+/** The old cloth colour of a stall, from `stall()` at 69b8bbf^. */
+const OLD_CLOTHS = [0xc0392b, 0x2e86c1, 0xd4ac0d, 0x7d3c98];
+
+/** A town's pieces of these kinds in a map, in layout order (ruins out in the world have pillars too). */
+function townPieces(def: WorldMap, kinds: readonly Obstacle['kind'][] = ['house', 'pillar']): Obstacle[] {
   const rect = def.safeZones?.[0] ?? { x: 0, y: 0, w: def.width, h: def.height };
   return def.obstacles.filter((o) => {
-    if (o.kind !== 'house' && o.kind !== 'pillar') return false;
+    if (!kinds.includes(o.kind)) return false;
     if (o.shape.type === 'capsule') return false;
-    return o.shape.x >= at.x && o.shape.x <= rect.x + rect.w && o.shape.y >= at.y && o.shape.y <= rect.y + rect.h;
+    return o.shape.x >= rect.x && o.shape.x <= rect.x + rect.w && o.shape.y >= rect.y && o.shape.y <= rect.y + rect.h;
   });
+}
+
+/** The pre-world hash of a piece: its position with the town at the origin. */
+function oldSeed(o: Obstacle, at: { x: number; y: number }): number {
+  return o.shape.type === 'capsule' ? -1 : oldHash(o.shape.x - at.x, o.shape.y - at.y);
 }
 
 describe('town house and pillar models', () => {
@@ -65,6 +72,36 @@ describe('town house and pillar models', () => {
       }
     });
   }
+
+  for (const [name, layout] of TOWNS) {
+    it(`the ${name}'s trees, rocks and stalls vary by the town position as before the world: tree shapes, cloth colours`, () => {
+      const KINDS = ['tree', 'rock', 'stall'] as const;
+      const preview = townPieces(layoutToMap(layout), KINDS);
+      const before = preview.map((o) => oldSeed(o, { x: 0, y: 0 }));
+      expect(preview.filter((o) => o.kind === 'tree').length).toBeGreaterThan(0);
+      expect(preview.filter((o) => o.kind === 'stall').length).toBeGreaterThan(0);
+      expect(preview.map(lookSeed)).toEqual(before);
+      const oldCloths = preview.filter((o) => o.kind === 'stall').map((o) => OLD_CLOTHS[oldSeed(o, { x: 0, y: 0 }) % OLD_CLOTHS.length]);
+      expect(preview.filter((o) => o.kind === 'stall').map(stallCloth)).toEqual(oldCloths);
+      const def = loadMap({ kind: 'world', seed: 3, layout }).def;
+      const at = def.townAt ?? { x: 0, y: 0 };
+      const inWorld = townPieces(def, KINDS);
+      expect(inWorld.map(lookSeed)).toEqual(before);
+      expect(inWorld.map((o) => oldSeed(o, at))).toEqual(before);
+      expect(inWorld.filter((o) => o.kind === 'stall').map(stallCloth)).toEqual(oldCloths);
+      // The world position would have given other hashes.
+      expect(inWorld.filter((o) => o.shape.type !== 'capsule' && oldHash(o.shape.x, o.shape.y) !== lookSeed(o)).length).toBeGreaterThan(0);
+    });
+  }
+
+  it('trees out in the world keep the hash of their world position', () => {
+    const def = loadMap({ kind: 'world', seed: 3 }).def;
+    const rect = def.safeZones?.[0];
+    if (!rect) throw new Error('the world has a town');
+    const outside = def.obstacles.filter((o) => (o.kind === 'tree' || o.kind === 'rock') && o.shape.type === 'circle' && (o.shape.x < rect.x || o.shape.y < rect.y || o.shape.x > rect.x + rect.w || o.shape.y > rect.y + rect.h));
+    expect(outside.length).toBeGreaterThan(0);
+    for (const o of outside) if (o.shape.type === 'circle') expect(lookSeed(o)).toBe(oldHash(o.shape.x, o.shape.y));
+  });
 
   it('a house moved in the editor keeps its model; without keeping it the move would change it', () => {
     const layout = structuredClone(DEFAULT_TOWN_LAYOUT);
