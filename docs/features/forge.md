@@ -31,14 +31,14 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 
 ### Rolls clamp on the way out
 
-Kit sigils made before 2026-10-01 hold rolls no drop can have (Multishot's Bolt has +300% damage). Every sigil casts the rolls its runes store, as stored, wherever they sit in it ([runes.md](runes.md), "Kit sigils"); today's kits hold only in-table rolls. Any rune leaving a sigil has each affix clamped into the range its affix can roll now, and the forge warns first ("Bolt: +300% damage becomes +58%"). Otherwise a dropped or unbound old kit sigil would hand out runes better than any roll.
+Kit sigils made before 2026-10-01 hold rolls no drop can have (Multishot's Bolt has +300% damage). Every sigil casts the rolls its runes store, as stored, wherever they sit in it ([runes.md](runes.md), "Kit sigils"); today's kits hold only in-table rolls. Any rune leaving a sigil has each affix clamped into the range its affix can roll now, and the forge warns first ("Bolt: +300% damage becomes +100%"). Otherwise a dropped or unbound old kit sigil would hand out runes better than any roll.
 
-- The range is the lowest to highest value over the affix's tiers that can drop, in the live table: a range tuned in Rune balance moves where extraction clamps from the next rune out ([live-tuning.md](live-tuning.md)). A tier tuned to weight 0 no longer counts.
+- The range is the lowest to highest value over the affix's tiers in the live table, with its best end no better than the code table's best: a range tuned down in Rune balance clamps lower from the next rune out, and a range raised for a while cannot let an old +300% roll out at the raised best for good ([live-tuning.md](live-tuning.md)). Tier weights do not count, so a tier tuned to weight 0 still sets the range. Fuse times have no better end and follow the live table.
 - Most affixes clamp down to the best value. "Every X s" clamps to the shortest rollable interval (lower is better), and "after X s" moves to the nearest end of its table.
 - Kit rolls carry the tier their value falls in (`honestTier` in `items/runeRolls.ts`): the lowest tier whose range holds it, the top tier when it is above every drop, the bottom one for a drawback. So Multishot's split(5) is a T3 roll inside the sigil and out of it, and sells and prices as one. Old saves are re-tiered once by value among the six tiers, which puts old kit rolls past every table in T1 ([items.md](items.md), "Rune roll pass").
 - The tier only ever goes down on the way out (`Math.min(a.tier, range.max.tier)`), so a rune never comes out worth more than it counted for inside.
 - Values inside the table, or weaker than it (the negative speeds of slow orbs), are left alone.
-- Example: an old Multishot's `bolt[+300% damage]` comes out as +58%, the top of the T1 `rune_damage` range (56 to 58), and keeps T1. An old Fireball's +100% comes out the same way.
+- Example: an old Multishot's `bolt[+300% damage]` comes out as +100%, the top of the T1 `rune_damage` range (56 to 100), and keeps T1. An old Fireball's +100% is inside T1 and comes out as it is.
 
 ### The builders' bench
 

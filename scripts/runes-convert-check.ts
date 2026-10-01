@@ -348,7 +348,13 @@ function tiersHonest(before: RuneItem, after: RuneItem): boolean {
   });
 }
 
-/** Sell value per rune affix tier before the six tiers (old T1, T2, T3). */
+/**
+ * The old three tiers by name: they were numbered T1 to T3 from the weakest, the reverse of the six
+ * tiers' T6 to T1, so printing both as T-numbers would mix the two schemes.
+ */
+const OLD_TIER_NAMES = ['low', 'middle', 'top'];
+
+/** Sell value per rune affix tier before the six tiers (old low, middle, top). */
 const OLD_AFFIX_VALUE = [4, 10, 25];
 
 /** Every rune affix roll in a list, loose or in a sigil, by position, so before and after line up. */
@@ -437,7 +443,7 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
     if (!b || b.uid !== a.uid) return;
     a.affixes.forEach((y, j) => {
       const x = b.affixes[j];
-      if (x && x.tier !== y.tier && x.id === y.id && x.value === y.value) add(rollTotals.tierMoves, `old T${x.tier + 1} -> T${6 - y.tier}`, 1);
+      if (x && x.tier !== y.tier && x.id === y.id && x.value === y.value) add(rollTotals.tierMoves, `old ${OLD_TIER_NAMES[x.tier] ?? `index ${x.tier}`} tier -> T${6 - y.tier}`, 1);
     });
   });
   const removed = r.startersRebuilt.flatMap((x) => x.runesRemoved);
