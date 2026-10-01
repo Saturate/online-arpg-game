@@ -157,6 +157,9 @@ describe('admin API tokens', () => {
     { method: 'POST', path: '/api/admin/grant', body: {}, scope: 'grantItems' },
     { method: 'GET', path: '/api/admin/log', scope: 'serverLog' },
     { method: 'GET', path: '/api/admin/backup', scope: 'backup' },
+    { method: 'GET', path: '/api/admin/bench', scope: 'viewAdmin' },
+    // An empty body is refused by the grammar check, so the scope is tested without adding a pick.
+    { method: 'POST', path: '/api/admin/bench/picks', body: {}, scope: 'tuning' },
   ];
 
   it('lets each scope through only the routes it names', async () => {

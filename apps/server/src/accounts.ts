@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AdminTokenStore } from './adminTokens.js';
 import { events } from './eventLog.js';
 import { TuningStore } from './tuningStore.js';
+import { BenchStore } from './benchStore.js';
 import { TunablesStore } from './tunablesStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
@@ -822,5 +823,12 @@ export class AccountStore {
   get tunables(): TunablesStore {
     this.tunablesStore ??= new TunablesStore(this.db);
     return this.tunablesStore;
+  }
+
+  private benchStore: BenchStore | null = null;
+  /** The balance bench's admin picks and the most-equipped count, in benchStore.ts. */
+  get bench(): BenchStore {
+    this.benchStore ??= new BenchStore(this.db);
+    return this.benchStore;
   }
 }

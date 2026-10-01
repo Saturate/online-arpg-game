@@ -43,6 +43,7 @@ import type { TokenCaller } from './adminTokens.js';
 import { events, redact } from './eventLog.js';
 import { tuningRoute, type TuningHooks } from './tuningRoutes.js';
 import { TUNABLES_BODY_BYTES, tunablesRoute, type TunablesHooks } from './tunablesRoutes.js';
+import { benchRoute } from './benchRoutes.js';
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
 const MAX_BODY_BYTES = 4096;
@@ -582,6 +583,8 @@ export class AccountApi {
     const by = { account: account.username, token: token?.name ?? null };
     const tunables = await tunablesRoute({ method, path, query, body: () => readJson(req, TUNABLES_BODY_BYTES), canEdit: allowed('tuning'), allowWrite: () => this.tuningWriteLimit.allow(String(account.id)), by, log }, this.store.tunables, this.admin);
     if (tunables) return tunables;
+    const bench = await benchRoute({ method, path, body: () => readJson(req), canEdit: allowed('tuning'), allowWrite: () => this.tuningWriteLimit.allow(String(account.id)), by, log }, this.store.bench);
+    if (bench) return bench;
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');
       const body = await readJson(req);
