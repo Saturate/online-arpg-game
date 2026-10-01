@@ -319,6 +319,14 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 - **Trade-off accepted:** starters and basic attacks slow down by the same share as payload spells (about 30% fewer casts a second at 0.5 s).
 - **Balance tests stay on the v1 cadence.** The parity and damage-per-Force harness casts every 0.35 s, as the v1 baseline was recorded and Force pricing was balanced. Measured at 0.5 s, the parity test fails by design (Fireball 20 casts in 10 s instead of 29) and the damage-per-Force search finds one spell above the 2x cap: `nova[onexpire] zone[after 0.3s, +55% damage] fire cold nova[+55% damage, +50% size] lightning` reaches about 2.15x in the pack, because a slower cadence wastes less of its lingering zone to the no-stacking rule. Open question: retune that spell class, or measure the cap at the live cooldown.
 
+## Planned: Concentrated rune (owner, 2026-10-01)
+
+"We also need a new rune, conc effect, more damage but smaller area."
+
+- **Concentrated:** a modifier rune, the opposite of Large: 40 to 60% more damage (rolled per rune) and about 30% less area. It only means something on spells with an area (nova, zone, blast, aura and other shapes with a radius); the grammar should treat it like Large wherever Large applies.
+- **Balance:** Force pricing and the damage-per-Force tests must cover it, alone and stacked with damage affixes, inside the 2x cap.
+- **Order:** after the rune roll branch merges (same files).
+
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 
 - **Damage packets:** every hit carries physical, fire, cold and lightning amounts instead of one number plus an element tag.
