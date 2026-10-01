@@ -35,3 +35,13 @@ Runes read left to right like a Noita wand, and the order is the puzzle. Sigils 
 - Comments explain why, not what.
 - No em dashes in code, comments, docs or messages.
 - Commits: Conventional Commits. While 1Password is locked, commit unsigned (`git -c commit.gpgsign=false commit`); SSH to `svr.akj.io` also needs 1Password approval.
+
+## Lessons from running many agents
+
+- Several agents in one checkout collide on staging: always `git diff --cached` before committing and stage explicit paths; an agent that finds its work committed by another should check the commit, not redo it.
+- Never stop servers with a broad `pkill -f`; stop by exact PID (other agents' servers match the same pattern).
+- A watching dev server restarts on every other agent's edit; for browser checks run the server without the watcher and serve a built client with `vite preview`.
+- Run the owner's game from its own worktree at a commit (for example `../online-arpg-game-play`) so agent edits cannot restart it.
+- Temporary files in the session scratchpad can vanish on a reboot: write plans and decisions into the repo (feature docs, `docs/backlog.md`) as soon as they are made.
+- The test timeout lives in `vitest.config.ts` (60 s) so CI runners and local runs agree.
+- Live checks and backups go through the admin API (`pnpm admin`, token in `~/.config/arpg/admin-token`, 30-day expiry), not SSH.

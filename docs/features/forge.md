@@ -98,3 +98,20 @@ Tests:
 - **The rune trader is not built.** Planned: a town NPC whose stock refreshes on a timer (30 minutes in the plan, marked open), mostly plain common runes at low prices and now and then one rolled rare at a high price. The owner decided the stock is shared server-wide: a rare appears for everyone with a chat line, and the first buyer gets it. With the forge it is a gold sink, which the economy needs once selling stacks is priced by count.
 - The plan said "each saved change costs gold, scaled by the rune count and tier". What was built charges only inserted runes, by sell value; reorders and removals are free.
 - The forge only takes castable runes. Phase 4 runes cannot be inscribed until the engine runs them ([runes.md](runes.md)).
+
+## Planned: forge redesign (owner, 2026-09-30)
+
+"Much more exploratory and not handholdy. Place a sigil, put in runes, see if it works or not, click inscribe and it will produce it if it can. If it's not valid it will show that. Make it cool with particle effects in the UI when clicking, game like."
+
+- **Socket:** an anvil or altar where the player drags a sigil; its rune slots light up around it.
+- **Building:** runes dragged in and out freely while drafting. The only live signal: working runes glow steady, a broken chain flickers or dims from where it breaks. No rule text, sentence or bracket view while building.
+- **Inscribe:** runic sparks and embers flow into the sigil, with a sound. If it would fizzle: sparks die, the sigil cracks briefly, one short line says why (the grammar's error). Nothing is spent on a fizzle and a fizzling spell is not saved (replaces today's "Inscribe anyway").
+- **After a successful inscribe** the sentence shows as the sigil's reading and stays in its tooltip; the bracket view and details sit behind a small "Study" toggle.
+- **Kept:** the gold price on the button, the weakening warning for out-of-table runes, the dummy preview behind a "Test" button.
+- **A shared UI particle layer** (canvas over the panels, dark and ember-toned) reusable by other panels.
+- **Fused runes (owner decision, revised):** runes already in a sigil are fused and can never be taken out or moved. A sigil with open slots can be added to: new runes go into the open slots after the fused ones (slots read left to right, so adding is appending). Nothing is spent while experimenting, only on a successful Inscribe (the new runes and gold); the result must compile or the Inscribe is refused and nothing changes.
+- **Smashing:** at the forge, destroy an inscribed sigil (in-game confirmation, never a browser dialog). Each rune survives independently with a chance set on the admin page (default 10%). Survivors go to the bag, else pending; out-of-table rolls are clamped as on any extraction; bound runes stay bound; bench runes never survive. The sigil shatters with sparks, survivors fly out.
+- **Applies to starter sigils too;** existing sigils with runes on live count as inscribed.
+- **Drops:** a sigil can drop blank, partly inscribed (some fused runes and open slots, for example 1 taken and 5 open; the fused part starts with a readable prefix such as a shape, maybe an infusion or a release) or full (the starter spells). Shares in config.
+- **Starter sigils get one open slot** beyond their runes so a new character can append at the forge from level 1 (proposed; owner to confirm).
+- **Server rules to change:** inscribe only appends to open slots (the existing `base` check covers the fused part); refuse non-compiling spells; a smash message; conservation tests for smash (survivors plus destroyed equals what the sigil held, chance seeded in tests). Item review before it ships.

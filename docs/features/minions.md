@@ -105,3 +105,15 @@ Tests:
 - Minions other than the Hound only have a basic attack. Planned: abilities with cooldowns, built on the monster ability data (slam, shoot, ring, blast, leap), so a minion ability is data wherever a monster already does the same thing. Every type gets one or two base abilities (a Shieldbearer taunts every 10 s, a Banner-bearer plants a banner aura every 20 s, a hound leaps to pin, an elemental casts a nova, a skeleton archer fires a volley). Magic or better vessels can roll one extra ability or a modifier to one they have, never a list. Minion abilities cost no Force and are paced by cooldowns; the AI uses one when it is ready, a target is in range, and for support abilities an ally needs it. Follow never uses offensive abilities. A vessel can come with a rolled special ability such as a random sigil its minion casts on a cooldown. This can ship on its own, before the style work ([runes.md](runes.md), "Planned").
 - The data's `guard` and `kite` default behaviours are not read by the code; only `hunt` is. Kiting comes from `ranged` and `kiteDistance`.
 - The systems test for "refuses vessels over spirit" only asserts the class refusal.
+
+## Planned: new minions and minion abilities (owner, 2026-09-30)
+
+The Hound pack is built. The rest of the first batch:
+- **Melee:** Shieldbearer (taunts nearby enemies about every 10 s), Banner-bearer (plants a banner aura, damage or armour, about every 20 s).
+- **Ranged:** Hawk (flies over walls, marks a target so it takes more damage).
+- **Spell:** Fire, Frost and Storm elementals (one per element, a nova or bolt ability, using the planned damage types).
+- **Owner's:** a fireball minion (a bone mage that casts a fireball sigil on a cooldown; a "random sigil" can be its vessel roll), and a healing minion that tethers (Bond-like) to the player or minion with the most missing life and heals it.
+- Abilities use the monster ability data wherever a monster already does the same thing; no Force; the AI decides when; Follow never uses offensive abilities.
+- **Vessels:** magic or better can roll one extra ability ("casts Frost Nova every 8 s", "explodes on death") or a modifier to one it has; one per vessel.
+- **Models** by the model-artist agent, reviewed by the visual-reviewer agent.
+- **Order:** after the rune damage update (minion attacks need damage packets). Vessel drops and rolls get the loss and duplication review.

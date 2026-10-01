@@ -303,3 +303,18 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 - **Swift and Large as plain runes** are behind a grammar flag (`plainModifierRunes`), on in the game.
 - The rune trader, zone merging, the Stack rune and endgame tiers are not built.
 - `SPELL.timerSeconds` duplicates `DEFAULT_TIMER_SECONDS` and only a test reads it. `runes/v2/examples.ts` still carries the plan's older Fireball text (`+30% damage`, `zone[long]`).
+
+## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
+
+- **Damage packets:** every hit carries physical, fire, cold and lightning amounts instead of one number plus an element tag.
+- **Shapes** get a base damage range as an implicit ("Deals 8 to 14 physical damage").
+- **Infusions** (Fire, Cold, Lightning) convert the shape's physical damage to their element and bring burn, chill or shock. New affixes "Adds X to Y fire / cold / lightning damage" add damage on top without converting. Poison (built with the Hound) joins as a type.
+- **Resistances later:** build the per-type packets now; monster resistances and defence affixes are a follow-up.
+- **Every rune has an implicit** rolled at drop (Large: +20 to 40% area; Swift: speed; Split: a copy range; Timer: a delay; infusions: conversion and status chance; shapes: base damage), plus affixes; tiers by item level lift the implicit range. No two runes alike.
+- **Ranged per-cast rolls:** an affix rolls a range at drop ("Splits into 1 to 4", "+20 to 60% damage", "Pierces 0 to 3"); the server rolls inside it on every cast. Force priced at the average; the live cap and entity budget use the maximum. Starter sigils keep fixed values so the v1 parity tests hold.
+- **No stacking:** every rune is a single item; the stash rune tab (a sortable, filterable list) handles bulk. Conversion splits plain stacks into single runes with a middle implicit roll; rune prices by rolls. Bag: nothing special for now.
+- **Visuals follow the damage mix:** lightning sparks, fire flames and embers, cold spiky ice crystals, physical a dark iron shimmer; mixed spells show both. Damage a hotter core and more sparks, duration longer trails, pierce a sharper streak, impact a shockwave ring, doubled infusions a denser shell, two infusions a two-tone swirl, release kinds a small glyph on the parent (ticking ring for "every", a fuse for "after"), rolled runes a faint rune-script sheen. Built on the VFX system ([vfx.md](vfx.md)).
+- **Aura payloads:** Aura and Bond may carry releases (the rule against releases on persistent shapes goes): `Aura [on hit], Fire, Orb` throws a fireball at the enemy the aura just burned; `Aura [every 1 s], Cold, Nova` pulses around the caster. Two triggers: "on hit" (the aura damages an enemy; payload aimed at it) and a new "when struck" (the caster is hit; payload aimed at the attacker), as trigger runes and release affixes. An internal cooldown per aura release (about 0.5 s, config); the aura keeps reserving spirit; each payload costs Force when it fires, as if cast.
+- **Righteous Fire bargain:** a rare aura affix, "Burns you for X% of its damage; deals Y% more damage" (for example 20% / 60%); plain fire auras stay safe.
+- **Balance:** Force pricing and the damage-per-Force search tests cover the new types, ranges and aura payloads.
+- **Order:** before the forge redesign (which then shows implicits and ranges). Item-moving parts (no stacking, conversion) get the loss and duplication review.
