@@ -2,6 +2,7 @@ import { measureBudget } from './budget.js';
 import {
   AFFIX_KEYS,
   affixesFor,
+  CONCENTRATED,
   DEFAULT_PULSE_SECONDS,
   DEFAULT_TIMER_SECONDS,
   DEFAULTS,
@@ -14,6 +15,7 @@ import {
   runeName,
   SHAPERS_FOR_SHAPE,
   SHAPES,
+  SHAPES_WITHOUT_AREA,
   TRIGGER_RELEASE,
   type AffixKey,
   type EffectId,
@@ -54,6 +56,12 @@ export interface NodeStats {
   pierce: number;
   bounce: number;
   homing: number;
+  /**
+   * Percent more damage from Concentrated runes, 0 without one. It multiplies the rest of the
+   * damage, but several Concentrated runes add up: multiplied, four of them on a Bolt dealt 3x the
+   * best starter's damage per Force, since Force prices damage on a log scale.
+   */
+  concentration: number;
 }
 
 export interface SpellNode {
@@ -112,7 +120,7 @@ function newNode(runeIndex: number, shape: ShapeId, depth: number): SpellNode {
     effectiveInfusions: [],
     effects: [],
     shapers: [],
-    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0 },
+    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0 },
     copies: 1,
     linked: false,
     release: null,
@@ -378,6 +386,21 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         }
         const effect = PLAIN_MODIFIER_EFFECT[rune.id];
         target.stats[effect.key] += effect.value;
+        break;
+      }
+      case 'concentrated': {
+        const shape = SHAPES[target.shape].name;
+        if (SHAPES_WITHOUT_AREA.includes(target.shape)) {
+          fail('CONCENTRATED_NEEDS_AREA', i, `${label(i)} trades area for damage, but ${shape} (rune ${target.runeIndex + 1}) has no area to give up.`);
+          break;
+        }
+        const more = rune.affixes.concentration ?? CONCENTRATED.defaultMore;
+        if (!(more > 0)) {
+          fail('CONCENTRATED_AMOUNT', i, `${label(i)} adds ${more}% damage; it must add more than 0%.`);
+          break;
+        }
+        target.stats.concentration += more;
+        target.stats.size += CONCENTRATED.sizePercent;
         break;
       }
       case 'split':

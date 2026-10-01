@@ -25,6 +25,11 @@ export const TRIGGER_IDS = ['onhit', 'onexpire', 'timer', 'pulse', 'onland'] as 
  * when the context turns `plainModifierRunes` on, which the game does.
  */
 export const PLAIN_MODIFIER_IDS = ['swift', 'large'] as const;
+/**
+ * Modifier runes: the plain Swift and Large, and Concentrated, which has no affix form (it is the
+ * opposite of Large: more damage, less area) and so needs no flag.
+ */
+export const MODIFIER_IDS = [...PLAIN_MODIFIER_IDS, 'concentrated'] as const;
 
 export type ShapeId = (typeof SHAPE_IDS)[number];
 export type InfusionId = (typeof INFUSION_IDS)[number];
@@ -32,7 +37,8 @@ export type ShaperId = (typeof SHAPER_IDS)[number];
 export type EffectId = (typeof EFFECT_IDS)[number];
 export type TriggerId = (typeof TRIGGER_IDS)[number];
 export type PlainModifierId = (typeof PLAIN_MODIFIER_IDS)[number];
-export type RuneId = ShapeId | InfusionId | ShaperId | EffectId | TriggerId | PlainModifierId;
+export type ModifierId = (typeof MODIFIER_IDS)[number];
+export type RuneId = ShapeId | InfusionId | ShaperId | EffectId | TriggerId | ModifierId;
 export type RuneKind = 'shape' | 'infusion' | 'shaper' | 'effect' | 'trigger' | 'modifier';
 
 export const RUNE_IDS: readonly RuneId[] = [
@@ -41,7 +47,7 @@ export const RUNE_IDS: readonly RuneId[] = [
   ...SHAPER_IDS,
   ...EFFECT_IDS,
   ...TRIGGER_IDS,
-  ...PLAIN_MODIFIER_IDS,
+  ...MODIFIER_IDS,
 ];
 
 const RUNE_SET: ReadonlySet<string> = new Set(RUNE_IDS);
@@ -97,6 +103,8 @@ export interface RuneAffixes {
   chargeStages?: number;
   /** Timer and Pulse runes: the delay or interval in seconds. */
   seconds?: number;
+  /** Concentrated: percent more damage, a multiplier of its own on top of the damage affix. */
+  concentration?: number;
 }
 export type AffixKey = keyof RuneAffixes;
 export const AFFIX_KEYS: readonly AffixKey[] = [
@@ -113,6 +121,7 @@ export const AFFIX_KEYS: readonly AffixKey[] = [
   'stackLimit',
   'chargeStages',
   'seconds',
+  'concentration',
 ];
 
 export interface RuneInstance {
@@ -172,6 +181,7 @@ const NAMES: Record<Exclude<RuneId, ShapeId>, string> = {
   onland: 'On Land',
   swift: 'Swift',
   large: 'Large',
+  concentrated: 'Concentrated',
 };
 
 export function runeName(id: RuneId): string {
@@ -249,6 +259,8 @@ export function affixesFor(id: RuneId): readonly AffixKey[] {
     case 'timer':
     case 'pulse':
       return ['seconds'];
+    case 'concentrated':
+      return ['concentration'];
     default:
       return [];
   }
@@ -264,6 +276,7 @@ export const COUNT_AFFIX: Partial<Record<RuneId, AffixKey>> = {
   homing: 'homing',
   timer: 'seconds',
   pulse: 'seconds',
+  concentrated: 'concentration',
 };
 
 /** Plain-rune effect when `plainModifierRunes` is on: the same numbers as the matching affix words. */
@@ -271,6 +284,19 @@ export const PLAIN_MODIFIER_EFFECT: Record<PlainModifierId, { key: 'speed' | 'si
   swift: { key: 'speed', value: 30 },
   large: { key: 'size', value: 50 },
 };
+
+/**
+ * Concentrated: more damage in a smaller area. A drop always rolls its amount (the rune_concentrated
+ * affix, 40 to 60%); a rune without the roll (the builders' bench, the Spell Lab) gets the lowest
+ * one. The size loss matches the [small] word. Doubled, both the damage and the size loss add up.
+ */
+export const CONCENTRATED = { defaultMore: 40, sizePercent: -30 } as const;
+
+/**
+ * Shapes Concentrated refuses: a Dash hits with a fixed reach and a Bond has no area, so the rune
+ * would be damage with no drawback there.
+ */
+export const SHAPES_WITHOUT_AREA: readonly ShapeId[] = ['dash', 'bond'];
 
 export const DEFAULTS = {
   splitCount: 2,
@@ -307,6 +333,7 @@ export const CASTABLE_RUNES = [
   'onland',
   'swift',
   'large',
+  'concentrated',
 ] as const satisfies readonly RuneId[];
 export type CastableRuneId = (typeof CASTABLE_RUNES)[number];
 
@@ -323,6 +350,8 @@ const RUNE_COLOR: Partial<Record<RuneId, number>> = {
   lightning: 0xf5e663,
   ward: 0x7fe0c0,
   restore: 0x8cf08c,
+  // Dried blood: the heaviest-hitting modifier reads darker than the bone-white Swift and Large.
+  concentrated: 0xb0584a,
 };
 
 export function runeColor(id: RuneId): number {

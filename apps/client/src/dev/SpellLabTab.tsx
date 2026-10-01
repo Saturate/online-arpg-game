@@ -9,7 +9,7 @@ import {
   EXAMPLE_SPELLS,
   INFUSION_IDS,
   parseSpellText,
-  PLAIN_MODIFIER_IDS,
+  MODIFIER_IDS,
   RULES,
   runeName,
   SHAPE_IDS,
@@ -29,7 +29,7 @@ const PALETTE: readonly { label: string; runes: readonly RuneId[] }[] = [
   { label: 'Shapers', runes: SHAPER_IDS },
   { label: 'Effects', runes: EFFECT_IDS },
   { label: 'Triggers', runes: TRIGGER_IDS },
-  { label: 'Plain modifiers', runes: PLAIN_MODIFIER_IDS },
+  { label: 'Modifiers', runes: MODIFIER_IDS },
 ];
 
 const AFFIX_SNIPPETS: readonly string[] = ['[onhit]', '[onexpire]', '[every 0.2s]', '[after 0.5s]', '[onrelease]', '[onland]', '[slow]', '[small]', '[large]', '[long]', '[homing]', '[pierce 2]', '[+30% damage]', '(4)'];

@@ -7,6 +7,7 @@ import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
 import { DEFAULT_CONTEXT, RULES, type GrammarError, type RuleKey } from './rules.js';
 import {
   COMBOS,
+  CONCENTRATED,
   DEFAULTS,
   isCastableRune,
   isPersistentShape,
@@ -107,6 +108,7 @@ export const RUNE_FORCE: Record<RuneId, number> = {
   onland: 2,
   swift: 3,
   large: 3,
+  concentrated: 5,
 };
 const SPLIT_FORCE_PER_COPY = 2;
 const RELEASE_FORCE: Record<ReleaseKind, number> = { onhit: 2, onexpire: 2, after: 2, every: 3, onland: 2, onrelease: 2 };
@@ -123,6 +125,7 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   restore: 12,
   swift: 5,
   large: 8,
+  concentrated: 10,
 };
 
 /**
@@ -165,13 +168,13 @@ function runeNodes(runes: readonly RuneInstance[], tree: SpellTree | null): (Spe
   });
 }
 
-/** Damage multiplier of a node from its Splits (each conserves damage on its own, as v1 did) and doubled infusions. */
+/** Damage multiplier of a node from its Splits (each conserves damage on its own, as v1 did), doubled infusions and Concentrated. */
 function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
   const efficiency = SPELL.splitEfficiency + splitEfficiencyBonus;
   let scale = 1;
   for (const s of node.shapers) if (s.id === 'split') scale *= efficiency / s.value;
   const extra = node.effectiveInfusions.length - new Set(node.effectiveInfusions).size;
-  return scale * (1 + extra * STACKED_INFUSION_BONUS);
+  return scale * (1 + extra * STACKED_INFUSION_BONUS) * (1 + node.stats.concentration / 100);
 }
 
 function isProjectileShape(node: SpellNode): boolean {
@@ -247,6 +250,9 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
   if (a.duration !== undefined) force += steps(a.duration, st.duration) * own;
   if (a.damage !== undefined) force += steps(a.damage, st.damage) * own;
   if (a.pierce !== undefined && a.pierce > 0) force += (Math.log(1 + a.pierce / st.pierce) / Math.LN2) * own;
+  // Concentrated's damage is priced like a damage roll of the same size, on top of its base cost.
+  // Its area loss gives nothing back: on a Bolt or a lone target it costs the spell almost nothing.
+  if (rune.id === 'concentrated') force += steps(a.concentration ?? CONCENTRATED.defaultMore, st.damage) * own;
   return force * HEAT.affixStepForce;
 }
 

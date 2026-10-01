@@ -2,7 +2,7 @@ import { FORGE } from '../config/forge.js';
 import { LOOT } from '../config/sim.js';
 import type { Rng } from '../sim/rng.js';
 import { STARTER_SIGILS, createStarterSigil } from '../data/starterSigils.js';
-import { createGear, createRolledRune, createRune, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
+import { createGear, createRolledRune, createRune, dropsRolled, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
 
 /**
  * The monster drop roll without the Simulation around it. The game's `dropLoot` and the loot
@@ -69,7 +69,12 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
     // one takes its affix count from the drop tier and its affix tiers from the monster level.
     if (roll < tuning.runeShare) {
       const rolled = rng.next() < (tuning.rolledRuneShare ?? FORGE.rolledRuneShare);
-      items.push(rolled ? createRolledRune(newUid(), rng, tier, src.level) : createRune(newUid(), rollRune(rng)));
+      if (rolled) {
+        items.push(createRolledRune(newUid(), rng, tier, src.level));
+        continue;
+      }
+      const rune = rollRune(rng);
+      items.push(dropsRolled(rune) ? createRolledRune(newUid(), rng, tier, src.level, rune) : createRune(newUid(), rune));
       continue;
     }
     const rest = (roll - tuning.runeShare) / (1 - tuning.runeShare);
