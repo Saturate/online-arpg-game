@@ -1,6 +1,6 @@
 # Runes and spells
 
-Status: v2 (phases 0 to 3 of the rework) pushed to `main` on 2026-09-30 and built on 2026-09-29. v1 runes went live on 2026-09-28. Phase 4 onward is planned (see "Planned" below). On 2026-10-01 Multishot and Flame Cleave were buffed and "first rune is free" was dropped, with a save pass on load (built on `fix/rune-rolls`, not deployed yet). The Concentrated rune was built the same day on `feat/concentrated-rune` (not deployed yet).
+Status: v2 (phases 0 to 3 of the rework) pushed to `main` on 2026-09-30 and built on 2026-09-29. v1 runes went live on 2026-09-28. Phase 4 onward is planned (see "Planned" below). On 2026-10-01 Multishot and Flame Cleave were buffed and "first rune is free" was dropped, with a save pass on load (built on `fix/rune-rolls`, not deployed yet). The Concentrated rune was built the same day on `feat/concentrated-rune` (not deployed yet). Kit sigils became ordinary sigils with in-table rolls and rune affixes got six tiers on 2026-10-01 (`feat/no-starters`, not deployed).
 
 ## What it does
 
@@ -14,11 +14,11 @@ Every skill is a sigil holding runes, read left to right like a Noita wand. The 
 - **Swift and Large** stay as plain modifier runes (+30% speed, +50% size) that teach the system early.
 - **Concentrated** is Large's opposite: 40 to 60% more damage (rolled per rune; damage only, not healing or shielding) and 30% less size, once per shape with an area.
 
-Examples, in the text form the Spell Lab and the starter sigils use:
+Examples, in the text form the Spell Lab and the kit sigils use:
 
 - `bolt[onhit] fire nova`: a bolt that bursts into a fire nova where it hits (Exploding Arrow).
-- `orb[every 0.18s, ...] cold split(3) bolt`: a slow orb spraying three cold shards every 0.18 s (Frozen Orb).
-- `orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+30% duration]`: Fireball; it bursts on hit, the nova releases burning ground half a second later.
+- `orb[every 0.2s, +10% size] cold split(3) bolt`: an orb spraying three cold shards every 0.2 s (Frozen Orb).
+- `orb[onhit, +55% damage] fire nova[after 0.5s] zone[+30% duration]`: Fireball; it bursts on hit, the nova releases burning ground half a second later.
 
 The forge shows each spell as a sentence ("Fires a slow cold orb. Every 0.2 s: 4 small bolts."), names every rule a draft breaks, and previews it on a dummy ([forge.md](forge.md)).
 
@@ -37,57 +37,68 @@ Only castable runes drop, roll, or appear in the forge's pool. The rest are name
 
 ### Rolled runes
 
-A rune drops plain or rolled. Plain runes stack 20 to a cell. Rolled runes carry rune affixes, are single items and never stack. About 20% of rune drops are rolled; a rolled rune gets 1 affix (common), 1 to 2 (magic), 2 to 3 (rare) or 3 (relic), with affix tiers gated by item level (T2 from 3, T3 from 5; magic caps at T2).
+A rune drops plain or rolled. Plain runes stack 20 to a cell. Rolled runes carry rune affixes, are single items and never stack. About 20% of rune drops are rolled; a rolled rune gets 1 affix (common), 1 to 2 (magic), 2 to 3 (rare) or 3 (relic).
 
-| Affix | T1 | T2 | T3 | On |
-|---|---|---|---|---|
-| speed | +10 to 20% | +20 to 35% | +35 to 50% | orb, bolt, dash |
-| size | +10 to 20% | +20 to 35% | +35 to 50% | orb, bolt, nova, zone, aura |
-| duration | +15 to 30% | +30 to 50% | +50 to 75% | orb, bolt, zone |
-| damage | +10 to 20% | +20 to 35% | +35 to 55% | orb, bolt, nova, zone, dash |
-| pierce | 1 | 1 to 2 | 2 to 3 | orb, bolt |
-| split count | 2 to 3 | 3 to 4 | 5 to 6 | split |
-| more damage | 40 to 46% | 47 to 53% | 54 to 60% | concentrated (every drop rolls it) |
+**Six rune tiers** (owner, 2026-10-01). Tiers are numbered from the best, as in Path of Exile: T1 is the best and rare, T6 the weakest and common. T6 to T2 split the old three tiers' ranges from low to high; T1 sits above them. Each tier has its own least item level, and common and magic runes stop at T4 (as magic once stopped at the old middle tier). Stored rolls keep a tier index from the weakest (0 is T6, 5 is T1), so every comparison that says "higher is better" still holds; only the label counts from the top (`affixTierLabel`).
 
-Release affixes (at most one per rune, suffixes): on hit (orb, bolt, dash), on expire (orb, bolt, nova, zone), after 0.3 to 1.2 s (orb, bolt, nova, zone, dash), every X s (orb, bolt, zone; T1 0.4 to 0.6, T2 0.3 to 0.45, T3 0.2 to 0.3), on landing (dash).
+| Affix | T6 | T5 | T4 | T3 | T2 | T1 | On |
+|---|---|---|---|---|---|---|---|
+| speed | +10 to 17% | +18 to 25% | +26 to 33% | +34 to 41% | +42 to 50% | +51 to 70% | orb, bolt, dash |
+| size | +10 to 17% | +18 to 25% | +26 to 33% | +34 to 41% | +42 to 50% | +51 to 75% | orb, bolt, nova, zone, aura |
+| duration | +15 to 26% | +27 to 38% | +39 to 50% | +51 to 62% | +63 to 75% | +76 to 100% | orb, bolt, zone |
+| damage | +10 to 18% | +19 to 27% | +28 to 36% | +37 to 45% | +46 to 55% | +56 to 58% | orb, bolt, nova, zone, dash |
+| pierce | 1 | 1 to 2 | 2 | 2 to 3 | 3 | 4 to 5 | orb, bolt |
+| split count | 2 | 2 to 3 | 3 to 4 | 4 to 5 | 5 to 6 | 6 | split |
+| more damage | 40 to 43% | 44 to 47% | 48 to 51% | 52 to 55% | 56 to 60% | 60% | concentrated (every drop rolls it) |
+| every X s | 0.52 to 0.6 | 0.44 to 0.51 | 0.36 to 0.43 | 0.28 to 0.35 | 0.2 to 0.27 | 0.15 to 0.19 | orb, bolt, zone |
+| weight | 100 | 35 | 25 | 15 | 8 | 2 | |
+| least item level | 1 | 2 | 3 | 5 | 8 | 12 | |
+
+- **Weights** keep each affix's total weight at every item level what the old three tiers had (100 at level 1, 160 from level 3, 185 at the top), so number affixes and release affixes roll in the same mix as before. At the top a number affix is T1 about one roll in 90.
+- **T1's reference** was the old kits' hand-set rolls (Blink's +69% speed, Bone Spear's pierce 4, Frozen Orb's 0.18 s pulse), measured against the 2x damage-per-Force cap. Damage is the exception: `nova[onexpire] zone[after 0.3s, +X% damage] fire cold nova[+X% damage, +50% size] lightning` sits at 1.97x the best kit's pack damage per Force at +55%, 1.99x at +58%, 2.01x at +60%, 2.09x at +70% and 2.31x at Fireball's old +100%. So T1 damage stops at 58 by default; the owner can widen it live in Rune balance and the cap test will say what it costs.
+- **Split and Concentrated** cannot go past the grammar's limits (6 copies, 60%), so their T1 is T2's best.
+- **Neighbouring tiers share an end** where whole numbers leave no room (pierce, split); a value on a shared end counts as the lower tier when old saves are re-tiered.
+- Release affixes (at most one per rune, suffixes) keep one tier: on hit (orb, bolt, dash), on expire (orb, bolt, nova, zone), after 0.3 to 1.2 s (orb, bolt, nova, zone, dash), on landing (dash). Every X s has the six tiers above.
+- **Prices:** each rune affix adds 4, 6, 9, 13, 20 or 60 gold of sell value from T6 to T1 (release affixes the first); the old three tiers were 4, 10 and 25. Old saves are re-tiered once by value ([items.md](items.md), "Rune roll pass").
+- Every range, weight and item-level gate is tunable on the admin Tuning tab under Rune balance ([live-tuning.md](live-tuning.md)).
 
 ### Sigils are wands
 
-A sigil holds whole rune items in its slots. Slots: common 3, magic 4, rare 5, relic 6, plus `sigil_slots` (+1 to +3) and +1 when corrupted, capped at 10; a starter sigil always fits its runes. The sigil's affixes are its wand stats:
+A sigil holds whole rune items in its slots. Slots: common 3, magic 4, rare 5, relic 6, plus `sigil_slots` (+1 to +3) and +1 when corrupted, capped at 10; a sigil made from a kit always fits that kit's runes (Fireball and Frozen Orb hold 4 on a common sigil). The sigil's affixes are its wand stats, three tiers each, numbered from the best (T1) like rune tiers and tunable under Sigil balance:
 
-| Affix | Range (T1 / T2 / T3) | Effect |
+| Affix | Range (T3 / T2 / T1) | Effect |
 |---|---|---|
 | reduced Force cost | 5 to 12 / 12 to 20 / 20 to 30% | lowers the sigil's Force multiplier |
 | split efficiency | +0.05 to 0.12 / 0.12 to 0.2 / 0.2 to 0.3 | added to the 1.2 split conservation |
-| max depth | +1 (from T2, so magic or better at item level 3+) | one more payload level |
+| max depth | +1 (T2 or T1, so magic or better at item level 3+) | one more payload level |
 | reduced spirit | 8 to 15 / 15 to 25 / 25 to 35% | persistent skills reserve less |
 | increased area | 8 to 15 / 15 to 25 / 25 to 40% | radius |
 | increased damage | 10 to 20 / 20 to 35 / 35 to 55% | damage |
 | rune slots | +1 / +1 to 2 / +2 to 3 | capacity |
 | cast delay | 5 to 10 / 10 to 18 / 18 to 25% | shortens the cast cooldown |
-| multicast | +1 (T3 only: rare or relic from item level 5) | shapes cast together |
+| multicast | +1 (T1 only: rare or relic from item level 5) | shapes cast together |
 
 "First rune is free" was a sigil affix until 2026-10-01. The owner dropped it ("nothing is free"): no drop rolls it, and sigils that had it lose it on load (see "Rune roll pass" in [items.md](items.md)).
 
 Four sigils sit on keys 1 to 4; left and right mouse cast the picked skill slots. While the shared cast cooldown runs, a dark sweep covers the skill slots and recedes as it recharges (Aura and Bond slots stay clear). The skill slot popup, the sigil tooltip, the stash's sigil list and the forge show "Cooldown N s" for that sigil and character.
 
-### Starter sigils
+### Kit sigils
 
-The 20 built-in skills are common sigils holding pre-rolled runes, so their numbers are readable, copyable and improvable. A sigil only shows its starter name and description while its slots still hold the starter's runes, in order.
+The 20 built-in skills (each class's first skills, the kit) are ordinary common sigils holding ordinary rolled runes (owner, 2026-10-01: "I don't really want starters, just a basic shape with runes in a sigil; balance is the runes and sigils"). A recipe in `data/starterSigils.ts` only says which runes and rolls a new character gets; every roll lies inside the drop tables below T1, at the tier its value falls in, and a new kit is clamped into the live tables when it is made (`createStarterSigil`, `kitRoll`), so a range tuned down never hands out a roll above it. A sigil casts, prices and comes apart the same whether it came from a kit or not. Its `starter` id only names it: the tooltip, skill bar, forge, stash filter and notices call it by the kit's name and description while its slots hold that kit's runes in order (`matchingStarter`), and nothing else depends on it, apart from the slot count above.
 
-**The starter rule** (live tuning phase 2, [live-tuning.md](live-tuning.md)): a sigil whose own `starter` names the starter, holding that starter's runes in order (the same rune ids and count; each rune with the recipe's affix kinds for it, every roll at least the honest tier of the recipe's roll (a roll on a shared tier end, such as 35% size, counts at its stored tier), values inside the tier ignored; no bench runes), casts the live recipe numbers: the code defaults with any live tuning applied, not the rolls stored on its runes (`holdsStarterRecipe`, `castingSlots` in `items/items.ts`, `liveStarterRunes` in `data/starterSigils.ts`). A tweak reaches every copy at once and never clamps one. Anything else casts its item rolls clamped to the tables as before: a rune missing, swapped, reordered or appended, a rune with other affix kinds than the recipe's (a plain refill) or a roll a tier below it (a cheap swap), a sigil without that `starter` (a player-made Bolt with Bone Spear's exact rolls casts clamped), and a piece of a starter (Multishot's +300% Bolt alone, or with an infusion added) ([forge.md](forge.md), "Rolls clamp on the way out"). The items keep their stored rolls, which set prices and what comes out of the sigil; extraction still clamps those. New starter sigils are made with the code-default recipe whatever the live numbers are, so tuning never changes what a drop sells for. Starter rolls carry the tier their value falls in, so they sell and price honestly. 30% of sigil drops carry a random starter's runes, unbound.
+**Every sigil casts the rolls it stores, as stored** (`compileSigilItem` reads the slots directly). The starter rule that cast a whole starter at its live recipe numbers, and pieces of one clamped, is gone, with its live recipe copy and the Skill balance tuning group (`holdsStarterRecipe`, `castingSlots`, `castingStarter`, `liveStarterRunes`). Kit sigils made before 2026-10-01 keep their hand-set rolls (owner): an old Multishot still casts its +300% Bolt. Extraction still clamps, so a strong old roll never leaves its sigil at full strength ([forge.md](forge.md), "Rolls clamp on the way out"). 30% of sigil drops carry a random kit's runes, unbound.
 
-| Class | Starter | Runes |
+| Class | Kit | Runes (until 2026-10-01, where changed) |
 |---|---|---|
-| Mage | Fireball | `orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+30% duration]` |
-| Mage | Frozen Orb | `orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage] cold split(3) bolt` |
+| Mage | Fireball | `orb[onhit, +55% damage] fire nova[after 0.5s] zone[+30% duration]` (`orb[onhit, -15% speed, +100% damage] ...`) |
+| Mage | Frozen Orb | `orb[every 0.2s, +10% size] cold split(3) bolt` (`orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage] ...`) |
 | Mage | Static Nova | `nova[+50% size] lightning` |
-| Mage | Blink | `dash[+69% speed]` |
+| Mage | Blink | `dash[+50% speed]` (`dash[+69% speed]`) |
 | Warrior | Leap Slam | `dash[onland] impact nova[+50% size]` |
 | Warrior | War Cry | `nova[+50% size] impact` |
-| Warrior | Flame Cleave | `nova[-40% size, +50% damage] fire` (until 2026-10-01: `bolt[-50% duration, +60% size] fire split(3)`) |
+| Warrior | Flame Cleave | `nova[+50% damage] fire` (`nova[-40% size, +50% damage] fire`; before the buff `bolt[-50% duration, +60% size] fire split(3)`) |
 | Warrior | Iron Skin | `aura ward` |
-| Ranger | Multishot | `bolt[pierce 2, +300% damage] split(5)` (until 2026-10-01: `bolt[pierce 2, +60% damage] split(3) split(3)`) |
+| Ranger | Multishot | `bolt[pierce 2, +55% damage] split(5)` (`bolt[pierce 2, +300% damage] split(5)`; before the buff `bolt[pierce 2, +60% damage] split(3) split(3)`) |
 | Ranger | Exploding Arrow | `bolt[onhit] fire nova` |
 | Ranger | Freezing Arrow | `bolt[onhit] cold zone` |
 | Ranger | Evade | `dash[+30% speed]` |
@@ -96,9 +107,11 @@ The 20 built-in skills are common sigils holding pre-rolled runes, so their numb
 | Priest | Sanctuary | `zone[+75% duration] restore` |
 | Priest | Smite | `bolt[pierce 2] lightning` |
 | Binder | Soul Link | `bond ward` |
-| Binder | Bone Spear | `bolt[pierce 4, +50% speed, +40% damage]` |
+| Binder | Bone Spear | `bolt[pierce 3, +50% speed, +40% damage]` (`bolt[pierce 4, ...]`) |
 | Binder | Corpse Blast | `nova[+50% size] fire` |
 | Binder | Frost Mire | `zone[+75% duration] cold` |
+
+Each hand-set roll was clamped to the best value its affix rolls below T1 (the top of today's ranges), and drawbacks no drop rolls (negative speed, size, duration or damage) were dropped rather than turned into the weakest positive roll, since no roll is nearer to them than none. How much each kit lost is under "Kit sigils at table rolls" below.
 
 ## Why
 
@@ -164,8 +177,8 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
 
 ### Balance
 
-- **Every starter stays within 15% of its v1 Force and 10% of its v1 damage** (single target and pack), measured by the same harness against `test/fixtures/skill-baseline-v1.json`. Multishot and Flame Cleave are held to their buffed damage instead (below); their Force still answers to v1.
-- **No spell from castable runes goes above 2x the best starter's damage per Force.** A random spell search (8000 spells per seed) found nothing above about 2.13x; a seeded 300-spell version runs in the tests.
+- **Every kit stays within 15% of its v1 Force and 10% of its v1 damage** (single target and pack), measured by the same harness against `test/fixtures/skill-baseline-v1.json`. Kits whose rolls were clamped into the tables (Fireball, Frozen Orb, Blink, Flame Cleave, Multishot) are held to the numbers measured at their table rolls instead (`TABLE_ROLLS` in `skillParity.test.ts`), within the same bands.
+- **No spell from castable runes goes above 2x the best kit skill's damage per Force.** The reference is the best kit at its table rolls: Freezing Arrow to one target (2.13 per Force) and Exploding Arrow to a pack (7.71), the same two and the same numbers as before the kits were clamped, so the bound did not move. A random spell search (8000 spells per seed) found nothing above about 2.13x; seeded 300-spell versions run in the tests, one of them with T1 rolls only.
 - **Multishot and Flame Cleave were buffed** (owner, 2026-10-01). In v1 they dealt about 4 and 13 damage per cast against 100+ for Fireball. Measured with the parity harness (single target / pack over the run, Force per cast):
 
   | Starter | Before | After | v1 |
@@ -173,7 +186,7 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
   | Multishot | 114.7 / 344.1, Force 18.6 | 430.1 / 1290.2, Force 19.2 | 114.7 / 344.1, Force 19.8 |
   | Flame Cleave | 191.4 / 382.9, Force 18.4 | 650.4 / 3230.6, Force 16.7 | 191.4 / 382.9, Force 16.2 |
 
-  Both stay inside the 15% Force band (-3.0% and +3.1% against v1) and below the best starters' damage per Force (2.13 single, 7.71 pack, unchanged), so the 2x bound of the damage-per-Force tests did not move. Flame Cleave is now a burning ring close around the warrior instead of three short waves in a cone: the waves with +200% damage reached 574 / 1149 but cost 22.6 Force (+40% on v1). Sigils already owned get the new runes on load ([items.md](items.md), "Rune roll pass"). Kept as a piece, a starter's runes cast clamped: with that rule the worst piece of any starter (every prefix left in place and every single rune moved to the front, each alone and with an infusion or two Lightnings added) measures 1.51x (Frozen Orb's Bolt alone, on a Ranger); without it Multishot's Bolt alone reached 2.85x.
+  Both stayed inside the 15% Force band (-3.0% and +3.1% against v1) and below the best starters' damage per Force (2.13 single, 7.71 pack, unchanged), so the 2x bound of the damage-per-Force tests did not move. Flame Cleave became a burning ring close around the warrior instead of three short waves in a cone: the waves with +200% damage reached 574 / 1149 but cost 22.6 Force (+40% on v1). Sigils already owned get the new runes on load ([items.md](items.md), "Rune roll pass"). The same day the kits' rolls were clamped into the tables (below), which took most of Multishot's buff back.
 - Fireball is the plan's Fireball, not a copy of v1: the orb carries v1's 2x hit, since the burst and the burning ground only add to it. Frozen Orb's v1 skill exceeded the entity cap (48); it now peaks under 40.
 
 ### Spell budgets (measured)
@@ -190,7 +203,7 @@ Code:
 
 - Grammar: `packages/shared/src/runes/v2/` (`runes.ts` rune data, `rules.ts` every rule by id and `DEFAULT_CONTEXT`, `tokenize.ts` the text form, `parse.ts` the tree, `budget.ts` the entity budget, `compile.ts` the program and its Force or spirit, `sentence.ts` the sentence and bracket views, `descriptions.ts` tooltips and glyphs, `examples.ts` shared examples).
 - Engine contract: `packages/shared/src/sim/program.ts`. Engine: `sim/spells.ts` (casting, releases, live cap, zone lockout), `sim/auras.ts` (Aura and Bond), `sim/players.ts` (Force cooling).
-- Starters: `packages/shared/src/data/starterSigils.ts`; the pass that brings owned sigils up to date: `items/convertRuneRolls.ts`. Affixes: `data/affixes.ts`. Sigil items and capacity: `items/items.ts` (`sigilCapacity`, `matchingStarter`, `misfireChance`). Class affinities: `data/classes.ts`.
+- Kits: `packages/shared/src/data/starterSigils.ts` (`createStarterSigil`, which clamps each roll with `kitRoll` in `items/runeRolls.ts`); the one-time pass that brings owned sigils and runes up to date: `items/convertRuneRolls.ts`. Affixes and their six rune tiers: `data/affixes.ts` (`AFFIXES`, the live table; `codeAffixTiers`, the code's own; `affixTierLabel`). Sigil items and capacity: `items/items.ts` (`sigilCapacity`, `matchingStarter`, `misfireChance`). Class affinities: `data/classes.ts`.
 - Numbers: `HEAT`, `SPELL`, `AURA`, `LINK`, `AILMENTS` in `packages/shared/src/config/sim.ts`; `FORGE` in `config/forge.ts`. Shape, rune Force, spirit and effect numbers are live-tunable from the admin Tuning tab, which overwrites them in place ([live-tuning.md](live-tuning.md)); read them where they are used, never copy one into a module constant.
 
 ```ts
@@ -213,12 +226,13 @@ Admin tunables (Settings tab, [accounts-admin.md](accounts-admin.md)): the level
 
 Tests:
 
-- `packages/shared/test/skillParity.test.ts`: all 20 starters within 15% Force, 10% damage (single and pack) and 5% dash distance of v1, exact spirit and cast count. The harness (`test/harness/skillDps.ts`) casts at the v1 cadence of 0.35 s (`HARNESS_DEFAULTS.castCooldown`), not the live setting, so it compares strength per cast against the fixed baseline; Multishot and Flame Cleave within 10% of their buffed damage (`RETUNED`).
+- `packages/shared/test/skillParity.test.ts`: all 20 kits within 15% Force, 10% damage (single and pack) and 5% dash distance of v1, exact spirit and cast count. The harness (`test/harness/skillDps.ts`) casts at the v1 cadence of 0.35 s (`HARNESS_DEFAULTS.castCooldown`), not the live setting, so it compares strength per cast against the fixed baseline; the five kits clamped into the tables against their table-roll numbers (`TABLE_ROLLS`).
 - `apps/server/test/castCooldown.test.ts`: the setting's default and range, storage, the welcome and `castCooldown` message, and the server enforcing a changed value live.
 - `apps/client/test/castTiming.test.ts`: the client takes the server's value, ignores bad ones, and shows the same cooldown the server counts.
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass ([items.md](items.md), "Rune roll pass").
-- `packages/shared/test/starterTuning.test.ts`: the starter rule and the starters' tunable numbers ([live-tuning.md](live-tuning.md), phase 2).
-- `packages/shared/test/forcePerDamage.test.ts`: 66 hand-picked spells (21 of them with Concentrated), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001) and every starter piece (prefixes in place and single runes, alone and with infusions added) stay under 2x the best starter's damage per Force, single and pack.
+- `packages/shared/test/affixTuning.test.ts`: the six rune tiers (counts, labels, ranges against the old ones, item-level gates, drops inside their tier), the one-time re-tier (by value, from the code's table, never worth 3x the old price), and the affix ranges in live tuning ([live-tuning.md](live-tuning.md)).
+- `packages/shared/test/runeRolls.test.ts`: no kit rune is past the table; old kit sigils are, and clamp on the way out.
+- `packages/shared/test/forcePerDamage.test.ts`: 77 hand-picked spells (24 with Concentrated, 11 with T1 rolls), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001), 300 of T1 rolls only (seed 20261002), all drawn from the live drop tables, and every kit piece (prefixes in place and single runes, alone and with infusions added) stay under 2x the best kit's damage per Force, single and pack.
 - `packages/shared/test/concentrated.test.ts`: the Concentrated grammar, compile, Force, spirit, drops, rolls, prices, the rune tab sort, grants and the forge; every aura type and element mix (three different, three the same), with and without Large, at no more than 1.2x the damage per spirit with it and the same strength for Ward, Restore and Impact; a damage affix refused on Aura and Bond; and heals and shields per cast unchanged by it (less per Force); `apps/server/test/concentratedRune.test.ts`: saves holding it load and save back.
 - `packages/shared/test/grammarV2.test.ts`: the plan's examples, every rule, ambiguous cases, the tokenizer.
 - `packages/shared/test/compile.test.ts`: castability, named engine gaps, multicast, multi-shape payloads, affixes, capacity, Force by depth, affinity and affixes, spirit, starters compile for their class.
@@ -227,7 +241,7 @@ Tests:
 - `packages/shared/test/entityBudget.test.ts`: the budget's peak equals the engine's for 12 interval spells.
 - `packages/shared/test/liveCap.test.ts`, `zoneStacking.test.ts`: the weighted cap, room cap, departed players; one caster's zones do not stack.
 - `packages/shared/test/runeRolls.test.ts`, `forceRates.test.ts`, `skillBaseline.test.ts`, `runeGlyphs.test.ts`, `spellSnapshots.test.ts`, and the "heat" and fixture blocks of `systems.test.ts` (cooling, overheat cap, misfire, duds at half Force, SPEC fixture spells in play).
-- `apps/client/test/studio.test.ts`: the Spell Studio prices starters exactly like the game.
+- `apps/client/test/studio.test.ts`: the Spell Studio prices kits exactly like the game.
 
 Dev tools ([dev-tools.md](dev-tools.md)): the **Spell Lab** reads any rune list with the full grammar (phase 4 runes included), shows the verdict, errors, sentence, tree and budget, and hands castable spells to the **Spell Studio**, which casts them at dummies and exports a `starterSigils.ts` entry.
 
@@ -311,13 +325,12 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 ## Limits and open questions
 
 - **Multishot and Flame Cleave** were buffed on 2026-10-01 (see "Balance"). A starter sigil changed at the forge keeps what it holds; only sigils still holding the old recipe exactly were rebuilt. The rune the shorter recipe has no room for goes back to the player when unbound and is removed when bound ([items.md](items.md), "Rune roll pass"). Flame Cleave's ring is close around the hero: whether it reads as a cleave in play is for the owner to judge.
-- **A starter's numbers can be retuned without `OLD_STARTER_RUNES`** since live tuning phase 2, on the admin Tuning tab, or in code as long as each roll stays in its honest tier: every copy holding the starter's runes casts the new numbers. A code change to which runes a recipe holds, to a rune's affix kinds, or that raises a roll into a higher honest tier still needs the old recipe in `OLD_STARTER_RUNES` (`items/convertRuneRolls.ts`), or every copy casts clamped. Live tuning never does, since copies are matched against the code-default recipe. `pnpm runes:convert-check` fails on a starter that holds its runes in order but whose own runes no longer match the recipe, and on one that holds them but does not cast the recipe or compile, both at the overrides stored in that database. A rune counts as the starter's own when it is bound or rolled past every drop table and has the rune id and affix kinds the recipe, now or in `OLD_STARTER_RUNES`, had at that slot (`starterRunesOffRecipe`), so a kit rune moved in from another starter does not fail the check. A bound rune of the recipe's rune id with other affix kinds cannot be told apart from a recipe whose affix kinds changed without an entry, so the check prints a WARN for it instead of failing: read those before a deploy that changed a recipe.
-- **Swapping a starter's runes** (2026-10-01). A starter's runes come out of the sigil clamped (Static Nova's Nova keeps its +50% size, the top of T3). If the sigil kept the starter's numbers with any rune of the same affix kinds, a player could put in a cheap `nova[+10% size]`, take the +50% one out, and keep casting Static Nova; 12 of the 17 starters with rolls need only one-affix runes, so that was a cheap upgrade for most of them. So each slot's roll must be at least the honest tier of the recipe's roll for that affix: a plain or lower-tier rune casts as itself, clamped. A rune at the same tiers (a `nova` with 35 to 50% size) restores the starter, so a swap can at most move a roll within one tier (put in +40%, take out +50%), never up a tier. Holding the starter's own runes always works.
-- **Appending after a starter (owner, 2026-10-01):** a starter keeps its numbers while it holds its full recipe in order, and runes appended after it are allowed, for the open slot of the forge redesign. Not built: today an appended rune makes the whole sigil cast clamped. The redesign must measure appended cases against the 2x cap before it ships ([forge.md](forge.md), "Planned: forge redesign").
-- **A starter piece casts clamped** even when the player only reordered it (the rune ids must match in order). That also covers a reorder that keeps the same runes (Frozen Orb's runes in another order), which is the price of a simple rule: the whole starter as written, or the loot table.
+- **Old kit sigils keep their hand-set rolls** (owner) and cast them as stored, also rearranged or beside other runes at the forge: the runes never leave the sigil, so nothing clamps them. Before 2026-10-01 a piece of a kit cast clamped, because Multishot's +300% Bolt alone dealt 2.85x the best kit's damage per Force; that rule is gone with the starter rule, so a player who kept an old Multishot can build that Bolt into another spell in the same sigil. Only characters made before the change have such sigils, and taking the rune out clamps it. Whether to clamp kept runes on re-inscribe is open.
+- **Kit sigils keep a slot count of their own:** a sigil made from a kit always has room for that kit's runes (Fireball and Frozen Orb put 4 on a common sigil of 3). It is the only thing the `starter` id still changes.
+- **Appending after a kit (owner, 2026-10-01)** for the forge redesign's open slot: with every sigil casting its own rolls this needs no special rule any more; the appended cases are ordinary in-table spells, which the 2x search covers ([forge.md](forge.md), "Planned: forge redesign").
 - **Repeating payloads** (`every`, Pulse) now cost 60 to 250 Force per cast, since they pay for each release; players who built them will read it as a nerf. Phase 7's rebalance revisits it. Frozen Orb stays near its v1 price because its ring is weighted as mostly missing.
 - **Fireball and Leap Slam** sit near the top of the 15% Force band (+13%); a retune should keep them inside it.
-- **A once-off payload at its base price** can still reach about 2.1x the best starter's damage per Force.
+- **A once-off payload at its base price** can still reach about 2.1x the best kit's damage per Force; with T1 damage it would pass 2x sooner, which is why T1 damage stops at 58 (see "Rolled runes").
 - **"First rune is free"** was dropped on 2026-10-01 ("nothing is free"): pricing is per rune, and sigils that had it lose it on load. The copy of live from 2026-10-01 had none.
 - **Skill tooltips show the base Force,** not the admin's cost multiplier.
 - **Swift and Large as plain runes** are behind a grammar flag (`plainModifierRunes`), on in the game. Concentrated is not.
@@ -373,9 +386,30 @@ Measured with the parity harness at base 5 (per Force as a share of the best sta
 
 A Concentrated Nova buys damage at about the plain Nova's rate per Force, and on a Bolt at a worse one, so it is a way to put more damage in one cast for more Force and a slot, not a cheaper way to deal damage. The random search with Concentrated, one per shape (206 of 300 compiled), found nothing above 1.67x (`zone[after 0.7s, +31% duration] nova[+12% size, +55% damage] lightning lightning concentrated(54)`). The harness packs stand close together, so the smaller area costs less there than it will in play.
 
-## Starter numbers in live tuning (owner, 2026-10-01; built 2026-10-01, not yet deployed)
+## Kit sigils at table rolls (owner, 2026-10-01; built 2026-10-01 on `feat/no-starters`, not deployed)
 
-A per-starter damage multiplier was built and reverted before it shipped: the owner wants base numbers, not multipliers. Each starter's own rune numbers are tunable on the admin Tuning tab, in the Starters category with one group per starter ([live-tuning.md](live-tuning.md), phase 2), and a whole starter casts them (the starter rule above).
+The kits' hand-set rolls were clamped into the drop tables, and the per-kit numbers on the Tuning tab (live tuning phase 2, the Skill balance group) went with the starter rule. Balance is done on the runes and sigils instead: rune affix ranges per tier in Rune balance, sigil affix ranges in Sigil balance, and the base shapes.
+
+Measured with the parity harness (29 casts at the 0.35 s v1 cadence, damage per Force over the run, single target / pack; "before" is the kit as it was on `main` before the change):
+
+| Kit | Class | Force before / after | Per Force before (single / pack) | Per Force after | Change single / pack |
+|---|---|---|---|---|---|
+| Multishot | Ranger | 19.2 / 16.7 | 0.77 / 2.32 | 0.34 / 1.03 | -55% / -55% |
+| Fireball | Mage | 20.4 / 19.9 | 1.98 / 7.10 | 1.68 / 6.92 | -16% / -3% |
+| Frozen Orb | Mage | 21.6 / 23.6 | 1.49 / 5.72 | 1.39 / 4.73 | -7% / -17% |
+| Blink | Mage | 16.2 / 15.0 | 0.74 / 2.94 | 0.80 / 2.40 | +8% / -18% (dash 285 units, v1 321) |
+| Flame Cleave | Warrior | 16.7 / 17.8 | 1.34 / 6.67 | 1.26 / 7.52 | -6% / +13% |
+| Bone Spear | Binder | 15.5 / 14.8 | 1.40 / 2.79 | 1.46 / 2.92 | +5% / +5% |
+
+Damage per cast: Multishot 430 / 1290 to 167 / 500, Fireball 1174 / 4202 to 967 / 3996, Frozen Orb 934 / 3584 to 950 / 3235, Blink 348 / 1380 to 348 / 1044, Flame Cleave 650 / 3231 to 651 / 3882, Bone Spear unchanged (627 / 1254; the harness measures no difference between pierce 3 and 4). The other 14 kits held only in-table rolls and did not change.
+
+- **Multishot** lost the owner's buff almost entirely (+300% damage became +55%): it is back to about 1.5x its v1 damage. The first live pass would raise it with rune or shape numbers.
+- **Fireball** hits a single target 18% softer (+100% became +55% on the Orb), and the Orb is a little faster without its -15% speed.
+- **Frozen Orb** lost its slowed, shortened, weaker orb (no drop rolls a drawback) and pulses every 0.2 s instead of 0.18 s: the orb itself hits harder, the shards come less often, it costs 2 Force more, and it peaks at 40 entities, the cap.
+- **Blink** dashes 11% shorter (+69% speed became +50%).
+- **Flame Cleave** lost its -40% size, so the ring is the full Nova size: more pack damage, and no longer close around the warrior.
+- **Bone Spear** pierces 3 instead of 4 and costs less.
+- The best kit to one target (Freezing Arrow, 2.13) and to a pack (Exploding Arrow, 7.71) did not change, so the 2x cap of `forcePerDamage.test.ts` measures against the same numbers.
 
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 

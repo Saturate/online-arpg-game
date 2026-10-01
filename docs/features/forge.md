@@ -8,7 +8,7 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 
 - **Where:** the weapon rack nearest the town spawn, marked with a campfire and a gold "Forge" label. Click it: the hero walks into reach and the forge opens straight into the sigil editor, with the bag. Walking away closes it. K toggles the editor while you stand at the forge; elsewhere it says "Sigils are inscribed at the forge in town".
 - **The editor** has three columns:
-  - **Sigils:** equipped (with their key 1 to 4), then the bag, then the stash. Stash sigils are shown locked. Each shows `slots/capacity` and the starter it still matches.
+  - **Sigils:** equipped (with their key 1 to 4), then the bag, then the stash. Stash sigils are shown locked. Each shows `slots/capacity` and the kit skill it still spells (a name only).
   - **Slots:** read left to right, one cell per slot, each with the rune's two-letter glyph, its name, and marks for rolled, bound, weakens, from stash and the gold price. Click a slot to take the rune out, drag to reorder, drag back to the pool to remove.
   - **Rune pool:** the plain and rolled runes you own in the bag and the stash, filtered by kind (Shapes, Infusions, Shapers, Effects, Triggers, Modifiers). Runes this draft took out show again so they can go back in for free.
 - **The readout** shows the spell as a sentence ("Fires a slow cold orb...") and as a bracket view, the Force per cast (or spirit reserved for a persistent skill), the most entities alive at once, and compiler notes. A broken spell names each error by slot and rule, and says how much Force each fizzle costs.
@@ -31,14 +31,14 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 
 ### Rolls clamp on the way out
 
-Starter runes hold rolls no drop can have (Fireball's Orb has +100% damage, Frozen Orb pulses every 0.18 s). They keep them inside a sigil, and the sigil casts its starter's live recipe numbers while it holds that starter's runes in order, each with the recipe's affix kinds and every roll at least the recipe roll's honest tier (`holdsStarterRecipe`, `castingSlots` in `items/items.ts`; [runes.md](runes.md), "The starter rule"). Kept alone, reordered or beside other runes, every rune casts with its rolls clamped as below, and the readout says which runes do; putting the starter back together restores it. A whole starter's slots show the live numbers on hover; the weakening warning reads the stored rolls, since those are what come out. Multishot's Bolt alone at +300% damage dealt 2.85x the best starter's damage per Force. Any rune leaving a sigil has each affix clamped into the range its affix can roll, and the forge warns first. Otherwise a dropped or unbound starter sigil would hand out runes better than any roll.
+Kit sigils made before 2026-10-01 hold rolls no drop can have (Multishot's Bolt has +300% damage). Every sigil casts the rolls its runes store, as stored, wherever they sit in it ([runes.md](runes.md), "Kit sigils"); today's kits hold only in-table rolls. Any rune leaving a sigil has each affix clamped into the range its affix can roll now, and the forge warns first ("Bolt: +300% damage becomes +58%"). Otherwise a dropped or unbound old kit sigil would hand out runes better than any roll.
 
-- The range is the lowest to highest value over the affix's tiers that can drop.
+- The range is the lowest to highest value over the affix's tiers that can drop, in the live table: a range tuned in Rune balance moves where extraction clamps from the next rune out ([live-tuning.md](live-tuning.md)). A tier tuned to weight 0 no longer counts.
 - Most affixes clamp down to the best value. "Every X s" clamps to the shortest rollable interval (lower is better), and "after X s" moves to the nearest end of its table.
-- Starter rolls carry the tier their value falls in (`honestTier` in `items/runeRolls.ts`): the lowest tier whose range holds it, the top tier when it is above every drop, the bottom one for a drawback. So Multishot's split(5) is a tier 3 roll inside the sigil and out of it, and sells and prices as one. Before 2026-10-01 every starter roll was tier 0; the load pass re-tiers any roll stronger than its own tier ([items.md](items.md), "Rune roll pass").
+- Kit rolls carry the tier their value falls in (`honestTier` in `items/runeRolls.ts`): the lowest tier whose range holds it, the top tier when it is above every drop, the bottom one for a drawback. So Multishot's split(5) is a T3 roll inside the sigil and out of it, and sells and prices as one. Old saves are re-tiered once by value among the six tiers, which puts old kit rolls past every table in T1 ([items.md](items.md), "Rune roll pass").
 - The tier only ever goes down on the way out (`Math.min(a.tier, range.max.tier)`), so a rune never comes out worth more than it counted for inside.
 - Values inside the table, or weaker than it (the negative speeds of slow orbs), are left alone.
-- Example: Fireball's `orb[+100% damage]` comes out as +55%, the top of the T3 `rune_damage` range (35 to 55).
+- Example: an old Multishot's `bolt[+300% damage]` comes out as +58%, the top of the T1 `rune_damage` range (56 to 58), and keeps T1. An old Fireball's +100% comes out the same way.
 
 ### The builders' bench
 
@@ -81,7 +81,7 @@ Numbers:
 |---|---|---|
 | `FORGE.insertPriceFactor` | 1 | `config/forge.ts` |
 | `FORGE_REACH` | 170 units (the client uses 160, so latency cannot leave a request just out of range) | `sim/inventory.ts` |
-| Rune sell value | `max(1, round(TIER_VALUE[tier] * (1 + 0.12 * (ilvl - 1))))` plus `runeAffixValue` [4, 10, 25] per affix by tier; `TIER_VALUE` common 4, magic 12, rare 40, relic 150 | `items/prices.ts`, `config/forge.ts` |
+| Rune sell value | `max(1, round(TIER_VALUE[tier] * (1 + 0.12 * (ilvl - 1))))` plus `runeAffixValue` [4, 6, 9, 13, 20, 60] per affix by tier, T6 to T1; `TIER_VALUE` common 4, magic 12, rare 40, relic 150 | `items/prices.ts`, `config/forge.ts` |
 | Dummy preview | cast every 1.4 s, DPS over 4 s, dummy at 260 units | `ui/forge/preview.ts` |
 
 Saving: the forge does not write to the database itself. Every save writes the character and the account stash in one SQLite transaction, so a rune moved between them cannot land in neither ([stash.md](stash.md)).
@@ -115,5 +115,5 @@ Tests:
 - **Applies to starter sigils too;** existing sigils with runes on live count as inscribed.
 - **Drops:** a sigil can drop blank, partly inscribed (some fused runes and open slots, for example 1 taken and 5 open; the fused part starts with a readable prefix such as a shape, maybe an infusion or a release) or full (the starter spells). Shares in config.
 - **Starter sigils get one open slot** beyond their runes so a new character can append at the forge from level 1 (owner confirmed 2026-10-01).
-- **Appending keeps a starter's numbers (owner, 2026-10-01):** a starter keeps its hand-set rolls while it holds its full recipe in order, and runes appended after the recipe are allowed, so the open slot works. Today any sigil that is not exactly the recipe casts clamped (`holdsStarterRecipe`, "Rolls clamp on the way out"), appended runes included; the redesign changes that test to "the recipe, then anything". Before it ships, the appended cases must be measured against the 2x damage-per-Force cap in `forcePerDamage.test.ts`: every starter's full recipe with appended infusions, effects, Split, a trigger or release and a payload, on its cheapest class. Fused runes cannot be reordered, so the in-place prefix and reorder cases that clamp today stay closed.
+- **Appending after a kit (owner, 2026-10-01):** the open slot works without a special rule now that every sigil casts the rolls it stores and today's kits hold only in-table rolls; an appended kit is an ordinary in-table spell, which the 2x damage-per-Force search covers. Old kit sigils with hand-set rolls would keep them with something appended; measure those (an old Multishot with infusions or a payload appended) against the 2x cap before the redesign ships.
 - **Server rules to change:** inscribe only appends to open slots (the existing `base` check covers the fused part); refuse non-compiling spells; a smash message; conservation tests for smash (survivors plus destroyed equals what the sigil held, chance seeded in tests). Item review before it ships.

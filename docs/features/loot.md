@@ -26,7 +26,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles a
 | boss | 4 | 0 | 30 | 60 | 10 |
 | dungeon cache | 3 | 0 | 0 | 70 | 30 |
 
-- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled. A Concentrated rune is always rolled, whichever way it drops, since its amount is its roll ([runes.md](runes.md), "Concentrated rune"). The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random starter's runes, unbound.
+- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled; their rune affixes roll six tiers gated by item level (T6 from 1 up to T1 from 12, T1 about one number affix in 90 at the top), and common and magic runes stop at T4 ([runes.md](runes.md), "Rolled runes"). Gear, sigil and vessel affixes keep three tiers. A Concentrated rune is always rolled, whichever way it drops, since its amount is its roll ([runes.md](runes.md), "Concentrated rune"). The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random kit's runes, unbound, with the kit's in-table rolls.
 - **The dungeon cache** is richer per item than a boss drop (30% relic against 10%) because clearing the whole run earns it; 70% of it is gear, the rest sigils.
 - **Gold** drops from 35% of normal kills and always from rares and bosses: 2 to 6 gold per monster level, times 4 for rares and 15 for bosses.
 - **Summons, raised corpses and dev-spawned monsters drop nothing,** so they cannot be farmed ([monsters.md](monsters.md)).
@@ -56,7 +56,7 @@ Tests:
 - `packages/shared/test/itemSafety.test.ts`: no pickup through walls; dev monsters, splitter children and raised monsters pay nothing; the dropper cannot click their own drop back until they step away, another player can take it at once, and gold still goes on walk-over.
 - `packages/shared/test/systems.test.ts`: rare enemies drop items to click up and gold to walk over.
 - `packages/shared/test/dungeon.test.ts`: the boss clears the run once and opens the cache.
-- `apps/client/test/loot.test.ts`: the loot simulator is deterministic and respects share overrides and item-level affix caps.
+- `apps/client/test/loot.test.ts`: the loot simulator is deterministic and respects share overrides and item-level affix caps. Its affix table lines tiers up from the weakest to T1, so three-tier and six-tier affixes share the T1 column.
 
 ## Planned: loot piles
 

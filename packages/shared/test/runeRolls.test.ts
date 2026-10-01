@@ -4,6 +4,7 @@ import {
   AFFIXES,
   clampRoll,
   clampRuneRolls,
+  compileSigilItem,
   convertCharacterSave,
   createGear,
   createRune,
@@ -106,6 +107,19 @@ describe('rolls past the loot table', () => {
     for (const def of STARTER_SIGILS) {
       for (const bound of [true, false]) expect(createStarterSigil(() => uid++, def, { bound }).slots.flatMap(rollLosses), def.id).toEqual([]);
     }
+  });
+
+  it('every sigil casts the rolls it stores: an old kit keeps its hand-set rolls, whole or rearranged', () => {
+    let uid = 1;
+    const old = oldKitSigil('multishot', () => uid++, true);
+    const whole = compileSigilItem(old, 'ranger');
+    expect(whole.ok && whole.program.roots[0]?.tuning.damage).toBeCloseTo(4, 5);
+    const [bolt] = old.slots;
+    if (!bolt) throw new Error('setup');
+    const piece = compileSigilItem({ ...old, slots: [bolt, createRune(uid++, 'lightning')] }, 'ranger');
+    expect(piece.ok && piece.program.roots[0]?.tuning.damage).toBeCloseTo(4, 5);
+    // Only taking the rune out clamps it.
+    expect(clampRuneRolls(bolt).affixes.find((a) => a.id === 'rune_damage')?.value).toBe(best('rune_damage', 'max'));
   });
 
   it('old kit sigils from saves hold runes past the table, so the rule is not idle', () => {
