@@ -140,6 +140,12 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     state,
     roles,
     overview: () => ({ build: 'test', uptimeSeconds: 1, memoryMb: 1, online: [], games: [], rooms: [] }),
+    live: () => ({
+      health: { build: 'test', uptimeSeconds: 1, memoryMb: 1, heapMb: 1, tickMs: 0, tickMaxMs: 0, tickHistory: { mean: [], max: [] }, connections: 0, inGame: 0, messagesIn: 0, messagesOut: 0 },
+      players: [],
+      rooms: [],
+      worlds: [],
+    }),
     settings: () => ({ ...state }),
     updateSettings: (patch) => Object.assign(state, patch),
     announce: () => 0,

@@ -1,6 +1,7 @@
 import { jsonCodec, type Role, type ServerMessage } from '@rune/shared';
 import type { WebSocket } from 'ws';
 import type { Room } from './room.js';
+import { serverStats } from './tickStats.js';
 
 /** The parts of a ws socket a client uses, so tests can pass a stand-in. */
 export type ClientSocket = Pick<WebSocket, 'readyState' | 'OPEN' | 'send' | 'close'> & { readonly bufferedAmount?: number };
@@ -33,6 +34,8 @@ export class Client {
   /** Staff role, set on join and updated live when an owner changes it. */
   role: Role = 'player';
   characterId: number | null = null;
+  /** When the character entered the game, for the admin Live view. */
+  joinedAt = 0;
   messageCount = 0;
   /** Recent chat send times, for the chat rate limit (separate from the general message limit). */
   chatTimes: number[] = [];
@@ -49,6 +52,7 @@ export class Client {
 
   send(msg: ServerMessage): void {
     if (this.socket.readyState !== this.socket.OPEN) return;
+    serverStats.messagesOut++;
     this.socket.send(jsonCodec.encode(msg));
   }
 }

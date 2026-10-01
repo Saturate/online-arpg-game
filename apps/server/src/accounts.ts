@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type SearchAccount, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -491,6 +491,40 @@ export class AccountStore {
         const r = row(raw);
         return r ? [{ id: num(r.id), username: str(r.username), createdAt: num(r.created_at), banned: num(r.banned) === 1, guest: num(r.is_guest) === 1, role: storedRole(r.role), characters: chars.get(num(r.id)) ?? [] }] : [];
       });
+  }
+
+  /**
+   * Accounts whose name, or one of whose characters' names, contains `query` (ignoring case), names
+   * that start with it first. The role is the stored one; the caller applies ADMIN_USERS.
+   */
+  searchAccounts(query: string, limit: number): { id: number; username: string; banned: boolean; guest: boolean; role: AssignableRole; characters: SearchAccount['characters'] }[] {
+    // `%` and `_` in the query are matched as themselves, not as LIKE wildcards.
+    const escaped = query.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`);
+    const like = `%${escaped}%`;
+    const prefix = `${escaped}%`;
+    const found = this.db
+      .prepare(
+        `SELECT a.id, a.username, a.banned, a.role, a.is_guest,
+           (lower(a.username) LIKE ? ESCAPE '\\') AS name_prefix
+         FROM accounts a
+         WHERE lower(a.username) LIKE ? ESCAPE '\\'
+            OR a.id IN (SELECT account_id FROM characters WHERE lower(name) LIKE ? ESCAPE '\\')
+         ORDER BY name_prefix DESC, length(a.username), a.id
+         LIMIT ?`,
+      )
+      .all(prefix, like, like, limit);
+    const chars = this.db.prepare("SELECT id, name, class_id, CASE WHEN json_valid(save_json) THEN json_extract(save_json, '$.level') END AS level FROM characters WHERE account_id = ? ORDER BY played_at DESC");
+    return found.flatMap((raw) => {
+      const r = row(raw);
+      if (!r) return [];
+      const characters = chars.all(num(r.id)).flatMap((c) => {
+        const cr = row(c);
+        const classId = cr?.class_id;
+        if (!cr || !isClassId(classId)) return [];
+        return [{ id: num(cr.id), name: str(cr.name), classId, level: typeof cr.level === 'number' ? cr.level : 1 }];
+      });
+      return [{ id: num(r.id), username: str(r.username), banned: num(r.banned) === 1, guest: num(r.is_guest) === 1, role: storedRole(r.role), characters }];
+    });
   }
 
   /** Defaults cover a fresh database and any field a stored row lacks or has corrupted. */

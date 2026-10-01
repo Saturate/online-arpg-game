@@ -57,6 +57,22 @@ export class EventLog {
     else console.error(redact(text), err);
   }
 
+  /** Up to `n` entries that pass `keep`, newest first. */
+  recent(n: number, keep: (e: ServerEvent) => boolean): ServerEvent[] {
+    const out: ServerEvent[] = [];
+    for (let i = this.entries.length - 1; i >= 0 && out.length < n; i--) {
+      const e = this.entries[i];
+      if (e && keep(e)) out.push(e);
+    }
+    return out;
+  }
+
+  /** Lines containing `query`, ignoring case, newest first. */
+  search(query: string, n: number): ServerEvent[] {
+    const q = query.toLowerCase();
+    return this.recent(n, (e) => e.text.toLowerCase().includes(q));
+  }
+
   since(cursor: number): ServerLogResponse {
     const first = this.entries[0]?.id ?? this.nextId;
     const entries = this.entries.filter((e) => e.id > cursor).slice(0, PAGE);

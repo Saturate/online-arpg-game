@@ -33,6 +33,7 @@ import {
 } from '@rune/shared';
 import type { Client } from './client.js';
 import { InputBuffer } from './inputBuffer.js';
+import { Ring, ROOM_TICK_SAMPLES } from './tickStats.js';
 
 /** The commit this server was built from, baked into the image; 'dev' locally. */
 const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
@@ -66,6 +67,8 @@ export class Room {
   instanceId: string | null = null;
   /** Seconds with nobody inside, so the manager can close abandoned instances. */
   emptySeconds = 0;
+  /** How long this room's recent ticks took, in ms, for the admin Live view. */
+  readonly tickTimes = new Ring(ROOM_TICK_SAMPLES);
   /**
    * For a dungeon's antechamber and its runs: the gate the dungeon's entrance lies behind, taken from
    * the world when the antechamber opened, so the manager's gate checks never need the world room

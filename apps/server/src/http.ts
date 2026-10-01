@@ -20,6 +20,12 @@ import {
   seasonOf,
   type AdminAccount,
   type AdminOverview,
+  type AdminLive,
+  type AdminSearch,
+  LIVE_TAIL,
+  SEARCH_LIMITS,
+  SEARCH_QUERY,
+  type ServerEvent,
   type AdminTokenInfo,
   type CharactersResponse,
   type CreatedAdminToken,
@@ -124,6 +130,8 @@ export type TownSaveResult = { ok: true; rooms: number; players: number } | { ok
 /** What the admin API needs from the running game; the room manager provides it. */
 export interface AdminHooks extends TuningHooks, TunablesHooks {
   overview(): AdminOverview;
+  /** The Live view without the log tails, which the API adds by permission. */
+  live(): Omit<AdminLive, 'log' | 'staff'>;
   settings(): ServerSettings;
   updateSettings(patch: Partial<ServerSettings>): ServerSettings;
   announce(text: string): number;
@@ -250,6 +258,19 @@ function sendFile(res: ServerResponse, download: Download, stallMs: number): voi
     res.destroy();
   });
   stream.pipe(res);
+}
+
+/** Routes a page or script calls every few seconds; their token calls go to stdout, not the staff log. */
+const POLLED_ROUTES: ReadonlySet<string> = new Set(['/api/admin/log', '/api/admin/live']);
+
+/**
+ * The Live view's staff tail shows changes. A token's reads are staff lines too (`... token "x": GET
+ * /api/admin/overview`), and a script polling would push every change out of the tail.
+ */
+const TOKEN_READ = /token "[^"]*": GET \/api\/admin\/\S*$/;
+
+export function isStaffChange(e: ServerEvent): boolean {
+  return e.kind === 'staff' && !TOKEN_READ.test(e.text);
 }
 
 const FAILED_TOKEN_WINDOW_MS = 60_000;
@@ -457,7 +478,7 @@ export class AccountApi {
    * Every token call that gets past the scope and route checks is in the staff log, reads too, after
    * the action's own line. A refused or unknown route (403, 404) goes to stdout only: those change
    * nothing, and a token sending them in a loop would otherwise push real events out of the buffer.
-   * Polling the log itself goes to stdout only, or a script following it would do the same.
+   * Polling the log or the live view goes to stdout only, or a script following them would do the same.
    */
   private async tokenCall(req: IncomingMessage, method: string, path: string, query: URLSearchParams, caller: TokenCaller): Promise<Reply> {
     const line = `[admin] ${caller.account.username} (${this.roleOf(caller.account)}) token "${caller.name}": ${method} ${path}`;
@@ -470,7 +491,7 @@ export class AccountApi {
       else events.log('staff', `${line} -> ${status}`);
       throw err;
     }
-    if (path === '/api/admin/log') console.log(line);
+    if (POLLED_ROUTES.has(path)) console.log(line);
     else events.log('staff', line);
     return reply;
   }
@@ -497,6 +518,25 @@ export class AccountApi {
     const who = token ? `${account.username} (${role}) token "${token.name}"` : `${account.username} (${role})`;
     const log = (what: string) => events.log('staff', `[admin] ${who}: ${what}`);
     if (method === 'GET' && path === '/api/admin/overview') return [200, this.admin.overview()];
+    if (method === 'GET' && path === '/api/admin/live') {
+      // The tails are left out, not blanked on the page: a role without serverLog never gets them.
+      const logs = allowed('serverLog');
+      const live: AdminLive = {
+        ...this.admin.live(),
+        log: logs ? events.recent(LIVE_TAIL.log, (e) => e.kind !== 'staff') : null,
+        staff: logs ? events.recent(LIVE_TAIL.staff, isStaffChange) : null,
+      };
+      return [200, live];
+    }
+    if (method === 'GET' && path === '/api/admin/search') {
+      const q = (query.get('q') ?? '').trim();
+      if (q.length < SEARCH_QUERY.min || q.length > SEARCH_QUERY.max) throw new HttpError(400, `q must be ${SEARCH_QUERY.min} to ${SEARCH_QUERY.max} characters`);
+      const found: AdminSearch = {
+        accounts: this.store.searchAccounts(q, SEARCH_LIMITS.accounts).map((a) => ({ ...a, role: roleOf(a, this.owners) })),
+        log: allowed('serverLog') ? events.search(q, SEARCH_LIMITS.log) : null,
+      };
+      return [200, found];
+    }
     if (path === '/api/admin/tokens' || path.startsWith('/api/admin/tokens/')) return this.tokenRoute(req, method, path, caller, role, log);
     if (method === 'GET' && path === '/api/admin/log') {
       need('serverLog');

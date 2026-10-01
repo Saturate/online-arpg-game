@@ -27,6 +27,14 @@ import {
   TOWN_WAYPOINT,
   waypointArrival,
   type AdminOverview,
+  type AdminLive,
+  type LivePlayer,
+  type LiveRoom,
+  type LiveRoomKind,
+  type LiveRegionGrid,
+  type LiveWorld,
+  type LiveWorldDot,
+  ZONES,
   type ArenaResult,
   type ClassId,
   type ClientMessage,
@@ -68,6 +76,7 @@ import { channelBreak, PARTY_STATUS_TICKS, TELEPORT_CHANNEL_SECONDS, type Channe
 import { Room } from './room.js';
 import { rollBackTrade, snapshotForTrade, type TradeSnapshot } from './tradeRollback.js';
 import { Staging, type StagingTarget } from './staging.js';
+import { roomTiming, serverStats } from './tickStats.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
 
 const startedAt = Date.now();
@@ -400,6 +409,120 @@ export class RoomManager implements AdminHooks {
     };
   }
 
+  /**
+   * The Live view's game part; the admin API adds the log tails for callers with `serverLog`. Read
+   * every few seconds per open admin page, so it may allocate; the tick never does for it.
+   */
+  live(): Omit<AdminLive, 'log' | 'staff'> {
+    const now = Date.now();
+    const players: LivePlayer[] = [];
+    for (const c of this.clients.values()) {
+      const room = c.room;
+      const m = room?.members.get(c.id);
+      const p = m ? room?.sim.world.player.get(m.playerId) : undefined;
+      const pos = m ? room?.sim.world.position.get(m.playerId) : undefined;
+      if (!room || !p || !pos || c.characterId === null || c.accountId === null) continue;
+      const party = this.partyOf(c.accountId);
+      players.push({
+        characterId: c.characterId,
+        accountId: c.accountId,
+        account: c.accountName,
+        name: p.name,
+        classId: p.classId,
+        level: p.level,
+        game: c.instanceId,
+        roomId: room.id,
+        room: room.name,
+        region: room.placeName(pos.x, pos.y),
+        party: party ? `${party.members.get(party.leader) ?? 'Someone'}'s party (${party.members.size})` : null,
+        onlineSeconds: c.joinedAt === 0 ? 0 : Math.max(0, Math.round((now - c.joinedAt) / 1000)),
+      });
+    }
+    const rooms: LiveRoom[] = [...this.rooms.values()].map((r) => {
+      const w = r.sim.world;
+      return { id: r.id, name: r.name, kind: this.roomKind(r), game: r.instanceId, players: r.members.size, monsters: w.enemy.size, minions: w.minion.size, spells: w.projectile.size + w.nova.size + w.zone.size, ...roomTiming(r.tickTimes) };
+    });
+    const worlds: LiveWorld[] = [];
+    for (const inst of this.instances.values()) {
+      const room = this.rooms.get(this.worldRoomId(inst));
+      if (!room) continue;
+      const def = room.sim.mapDef;
+      const dots: LiveWorldDot[] = [];
+      for (const m of room.members.values()) {
+        const pos = room.sim.world.position.get(m.playerId);
+        const p = room.sim.world.player.get(m.playerId);
+        if (!pos || !p) continue;
+        dots.push({ x: Math.round(pos.x), y: Math.round(pos.y), name: p.name, inParty: this.partyOf(m.client.accountId) !== null });
+      }
+      const town = def.safeZones?.[0];
+      worlds.push({ game: inst.id, name: inst.name, width: def.width, height: def.height, town: town ? { x: town.x, y: town.y, w: town.w, h: town.h } : null, regions: this.regionGrid(room), dots });
+    }
+    const mem = process.memoryUsage();
+    let inGame = 0;
+    for (const c of this.clients.values()) if (c.characterId !== null) inGame++;
+    return {
+      health: {
+        build: SERVER_BUILD,
+        uptimeSeconds: Math.round((now - startedAt) / 1000),
+        memoryMb: Math.round(mem.rss / 1048576),
+        heapMb: Math.round(mem.heapUsed / 1048576),
+        connections: this.clients.size,
+        inGame,
+        ...serverStats.snapshot(),
+      },
+      players,
+      rooms,
+      worlds,
+    };
+  }
+
+  private roomKind(room: Room): LiveRoomKind {
+    if (this.sandboxes.has(room.id)) return 'sandbox';
+    switch (room.desc.kind) {
+      case 'world':
+        return 'world';
+      case 'dungeon':
+        return 'dungeon';
+      case 'staging':
+        return 'antechamber';
+      case 'arena':
+        return 'arena';
+      case 'arenaGate':
+        return 'arenaGate';
+      default:
+        return 'other';
+    }
+  }
+
+  /** Worked out once per world room: the plan never changes while the room is open. */
+  private readonly regionGrids = new WeakMap<Room, LiveRegionGrid | null>();
+
+  private regionGrid(room: Room): LiveRegionGrid | null {
+    const known = this.regionGrids.get(room);
+    if (known !== undefined) return known;
+    const plan = room.sim.zone?.plan;
+    let grid: LiveRegionGrid | null = null;
+    if (plan) {
+      const { width, height } = room.sim.mapDef;
+      // 48 columns is finer than the minimap's few hundred pixels need to show region borders.
+      const cols = 48;
+      const rows = Math.max(1, Math.round((cols * height) / width));
+      const names: string[] = [];
+      const cells: number[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const name = ZONES[plan.regionAt(((c + 0.5) * width) / cols, ((r + 0.5) * height) / rows)].name;
+          let i = names.indexOf(name);
+          if (i < 0) i = names.push(name) - 1;
+          cells.push(i);
+        }
+      }
+      grid = { cols, rows, cells, names };
+    }
+    this.regionGrids.set(room, grid);
+    return grid;
+  }
+
   // -------------------------------------------------------------------------------------------
 
   private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null = null): Instance {
@@ -495,14 +618,17 @@ export class RoomManager implements AdminHooks {
       this.ticksSinceSave = 0;
       this.saveAll();
     }
+    const tickStart = performance.now();
     this.syncParties();
     for (const room of [...this.rooms.values()]) {
+      const roomStart = performance.now();
       // One broken room must not stop every other room, or kill the process before anyone is saved.
       try {
         for (const { client, request } of room.tick()) this.usePortal(client, room, request);
       } catch (err) {
         this.reportRoomError(room, err);
       }
+      room.tickTimes.push(performance.now() - roomStart);
       if (this.closable(room)) this.close(room);
     }
     for (const staging of this.stagings.values()) {
@@ -538,6 +664,7 @@ export class RoomManager implements AdminHooks {
         }
       }
     }
+    serverStats.recordTick(performance.now() - tickStart);
   }
 
   /**
@@ -660,6 +787,7 @@ export class RoomManager implements AdminHooks {
   }
 
   private onMessage(client: Client, data: unknown, isBinary: boolean): void {
+    serverStats.messagesIn++;
     const now = performance.now();
     if (now - client.messageWindowStart >= 1000) {
       client.messageWindowStart = now;
@@ -1492,6 +1620,7 @@ export class RoomManager implements AdminHooks {
     client.accountName = account.username;
     client.role = roleOf(account, this.owners);
     client.characterId = character.id;
+    client.joinedAt = Date.now();
     // Back into the party's world if it is still running and has room, otherwise the public world.
     const party = this.partyOf(account.id);
     if (party) party.members.set(account.id, character.name);

@@ -142,6 +142,9 @@ describe('admin API tokens', () => {
     { method: 'GET', path: '/api/admin/accounts', scope: 'viewAdmin' },
     { method: 'GET', path: '/api/admin/settings', scope: 'viewAdmin' },
     { method: 'GET', path: '/api/admin/monsters', scope: 'viewAdmin' },
+    // The live view and search answer every token; their log parts are checked per scope in adminLive.test.ts.
+    { method: 'GET', path: '/api/admin/live', scope: 'viewAdmin' },
+    { method: 'GET', path: '/api/admin/search?q=pleb', scope: 'viewAdmin' },
     { method: 'PUT', path: '/api/admin/settings', body: { xpRate: 1 }, scope: 'settings' },
     { method: 'DELETE', path: `/api/admin/monsters/${ENEMY_TYPE_IDS[0]}`, scope: 'settings' },
     { method: 'POST', path: '/api/admin/announce', body: { text: 'hello' }, scope: 'announce' },
