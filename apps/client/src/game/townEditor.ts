@@ -274,7 +274,7 @@ export class TownEditor {
     this.changed();
   }
 
-  /** Gives the selected house, cottage or pillar another model; `step` cycles through the choices. */
+  /** Gives the selected house, cottage or pillar another model. */
   setModel(model: string): void {
     const sel = this.selection;
     const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
@@ -619,7 +619,7 @@ export class TownEditor {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (e.target instanceof HTMLInputElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     this.keys.add(e.code);
     const sel = this.selection;
     const p = sel?.type === 'prop' ? this.layout.props[sel.index] : sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
