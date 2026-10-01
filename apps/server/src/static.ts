@@ -66,8 +66,8 @@ export function notModified(req: IncomingMessage, etag: string, mtimeMs: number)
   const ims = req.headers['if-modified-since'];
   if (ims === undefined) return false;
   const since = Date.parse(ims);
-  // HTTP dates have whole seconds.
-  return Number.isFinite(since) && Math.floor(mtimeMs / 1000) * 1000 <= since;
+  // A date in the future is invalid (RFC 9110 13.1.3), not proof the copy is current. HTTP dates have whole seconds.
+  return Number.isFinite(since) && since <= Date.now() && Math.floor(mtimeMs / 1000) * 1000 <= since;
 }
 
 export function staticHandler(root: string): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {

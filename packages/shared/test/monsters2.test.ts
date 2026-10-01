@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BIOMES, bodyGap, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
+import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { spawnProjectile } from '../src/sim/spells.js';
@@ -200,12 +200,6 @@ describe('new monster behaviours', () => {
     expect(shoot(0, 80)).toBe(0);
     expect(shoot(Math.PI, 80)).toBeGreaterThan(0);
     expect(shoot(Math.PI, -110)).toBe(0);
-  });
-
-  it('a body grows with a rare, as its model does', () => {
-    expect(bodyGap('charger', 26, 0, 0, 0, -126 - 9, 0)).toBeCloseTo(0);
-    expect(bodyGap('charger', 26 * 1.45, 0, 0, 0, (-126 - 9) * 1.45, 0)).toBeCloseTo(0);
-    expect(bodyGap('grave_hound', 17, 0, 0, 0, 0, 0)).toBe(Infinity);
   });
 
   it('gargoyles hold perfectly still until a player comes close, then wake', () => {

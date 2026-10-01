@@ -11,6 +11,7 @@ import type { GearSlot } from '../data/gear.js';
 import type { DashState } from './movement.js';
 import type { Vec2 } from './math.js';
 import type { PlayerStats } from './stats.js';
+import type { SizedBody } from './body.js';
 
 export type EntityId = number;
 export type Team = 'players' | 'enemies';
@@ -135,6 +136,8 @@ export interface EnemyComp {
   fireCooldown: number;
   patternAngle: number;
   facing: number;
+  /** Hurt circles beyond the collider, sized at spawn (sim/body.ts); null for nearly every type. */
+  body: SizedBody | null;
   speedMult: number;
   extraProjectiles: number;
   reflectChance: number;

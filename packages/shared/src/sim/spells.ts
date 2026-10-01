@@ -3,7 +3,7 @@ import { castCooldownSeconds, misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
 import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
 import { acquireLink } from './auras.js';
-import { withinHurt } from './body.js';
+import { withinCollider, withinHurt, withinHurtOf } from './body.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
 import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
@@ -600,8 +600,12 @@ function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numb
     if (proj.hitIds.has(eid) || !w.isAlive(eid) || enemy.burrowed) continue;
     const epos = w.position.get(eid);
     if (!epos) continue;
-    if (!withinHurt(sim, eid, x, y, r + SIM.enemyHitLeniency)) continue;
-    const reach = r + (w.radius.get(eid) ?? 0) + SIM.enemyHitLeniency;
+    const er = w.radius.get(eid) ?? 0;
+    const lenient = r + SIM.enemyHitLeniency;
+    if (!withinHurt(epos.x, epos.y, er, enemy.body, enemy.facing, x, y, lenient)) continue;
+    // A hit on a long body's flank or tail releases its payload there, not at the far-off collider.
+    const onCollider = withinCollider(epos.x, epos.y, er, x, y, lenient);
+    const reach = er + lenient;
     proj.hitIds.add(eid);
 
     if (blocksProjectile(sim, eid, x - Math.cos(angle) * reach, y - Math.sin(angle) * reach)) {
@@ -621,7 +625,7 @@ function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numb
       else dealDamage(sim, eid, proj.damage, proj.ownerId, proj.elements);
       if (!inst && proj.knockback > 0) knockback(sim, eid, x, y, proj.knockback);
     }
-    if (proj.spell) release(sim, proj.spell, 'onhit', epos.x, epos.y, angle, proj.hitIds);
+    if (proj.spell) release(sim, proj.spell, 'onhit', onCollider ? epos.x : x, onCollider ? epos.y : y, angle, proj.hitIds);
     return consumeOrPierce(sim, id, proj, x, y, angle);
   }
   return false;
@@ -706,7 +710,7 @@ export function updateNovas(sim: Simulation, dt: number): void {
 
     for (const tid of areaTargets(sim)) {
       if (nova.hitIds.has(tid)) continue;
-      if (!withinHurt(sim, tid, pos.x, pos.y, radius)) continue;
+      if (!withinHurtOf(sim, tid, pos.x, pos.y, radius)) continue;
       nova.hitIds.add(tid);
       applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.nova.damage, heal: SPELL.nova.heal, shield: SPELL.nova.shield });
     }
@@ -768,7 +772,7 @@ export function updateZones(sim: Simulation, dt: number): void {
       zone.tickTimer += zone.tickInterval;
       const kind = zoneKind(inst);
       for (const tid of areaTargets(sim)) {
-        if (!withinHurt(sim, tid, pos.x, pos.y, radius)) continue;
+        if (!withinHurtOf(sim, tid, pos.x, pos.y, radius)) continue;
         if (!takeZoneTick(sim, tid, kind, zone.tickInterval)) continue;
         applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
@@ -791,16 +795,18 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
   const inst = ds.inst;
   inst.age += dt;
 
-  for (const [eid] of w.enemy) {
+  for (const [eid, enemy] of w.enemy) {
     if (ds.hitIds.has(eid) || !w.isAlive(eid)) continue;
     const epos = w.position.get(eid);
     if (!epos) continue;
-    if (!withinHurt(sim, eid, pos.x, pos.y, SPELL.dash.hitRadius)) continue;
+    const er = w.radius.get(eid) ?? 0;
+    if (!withinHurt(epos.x, epos.y, er, enemy.body, enemy.facing, pos.x, pos.y, SPELL.dash.hitRadius)) continue;
+    const onCollider = withinCollider(epos.x, epos.y, er, pos.x, pos.y, SPELL.dash.hitRadius);
     ds.hitIds.add(eid);
     applySpellHit(sim, inst, eid, pos.x, pos.y, { damage: SPELL.dash.damage, heal: 0, shield: 0 });
     if (!ds.hitFired) {
       ds.hitFired = true;
-      release(sim, inst, 'onhit', epos.x, epos.y, inst.angle, ds.hitIds);
+      release(sim, inst, 'onhit', onCollider ? epos.x : pos.x, onCollider ? epos.y : pos.y, inst.angle, ds.hitIds);
     }
   }
   checkTimer(sim, inst, pos.x, pos.y, inst.angle, ds.hitIds);

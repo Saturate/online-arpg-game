@@ -27,6 +27,7 @@ import {
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
   bodyGap,
+  nearestHurt,
   parseModelOverrides,
   placeName,
   planChecksum,
@@ -61,7 +62,7 @@ import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
 import { effectiveZoom, stepZoomScale, zoomLimits } from './zoom.js';
 import { emitLight, entityLightKey } from '../render/lights.js';
-import { setModelOverrides } from '../render/characters.js';
+import { enemyBody, setModelOverrides } from '../render/characters.js';
 import { applyTryOns, watchTryOns } from '../render/tryOn.js';
 import { actionFor, useSettings } from '../ui/settings.js';
 
@@ -186,6 +187,8 @@ export class Game {
   private accumulator = 0;
   private localAim = 0;
   private visualOffset = { x: 0, y: 0 };
+  /** Reused for the nearest hurt circle of the locked target, every frame. */
+  private readonly hurtSpot = { x: 0, y: 0, r: 0 };
   private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
   /** Item bags on screen, for clicking them up. Gold needs no click, so it is not listed. */
   private renderedLoot: { id: EntityId; x: number; y: number; r: number }[] = [];
@@ -813,11 +816,14 @@ export class Game {
     const target = this.attackLock === null ? undefined : this.renderedEnemies.find((e) => e.snap.id === this.attackLock);
     if (this.attackLock !== null && !target) this.attackLock = null;
     if (input.leftDown && target) {
-      sampled.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
+      // The nearest part of a long body (its flank or tail) is what a hero walks to and swings at.
+      const spot = nearestHurt(enemyBody(target.snap.et, target.r), target.x, target.y, target.r, target.snap.a, origin.x, origin.y, this.hurtSpot);
+      sampled.aimAngle = Math.atan2(spot.y - origin.y, spot.x - origin.x);
       // The class's old attack range still says how close it likes to fight: melee walks up, casters hold off.
       const style = CLASSES[this.classId].primary;
-      const reach = style.kind === 'melee' ? style.range + target.r : style.range * 0.85;
-      if (Math.hypot(target.x - origin.x, target.y - origin.y) > reach) room.mover.moveTo(origin, target, now);
+      const reach = style.kind === 'melee' ? style.range + spot.r : style.range * 0.85;
+      // A copy: the mover keeps its destination, and the spot object is reused every frame.
+      if (Math.hypot(spot.x - origin.x, spot.y - origin.y) > reach) room.mover.moveTo(origin, { x: spot.x, y: spot.y }, now);
       else {
         room.mover.stop();
         sampled.buttons |= leftBit;
@@ -937,7 +943,7 @@ export class Game {
       for (const e of this.renderedEnemies) {
         // Generous pick radius: monsters move and the cursor is usually a little ahead of them.
         // A long body (the Charger's flank and tail) can be picked anywhere along it.
-        const d = Math.min(Math.hypot(e.x - aim.x, e.y - aim.y) - e.r, bodyGap(e.snap.et, e.r, e.x, e.y, e.snap.a, aim.x, aim.y));
+        const d = Math.min(Math.hypot(e.x - aim.x, e.y - aim.y) - e.r, bodyGap(enemyBody(e.snap.et, e.r), e.x, e.y, e.snap.a, aim.x, aim.y));
         if (d < 28 && d < bestD) {
           best = e;
           bestD = d;

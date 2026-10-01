@@ -1,4 +1,4 @@
-import { ENEMY_MODELS, MINION_MODELS, type ClassId, type EnemyTypeId, type EntitySnap, type MinionTypeId, type ModelOverride, type ModelOverrides } from '@rune/shared';
+import { ENEMIES, ENEMY_MODELS, MINION_MODELS, sizeBody, type ClassId, type EnemyTypeId, type EntitySnap, type MinionTypeId, type ModelOverride, type ModelOverrides, type SizedBody } from '@rune/shared';
 import {
   AnimationMixer,
   Color,
@@ -43,6 +43,26 @@ const tryOns = new Map<string, AssetDef>();
 
 export function setModelOverrides(models: ModelOverrides): void {
   serverModels = models;
+  bodies.clear();
+}
+
+/** Sized long bodies by type and radius; few entries, since radii come from a handful of sizes. */
+const bodies = new Map<string, SizedBody | null>();
+
+/**
+ * A monster's long body (sim/body.ts) sized the way the server sizes it at spawn: its radius and
+ * the admin's model or height override. Null for nearly every type, without building a key.
+ */
+export function enemyBody(et: EnemyTypeId, r: number): SizedBody | null {
+  const def = ENEMIES[et];
+  if (def.behaviour !== 'monster' || !def.traits.body) return null;
+  const key = `${et}:${r}`;
+  let b = bodies.get(key);
+  if (b === undefined) {
+    b = sizeBody(et, r, serverModels.monsters[et]);
+    bodies.set(key, b);
+  }
+  return b;
 }
 
 export function setTryOn(key: `monsters:${EnemyTypeId}` | `minions:${MinionTypeId}`, def: AssetDef | null): void {

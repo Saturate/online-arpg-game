@@ -1016,7 +1016,7 @@ function advanceLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, ra
   const w = sim.world;
   const hit = l.damage * (m.howled > 0 ? 1 + HOUND_PACK.howl.damageBonus : 1);
   for (const [eid, e, ep] of w.query(w.enemy, w.position)) {
-    if (!withinHurt(sim, eid, pos.x, pos.y, l.radius)) continue;
+    if (!withinHurt(ep.x, ep.y, w.radius.get(eid) ?? 0, e.body, e.facing, pos.x, pos.y, l.radius)) continue;
     const dealt = dealDamage(sim, eid, hit, id, []);
     if (dealt <= 0) continue;
     applyPoison(sim, eid, hit, id);

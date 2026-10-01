@@ -106,10 +106,11 @@ export interface MonsterTraits {
   curse?: { radius: number };
   /**
    * A long body (sim/body.ts): hurt circles beyond the collider, `along` units ahead of its centre
-   * along the facing (negative is behind), and where the model turns about, all at the code radius.
-   * Hits and targeting use them; movement and pathing keep the collider.
+   * along the facing (negative is behind), and where the model turns about, all at the code radius
+   * and for a model `height` units tall (a height override scales them). Hits and targeting use
+   * them; movement and pathing keep the collider.
    */
-  body?: { circles: readonly { along: number; radius: number }[]; pivot: number };
+  body?: { circles: readonly { along: number; radius: number }[]; pivot: number; height: number };
 }
 
 interface EnemyBase {
@@ -470,6 +471,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
           { along: -126, radius: 9 },
         ],
         pivot: -50,
+        height: 80,
       },
     },
   ),

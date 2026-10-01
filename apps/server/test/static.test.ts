@@ -77,6 +77,7 @@ describe('static pages', () => {
     expect(byTag.headers.get('etag')).toBe(etag);
     expect((await again({ 'if-none-match': `"other", ${etag}` })).status).toBe(304);
     expect((await again({ 'if-modified-since': modified })).status).toBe(304);
+    expect((await again({ 'if-modified-since': new Date(Date.now() + 86_400_000).toUTCString() })).status).toBe(200);
     // A tag that no longer matches wins over a date that would.
     expect((await again({ 'if-none-match': '"stale"', 'if-modified-since': modified })).status).toBe(200);
     writeFileSync(join(root, 'assets', 'monsters', 'charger.glb'), 'glb, fixed');
