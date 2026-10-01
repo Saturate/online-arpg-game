@@ -182,7 +182,9 @@ Tests: `apps/client/test/chunks.test.ts` (chunk indexing and keys, rectangle dis
 ### Fixes made on the way (from the step 2 review)
 
 - `WorldChunks` now disposes the geometry of instanced meshes a chunk or a landmark made (a bridge's planks, a camp fire's stones and logs, a brazier's legs), and never a prop batch's (the asset cache's).
-- A built world frees the textures and materials it made (ground, roads, water, dungeon floors, circle patches) when disposed; circle patches make their material once, not on every chunk rebuild; the portal swirl and fire ember textures are drawn once and shared. The town editor rebuilds the world on every edit, which leaked all of these.
+- Generated trees in the home zone are oaks, pines and dead trees by position again; since the town's oak list was merged into the zone, every one of them had been drawn as a pine.
+- The dev tools' "Kill all" also clears packs of chunks nobody has been near (they would have spawned later), and a zone stepped with nobody in it spawns and builds nothing.
+- A built world frees the textures and materials it made (ground, roads, water, dungeon floors, circle patches, the tree materials) when disposed, and a tree's fade copy is freed once it is solid again; circle patches make their material once, not on every chunk rebuild; the portal swirl and fire ember textures are drawn once and shared. The town editor rebuilds the world on every edit, which leaked all of these.
 
 ### Measurements
 

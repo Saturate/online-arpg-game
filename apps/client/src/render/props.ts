@@ -517,7 +517,7 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
     for (let cy = 0; cy < zone.rows; cy++) {
       for (let cx = 0; cx < zone.cols; cx++) {
         chunks.lazy(cx, cy, () => {
-          addObstacles(chunks, zone.obstacles(cx, cy), def);
+          addObstacles(chunks, zone.obstacles(cx, cy), def, false);
           for (const d of zone.decor(cx, cy)) addDecorPiece(chunks, d);
         });
       }
@@ -531,7 +531,7 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
     // The asset heights are 50 (torch) and 70 (post lantern); lamps are fitted to 50 and 80.
     flamesOf(asset, l.x, l.y, 0, underground ? 1 : 80 / 70, light, fires);
   }
-  if (!underground) addBorder(chunks, def);
+  if (!underground) addBorder(chunks, def, owned);
 
   const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, zone: 0x8fe07a, waypoint: 0x5ff0e0 } as const;
   for (const p of def.portals) {
@@ -559,6 +559,7 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
     dispose() {
       chunks.dispose();
       for (const o of owned) o.dispose();
+      TREE_MATERIALS.get(chunks)?.dispose();
     },
     lights,
     fires,
@@ -576,7 +577,7 @@ function addDecorPiece(chunks: WorldChunks, d: Decor): void {
 }
 
 /** Registers obstacles, grouped by kind so the common ones can be instanced. */
-function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: WorldMap): void {
+function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: WorldMap, placed = true): void {
   const byKind = new Map<string, Obstacle[]>();
   for (const o of obstacles) {
     const list = byKind.get(o.kind);
@@ -584,7 +585,7 @@ function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: 
     else byKind.set(o.kind, [o]);
   }
   addRocks(chunks, byKind.get('rock') ?? []);
-  addTrees(chunks, byKind.get('tree') ?? [], def);
+  addTrees(chunks, byKind.get('tree') ?? [], def, placed);
   for (const o of byKind.get('pillar') ?? []) {
     if (o.shape.type !== 'circle') continue;
     const h = hash(o.shape.x, o.shape.y);
@@ -685,7 +686,8 @@ function treeMaterial(chunks: WorldChunks): MeshStandardMaterial {
  * Procedural trees, one merged mesh each. Trees near the player fade out, so nobody fights hidden
  * under a canopy. Map themes shift the mix toward dead trees in bleak places. Built per chunk.
  */
-function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap): void {
+/** `placed`: trees from a hand-made layout (the town), whose oaks are listed in `def.oaks`; generated trees get their look from their position. */
+function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap, placed = true): void {
   const bleak = /Ashen|Gloom/.test(def.name);
   const byChunk = new Map<number, { x: number; y: number; kind: TreeKind; h: number; size: number }[]>();
   // Shared by every tree of the world while it stands at full opacity; a tree near the hero fades on a copy of its own.
@@ -694,8 +696,9 @@ function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap
     if (o.shape.type !== 'circle') continue;
     const { x, y } = o.shape;
     const h = hash(x, y);
-    const isOak = def.oaks ? def.oaks.some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
-    const kind: TreeKind = !def.oaks && h % 100 < (bleak ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
+    const listed = placed && def.oaks !== undefined;
+    const isOak = listed ? (def.oaks ?? []).some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
+    const kind: TreeKind = !listed && h % 100 < (bleak ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
     const size = o.visual * (kind === 'pine' ? 1.05 : 1.25);
     const key = chunkKey(chunkCoord(x), chunkCoord(y));
     const list = byChunk.get(key);
@@ -726,6 +729,9 @@ function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap
             if (target === 1 && c.opacity > 0.998) {
               c.opacity = 1;
               c.mesh.material = solid;
+              // Freed rather than kept: over a long walk most trees fade once and never again.
+              c.own?.dispose();
+              c.own = null;
               continue;
             }
             const own = c.own ?? solid.clone();
@@ -1176,10 +1182,6 @@ function arenaBuilding(x: number, y: number, r: number): Landmark {
 }
 
 /**
- * Charred bark split by glowing cracks, for the logs of a camp fire; the cracks are the emissive
- * map, so the fire's flicker only has to move the emissive intensity.
- */
-/**
  * Textures drawn once and shared by every portal and fire of every world, so rebuilding the world
  * (the town editor, on every edit) makes no new ones. They live as long as the page.
  */
@@ -1195,6 +1197,10 @@ function sharedTexture(id: 'swirl' | 'embers', draw: () => HTMLCanvasElement): C
   return tex;
 }
 
+/**
+ * Charred bark split by glowing cracks, for the logs of a camp fire; the cracks are the emissive
+ * map, so the fire's flicker only has to move the emissive intensity.
+ */
 function emberCanvas(): HTMLCanvasElement {
   const { c, g } = canvas(64);
   if (!g) return c;
@@ -1351,7 +1357,7 @@ function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean 
 }
 
 /** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
-function addBorder(chunks: WorldChunks, def: WorldMap): void {
+function addBorder(chunks: WorldChunks, def: WorldMap, owned: Owned): void {
   const rng = new Rng(def.width * 31 + def.height);
   const rocks: Obstacle[] = [];
   const trees: Obstacle[] = [];
@@ -1371,7 +1377,7 @@ function addBorder(chunks: WorldChunks, def: WorldMap): void {
   }
   addRocks(chunks, rocks);
   addTrees(chunks, trees, def);
-  addWildBorder(chunks, def, rng);
+  addWildBorder(chunks, def, rng, owned);
 }
 
 /** How far the scenery runs past the map edge; the camera sees about this far from the edge. */
@@ -1383,7 +1389,7 @@ const BORDER_PEAKS = ['mountain_A_grass_trees', 'mountain_B_grass', 'mountain_C'
  * reads as wilderness you cannot cross rather than black. Out of reach, so the trees never need the
  * see-through fade and are instanced per variant: a few draw calls for thousands of trees.
  */
-function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng): void {
+function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng, owned: Owned): void {
   const { width: w, height: h } = def;
   const bleak = /Ashen|Gloom/.test(def.name);
   /** Distance outside the map, 0 inside it. */
@@ -1391,6 +1397,7 @@ function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng): void {
   // Per chunk, the transforms of each tree variant; each chunk draws one instanced mesh per variant.
   const byChunk = new Map<number, Map<BufferGeometry, Matrix4[]>>();
   const treeMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+  owned.push(treeMat);
   const rocks: Obstacle[] = [];
   const STEP = 85;
   for (let y = -BORDER_DEPTH; y < h + BORDER_DEPTH; y += STEP) {

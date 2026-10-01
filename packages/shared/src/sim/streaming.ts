@@ -165,9 +165,13 @@ function recompute(sim: Simulation, s: StreamState): void {
   });
   // An empty simulation is never ticked by the server; keeping it awake leaves tests and tools that
   // run monsters without players exactly as they were.
-  if (s.anchors.size === 0) s.awake.fill(1);
+  if (s.anchors.size === 0) {
+    s.awake.fill(1);
+    return;
+  }
+  // Only around players: with nobody there, "everything awake" would build and spawn the whole zone.
   wakeChunks(sim, s);
-  if (s.anchors.size === 0 || !s.enabled) {
+  if (!s.enabled) {
     s.awake.fill(1);
     return;
   }
@@ -196,6 +200,11 @@ function wakeChunks(sim: Simulation, s: StreamState): void {
       spawnPackList(sim, zone.packs(cx, cy), Rng.stream(sim.seed, `packs:${cx},${cy}`));
     }
   }
+}
+
+/** Marks every chunk's packs as spawned without spawning them: the dev tools' "kill all" clears the zone. */
+export function forgoUnspawnedPacks(sim: Simulation): void {
+  state(sim).spawned?.fill(1);
 }
 
 /** Spawns every chunk's packs now, as a room built whole would have. For tests and the bench. */

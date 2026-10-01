@@ -172,7 +172,7 @@ export class GameMap {
     return this.chunksBuilt;
   }
 
-  /** Builds the chunk holding (x, y) if it is not built yet. */
+  /** Builds chunk (cx, cy), in chunk coordinates, if it is not built yet. */
   ensureChunk(cx: number, cy: number): void {
     const src = this.source;
     const state = this.chunkState;

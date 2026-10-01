@@ -6,6 +6,7 @@ import { dropSigil } from '../items/drops.js';
 import { onBossKilled } from './dungeon.js';
 import type { EntityId } from './ecs.js';
 import { spawnEnemy } from './enemies.js';
+import { forgoUnspawnedPacks } from './streaming.js';
 import { addItem } from './inventory.js';
 import type { Simulation } from './simulation.js';
 
@@ -101,6 +102,8 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
         if (e.boss && pos) bosses.push({ x: pos.x, y: pos.y, level: e.level });
       }
       for (const id of [...w.enemy.keys()]) w.destroy(id);
+      // Packs of chunks nobody has been near yet would spawn later; they go too.
+      forgoUnspawnedPacks(sim);
       for (const b of bosses) onBossKilled(sim, b.x, b.y, b.level);
       return 'Cleared all monsters';
     }
