@@ -26,6 +26,7 @@ import {
   type SigilItem,
 } from '@rune/shared';
 import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
+import { formatCooldown } from '../game/castTiming.js';
 import { cssColor } from '../render/config.js';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refKey, refundOverflow, removeAt, resolveDraft, runeStock, sameDraft, type PlainEntry, type RolledEntry, type RuneOrigin } from './forge/draft.js';
 import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
@@ -34,9 +35,8 @@ import { tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
-import './forge.css';
-import { formatCooldown } from '../game/castTiming.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
+import './forge.css';
 
 /** Drag type for forge slots and pool runes; kept apart from item drags so the two never mix. */
 const FORGE_DRAG = 'application/x-rune-forge';
@@ -365,7 +365,7 @@ export function ForgeEditor() {
                 <h3 style={{ color: tierColor(sigil) }}>{sigil.name}</h3>
                 {starterNote(sigil) && <span className="forge-starter-note">{starterNote(sigil)}</span>}
                 <span className="muted">
-                  {capacity} slots{cooldown !== null && <> · Cooldown {formatCooldown(cooldown)}</>}
+                  {capacity} slots{cooldown !== null && !(result.ok && result.persistent) && <> · Cooldown {formatCooldown(cooldown)}</>}
                   {sigil.corrupted ? ' · corrupted' : ''}
                 </span>
               </div>

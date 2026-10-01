@@ -1,4 +1,4 @@
-import { HEAT, HOUND_PACK, LOOT, SPIRIT } from '../config/sim.js';
+import { HEAT, HOUND_PACK, LOOT, SIM, SPIRIT } from '../config/sim.js';
 import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
@@ -282,12 +282,17 @@ export function sigilCastDelayShare(item: SigilItem): number {
   return 1 - affixValue(item.affixes, 'cast_delay') / 100;
 }
 
+/** Float slack, so 0.5 s is ten ticks and not eleven. */
+const TICK_EPS = 1e-6;
+
 /**
  * Seconds between casts: the global cooldown (the admin setting), shortened by the sigil's cast
- * delay share and the character's cast speed. The sim and every tooltip use this one formula.
+ * delay share and the character's cast speed, then rounded up to whole sim ticks because the
+ * server only casts on a tick (0.43 s waits 0.45 s). The sim and every tooltip use this one formula.
  */
 export function castCooldownSeconds(globalSeconds: number, castDelayShare: number, castSpeedMult: number): number {
-  return (globalSeconds * castDelayShare) / castSpeedMult;
+  const raw = (globalSeconds * castDelayShare) / castSpeedMult;
+  return Math.max(1, Math.ceil(raw / SIM.dt - TICK_EPS)) * SIM.dt;
 }
 
 export function sigilMisfireMultiplier(item: SigilItem): number {

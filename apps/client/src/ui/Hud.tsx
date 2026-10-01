@@ -1,16 +1,17 @@
 import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, matchingStarter, MINION_DEFS, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
-import { useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
-const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 import { formatCooldown } from '../game/castTiming.js';
 import { usePanelLayout } from './GamePanel.js';
 import { spiritUses } from './spirit.js';
 import { tip } from './Tip.js';
 import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
+
+const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 
 /** A Diablo-style globe. The liquid level is a clipped fill; the surface wobbles with a CSS animation. */
 function Orb({ label, value, max, kind, danger }: { label: string; value: number; max: number; kind: 'life' | 'force'; danger?: boolean }) {
@@ -48,14 +49,25 @@ function SkillPop({ name, description, result, cooldown }: { name: string; descr
   );
 }
 
+/**
+ * The recharge sweep, on its own so only it re-renders on every 0.05 s tick of the cooldown. The
+ * cooldown is shared by every slot, so each sweeps against what the last cast set.
+ */
+function CooldownSweep() {
+  const castCooldown = useUi((s) => s.castCooldown);
+  const castCooldownFull = useUi((s) => s.castCooldownFull);
+  const cd = castCooldownFull <= 0 ? 0 : Math.min(1, castCooldown / castCooldownFull);
+  if (cd <= 0) return null;
+  const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
+  return <div className="skill-cd" style={sweep} />;
+}
+
 /** Drag type for reordering the skill bar; kept apart from item drags so the two never mix. */
 const SKILL_DRAG = 'application/x-rune-skill-slot';
 
 function SkillSlot({ slot }: { slot: number }) {
   const inv = useUi((s) => s.inventory);
   const classId = useUi((s) => s.classId);
-  const castCooldown = useUi((s) => s.castCooldown);
-  const castCooldownFull = useUi((s) => s.castCooldownFull);
   const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
   const openEditor = useUi((s) => s.openEditor);
   const binding = useSettings((s) => s.bindings[SKILL_ACTIONS[slot] ?? 'skill1']);
@@ -64,7 +76,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const uid = inv?.sigils[slot] ?? null;
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
-  const result = sigil && classId ? compileFor(sigil, classId) : null;
+  const result = useMemo(() => (sigil && classId ? compileFor(sigil, classId) : null), [sigil, classId]);
   const persistent = result?.ok === true && result.persistent;
   const cooldown = useSigilCooldown(sigil);
   // Named and described as its starter only while it still holds the starter's runes.
@@ -72,9 +84,6 @@ function SkillSlot({ slot }: { slot: number }) {
   const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
   const [hovered, setHovered] = useState(false);
   const cost = !result ? '' : !result.ok ? 'fizzles' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;
-  // The cooldown is shared by every slot, so each sweeps against what the last cast set.
-  const cd = persistent || castCooldownFull <= 0 ? 0 : Math.min(1, castCooldown / castCooldownFull);
-  const sweep: CSSProperties & Record<'--cd', string> = { '--cd': `${cd * 360}deg` };
 
   return (
     <button
@@ -111,7 +120,7 @@ function SkillSlot({ slot }: { slot: number }) {
     >
       {hovered && sigil && <SkillPop name={name} description={skill?.description ?? null} result={sigil.slots.length > 0 ? result : null} cooldown={cooldown} />}
       {sigil && sigil.slots.length > 0 ? <SkillIcon runes={sigil.slots.map(toRuneInstance)} size={56} /> : <div className="skill-blank" />}
-      {cd > 0 && <div className="skill-cd" style={sweep} />}
+      {!persistent && <CooldownSweep />}
       <kbd className="skill-key">{keyLabel(binding)}</kbd>
       {(onLeft || onRight) && <span className="skill-rmb">{onLeft && onRight ? 'L+R' : onLeft ? 'LMB' : 'RMB'}</span>}
       {cost && <span className={`skill-cost${result && !result.ok ? ' bad' : ''}`}>{cost}</span>}

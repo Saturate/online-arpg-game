@@ -31,10 +31,12 @@ describe('the client reads the server cast cooldown', () => {
     expect(isServerMessage({ t: 'castCooldown' })).toBe(false);
   });
 
-  it('shows the cooldown after cast delay and cast speed, as the server counts it', () => {
+  it('shows the cooldown after cast delay and cast speed, in the whole ticks the server waits', () => {
     expect(sigilCooldown(sigil(null), 0.5, 1)).toBe(0.5);
     expect(sigilCooldown(sigil(20), 0.5, 1)).toBeCloseTo(0.4);
-    expect(sigilCooldown(sigil(20), 0.5, 1.25)).toBeCloseTo(0.32);
+    // 0.32 s waits seven whole ticks on the server, so it reads 0.35 s.
+    expect(sigilCooldown(sigil(20), 0.5, 1.25)).toBeCloseTo(0.35);
+    expect(formatCooldown(sigilCooldown(sigil(14), 0.5, 1))).toBe('0.45 s');
     expect(sigilCooldown(sigil(null), 1, 0)).toBe(1);
     expect(formatCooldown(sigilCooldown(sigil(10), 0.5, 1))).toBe('0.45 s');
   });

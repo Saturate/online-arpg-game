@@ -234,7 +234,8 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
         </p>
       )}
       <p className="tt-sec tt-wand">
-        {sigilCapacity(item)} rune slots · Cooldown {formatCooldown(cooldown)}
+        {sigilCapacity(item)} rune slots
+        {!(result.ok && result.persistent) && <> · Cooldown {formatCooldown(cooldown)}</>}
       </p>
       {item.corrupted && <p className="tt-sec corrupted">Corrupted: misfires more often</p>}
       <Affixes item={item} />

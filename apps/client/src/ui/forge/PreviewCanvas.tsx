@@ -1,5 +1,7 @@
 import { SIM, type ClassId, type SigilCompile } from '@rune/shared';
 import { useEffect, useRef, useState } from 'react';
+import { useCastTiming } from '../../game/castTiming.js';
+import { useUi } from '../store.js';
 import { CAST_EVERY, ForgePreview } from './preview.js';
 
 const WIDTH = 360;
@@ -15,14 +17,17 @@ export function ForgePreviewCanvas({ classId, spellKey, compiled, castDelayShare
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<ForgePreview | null>(null);
   const [dps, setDps] = useState(0);
-  const latest = useRef({ compiled, castDelayShare });
-  latest.current = { compiled, castDelayShare };
+  const globalSeconds = useCastTiming((s) => s.globalSeconds);
+  const castSpeed = useUi((s) => s.stats?.castSpeedMult ?? 1);
+  const latest = useRef({ compiled, castDelayShare, globalSeconds, castSpeed });
+  latest.current = { compiled, castDelayShare, globalSeconds, castSpeed };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const preview = new ForgePreview(classId);
+    preview.setTiming(latest.current.globalSeconds, latest.current.castSpeed);
     preview.setSpell(latest.current.compiled, latest.current.castDelayShare);
     previewRef.current = preview;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -54,6 +59,10 @@ export function ForgePreviewCanvas({ classId, spellKey, compiled, castDelayShare
       previewRef.current = null;
     };
   }, [classId]);
+
+  useEffect(() => {
+    previewRef.current?.setTiming(globalSeconds, castSpeed);
+  }, [globalSeconds, castSpeed]);
 
   useEffect(() => {
     previewRef.current?.setSpell(latest.current.compiled, latest.current.castDelayShare);

@@ -66,8 +66,13 @@ describe('cast cooldown setting', () => {
   it('reaches the client in the welcome and again when an admin changes it', async () => {
     const { rooms, socket } = await setup();
     expect(welcome(socket).castCooldown).toBe(DEFAULT_SERVER_SETTINGS.castCooldownSeconds);
+    rooms.updateSettings({ xpRate: 2 });
+    expect(socket.last('castCooldown')).toBeUndefined();
     rooms.updateSettings({ castCooldownSeconds: 0.9 });
     expect(socket.last('castCooldown')?.seconds).toBe(0.9);
+    const sent = socket.sent.length;
+    rooms.updateSettings({ castCooldownSeconds: 0.9 });
+    expect(socket.sent.slice(sent).some((m) => m.t === 'castCooldown')).toBe(false);
   });
 
   it('is enforced live: the next cast after a change waits the new time', async () => {

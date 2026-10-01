@@ -503,19 +503,29 @@ function RuneTabView({ inv }: { inv: InventoryMessage }) {
 // The sigil tab ---------------------------------------------------------------------------------
 
 /** Compiles are the slow part of the list, so each sigil's sentence is kept until its runes change. */
-const SENTENCES = new Map<string, string>();
+const SENTENCES = new Map<string, { text: string; persistent: boolean }>();
 
 function sentenceOf(item: SigilItem, classId: ClassId): string {
-  if (item.slots.length === 0) return 'Blank: inscribe it at the forge.';
+  return compiledView(item, classId).text;
+}
+
+/** Aura and Bond never wait for the cast cooldown, so their row leaves it out. */
+function isPersistent(item: SigilItem, classId: ClassId): boolean {
+  return compiledView(item, classId).persistent;
+}
+
+function compiledView(item: SigilItem, classId: ClassId): { text: string; persistent: boolean } {
+  if (item.slots.length === 0) return { text: 'Blank: inscribe it at the forge.', persistent: false };
   const key = `${classId}|${item.uid}|${item.slots.map((r) => `${r.uid}:${r.rune}:${r.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`).join(';')}|${item.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`;
   const hit = SENTENCES.get(key);
   if (hit !== undefined) return hit;
   const result = compileFor(item, classId);
   const text = result.ok ? describeTree(result.tree) || 'Does nothing.' : `Fizzles: ${result.errors.map((e) => e.message).join('; ')}`;
+  const view = { text, persistent: result.ok && result.persistent };
   // Uids are reissued per room, so old keys pile up; a small cap is plenty for one list.
   if (SENTENCES.size > 600) SENTENCES.clear();
-  SENTENCES.set(key, text);
-  return text;
+  SENTENCES.set(key, view);
+  return view;
 }
 
 function sigilMatches(s: SigilItem, tier: ItemTier | 'all', contents: SigilContents): boolean {
@@ -592,7 +602,8 @@ function SigilTabView({ inv }: { inv: InventoryMessage }) {
                 {s.name}
               </span>
               <span className="stash-sigil-meta">
-                {TIER_LABELS[s.tier]} · ilvl {s.ilvl} · {s.slots.length}/{sigilCapacity(s)} runes · Cooldown {formatCooldown(sigilCooldown(s, globalCooldown, castSpeed))}
+                {TIER_LABELS[s.tier]} · ilvl {s.ilvl} · {s.slots.length}/{sigilCapacity(s)} runes
+                {!isPersistent(s, classId) && <> · Cooldown {formatCooldown(sigilCooldown(s, globalCooldown, castSpeed))}</>}
                 {s.affixes.length > 0 && <> · {s.affixes.map(formatAffix).join(' · ')}</>}
               </span>
               <span className="stash-sigil-sentence">{sentenceOf(s, classId)}</span>

@@ -193,6 +193,7 @@ export class RoomManager implements AdminHooks {
   }
 
   updateSettings(patch: Partial<ServerSettings>): ServerSettings {
+    const cooldownChanged = patch.castCooldownSeconds !== undefined && patch.castCooldownSeconds !== this.current.castCooldownSeconds;
     this.current = { ...this.current, ...patch };
     this.store.saveSettings(this.current);
     for (const room of this.rooms.values()) this.applySettings(room);
@@ -202,7 +203,7 @@ export class RoomManager implements AdminHooks {
       if (c.characterId === null) continue;
       c.send({ t: 'lighting', lighting });
       c.send({ t: 'zoom', zoom });
-      c.send({ t: 'castCooldown', seconds: this.current.castCooldownSeconds });
+      if (cooldownChanged) c.send({ t: 'castCooldown', seconds: this.current.castCooldownSeconds });
     }
     return this.settings();
   }

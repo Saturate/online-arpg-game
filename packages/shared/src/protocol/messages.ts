@@ -419,7 +419,7 @@ export type ServerMessage =
       /** In a world room, the server's `planChecksum`; a client whose own plan hashes otherwise reports it. */
       planHash?: string;
       /** The admin's global cast cooldown in seconds, so tooltips show what the server enforces. */
-      castCooldown: number;
+      castCooldown?: number;
     }
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }

@@ -111,7 +111,7 @@ export class StudioSim {
   readonly dummies: { id: EntityId; x: number; y: number }[] = [];
   readonly home: { x: number; y: number };
   compiled: SigilCompile;
-  /** The sigil's cast delay; a spell from the Spell Lab has no sigil and uses the default. */
+  /** The sigil's cast delay as a share of the global cooldown; a Spell Lab spell has no sigil, so 1. */
   castDelayShare = 1;
   cast: CastSettings = { mode: 'hold', intervalSeconds: 1, infiniteForce: false };
   /** Events from the last step, for the renderer. */

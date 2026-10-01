@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compileRunes,
   DEFAULT_SIGIL_CONTEXT,
+  castCooldownSeconds,
   DEFAULT_SERVER_SETTINGS,
   HEAT,
   SIM,
@@ -119,6 +120,13 @@ describe('cast cooldown', () => {
     p.stats = { ...p.stats, castSpeedMult: 2 };
     // 0.5 x 0.8 / 2 = 0.2 s, four ticks.
     expect(new Set(castGaps(b, 41))).toEqual(new Set([Math.round((HEAT.castCooldownSeconds * 0.8) / 2 / SIM.dt)]));
+  });
+
+  it('waits whole ticks: a cooldown between two ticks rounds up', () => {
+    const b = bench('bolt', { castDelayShare: 0.86 });
+    // 0.5 x 0.86 = 0.43 s, which the server can only honour as nine ticks (0.45 s).
+    expect(new Set(castGaps(b, 41))).toEqual(new Set([9]));
+    expect(castCooldownSeconds(0.5, 0.86, 1)).toBeCloseTo(0.45, 10);
   });
 
   it('follows a changed setting on the next cast, without touching the running cooldown', () => {
