@@ -11,7 +11,7 @@ Every gameplay number that matters for balance can be changed through the admin 
 ## Scope (owner, 2026-10-01)
 
 - **Shapes and runes:** base damage, speed, range, radius and duration of Bolt, Orb, Nova, Zone, Aura, Dash and Bond; each rune's Force cost, spirit and effect amounts (Split copies, Large, Concentrated, infusions and their burn, chill, shock and poison).
-- **Starter skills:** the per-starter damage multiplier ([runes.md](runes.md), "Planned: starter damage multipliers in admin"), and later each starter's rune numbers directly.
+- **Starter skills:** each starter's own rune numbers (phase 2).
 - **Monsters and minions:** monsters are tunable already (the admin Monsters tab); extend minions to everything (abilities, cooldowns, pack and Hound numbers) and add monster abilities and traits.
 - **Players and loot:** class base stats, level scaling, the Force pool and its regen, drop rates, gold, affix roll ranges and prices.
 
