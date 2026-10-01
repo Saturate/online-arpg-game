@@ -70,6 +70,7 @@ const ROLE_PATTERNS: [AnimRole, RegExp][] = [
   ['walk', /walk/i],
   ['run', /run|sprint|gallop/i],
   ['attack', /attack|melee|slash|bite|chop|swing|claw|punch/i],
+  ['windup', /wind.?up|telegraph/i],
   ['cast', /cast|spell/i],
   ['shoot', /shoot|ranged|bow|throw|spit/i],
   ['hit', /hit|hurt|damage|flinch/i],

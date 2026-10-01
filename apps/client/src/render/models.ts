@@ -230,6 +230,9 @@ export function buildEnemy(type: EnemyTypeId, color: number): Rig {
       return quadruped(color, { tusks: true, horns: false, bulk: 1 }, motion('quad', 'ram', 'roll', 0.6, { ability: 'charge' }));
     case 'horned_charger':
       return quadruped(color, { tusks: false, horns: true, bulk: 1.25 }, motion('quad', 'ram', 'roll', 0.75, { ability: 'charge' }));
+    case 'charger':
+      // Stand-in while its model file streams in: a heavy hornless beast, never a humanoid.
+      return quadruped(color, { tusks: false, horns: false, bulk: 1.4 }, motion('quad', 'ram', 'roll', 0.8, { ability: 'charge' }));
     case 'bloated_corpse': {
       const rig = humanoid({ skin: color, torso: tint(color, -0.1), legs: 0x3a3a2a, bulk: 1.3, hunch: 0.3, profile: motion('biped', 'claw', 'collapse', 0.8) });
       rig.body.add(mesh(G.sphereLow, mat(tint(color, 0.08), { rough: 0.5 }), 0.25, 1.75, 0, 0.75, 0.7, 0.7));

@@ -171,6 +171,7 @@ export const MONSTER_MODEL_IDS = [
   'mon_butcher',
   'mon_lich',
   'mon_grave_hound',
+  'mon_charger',
   'minion_brute',
   'minion_archer',
   'minion_hound',
@@ -205,6 +206,7 @@ export const ENEMY_MODELS: Partial<Record<EnemyTypeId, MonsterModelId>> = {
   butcher: 'mon_butcher',
   lich: 'mon_lich',
   grave_hound: 'mon_grave_hound',
+  charger: 'mon_charger',
 };
 export const MINION_MODELS: Partial<Record<MinionTypeId, MonsterModelId>> = {
   zombie_brute: 'minion_brute',

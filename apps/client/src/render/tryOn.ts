@@ -24,7 +24,7 @@ const DB_NAME = 'rune-model-check';
 const STORE = 'tryon';
 const CHANNEL = 'rune-model-check';
 
-const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
+const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'windup', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
 
 export function isTryOnKey(v: unknown): v is TryOnKey {
   if (typeof v !== 'string') return false;

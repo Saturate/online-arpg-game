@@ -178,6 +178,7 @@ export const ENEMY_TYPE_IDS = [
   // Chargers
   'tusked_boar',
   'horned_charger',
+  'charger',
   // Exploders
   'bloated_corpse',
   'volatile',
@@ -439,6 +440,18 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     'melee',
     { life: 150, speed: 95, radius: 19, contact: 10, color: 0x9a3a2a },
     [{ kind: 'charge', cooldown: 5, range: 460, windup: 0.9, speed: 640, duration: 0.7, damage: 32, width: 26 }],
+    { knockbackImmune: true },
+  ),
+  // Its model is the owner's brother's Charger, made for this game only and not licensed for reuse.
+  // Slow on foot so the heavy stride its short legs can take matches the ground (tools/blender/README.md);
+  // the charge is the threat.
+  charger: monster(
+    'charger',
+    'Charger',
+    'charger',
+    'melee',
+    { life: 160, speed: 72, radius: 26, contact: 12, contactCooldown: 1.1, color: 0x5a5a48 },
+    [{ kind: 'charge', cooldown: 5, range: 460, windup: 0.9, speed: 600, duration: 0.7, damage: 28, width: 30 }],
     { knockbackImmune: true },
   ),
 

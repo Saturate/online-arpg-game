@@ -9,10 +9,12 @@ Each step reads the previous step's `.blend` and saves a new one, so a step can 
 | Step | Script | What it does |
 |---|---|---|
 | 1 | `import_clean.py <in.glb> <out.blend>` | Imports, keeps the largest mesh outside any template (a dev-tools export of a built-in monster, recognised by its `arm_l`/`leg_l` pivots), bakes transforms, welds the faces the glTF importer split apart, deletes everything else, prints what it kept. `--all` keeps every non-template mesh, `--template NAME` drops more roots, `--keep-uvs` for textured models. |
-| 2 | `orient_ground.py <in> <out> --turn DEG` | Turns about Blender Z so the head points at -Y (glTF +Z), puts the lowest point on z = 0 and centres forward on the feet. |
-| 3 | `recolour.py <in> <out> --palette p.json` | Flat Principled BSDF colours from a palette, by material name or by face region, plus optional glowing eyes. Refuses colours darker than luminance 0.01. |
+| 2 | `orient_ground.py <in> <out> --turn DEG` | Turns about Blender Z so the head points at -Y (glTF +Z), puts the lowest point on z = 0 and centres forward on the feet (`--centre-forward M` puts the origin, the game's collider centre, M metres ahead of them). |
+| 3 | `recolour.py <in> <out> --palette p.json` | Flat Principled BSDF colours from a palette, by material name or by face region (a region can pick small loose parts, such as modelled eyes, by `part_verts`), plus optional glowing eyes. Refuses colours darker than luminance 0.01. |
 | 4 | `rig_quadruped.py <in> <out> --joints j.json` | Quadruped skeleton from joint positions, rigid skinning. |
+| 4b | `rig_biped.py <in> <out> --joints j.json` | Two legs, jaw, arms and a tail chain from a bone list; rigid blocks by region rules, a smooth blend along the trunk and tail so it can bend and carry a wave. |
 | 5 | `clips_quadruped.py <in> <out> --speed U` | Idle, Walk, Run, Attack, Hit, Death with paw IK, stride matched to the move speed. |
+| 5b | `clips_biped.py <in> <out> --speed U --game-height H` | Idle, Walk, Run, Attack, Windup, Hit, Death for a heavy two-legged walker with a tail wave (the Charger), foot IK, walk stride matched to the move speed. |
 | 6 | `export_glb.py <in> <out.glb>` | glTF binary the way the game wants it. |
 | 7 | `pnpm model:check <out.glb> --height N` | The admin Model check in the terminal; exits 1 on any warning. |
 | 8 | `preview.py <out.glb> <dir> --sheets` | Stills per clip next to the KayKit Barbarian at game scale, night shots, side and front contact sheets. |
@@ -83,6 +85,23 @@ pnpm model:check $S/grave_hound.glb --height 50
 
 Walk 10 frames, half-stride 0.235 m (the legs reach 0.232), 3.14 strides a second in game at 115; Run 8 frames for 190 (about 3% past the reach; rarely seen, since the game runs only above 188 and even a Hasted rare tops out at 184). With the default crouch the same trot needs a 6-frame cycle, 5.7 strides a second.
 
+### The Charger
+
+The owner's brother's `Charger.glb` (`~/Downloads/Charger.glb`, copied to the scratch folder first; never work on the original) holds the dev tools' `dire_wolf` export, his earlier dog and the Charger: one 682-triangle mesh with no material and no animation, facing +X. It walks on two legs, so it has its own rig and clip scripts. Shot by shot, with the files in `examples/charger/`:
+
+```sh
+cp ~/Downloads/Charger.glb $S/source_charger.glb
+b $T/import_clean.py -- $S/source_charger.glb $S/1_clean.blend --name charger
+b $T/orient_ground.py -- $S/1_clean.blend $S/2_oriented.blend --turn -90 --centre-forward 1.25
+b $T/recolour.py -- $S/2_oriented.blend $S/3_coloured.blend --palette $T/examples/charger/palette.json
+b $T/rig_biped.py -- $S/3_coloured.blend $S/4_rigged.blend --joints $T/examples/charger/joints.json
+b $T/clips_biped.py -- $S/4_rigged.blend $S/5_animated.blend --speed 72 --game-height 80
+b $T/export_glb.py -- $S/5_animated.blend $S/out/charger.glb
+pnpm model:check $S/out/charger.glb --height 80
+```
+
+What it prints: the template dropped (12 meshes), the Charger picked over the dog, 1444 vertices welded to 353, 9 colours by region, 18 bones (17 deforming). Walk 13 frames, half-stride 0.356 m against a 0.351 m reach, 1.5 strides a second in game at 72; Run 10 frames, sliding about 2x against the 600 charge; Idle 90, Attack 18, Windup 24, Hit 9, Death 36; every clip on the ground every frame. The Model check passes all 11 checks.
+
 ## Lessons
 
 - Headless Blender with scripts works without the Blender MCP, and every step can be rerun.
@@ -97,9 +116,15 @@ Walk 10 frames, half-stride 0.235 m (the legs reach 0.232), 3.14 strides a secon
 - Side and front Workbench contact sheets per clip are the quickest check on motion: sliding paws, popping loops, bad bends.
 - Blender's night lighting is not the game's night grade; check night readability in the game (`?time=0.9`).
 - Feet with their own material used to trip the Model check's stray-part warning; it now judges parts by mesh node.
+- A brother's file can be all template: the Charger's materials and clips all belonged to the `dire_wolf` export, and the model itself had neither. Check which mesh the warnings are about before fixing them.
+- macOS file names ignore case: exporting `charger.glb` next to a copied `Charger.glb` overwrites the copy. Give working files distinct names.
+- A model whose bulk reaches far ahead of its legs needs its origin moved forward (`--centre-forward`), or it bites from outside the circle that hits and its head covers the hero in melee.
+- A snout far ahead of the hips drops about 3 cm per degree of body pitch; lean a charge in by thrusting forward, and lift the head as the jaw opens, or it ploughs the ground. `clips_biped.py` prints each clip's lowest point per frame for this.
+- Short legs bent at a knee in the middle of long faces shear into shards. Putting the knee on the ring under the belly lets the visible leg swing as one block.
+- Check a model's colours from the game camera: it looks down on the back, so the colour of the back decides how it reads, by day as much as at night.
 
 ## Limits
 
-- Only quadrupeds have rig and clip templates. A biped or a flyer needs its own `rig_*.py` and `clips_*.py`; `import_clean`, `orient_ground`, `recolour`, `export_glb` and `preview` work for any model.
+- Quadrupeds and heavy bipeds with a tail (`rig_biped.py`, `clips_biped.py`, authored on the Charger) have rig and clip templates. A flyer, or a biped built differently, needs its own; `import_clean`, `orient_ground`, `recolour`, `export_glb` and `preview` work for any model.
 - The region rules in the palette are per model; move them if the proportions change.
 - Pose amounts are authored for a 0.57 m hip height and scale with the rig; a very different body shape needs its keys tuned.

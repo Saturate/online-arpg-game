@@ -27,7 +27,7 @@ import {
 } from 'three';
 import { COLORS, fxColor, RENDER_ORDER, TIER_COLORS } from './config.js';
 import { assetById, cloneMaterial, instantiate } from './assets.js';
-import { characterAsset, characterNow, driveCharacter, loadCharacter, type CharacterModel } from './characters.js';
+import { characterAsset, characterNow, driveCharacter, loadCharacter, windupCharacter, type CharacterModel } from './characters.js';
 import { beginRigFrame, driveRig, enemyModel, minionModel, playerModel, rigAttack, rigHit, rigWindup, type Rig, type RigDrive } from './models.js';
 import { auraMaterial, tetherMaterial, type TetherUniforms } from './vfx/materials.js';
 import { PALETTE, styleOf } from './vfx/palette.js';
@@ -519,10 +519,11 @@ export class EntityRenderer {
     if (v.rig && !v.character) rigAttack(v.rig, v.bob);
   }
 
-  /** A telegraphed ability began: a procedural model holds its wind-up until the attack lands. */
+  /** A telegraphed ability began: the model holds its wind-up until the attack lands. */
   windup(key: string, seconds: number): void {
     const v = this.views.get(key);
-    if (v?.rig && !v.character) rigWindup(v.rig, seconds, 'ability', v.bob);
+    if (v?.character) windupCharacter(v.character, seconds);
+    else if (v?.rig) rigWindup(v.rig, seconds, 'ability', v.bob);
   }
 
   /** Loads the glTF model for a view and swaps it in for the procedural placeholder. */

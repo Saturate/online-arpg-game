@@ -221,7 +221,7 @@ function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): Charact
     const clip = inst.clips.find((c) => c.name === name);
     if (!clip) continue;
     const action = mixer.clipAction(clip);
-    const oneShot = role === 'attack' || role === 'cast' || role === 'shoot' || role === 'hit' || role === 'death' || role === 'awaken' || role === 'spawn';
+    const oneShot = role === 'attack' || role === 'windup' || role === 'cast' || role === 'shoot' || role === 'hit' || role === 'death' || role === 'awaken' || role === 'spawn';
     action.setLoop(oneShot ? LoopOnce : LoopRepeat, Infinity);
     action.clampWhenFinished = oneShot;
     if (role === 'attack' || role === 'cast' || role === 'shoot') action.timeScale = 1.6;
@@ -245,7 +245,7 @@ function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): Charact
   };
 }
 
-const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
+const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'windup', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
 function isRole(v: string): v is AnimRole {
   return ROLES.some((r) => r === v);
 }
@@ -285,6 +285,18 @@ export function locomotionRole(speed: number, current: AnimRole | null): 'idle' 
 }
 
 /**
+ * A telegraphed ability began: plays the model's wind-up clip, if it has one, stretched to the
+ * telegraph so it ends coiled the moment the ability lands. Models without one keep standing.
+ */
+export function windupCharacter(cm: CharacterModel, seconds: number): void {
+  const a = cm.actions.get('windup');
+  if (!a || seconds <= 0) return;
+  if (cm.current === 'windup') a.reset().play();
+  else play(cm, 'windup', 0.12);
+  a.timeScale = a.getClip().duration / seconds;
+}
+
+/**
  * Picks the clip from what the entity is doing. One-shots (attack, death, awaken) play through;
  * locomotion blends between idle, walk and run by actual speed.
  */
@@ -302,12 +314,14 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     play(cm, 'awaken', 0.1);
     return;
   }
-  const busy = cm.current === 'awaken' || cm.current === 'attack' || cm.current === 'cast' || cm.current === 'shoot';
+  const busy = cm.current === 'awaken' || cm.current === 'windup' || cm.current === 'attack' || cm.current === 'cast' || cm.current === 'shoot';
   const action = cm.current ? cm.actions.get(cm.current) : undefined;
   const oneShotRunning = busy && action !== undefined && action.isRunning();
   if (s.attack) {
     const role = cm.actions.has(cm.attackRole) ? cm.attackRole : 'attack';
     const a = cm.actions.get(role);
+    // The attack starts from the coiled wind-up pose, which must let go or it holds under the strike.
+    if (cm.current === 'windup') cm.actions.get('windup')?.fadeOut(0.08);
     if (a) {
       a.reset().play();
       cm.current = role;

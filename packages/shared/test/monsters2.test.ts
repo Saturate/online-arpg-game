@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, Simulation, type EnemyTypeId } from '../src/index.js';
+import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 
@@ -94,6 +94,73 @@ describe('new monster behaviours', () => {
       for (const ev of sim.takeEvents()) if (ev.ev.e === 'tele' && ev.ev.id === id) teles++;
     }
     expect(teles).toBeGreaterThan(0);
+  });
+
+  it('chargers roam the first regions out of town from level 6', () => {
+    for (const b of ['marsh', 'ruins', 'forest'] as const) {
+      expect(monsterPool(b, 5), b).not.toContain('charger');
+      expect(monsterPool(b, 6), b).toContain('charger');
+    }
+    for (const b of ['meadow', 'crypt', 'desert', 'cave'] as const) expect(monsterPool(b, 25), b).not.toContain('charger');
+    expect(familyOf('charger')).toBe('charger');
+  });
+
+  it('a charger fights for 15 seconds the same way every time', () => {
+    const trace = () => {
+      const { sim, pos } = setup(12);
+      const id = spawnEnemy(sim, 'charger', pos.x + 300, pos.y, { rare: false, level: 6, aggro: true });
+      const out: string[] = [];
+      for (let i = 0; i < 15 * SIM.tickRate; i++) {
+        sim.step();
+        for (const { ev } of sim.takeEvents()) if ((ev.e === 'tele' || ev.e === 'attack') && ev.id === id) out.push(`${i}:${ev.e}`);
+      }
+      const p = sim.world.position.get(id);
+      out.push(p ? `${p.x.toFixed(2)},${p.y.toFixed(2)}` : 'gone');
+      return out;
+    };
+    const first = trace();
+    expect(first.some((s) => s.endsWith(':tele'))).toBe(true);
+    expect(trace()).toEqual(first);
+  });
+
+  /** Spawns a charger with its charge ready; `dodge` runs once, on the charge's telegraph. */
+  function charge(dodge: (pos: { x: number; y: number }) => void) {
+    const { sim, pid, pos } = setup(13);
+    const player = sim.world.player.get(pid);
+    if (!player) throw new Error('no player');
+    player.god = false;
+    const id = spawnEnemy(sim, 'charger', pos.x + 330, pos.y, { rare: false, level: 6, aggro: true });
+    const e = sim.world.enemy.get(id);
+    const def = ENEMIES.charger;
+    const ability = def.behaviour === 'monster' ? def.abilities[0] : undefined;
+    if (!e || ability?.kind !== 'charge') throw new Error('no charge');
+    // The spawn cooldown is random; a ready charge keeps the test from depending on it.
+    e.cooldowns[0] = 0;
+    let tele: { tick: number; life: number; line: boolean } | null = null;
+    for (let i = 0; i < 2 * SIM.tickRate && !tele; i++) {
+      sim.step();
+      for (const { ev } of sim.takeEvents()) {
+        if (ev.e === 'tele' && ev.id === id && !tele) {
+          tele = { tick: i, life: sim.world.health.get(pid)?.life ?? -1, line: ev.shape === 'line' };
+          dodge(pos);
+        }
+      }
+    }
+    if (!tele) throw new Error('the charger never telegraphed');
+    // Through the wind-up and the dash, but not the walk back to the player afterwards.
+    const ticks = Math.ceil((ability.windup + ability.duration) * SIM.tickRate) + 2;
+    for (let i = 0; i < ticks; i++) sim.step();
+    return { tele, lifeAfter: sim.world.health.get(pid)?.life ?? -1 };
+  }
+
+  it("a charger's charge is a telegraphed line that a step aside dodges", () => {
+    const stood = charge(() => {});
+    expect(stood.tele.line).toBe(true);
+    expect(stood.lifeAfter).toBeLessThan(stood.tele.life);
+    const dodged = charge((pos) => {
+      pos.y += 220;
+    });
+    expect(dodged.lifeAfter).toBe(dodged.tele.life);
   });
 
   it('gargoyles hold perfectly still until a player comes close, then wake', () => {
