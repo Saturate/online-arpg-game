@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyTunables,
   castingSlots,
+  castingStarter,
   clampRuneRolls,
   compileSigilItem,
   convertRuneRolls,
@@ -19,6 +20,13 @@ import {
   STARTER_SIGILS,
   starterSigilById,
   TUNABLES,
+  tunableValue,
+  starterTuningProblem,
+  sellPrice,
+  buyPrice,
+  forgeInsertPrice,
+  type Item,
+  type RuneItem,
   tunableSpec,
   tokenizeSpell,
   toRuneInstance,
@@ -26,7 +34,7 @@ import {
   type SigilItem,
   type StarterSigilDef,
 } from '../src/index.js';
-import { compileSigil } from '../src/sim/inventory.js';
+import { addItem, compileSigil } from '../src/sim/inventory.js';
 
 afterEach(() => resetTunables());
 
@@ -122,11 +130,11 @@ describe('a whole starter casts the live recipe', () => {
     expect(c.notes.some((n) => n.startsWith('Starter rolls only hold'))).toBe(false);
   });
 
-  it('casts the recipe for a copy made with other rolls, such as one from before a retune', () => {
+  it('casts the recipe for a copy made with other values in the same tiers, such as one from before a retune', () => {
     const s = made('bone_spear');
     const [bolt] = s.slots;
     if (!bolt) throw new Error('no bolt');
-    const old: SigilItem = { ...s, slots: [{ ...bolt, affixes: bolt.affixes.map((a) => (a.id === 'rune_damage' ? { ...a, value: 25 } : a)) }] };
+    const old: SigilItem = { ...s, slots: [{ ...bolt, affixes: bolt.affixes.map((a) => (a.id === 'rune_damage' ? { ...a, value: 52 } : a)) }] };
     expect(holdsStarterRecipe(old)).toBe(true);
     expect(casts(old)).toBe(casts(s));
   });
@@ -146,16 +154,19 @@ describe('a whole starter casts the live recipe', () => {
     expect(casts(plain)).not.toContain('400');
   });
 
-  it('casts the recipe for a starter refilled with a found rune carrying the same affix kinds', () => {
+  it('casts the recipe for a refill with a found rune of the same affix kinds at the recipe roll tiers, and only then', () => {
     const s = made('bone_spear');
-    // A drop-table Bolt: pierce, speed and damage rolls, at values a drop can have.
-    const found = runeItemFromInstance(960, { id: 'bolt', affixes: { pierce: 1, speed: 15, damage: 12 } }, false);
-    const refilled: SigilItem = { ...s, slots: [found] };
-    expect(holdsStarterRecipe(refilled)).toBe(true);
-    expect(casts(refilled)).toBe(casts(s));
-    // One affix kind short (no speed roll) is not the recipe.
-    const short = runeItemFromInstance(961, { id: 'bolt', affixes: { pierce: 1, damage: 12 } }, false);
-    expect(holdsStarterRecipe({ ...s, slots: [short] })).toBe(false);
+    // A top-tier drop Bolt: pierce 3, speed and damage in their T3 ranges, as Bone Spear's rolls are.
+    const found = runeItemFromInstance(960, { id: 'bolt', affixes: { pierce: 3, speed: 40, damage: 45 } }, false);
+    expect(holdsStarterRecipe({ ...s, slots: [found] })).toBe(true);
+    expect(casts({ ...s, slots: [found] })).toBe(casts(s));
+    // One roll a tier lower, or one affix kind short, is not the recipe.
+    const lower = runeItemFromInstance(961, { id: 'bolt', affixes: { pierce: 3, speed: 30, damage: 45 } }, false);
+    const short = runeItemFromInstance(962, { id: 'bolt', affixes: { pierce: 3, damage: 45 } }, false);
+    for (const r of [lower, short]) {
+      expect(holdsStarterRecipe({ ...s, slots: [r] })).toBe(false);
+      expect(castingStarter({ ...s, slots: [r] })).toBeUndefined();
+    }
   });
 
   it('casts bench runes as what they are, even in their starter', () => {
@@ -227,5 +238,99 @@ describe('old starter recipes', () => {
       expect(JSON.stringify(after.slots.map(toRuneInstance))).toBe(JSON.stringify(def.runes));
       expect(JSON.stringify(castingSlots(after).map(toRuneInstance))).toBe(JSON.stringify(liveStarterRunes(def)));
     }
+  });
+});
+
+/** A binder at the forge holding `items` in the bag. */
+function atForge(...items: Item[]) {
+  const sim = new Simulation(4, { kind: 'world', seed: 3 });
+  const pid = sim.addPlayer('smith', 'binder');
+  const p = sim.world.player.get(pid);
+  const pos = sim.world.position.get(pid);
+  const forge = sim.mapDef.forge;
+  if (!p || !pos || !forge) throw new Error('setup');
+  pos.x = forge.x + 50;
+  pos.y = forge.y;
+  p.gold = 10_000;
+  for (const it of items) addItem(p, it);
+  return { sim, pid, p };
+}
+
+function sigilIn(p: { items: Map<number, Item> }, uid: number): SigilItem {
+  const it = p.items.get(uid);
+  if (it?.kind !== 'sigil') throw new Error('no sigil');
+  return it;
+}
+
+function looseRunes(p: { items: Map<number, Item> }, rune: string): RuneItem[] {
+  return [...p.items.values()].filter((i): i is RuneItem => i.kind === 'rune' && i.rune === rune);
+}
+
+describe('the forge and the starter rule', () => {
+  it('a Static Nova swapped for a cheap Nova at the forge casts clamped, and a top-tier one casts the recipe', () => {
+    const nova = made('static_nova');
+    const cheap = runeItemFromInstance(700, { id: 'nova', affixes: { size: 10 } }, false);
+    const good = runeItemFromInstance(701, { id: 'nova', affixes: { size: 40 } }, false);
+    const { sim, pid, p } = atForge(nova, cheap, good);
+    expect(sim.inscribe(pid, nova.uid, [{ from: 'rolled', uid: cheap.uid }, { from: 'keep', index: 1 }])).toBeNull();
+    const swapped = sigilIn(p, nova.uid);
+    // The starter's +50% Nova came back whole; the sigil now casts the +10% it holds, not the recipe.
+    expect(looseRunes(p, 'nova').some((r) => r.affixes.some((a) => a.id === 'rune_size' && a.value === 50))).toBe(true);
+    expect(holdsStarterRecipe(swapped)).toBe(false);
+    expect(castingStarter(swapped)).toBeUndefined();
+    expect(castingSlots(swapped)[0]?.affixes.find((a) => a.id === 'rune_size')?.value).toBe(10);
+    expect(sim.inscribe(pid, nova.uid, [{ from: 'rolled', uid: good.uid }, { from: 'keep', index: 1 }])).toBeNull();
+    const restored = sigilIn(p, nova.uid);
+    expect(holdsStarterRecipe(restored)).toBe(true);
+    expect(castingSlots(restored)[0]?.affixes.find((a) => a.id === 'rune_size')?.value).toBe(50);
+  });
+
+  it('a tuned starter extracted at the forge gives back its stored rolls clamped, not the live numbers', () => {
+    const spear = made('bone_spear');
+    const { sim, pid, p } = atForge(spear);
+    applyTunables({ 'starter.bone_spear.0.damage': 400, 'starter.bone_spear.0.pierce': 9 });
+    expect(sim.inscribe(pid, spear.uid, [])).toBeNull();
+    const [out] = looseRunes(p, 'bolt');
+    expect(out?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(40);
+    expect(out?.affixes.find((a) => a.id === 'rune_pierce')?.value).toBe(3);
+  });
+
+  it('prices a starter sigil and its runes the same whatever the tuning', () => {
+    const items = STARTER_SIGILS.map((d) => made(d.id));
+    const plain = items.map((s) => [sellPrice(s), buyPrice(s), ...s.slots.map((r) => forgeInsertPrice(r))]);
+    applyTunables(Object.fromEntries(TUNABLES.filter((t) => t.category === 'starters').map((t) => [t.path, t.max])));
+    expect(items.map((s) => [sellPrice(s), buyPrice(s), ...s.slots.map((r) => forgeInsertPrice(r))])).toEqual(plain);
+  });
+});
+
+describe('refusing tuning that breaks a starter', () => {
+  it('names Frozen Orb for a faster pulse with more shards, and checks every min and max combination of each starter', () => {
+    expect(starterTuningProblem({ 'starter.frozen_orb.0.every': 0.14, 'starter.frozen_orb.2.count': 5 })).toMatch(/^Frozen Orb would not compile: /);
+    expect(starterTuningProblem({ 'starter.frozen_orb.0.every': 0.3 })).toBeNull();
+    let combos = 0;
+    let refused = 0;
+    for (const def of STARTER_SIGILS) {
+      const specs = TUNABLES.filter((t) => t.group === def.name);
+      for (let mask = 0; mask < 2 ** specs.length; mask++) {
+        const values = Object.fromEntries(specs.map((t, i) => [t.path, mask & (1 << i) ? t.max : t.min]));
+        combos++;
+        const problem = starterTuningProblem(values);
+        applyTunables(values);
+        const ok = compileSigilItem(made(def.id), def.classId).ok;
+        resetTunables();
+        expect(problem === null, `${def.id} ${JSON.stringify(values)}`).toBe(ok);
+        if (problem !== null) {
+          refused++;
+          expect(problem.startsWith(`${def.name} would not compile`)).toBe(true);
+        }
+      }
+    }
+    expect(combos).toBe(125);
+    expect(refused).toBeGreaterThan(0);
+    // The overrides in force are put back after the check.
+    applyTunables({ 'starter.bone_spear.0.damage': 60 });
+    starterTuningProblem({ 'starter.frozen_orb.0.every': 0.14, 'starter.frozen_orb.2.count': 5 });
+    expect(tunableValue('starter.bone_spear.0.damage')).toBe(60);
+    expect(tunableValue('starter.frozen_orb.0.every')).toBe(0.18);
   });
 });

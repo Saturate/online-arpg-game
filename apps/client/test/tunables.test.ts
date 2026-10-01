@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseReplay, Recorder } from '../src/game/replay.js';
 import { receiveTunables, useTunables } from '../src/game/tunables.js';
 import { compileSkill, studioSkillOf } from '../src/dev/studio/studioSim.js';
+import { rollWithStored } from '../src/ui/parts.js';
 
 afterEach(() => resetTunables());
 
@@ -33,6 +34,10 @@ describe('the client follows the server live tuning', () => {
     expect(shownSlots(sigil)[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(300);
     // The item itself keeps the rolls it was made with.
     expect(sigil.slots[0]?.affixes.find((a) => a.id === 'rune_damage')?.value).toBe(100);
+    // The chip and the forge hover show the rune's own roll beside the live one.
+    const [live] = shownSlots(sigil);
+    const damage = live?.affixes.find((a) => a.id === 'rune_damage');
+    expect(damage && rollWithStored(damage, sigil.slots[0])).toMatch(/300.*\(rune: .*100/);
     const skill = studioSkillOf(def);
     expect(skill.text).toContain('+300% damage');
     const studio = compileSkill(skill);

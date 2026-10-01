@@ -4,7 +4,7 @@ import {
   forgeInsertPrice,
   formatAffix,
   HEAT,
-  matchingStarter,
+  castingStarter,
   shownSlots,
   RULES,
   runeColor,
@@ -32,7 +32,7 @@ import { cssColor } from '../render/config.js';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refKey, refundOverflow, removeAt, resolveDraft, runeStock, sameDraft, type PlainEntry, type RolledEntry, type RuneOrigin } from './forge/draft.js';
 import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
 import { useHover } from './Inventory.js';
-import { tierColor } from './parts.js';
+import { rollWithStored, tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
@@ -75,7 +75,7 @@ function sigilsOf(inv: InventoryMessage): SigilPlace[] {
 
 /** The starter a sigil still is, as a subtitle under its own name; nothing once its runes changed. */
 function starterNote(item: SigilItem): string | null {
-  const def = matchingStarter(item);
+  const def = castingStarter(item);
   return def && def.name !== item.name ? def.name : null;
 }
 
@@ -390,7 +390,9 @@ export function ForgeEditor() {
                   const rolled = slot.item.affixes.length > 0;
                   // Only a rune already in the sigil can lose rolls on the way out; a new one came in within the table.
                   const weakens = slot.origin === 'sigil' ? weakening(slot.item) : null;
-                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}`;
+                  const live = shown[i];
+                  const own = live && live !== slot.item ? live.affixes.map((a) => rollWithStored(a, slot.item)).filter((t) => t.includes('(rune: ')) : [];
+                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}${own.length > 0 ? ` · Casts the starter's numbers: ${own.join('; ')}` : ''}`;
                   return (
                     <li key={`${refKey(slot.ref)}-${i}`} className={cls} onDragOver={(e) => dragOver(e, i)} onDragLeave={() => setDropAt(null)} onDrop={(e) => onSlotDrop(e, i)}>
                       <button

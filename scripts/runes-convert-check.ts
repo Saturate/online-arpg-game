@@ -24,8 +24,12 @@ import {
   OLD_STARTER_RUNES,
   RETIRED_SIGIL_AFFIXES,
   castingSlots,
+  applyTunables,
+  clampRuneRolls,
   holdsStarterRecipe,
   liveStarterRunes,
+  slotHoldsRecipeRune,
+  starterTuningProblem,
   matchingStarter,
   retierRoll,
   runeRollsChanged,
@@ -379,9 +383,23 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
   console.log(`  rune rolls: ${changed} of ${before.length} items changed; "first rune is free" removed from ${r.affixesRemoved.length} sigils${r.affixesRemoved.length > 0 ? ` (${r.affixesRemoved.join(', ')})` : ''}; renamed ${r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none'}; starters rebuilt: ${r.startersRebuilt.map((x) => `${x.starter} ${x.sigil} (bound ${x.runesRemoved.join(', ') || 'none'} removed, unbound ${x.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none'}; ${r.runesRetiered.length} runes re-tiered`);
   if (edited.length > 0) console.log(`  buffed starters changed at the forge, left alone: ${edited.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
   if (clamped.length > 0) console.log(`  starter sigils not holding their starter's runes in order, cast with clamped rolls: ${clamped.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
-  // A whole starter casts the live recipe, whatever rolls its runes were made with, so a retune of
-  // the numbers needs no OLD_STARTER_RUNES entry; only a change to a recipe's runes does, and such a
-  // sigil shows up above as clamped. Each whole starter must cast exactly the recipe and compile.
+  // A starter that holds its runes in order but no longer matches the recipe through a rune the
+  // starter itself made (bound and not from the bench, or rolled past every drop table) was not
+  // refilled by its player: the recipe's affix kinds changed, or a roll's honest tier went up, in
+  // code. Every such copy would cast clamped, so the change needs its old recipe in OLD_STARTER_RUNES.
+  // A slot refilled with the player's own find is theirs to change and is only listed above.
+  for (const it of clamped) {
+    const def = matchingStarter(it);
+    if (!def) continue;
+    const made = it.slots.filter((slot, i) => {
+      const recipe = def.runes[i];
+      return recipe !== undefined && !slotHoldsRecipeRune(slot, recipe) && slot.bench !== true && (slot.bound === true || clampRuneRolls(slot) !== slot);
+    });
+    if (made.length > 0) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order, but ${made.map((r) => r.uid).join(', ')} made by the starter no longer match the recipe's affix kinds or tiers, so it casts clamped; add the old recipe to OLD_STARTER_RUNES`);
+  }
+  // A whole starter casts the live recipe, whatever values its runes were made with, so a retune of
+  // the numbers within their tiers needs no OLD_STARTER_RUNES entry. Each whole starter must cast
+  // exactly the recipe and compile.
   for (const it of whole) {
     const def = matchingStarter(it);
     if (!def) continue;
@@ -477,6 +495,16 @@ function main(): void {
   const store = new AccountStore(copy);
   try {
     console.log(`v1 to v2 conversion check of ${src} (read-only copy)`);
+    // Starters cast and compile at the live numbers, so check them at the overrides the server
+    // would load from this database, not only the code defaults.
+    const tuning = store.tunables.load();
+    applyTunables(tuning);
+    const broken = starterTuningProblem(tuning);
+    console.log(`live tuning in this database: ${Object.keys(tuning).length} overrides${Object.keys(tuning).length > 0 ? ` (${Object.entries(tuning).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}`);
+    if (broken !== null) {
+      failures++;
+      console.log(`  FAIL tuning: ${broken}`);
+    }
     const classByAccount = new Map<number, ClassId>();
     for (const row of rows(db, 'SELECT id, account_id, name, class_id, save_json FROM characters ORDER BY id')) {
       const classId = row.class_id;
