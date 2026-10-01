@@ -44,7 +44,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 **Where things stand (2026-10-01, end of session 3).** Live at arpg.akj.io is `f82ead6`: the seamless world (one map per world copy, Emberwatch in the middle, three roads branching into six regions, levels 1 to 25 by distance, ten waypoints, three gate bosses, respawn by inactivity, the world map on M), world streaming (sleeping far monsters, chunked rendering, generation by chunk), stash tabs, the game-feel UI, night lighting, spell and world fire effects, the Hound pack and poison, the Grant item tool, admin API tokens, party frames and teleport, party-only XP, chat item links, admin camera zoom, the town editor palette. Characters convert on their first login after the deploy (waypoints to world waypoints, gate unlocks kept for those who had reached gated zones). The pre-deploy database copy is `apps/server/data/rune.db.live-pre-world-20261001` on the owner's laptop (gitignored).
 
-**Waiting on local `main` (2026-10-01, not pushed).** All reviewed and merged; gates pass (1133 tests, typecheck, build). Converts saves (the rune roll pass), so follow the deploy steps below.
+**Deployed as `0859271` (2026-10-01, 14:40).** Backup before it: `apps/server/data/rune.db.live-pre-batch-20261001` (owner's laptop, gitignored); both convert checks passed on a copy. Characters and stashes convert on their next load.
 
 - Boss tuning (half life, double damage) and a gate boss respawn setting, all live admin settings ([monsters.md](docs/features/monsters.md)).
 - Global cast cooldown 0.5 s as a live admin setting, with a sweep on the skill bar ([runes.md](docs/features/runes.md), "Cast cooldown").
@@ -55,7 +55,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - Fences drawn on their collision line, minion and knockback sub-steps, leader leap checks walls ([town.md](docs/features/town.md)).
 - Town looks restored from before the world deploy, house models stored per house with an editor picker ([town.md](docs/features/town.md)).
 - Gate walls: arch across the road, a continuous ridge, rivers kept off gates ([world-map.md](docs/features/world-map.md), "Gate walls").
-- After the deploy: the pen corner layout fix (below).
+- Still to do: the pen corner layout fix (below), through the admin town API being built.
 
 **How to deploy (any change that converts saves).**
 
