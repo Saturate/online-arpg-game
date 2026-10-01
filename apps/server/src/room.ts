@@ -354,6 +354,7 @@ export class Room {
       devTools: can(m.client.role, 'devTools') && this.sim.arena === null,
       build: SERVER_BUILD,
       castCooldown: this.sim.rates.castCooldown,
+      starterDamage: this.sim.rates.starterDamage,
       ...(this.planHash === undefined ? {} : { planHash: this.planHash }),
     });
     m.sentInventoryVersion = -1;

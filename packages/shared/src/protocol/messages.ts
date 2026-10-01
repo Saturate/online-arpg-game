@@ -1,4 +1,5 @@
 import type { Lighting, ZoomSettings } from './accounts.js';
+import type { StarterDamage } from '../data/starterTuning.js';
 import type { ArenaResult, ArenaStatus } from './arena.js';
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
@@ -420,6 +421,8 @@ export type ServerMessage =
       planHash?: string;
       /** The admin's global cast cooldown in seconds, so tooltips show what the server enforces. */
       castCooldown?: number;
+      /** The admin's damage multiplier per starter skill, so tooltips and the forge show what the server casts. */
+      starterDamage?: StarterDamage;
     }
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
@@ -431,6 +434,8 @@ export type ServerMessage =
   | { t: 'zoom'; zoom: ZoomSettings }
   /** The admin's global cast cooldown in seconds; sent whenever an admin changes it (the welcome carries it too). */
   | { t: 'castCooldown'; seconds: number }
+  /** The admin's starter damage multipliers; sent whenever an admin changes them (the welcome carries them too). */
+  | { t: 'starterDamage'; damage: StarterDamage }
   /** Admin model and height overrides; sent on entering the game and again whenever they change. */
   | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */

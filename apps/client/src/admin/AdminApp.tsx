@@ -7,6 +7,7 @@ import { ModelCheckTab } from './monsters/ModelCheckTab.js';
 import { TuningTab } from './monsters/TuningTab.js';
 import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
+import { StarterDamageTable } from './StarterDamageTable.js';
 
 /**
  * Server admin: who is online and where, every account and character, live settings and
@@ -522,6 +523,7 @@ function Settings({ token, role, notify }: TabProps) {
           />
           <small className="muted">{`Seconds between any two spell casts, before cast delay and cast speed shorten it. Force is the magazine, this is the fire rate. Default ${DEFAULT_SERVER_SETTINGS.castCooldownSeconds}.`}</small>
         </label>
+        <StarterDamageTable value={draft.starterDamage} onChange={(starterDamage) => setDraft({ ...draft, starterDamage })} />
         {respawn('respawnMinutes', 'Monster respawn', `Minutes a stretch of the world must go with no player or minion within about 2000 units before its killed packs and opened chests come back. Default ${DEFAULT_SERVER_SETTINGS.respawnMinutes}.`)}
         {respawn('bossRespawnMinutes', 'Boss respawn', `The same for region bosses and their escorts. Default ${DEFAULT_SERVER_SETTINGS.bossRespawnMinutes}.`)}
         {respawn('gateRespawnMinutes', 'Gate boss respawn', `Minutes from a gate boss's death until it comes back for the next character. Default ${DEFAULT_SERVER_SETTINGS.gateRespawnMinutes}.`)}

@@ -383,6 +383,12 @@ describe('admin API', () => {
     expect((await call('PUT', '/api/admin/settings', token, { zoomMin: 1.5 })).status).toBe(400);
     expect((await call('PUT', '/api/admin/settings', token, { zoomMin: 1.5, zoomMax: 1.8, zoomDefault: 1.6, zoomDungeon: 1.5 })).status).toBe(200);
     expect(hooks.state.zoomDefault).toBe(1.6);
+    // The starter damage table goes through the same PUT; a bad entry refuses the whole body.
+    expect((await call('PUT', '/api/admin/settings', token, { starterDamage: { bone_spear: 1.5, smite: 1 } })).status).toBe(200);
+    expect(hooks.state.starterDamage).toEqual({ bone_spear: 1.5 });
+    expect((await call('PUT', '/api/admin/settings', token, { starterDamage: { bone_spear: 4 } })).status).toBe(400);
+    expect((await call('PUT', '/api/admin/settings', token, { starterDamage: { not_a_skill: 2 } })).status).toBe(400);
+    expect(hooks.state.starterDamage).toEqual({ bone_spear: 1.5 });
     const reg = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'latecomer', password: 'password123' }) });
     expect(reg.status).toBe(403);
   });

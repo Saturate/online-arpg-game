@@ -17,6 +17,7 @@ import { FlowField } from '../world/nav.js';
 import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
 import type { ZoneWorld } from '../world/zoneGen.js';
 import type { ArenaState } from './arena.js';
+import { NO_STARTER_DAMAGE, sameStarterDamage, type StarterDamage } from '../data/starterTuning.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
 import * as inv from './inventory.js';
@@ -88,6 +89,8 @@ export interface SimRates {
   bossDamage: number;
   /** Seconds between any two sigil casts, before the cast delay affix and cast speed. */
   castCooldown: number;
+  /** The admin's damage multiplier per starter skill; sigils are compiled with it. */
+  starterDamage: StarterDamage;
 }
 
 /**
@@ -111,6 +114,7 @@ export const DEFAULT_RATES: SimRates = {
   bossLife: ENEMY_LEVEL.bossLifeMultiplier,
   bossDamage: ENEMY_LEVEL.bossDamageMultiplier,
   castCooldown: HEAT.castCooldownSeconds,
+  starterDamage: NO_STARTER_DAMAGE,
 };
 
 export class Simulation {
@@ -137,10 +141,16 @@ export class Simulation {
     this.tuning = tuning;
   }
 
-  /** Applies new admin rates. The Force bar is part of every player's stats, so those are rebuilt. */
+  /**
+   * Applies new admin rates. The Force bar is part of every player's stats, so those are rebuilt;
+   * equipped sigils carry their compiled program, so a starter tuning change recompiles them and the
+   * next cast uses it (a spell already in flight keeps the damage it was cast with).
+   */
   setRates(rates: SimRates): void {
     const maxChanged = rates.forceMax !== this.rates.forceMax;
+    const starterChanged = !sameStarterDamage(rates.starterDamage, this.rates.starterDamage);
     this.rates = { ...rates };
+    if (starterChanged) for (const p of this.world.player.values()) inv.recompileSigils(this, p);
     if (!maxChanged) return;
     for (const p of this.world.player.values()) {
       p.stats = computeStats(p, this.rates.forceMax);

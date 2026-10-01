@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, storedStarterDamage, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -508,6 +508,12 @@ export class AccountStore {
     // Field by field, so one value that no longer passes (say, after a limit is lowered) does not reset the rest.
     const out = { ...defaults };
     for (const key of Object.keys(DEFAULT_SERVER_SETTINGS)) {
+      if (key === 'starterDamage') {
+        const { table, dropped } = storedStarterDamage(stored[key]);
+        if (dropped.length > 0) events.warn('server', `[settings] ignoring stored starterDamage entries: ${dropped.join(', ')}`);
+        out.starterDamage = table;
+        continue;
+      }
       const patch = parseSettingsPatch({ [key]: stored[key] });
       if (typeof patch === 'string') events.warn('server', `[settings] ignoring stored ${key}: ${patch}`);
       else Object.assign(out, patch);

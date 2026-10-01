@@ -1,4 +1,4 @@
-import { isClassId, isItemShape, isLeaderboardResponse, isRole, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isItemShape, isLeaderboardResponse, isRole, isStarterDamage, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -91,7 +91,7 @@ function isAccounts(v: unknown): v is AdminAccount[] {
 }
 
 function isSettings(v: unknown): v is ServerSettings {
-  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number' && typeof v.heroLight === 'number' && typeof v.heroLightRadius === 'number' && typeof v.lampLight === 'number' && typeof v.respawnMinutes === 'number' && typeof v.bossRespawnMinutes === 'number' && typeof v.gateRespawnMinutes === 'number' && typeof v.bossLifeMultiplier === 'number' && typeof v.bossDamageMultiplier === 'number';
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number' && typeof v.heroLight === 'number' && typeof v.heroLightRadius === 'number' && typeof v.lampLight === 'number' && typeof v.respawnMinutes === 'number' && typeof v.bossRespawnMinutes === 'number' && typeof v.gateRespawnMinutes === 'number' && typeof v.bossLifeMultiplier === 'number' && typeof v.bossDamageMultiplier === 'number' && isStarterDamage(v.starterDamage);
 }
 
 function isClaimed(v: unknown): v is { username: string } {
