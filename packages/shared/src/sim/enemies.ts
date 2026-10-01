@@ -4,6 +4,7 @@ import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
 import type { ElementId } from './program.js';
 import { affixValue, rollAffixes } from '../items/items.js';
 import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
+import { sizeBody } from './body.js';
 import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';
 import { angleDiff, clamp, distSq, type Vec2 } from './math.js';
 import type { Rng } from './rng.js';
@@ -131,6 +132,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     fireCooldown: rng.range(0.5, 1.5),
     patternAngle: rng.range(0, Math.PI * 2),
     facing: rng.range(0, Math.PI * 2),
+    body: sizeBody(typeId, w.radius.get(id) ?? def.radius, sim.tuning.overrides.monsters[typeId]),
     speedMult: 1 + affixValue(affixes, 'hasted') / 100,
     extraProjectiles: affixValue(affixes, 'extra_projectiles'),
     reflectChance: affixValue(affixes, 'reflects_projectiles') / 100,

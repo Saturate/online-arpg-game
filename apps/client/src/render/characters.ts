@@ -1,4 +1,4 @@
-import { ENEMY_MODELS, MINION_MODELS, type ClassId, type EnemyTypeId, type EntitySnap, type MinionTypeId, type ModelOverride, type ModelOverrides } from '@rune/shared';
+import { ENEMIES, ENEMY_MODELS, MINION_MODELS, sizeBody, type ClassId, type EnemyTypeId, type EntitySnap, type MinionTypeId, type ModelOverride, type ModelOverrides, type SizedBody } from '@rune/shared';
 import {
   AnimationMixer,
   Color,
@@ -43,6 +43,26 @@ const tryOns = new Map<string, AssetDef>();
 
 export function setModelOverrides(models: ModelOverrides): void {
   serverModels = models;
+  bodies.clear();
+}
+
+/** Sized long bodies by type and radius; few entries, since radii come from a handful of sizes. */
+const bodies = new Map<string, SizedBody | null>();
+
+/**
+ * A monster's long body (sim/body.ts) sized the way the server sizes it at spawn: its radius and
+ * the admin's model or height override. Null for nearly every type, without building a key.
+ */
+export function enemyBody(et: EnemyTypeId, r: number): SizedBody | null {
+  const def = ENEMIES[et];
+  if (def.behaviour !== 'monster' || !def.traits.body) return null;
+  const key = `${et}:${r}`;
+  let b = bodies.get(key);
+  if (b === undefined) {
+    b = sizeBody(et, r, serverModels.monsters[et]);
+    bodies.set(key, b);
+  }
+  return b;
 }
 
 export function setTryOn(key: `monsters:${EnemyTypeId}` | `minions:${MinionTypeId}`, def: AssetDef | null): void {
@@ -114,6 +134,8 @@ export interface CharacterModel {
   /** Per-instance GPU resources to free with the model. The file's geometry and shared materials are not listed. */
   owned: { dispose(): void }[];
   attackRole: AnimRole;
+  /** Seconds the wind-up's clamped last frame is still held while waiting for the attack event. */
+  windupHold: number;
 }
 
 /** Small deterministic hash so the same entity always gets the same variation. */
@@ -221,7 +243,7 @@ function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): Charact
     const clip = inst.clips.find((c) => c.name === name);
     if (!clip) continue;
     const action = mixer.clipAction(clip);
-    const oneShot = role === 'attack' || role === 'cast' || role === 'shoot' || role === 'hit' || role === 'death' || role === 'awaken' || role === 'spawn';
+    const oneShot = role === 'attack' || role === 'windup' || role === 'cast' || role === 'shoot' || role === 'hit' || role === 'death' || role === 'awaken' || role === 'spawn';
     action.setLoop(oneShot ? LoopOnce : LoopRepeat, Infinity);
     action.clampWhenFinished = oneShot;
     if (role === 'attack' || role === 'cast' || role === 'shoot') action.timeScale = 1.6;
@@ -242,10 +264,11 @@ function fromInstance(inst: AssetInstance, def: AssetDef, seed: number): Charact
     tintMeshes,
     owned,
     attackRole: def.clips?.attack === 'Spellcast_Shoot' || def.id === 'hero_mage' || def.id === 'hero_rogue' || def.id === 'skel_mage' ? 'cast' : 'attack',
+    windupHold: 0,
   };
 }
 
-const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
+const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'windup', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
 function isRole(v: string): v is AnimRole {
   return ROLES.some((r) => r === v);
 }
@@ -285,11 +308,32 @@ export function locomotionRole(speed: number, current: AnimRole | null): 'idle' 
 }
 
 /**
+ * Past the telegraph's end the coiled pose is held this long for the attack event, which can
+ * arrive a tick or a network hitch late; a cast is never cancelled, so this only bounds the hold.
+ */
+const WINDUP_GRACE = 0.5;
+
+/**
+ * A telegraphed ability began: plays the model's wind-up clip, if it has one, stretched to the
+ * telegraph so it ends coiled the moment the ability lands, and held there until the attack.
+ * Models without one keep standing.
+ */
+export function windupCharacter(cm: CharacterModel, seconds: number): void {
+  const a = cm.actions.get('windup');
+  if (!a || seconds <= 0) return;
+  if (cm.current === 'windup') a.reset().play();
+  else play(cm, 'windup', 0.12);
+  a.timeScale = a.getClip().duration / seconds;
+  cm.windupHold = seconds + WINDUP_GRACE;
+}
+
+/**
  * Picks the clip from what the entity is doing. One-shots (attack, death, awaken) play through;
  * locomotion blends between idle, walk and run by actual speed.
  */
 export function driveCharacter(cm: CharacterModel, s: DriveState): void {
   cm.mixer.update(s.dt);
+  cm.windupHold = Math.max(0, cm.windupHold - s.dt);
   if (s.dead) {
     play(cm, 'death', 0.1);
     return;
@@ -302,12 +346,17 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     play(cm, 'awaken', 0.1);
     return;
   }
-  const busy = cm.current === 'awaken' || cm.current === 'attack' || cm.current === 'cast' || cm.current === 'shoot';
+  const busy = cm.current === 'awaken' || cm.current === 'windup' || cm.current === 'attack' || cm.current === 'cast' || cm.current === 'shoot';
   const action = cm.current ? cm.actions.get(cm.current) : undefined;
   const oneShotRunning = busy && action !== undefined && action.isRunning();
   if (s.attack) {
     const role = cm.actions.has(cm.attackRole) ? cm.attackRole : 'attack';
     const a = cm.actions.get(role);
+    // The attack starts from the coiled wind-up pose, which must let go or it holds under the strike.
+    if (cm.current === 'windup') {
+      cm.actions.get('windup')?.fadeOut(0.08);
+      cm.windupHold = 0;
+    }
     if (a) {
       a.reset().play();
       cm.current = role;
@@ -315,6 +364,8 @@ export function driveCharacter(cm: CharacterModel, s: DriveState): void {
     return;
   }
   if (oneShotRunning) return;
+  // The clip has ended clamped on its coiled frame; locomotion would relax it before the ram.
+  if (cm.current === 'windup' && cm.windupHold > 0) return;
   const loco = locomotionRole(s.speed, cm.current);
   play(cm, loco === 'walk' && !cm.actions.has('walk') ? 'run' : loco);
   const walk = cm.actions.get('walk');

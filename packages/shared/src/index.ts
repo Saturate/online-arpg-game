@@ -27,6 +27,7 @@ export * from './runes/v2/index.js';
 export { countEntities, NEUTRAL_TUNING, nodeLifetime, type ElementId, type FormId, type SpellProgram, type SpellTuning } from './sim/program.js';
 export * from './sim/arena.js';
 export * from './sim/auras.js';
+export * from './sim/body.js';
 export * from './sim/progression.js';
 export * from './sim/ecs.js';
 export * from './sim/math.js';

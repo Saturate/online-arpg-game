@@ -1,0 +1,31 @@
+{
+  "colours": {
+    "hide": [0.192, 0.186, 0.112],
+    "saddle": [0.122, 0.118, 0.078],
+    "belly": [0.37, 0.335, 0.252],
+    "mouth": [0.12, 0.035, 0.028],
+    "leg": [0.165, 0.155, 0.122],
+    "foot": [0.112, 0.106, 0.092],
+    "claw": [0.38, 0.35, 0.28],
+    "fin": [0.172, 0.17, 0.138],
+    "eye": [0.35, 0.14, 0.02]
+  },
+  "emission": {
+    "eye": {"colour": [1.0, 0.38, 0.04], "strength": 0.35, "roughness": 0.9, "specular": 0.0}
+  },
+  "roughness": 0.92,
+  "default": "hide",
+  "regions": [
+    {"colour": "eye", "part_verts": [null, 60]},
+    {"colour": "mouth", "forward": [-0.05, null], "up": [0.8, 1.12], "normal_up": [null, -0.3], "abs_left": [null, 0.34]},
+    {"colour": "mouth", "forward": [-0.05, null], "up": [0.6, 0.87], "normal_up": [0.3, null], "abs_left": [null, 0.32]},
+    {"colour": "claw", "forward": [-0.8, -0.25], "abs_left": [0.36, 0.56], "up": [0.5, 0.62]},
+    {"colour": "leg", "forward": [-0.8, -0.25], "abs_left": [0.36, 0.56], "up": [0.5, 0.81]},
+    {"colour": "foot", "up": [null, 0.1]},
+    {"colour": "leg", "up": [null, 0.52], "abs_left": [0.15, null], "forward": [-1.8, -0.7]},
+    {"colour": "belly", "normal_up": [null, -0.15]},
+    {"colour": "belly", "forward": [-0.1, null], "up": [null, 0.87]},
+    {"colour": "saddle", "normal_up": [0.62, null]},
+    {"colour": "fin", "forward": [null, -2.9]}
+  ]
+}

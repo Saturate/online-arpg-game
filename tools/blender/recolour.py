@@ -8,6 +8,8 @@ Palette file (colours are linear RGB, as Blender's Base Color field shows them):
     {
       "colours":   {"coat": [0.15, 0.128, 0.108], "eye": [0.3, 0.12, 0.02]},
       "emission":  {"eye": {"colour": [1.0, 0.42, 0.06], "strength": 2.5}},
+                   (optional "roughness" and "specular" per glow: a small faceted eye at the
+                   default 0.5 and 0.3 can throw a white highlight that swamps its colour)
       "roughness": 0.92,
       "materials": {"Material.001": "coat"},
       "default":   "coat",
@@ -19,7 +21,8 @@ Without "regions", each existing material takes the colour its name maps to in "
 the colour of the same name), and faces without one take "default". With "regions", faces are
 painted by position instead: the first rule whose ranges all hold wins. A range is [min, max]
 (null for open) on forward, left, abs_left, up (the face centre in metres, in the frame of
-orient_ground.py) or normal_forward, normal_left, normal_up (the face normal, -1 to 1).
+orient_ground.py), normal_forward, normal_left, normal_up (the face normal, -1 to 1) or
+part_verts (how many vertices the face's loose part has: a modelled eye is a small part of its own).
 "eyes" casts from "from" towards "to" (left side; mirrored for the right) and sets a small
 icosphere into the surface where it lands.
 
@@ -64,9 +67,10 @@ def make_material(name):
     m.use_nodes = True
     n = m.node_tree.nodes['Principled BSDF']
     n.inputs['Base Color'].default_value = (*COLOURS[name], 1)
-    n.inputs['Roughness'].default_value = PAL.get('roughness', 0.9) if name not in EMISSION else 0.5
+    glow = EMISSION.get(name, {})
+    n.inputs['Roughness'].default_value = glow.get('roughness', 0.5) if glow else PAL.get('roughness', 0.9)
     n.inputs['Metallic'].default_value = 0.0
-    n.inputs['Specular IOR Level'].default_value = 0.3
+    n.inputs['Specular IOR Level'].default_value = glow.get('specular', 0.3) if glow else 0.3
     if name in EMISSION:
         n.inputs['Emission Color'].default_value = (*EMISSION[name]['colour'], 1)
         n.inputs['Emission Strength'].default_value = EMISSION[name]['strength']
@@ -78,10 +82,31 @@ def in_range(value, rng):
     return (lo is None or value > lo) and (hi is None or value < hi)
 
 
+def part_sizes(bm):
+    """Vertex count of each vertex's loose part."""
+    size, seen = {}, set()
+    for v in bm.verts:
+        if v.index in seen:
+            continue
+        part, stack = [], [v]
+        seen.add(v.index)
+        while stack:
+            x = stack.pop()
+            part.append(x.index)
+            for e in x.link_edges:
+                y = e.other_vert(x)
+                if y.index not in seen:
+                    seen.add(y.index)
+                    stack.append(y)
+        for i in part:
+            size[i] = len(part)
+    return size
+
+
 def region_for(face):
     f, s, z = F(face.calc_center_median())
     n = face.normal
-    values = {'forward': f, 'left': s, 'abs_left': abs(s), 'up': z, 'normal_forward': -n.y, 'normal_left': n.x, 'normal_up': n.z}
+    values = {'forward': f, 'left': s, 'abs_left': abs(s), 'up': z, 'normal_forward': -n.y, 'normal_left': n.x, 'normal_up': n.z, 'part_verts': PART[face.verts[0].index]}
     for rule in PAL['regions']:
         if all(in_range(values[k], v) for k, v in rule.items() if k != 'colour'):
             return rule['colour']
@@ -91,6 +116,8 @@ def region_for(face):
 names = list(COLOURS)
 bm = bmesh.new()
 bm.from_mesh(mesh)
+bm.verts.ensure_lookup_table()
+PART = part_sizes(bm)
 if 'regions' in PAL:
     counts = {}
     for face in bm.faces:

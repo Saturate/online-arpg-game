@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AnimRole } from '../../render/assets.js';
 import { MonsterViewer, type StageModel } from './monsterViewer.js';
 
-export const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
+export const ROLES: readonly AnimRole[] = ['idle', 'walk', 'run', 'attack', 'windup', 'cast', 'shoot', 'hit', 'death', 'dormant', 'awaken', 'spawn'];
 const LOOPING: ReadonlySet<AnimRole> = new Set(['idle', 'walk', 'run', 'dormant']);
 
 export interface StageTarget {

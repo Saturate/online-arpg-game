@@ -9,7 +9,8 @@ import { addNightRim } from './nightRim.js';
  * packs under public/assets/kaykit (see scripts/assets for how they were imported and trimmed).
  */
 
-export type AnimRole = 'idle' | 'walk' | 'run' | 'attack' | 'cast' | 'shoot' | 'hit' | 'death' | 'dormant' | 'awaken' | 'spawn';
+/** windup is held through a telegraph, stretched to its length (characters.ts windupCharacter). */
+export type AnimRole = 'idle' | 'walk' | 'run' | 'attack' | 'windup' | 'cast' | 'shoot' | 'hit' | 'death' | 'dormant' | 'awaken' | 'spawn';
 
 export type AssetCategory = 'hero' | 'monster' | 'building' | 'wall' | 'nature' | 'prop' | 'light' | 'dungeon' | 'graveyard';
 
@@ -281,6 +282,8 @@ export const ASSETS: AssetDef[] = [
   { id: 'mon_lich', label: 'The Pale Lich', category: 'monster', url: `${K}/skeletons/Skeleton_Mage.glb`, height: 100, clips: { ...SKELETON_CLIPS, attack: 'Spellcast_Shoot' }, weapon: { url: `${K}/skeletons/Skeleton_Staff.gltf`, bone: 'handslotr' }, tint: 0xe0d0ff, glow: 0x3a1a90 },
   // The owner's brother's dog (tools/blender/README.md), made for this game only; not licensed for reuse.
   { id: 'mon_grave_hound', label: 'Grave Hound', category: 'monster', url: '/assets/monsters/grave_hound.glb', height: 50, clips: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Attack', hit: 'Hit', death: 'Death' } },
+  // The owner's brother's Charger (tools/blender/README.md), made for this game only; not licensed for reuse.
+  { id: 'mon_charger', label: 'Charger', category: 'monster', url: '/assets/monsters/charger.glb', height: 80, clips: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Attack', windup: 'Windup', hit: 'Hit', death: 'Death' } },
   { id: 'minion_brute', label: 'Bound Warrior (Zombie Brute minion)', category: 'monster', url: `${K}/skeletons/Skeleton_Warrior.glb`, height: 54, clips: SKELETON_CLIPS, weapon: { url: `${K}/skeletons/Skeleton_Axe.gltf`, bone: 'handslotr' }, tint: 0xb8ffb0, glow: 0x205a20 },
   { id: 'minion_archer', label: 'Bound Archer (Skeleton Archer minion)', category: 'monster', url: `${K}/skeletons/Skeleton_Rogue.glb`, height: 46, clips: { ...SKELETON_CLIPS, attack: '2H_Ranged_Shoot' }, weapon: { url: `${K}/skeletons/Skeleton_Crossbow.gltf`, bone: 'handslotr' }, tint: 0xd8c8ff, glow: 0x3a2a6a },
   // The Hound pack: the Grave Hound's file in its own coat (the minion ring and bar mark them as allies), the Leader darker.

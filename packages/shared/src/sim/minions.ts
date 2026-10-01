@@ -3,6 +3,7 @@ import type { Ability } from '../data/enemies.js';
 import type { MinionDef } from '../data/minions.js';
 import { MIN_PROJECTILE_SPEED } from '../data/tuning.js';
 import { affixValue, behaviourOf, vesselPackmates, type VesselItem } from '../items/items.js';
+import { hurtGap, withinHurt } from './body.js';
 import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp, type PackRole, type PlayerComp } from './ecs.js';
 import { knockbackImmune } from './enemies.js';
@@ -875,8 +876,8 @@ export function updateMinions(sim: Simulation, dt: number): void {
         // Packmates circle to their own side of the target instead of queueing behind the Leader.
         const goal = m.pack?.role === 'mate' ? flankPoint(sim, owner, m, pos, tpos, radius + (w.radius.get(target) ?? 0) + def.attackRange * 0.5) : tpos;
         navigate(sim, id, m, pos, radius, goal, owner.trail, speed * dt, m.pack?.role === 'mate' ? 2 : reach - 4);
-        const now = Math.sqrt(distSq(pos.x, pos.y, tpos.x, tpos.y));
-        if (now <= reach && m.attackCooldown <= 0) {
+        // A long-bodied target can be bitten on the flank or tail, not only at its collider.
+        if (hurtGap(sim, target, pos.x, pos.y) <= def.attackRange + radius && m.attackCooldown <= 0) {
           m.attackCooldown = m.attackCooldownBase;
           sim.emit({ e: 'attack', id }, pos.x, pos.y);
           const hit = biteDamage(owner, m);
@@ -1015,8 +1016,7 @@ function advanceLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, ra
   const w = sim.world;
   const hit = l.damage * (m.howled > 0 ? 1 + HOUND_PACK.howl.damageBonus : 1);
   for (const [eid, e, ep] of w.query(w.enemy, w.position)) {
-    const reach = l.radius + (w.radius.get(eid) ?? 0);
-    if (distSq(pos.x, pos.y, ep.x, ep.y) > reach * reach) continue;
+    if (!withinHurt(ep.x, ep.y, w.radius.get(eid) ?? 0, e.body, e.facing, pos.x, pos.y, l.radius)) continue;
     const dealt = dealDamage(sim, eid, hit, id, []);
     if (dealt <= 0) continue;
     applyPoison(sim, eid, hit, id);

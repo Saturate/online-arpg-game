@@ -2,7 +2,7 @@
 
 Status: Built 2026-10-01 on `feat/admin-ui`, not pushed. Planned by the owner the same day.
 
-"Can we make the admin interface better?" The owner's pain points: no live view of what is happening, and finding things is slow. The users are the owner and his brother, on desktops. Each sees only what their role allows: the live view, search results and jumps follow the same permissions the server checks.
+"Can we make the admin interface better?" The owner's pain points: no live view of what is happening, and finding things is slow. The users are the owner and his brother (an admin), on desktops. Each sees only what their role allows: the live view, search results and jumps follow the same permissions the server checks.
 
 ## What it does
 

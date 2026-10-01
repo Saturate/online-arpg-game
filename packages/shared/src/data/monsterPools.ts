@@ -36,6 +36,8 @@ const HABITATS: Partial<Record<EnemyTypeId, Habitat>> = {
   necromancer: { biomes: ['crypt', 'ruins', 'marsh'], minLevel: 4 },
   tusked_boar: { biomes: ['meadow', 'forest'], minLevel: 1 },
   horned_charger: { biomes: ['desert', 'cave', 'ruins'], minLevel: 4 },
+  // The first regions out of town (Gloomvale, Ashen Steppe, Thornwood), from where they start.
+  charger: { biomes: ['marsh', 'ruins', 'forest'], minLevel: 6 },
   bloated_corpse: { biomes: ['marsh', 'crypt'], minLevel: 2 },
   volatile: { biomes: ['desert', 'cave', 'ruins'], minLevel: 3 },
   tomb_guard: { biomes: ['crypt', 'ruins'], minLevel: 3 },
