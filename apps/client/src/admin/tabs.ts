@@ -1,7 +1,7 @@
 import { can, type Permission, type Role } from '@rune/shared';
 
 /** The admin page's tabs, in the order the header shows them. */
-export const TABS = ['live', 'players', 'arena', 'settings', 'tuning', 'monsters', 'minions', 'modelCheck', 'log', 'grant', 'tokens'] as const;
+export const TABS = ['live', 'players', 'arena', 'settings', 'tuning', 'bench', 'monsters', 'minions', 'modelCheck', 'log', 'grant', 'tokens'] as const;
 export type Tab = (typeof TABS)[number];
 
 export const TAB_NAMES: Record<Tab, string> = {
@@ -10,6 +10,7 @@ export const TAB_NAMES: Record<Tab, string> = {
   arena: 'Arena',
   settings: 'Settings',
   tuning: 'Tuning',
+  bench: 'Balance bench',
   monsters: 'Monsters',
   minions: 'Minions',
   modelCheck: 'Model check',

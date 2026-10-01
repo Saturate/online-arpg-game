@@ -26,6 +26,7 @@ const TIME_SCALES = [0.1, 0.25, 0.5, 1, 2, 4];
 const LAYOUTS: readonly DummyLayout[] = ['pack', 'line', 'ring'];
 const CAST_MODES: readonly { id: CastMode; label: string }[] = [
   { id: 'hold', label: 'Hold' },
+  { id: 'bar', label: 'Under bar' },
   { id: 'interval', label: 'Interval' },
   { id: 'manual', label: 'Click' },
 ];

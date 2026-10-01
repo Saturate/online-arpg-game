@@ -6,6 +6,7 @@ import { LeaderboardTables } from '../ui/ArenaBoard.js';
 import { ModelCheckTab } from './monsters/ModelCheckTab.js';
 import { TuningTab } from './monsters/TuningTab.js';
 import { TunablesTab } from './TunablesTab.js';
+import { BenchTab } from './bench/BenchTab.js';
 import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
 import { LiveTab } from './live/LiveTab.js';
@@ -21,7 +22,7 @@ import { searchId, TAB_NAMES, visibleTabs, type Jump, type Tab } from './tabs.js
  */
 
 /** Tabs with wide tables or editors use the whole window; forms keep the narrow column. */
-const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'players', 'log', 'tuning', 'monsters', 'minions', 'modelCheck']);
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'players', 'log', 'tuning', 'bench', 'monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -520,6 +521,10 @@ function AdminPage({ access }: { access: StaffAccess }) {
   }, []);
   const onSearch = useCallback((e: SearchEntry) => go(e.tab, e.target), [go]);
   const openPlayer = useCallback((accountId: number) => go('players', String(accountId)), [go]);
+  const openTuning = useCallback(() => {
+    setJump(null);
+    setTab('tuning');
+  }, []);
   useJumpFocus(jump);
   /** The jump for a tab, so a tab only reacts to results that point into it. */
   const focusOf = (t: Tab): Jump | null => (jump?.tab === t ? jump : null);
@@ -559,6 +564,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
         {shows('arena') && <Arena notify={notify} />}
         {shows('settings') && <Settings token={token} role={role} notify={notify} />}
         {shows('tuning') && <TunablesTab token={token} role={role} notify={notify} focus={focusOf('tuning')} />}
+        {shows('bench') && <BenchTab token={token} role={role} notify={notify} openTuning={openTuning} />}
         {shows('monsters') && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} focus={focusOf('monsters')} />}
         {shows('minions') && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} focus={focusOf('minions')} />}
         {shows('modelCheck') && <ModelCheckTab notify={notify} />}

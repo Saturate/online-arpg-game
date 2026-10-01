@@ -1,0 +1,360 @@
+/* Balance bench tab: the table of measured sigils and the watch panel. Same plates as the Tuning tab. */
+.bn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100vh - 80px);
+  min-height: 520px;
+  text-align: left;
+}
+.bn-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+.bn-head h2 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 15px;
+  margin: 0;
+}
+.bn-head p {
+  margin: 0;
+}
+.bn-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.bn-note,
+.bn-preview {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.bn-preview {
+  color: var(--text);
+  border-left: 2px solid var(--ember);
+  padding: 4px 10px;
+  background: #1a120b;
+}
+.bn-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+.adm .bn-filters button {
+  padding: 4px 10px;
+  color: var(--muted);
+}
+.adm .bn-filters button.on {
+  color: var(--gold);
+}
+.bn-filters input[type='search'] {
+  width: 220px;
+}
+.bn-check {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--muted);
+}
+.bn-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px 10px;
+  border: 1px solid #3a2f20;
+  border-radius: 6px;
+  background: #110e0b;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.bn-pick label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.bn-pick-text {
+  flex: 1 1 360px;
+}
+.bn-pick-text input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.bn-pick input[type='number'] {
+  width: 64px;
+}
+.bn-verdict {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bn-verdict.bad,
+.bn-error {
+  color: #c0574c;
+}
+.bn-pick input[aria-invalid='true'] {
+  border-color: #7a3a30;
+}
+.bn-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  border: 1px solid #3a2f20;
+  border-radius: 6px;
+  background: #110e0b;
+}
+.bn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.bn-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #16120d;
+  border-bottom: 1px solid #2e261d;
+  text-align: left;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.adm .bn-sort {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bn-sort:hover,
+.bn-table th[aria-sort='ascending'] .bn-sort,
+.bn-table th[aria-sort='descending'] .bn-sort {
+  color: var(--gold);
+}
+.bn-table td,
+.bn-table tbody th {
+  padding: 5px 8px;
+  border-bottom: 1px solid #1b1610;
+  vertical-align: top;
+  text-align: left;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.bn-table td.bn-num,
+.bn-table th.bn-num {
+  text-align: right;
+}
+.bn-table tbody tr:hover {
+  background: #17120d;
+}
+/* Outliers carry a left rule as well as their badge, so they read without colour too. */
+.bn-row-soft > :first-child {
+  box-shadow: inset 3px 0 0 #8a6a2c;
+}
+.bn-row-hard > :first-child {
+  box-shadow: inset 3px 0 0 #a8382c;
+}
+.bn-name {
+  display: block;
+  color: var(--text);
+}
+.bn-text {
+  display: block;
+  font-size: 11px;
+  color: #8c7f6a;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  max-width: 70ch;
+}
+.bn-src {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bn-src-pick {
+  color: #b9a26e;
+}
+.bn-src-popular {
+  color: #a3967e;
+}
+.bn-pf {
+  display: grid;
+  gap: 1px;
+  white-space: nowrap;
+}
+.bn-x {
+  font-variant-numeric: tabular-nums;
+}
+.bn-x.bn-soft {
+  color: var(--gold);
+}
+.bn-x.bn-hard {
+  color: var(--bad);
+  font-weight: 600;
+}
+.bn-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+/* Fixed tracks so saved, arrow, proposed and the chip sit at the same place on every row. */
+.bn-pair {
+  display: inline-grid;
+  grid-template-columns: 6ch 1.5ch 6ch auto;
+  column-gap: 4px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.bn-pair > :first-child {
+  text-align: right;
+}
+.bn-before {
+  color: #7d7262;
+}
+.bn-delta {
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.bn-delta.up {
+  color: #d9a35a;
+  background: #241b10;
+}
+.bn-delta.down {
+  color: #7f9bb5;
+  background: #1a222b;
+}
+.bn-none {
+  color: #5e564a;
+}
+.bn-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.bn-actions button + button {
+  margin-left: 6px;
+}
+.adm .bn-actions button.bn-remove {
+  color: #b0645a;
+  border-color: #4a2a24;
+}
+.bn-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The game's `.small` centres its text and pushes it down; this tab reads as a compact list. */
+.bn .small,
+.bn-watch .small {
+  text-align: left;
+  margin: 0;
+}
+.bn-watch > .small {
+  margin-top: 10px;
+}
+
+/* Watch one */
+.bn-watch-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(4, 3, 2, 0.78);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.bn-watch {
+  width: min(1240px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  border: 1px solid #5a4728;
+  border-radius: 6px;
+  background: #0f0c09;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  padding: 12px 14px;
+  text-align: left;
+}
+.bn-watch header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+.bn-watch h2 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 15px;
+  margin: 0;
+}
+.bn-watch header .bn-text {
+  flex: 1;
+}
+.bn-toggle {
+  display: flex;
+  gap: 2px;
+}
+.bn-toggle button.on {
+  color: var(--gold);
+}
+.bn-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+.bn-stage {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.bn-stage figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.bn-canvas {
+  position: relative;
+  height: 380px;
+  overflow: hidden;
+  border: 1px solid #2a2218;
+  border-radius: 4px;
+  background: #050403;
+}
+.bn-reading {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.bn-reading div {
+  display: grid;
+}
+.bn-reading dt {
+  color: var(--muted);
+}
+.bn-reading dd {
+  margin: 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}

@@ -18,7 +18,8 @@ import {
 import { StudioMetrics, type TickSample } from './metrics.js';
 
 export type DummyLayout = 'pack' | 'line' | 'ring';
-export type CastMode = 'hold' | 'interval' | 'manual';
+/** `bar` holds the button while Force is at or below the bar, as the balance harness casts: never a misfire. */
+export type CastMode = 'hold' | 'bar' | 'interval' | 'manual';
 
 export interface StudioSetup {
   seed: number;
@@ -211,6 +212,7 @@ export class StudioSim {
       if (!this.compiled.ok) return { buttons: this.seq % 2 === 0 ? bit : 0, aim };
       return { buttons: bit, aim };
     }
+    if (this.cast.mode === 'bar') return { buttons: this.heat <= this.heatMax ? bit : 0, aim };
     if (this.cast.mode === 'interval' && this.sinceCast >= this.cast.intervalSeconds) {
       this.sinceCast = 0;
       return { buttons: bit, aim };

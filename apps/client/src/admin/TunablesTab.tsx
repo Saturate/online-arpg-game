@@ -4,7 +4,6 @@ import {
   isTunablesState,
   TUNING_CATEGORIES,
   TUNING_CATEGORY_NAMES,
-  tunableProblem,
   type Role,
   type TunableHistoryEntry,
   type TunableSpec,
@@ -14,6 +13,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { call, type ApiResult } from '../net/api.js';
 import { searchId, type Jump } from './tabs.js';
+import { parsed, pendingPatch, useTuningDraft } from './tuningDraft.js';
 import './tunables.css';
 
 /** The server checks every value again; checking the reply keeps a bad response out of the editor. */
@@ -27,7 +27,7 @@ function historyOf(r: ApiResult<unknown>): ApiResult<TunableHistoryEntry[]> {
   return Array.isArray(r.data) && r.data.every(isTunableHistoryEntry) ? { ok: true, data: r.data } : { ok: false, status: 0, error: 'The server sent an unreadable history' };
 }
 
-const tunablesApi = {
+export const tunablesApi = {
   state: async (token: string) => stateOf(await call('GET', '/api/admin/tuning', token)),
   patch: async (token: string, patch: Record<string, number | null>) => stateOf(await call('PATCH', '/api/admin/tuning', token, patch)),
   history: async (token: string) => historyOf(await call('GET', '/api/admin/tuning/history', token)),
@@ -42,13 +42,6 @@ const fmtOrDefault = (n: number | null): string => (n === null ? 'default' : fmt
 function when(at: number): string {
   const d = new Date(at);
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-}
-
-/** What an edit box holds as a number to save, or a reason it cannot be saved. */
-function parsed(spec: TunableSpec, text: string): number | string {
-  if (text.trim() === '') return 'empty';
-  const n = Number(text);
-  return tunableProblem(spec, n) ?? n;
 }
 
 function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved: number | undefined; edit: string | undefined; editable: boolean; onEdit: (text: string | undefined) => void }) {
@@ -102,9 +95,8 @@ function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved
  */
 export function TunablesTab({ token, role, notify, focus }: { token: string; role: Role; notify: (t: string) => void; focus: Jump | null }) {
   const editable = can(role, 'tuning');
-  const [server, setServer] = useState<TunablesState | null>(null);
+  const { server, setServer, edits, setEdits } = useTuningDraft();
   const [history, setHistory] = useState<TunableHistoryEntry[]>([]);
-  const [edits, setEdits] = useState<Record<string, string>>({});
   const [view, setView] = useState<View>('runes');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
@@ -123,27 +115,12 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
   useEffect(() => {
     void tunablesApi.state(token).then((r) => (r.ok ? setServer(r.data) : notify(r.error)));
     void loadHistory();
-  }, [token, notify, loadHistory]);
+  }, [token, notify, loadHistory, setServer]);
 
   const specs = useMemo(() => new Map((server?.schema ?? []).map((s) => [s.path, s])), [server]);
   const values = server?.values ?? {};
 
-  /** Only edits that differ from what is live go to the server; the code default is sent as null. */
-  const pending = useMemo(() => {
-    const patch: Record<string, number | null> = {};
-    let bad = 0;
-    for (const [path, text] of Object.entries(edits)) {
-      const spec = specs.get(path);
-      if (!spec) continue;
-      const v = parsed(spec, text);
-      if (typeof v === 'string') {
-        bad++;
-        continue;
-      }
-      if (v !== (values[path] ?? spec.default)) patch[path] = v === spec.default ? null : v;
-    }
-    return { patch, count: Object.keys(patch).length, bad };
-  }, [edits, specs, values]);
+  const pending = useMemo(() => pendingPatch(edits, specs, values), [edits, specs, values]);
 
   if (!server) return <p className="muted">Loading</p>;
 
