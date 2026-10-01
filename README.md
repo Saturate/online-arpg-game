@@ -72,13 +72,12 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - Starter sigils get one open slot, with the forge redesign ([forge.md](docs/features/forge.md)).
 - Bosses: half the life, double the damage, both admin settings, every boss ([monsters.md](docs/features/monsters.md)).
 - A town save applies without rebuilding the world room (the full fix; [world-map.md](docs/features/world-map.md)).
-- The trade write duplication and the fence corner get fixed.
+- The fence corner gets fixed (the trader write duplication is fixed, merged locally 2026-10-01).
 
 **Open items.**
 
 - A town save regenerates the world for everyone in it; moving a gate refills every chest (full fix decided, above).
 - Packmates or the hero can still catch on some town fence corners (`docs/backlog.md`).
-- Trade write failure edge case (an item could exist twice after a restart; [items.md](docs/features/items.md)).
 - Owner chores: rotate the Steam API key and the GHCR pull token pasted in chat; the GHCR package could go public.
 
 **Infrastructure.**
