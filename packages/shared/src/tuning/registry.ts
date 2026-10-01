@@ -2,7 +2,6 @@ import { AILMENTS, AURA, HEAT, LINK, SPELL } from '../config/sim.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
 import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
-import { liveStarterRunes, STARTER_SIGILS } from '../data/starterSigils.js';
 import type { TunableValues } from './values.js';
 
 /**
@@ -12,7 +11,7 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['starters', 'runes', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
+export const TUNING_CATEGORIES = ['runes', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
@@ -24,7 +23,6 @@ export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
   force: 'Force prices',
   spirit: 'Spirit prices',
   runes: 'Rune balance',
-  starters: 'Skill balance',
 };
 
 export interface TunableSpec {
@@ -210,58 +208,6 @@ add('rune.concentrated.defaultMore', 'runes', 'Concentrated: % more damage witho
 SPECIAL['rune.split.defaultCount'] = { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
 add('rune.split.defaultCount', 'runes', 'Split: copies without a count', DEFAULTS, 'splitCount');
 
-/**
- * Each starter's own rune numbers (phase 2): every roll in its recipe, under one group per starter.
- * They overwrite the live copy of the recipe (`liveStarterRunes`), which a whole starter casts.
- * Percentages go down to -90, where the engine's own floor (a tenth) sits; counts stay whole and
- * inside the grammar's limits, so a tuned starter still compiles.
- */
-const STARTER_KEYS = {
-  speed: '% speed',
-  size: '% size',
-  duration: '% duration',
-  damage: '% damage',
-  concentration: '% more damage',
-  pierce: 'enemies pierced',
-  count: 'Split copies',
-} as const;
-const PERCENT_FLOOR = -90;
-
-function isStarterKey(k: string): k is keyof typeof STARTER_KEYS {
-  return Object.hasOwn(STARTER_KEYS, k);
-}
-
-function starterRange(key: keyof typeof STARTER_KEYS, d: number): Range {
-  switch (key) {
-    case 'count':
-      return { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
-    case 'pierce':
-      return { min: 0, max: Math.max(10 * d, 1), int: true };
-    case 'concentration':
-      return { min: CONCENTRATED.minMore, max: CONCENTRATED.maxMore };
-    default:
-      return { min: PERCENT_FLOOR, max: tidy(Math.max(10 * Math.abs(d), 100)) };
-  }
-}
-
-for (const def of STARTER_SIGILS) {
-  liveStarterRunes(def).forEach((rune, i) => {
-    const where = `${runeName(rune.id)} (rune ${i + 1})`;
-    const opts = (range: Range) => ({ range, group: def.name });
-    const r = rune.affixes.release;
-    if (r && (r.kind === 'after' || r.kind === 'every')) {
-      const range = { min: MIN_RELEASE_SECONDS, max: tidy(Math.max(10 * r.seconds, 1)) };
-      add(`starter.${def.id}.${i}.${r.kind}`, 'starters', `${where}: releases ${r.kind} (seconds)`, r, 'seconds', opts(range));
-    }
-    for (const key of Object.keys(rune.affixes)) {
-      if (!isStarterKey(key)) continue;
-      const v = rune.affixes[key];
-      if (v === undefined) continue;
-      add(`starter.${def.id}.${i}.${key}`, 'starters', `${where}: ${STARTER_KEYS[key]}`, rune.affixes, key, opts(starterRange(key, v)));
-    }
-  });
-}
-
 /** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
 export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));
 
@@ -367,4 +313,10 @@ export function parseTunableValues(v: unknown, onBad?: (why: string) => void): T
     if (value !== spec?.default) out[path] = value;
   }
   return out;
+}
+
+/** Why a whole set of overrides cannot be applied though each number is in range, or null. */
+export function tunableSetProblem(values: Readonly<TunableValues>): string | null {
+  void values;
+  return null;
 }

@@ -1,12 +1,7 @@
 import {
-  compileRunes,
   compileSigilItem,
-  createStarterSigil,
   formatRunes,
-  holdsStarterRecipe,
-  liveStarterRunes,
-  sigilCompileContext,
-  toRuneInstance,
+  runeItemFromInstance,
   SIM,
   SKILL_BUTTONS,
   Simulation,
@@ -55,30 +50,27 @@ export interface StudioSkill {
 }
 
 export function studioSkillOf(def: StarterSigilDef): StudioSkill {
-  return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(liveStarterRunes(def)) };
+  return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(def.runes) };
 }
 
 /**
- * The sigil the game would hand a new character for this draft: a starter sigil holding its runes,
- * so the studio compiles it with the same slots, Force multiplier and cast delay as play does.
+ * The sigil the game would hand a new character for this draft: a common kit sigil holding its
+ * runes, so the studio compiles it with the same slots, Force multiplier and cast delay as play
+ * does. Its rolls are kept as written, even past the drop tables, since the studio is where a kit's
+ * numbers are drafted; the game's kits clamp theirs into the tables (createStarterSigil).
  */
 export function studioSigil(def: StudioSkill): SigilItem | null {
   const t = tokenizeSpell(def.text);
   if (t.errors.length > 0) return null;
   let uid = 1;
-  return createStarterSigil(() => uid++, { id: def.id, name: def.name, description: def.description, classId: def.classId, runes: t.runes }, { bound: true });
+  const sigilUid = uid++;
+  return { uid: sigilUid, kind: 'sigil', tier: 'common', name: def.name, ilvl: 1, affixes: [], slots: t.runes.map((r) => runeItemFromInstance(uid++, r, true)), corrupted: false, starter: def.id, bound: true };
 }
 
-/**
- * Compiles the draft as the game compiles an equipped starter sigil. A draft holding a starter's
- * runes casts its own numbers as written: the studio is where a starter's numbers are drafted, and
- * the game would cast the live recipe in place of an edited roll. Opened from a starter, the draft
- * is the live recipe, so both agree.
- */
+/** Compiles the draft as the game compiles an equipped sigil: the rolls it holds, as written. */
 export function compileSkill(def: StudioSkill): SigilCompile {
   const sigil = studioSigil(def);
   if (!sigil) return { ok: false, errors: tokenizeSpell(def.text).errors, force: 0 };
-  if (holdsStarterRecipe(sigil)) return compileRunes(sigil.slots.map(toRuneInstance), sigilCompileContext(sigil, def.classId));
   return compileSigilItem(sigil, def.classId);
 }
 

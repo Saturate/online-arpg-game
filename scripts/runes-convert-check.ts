@@ -23,15 +23,8 @@ import {
   createStarterSigil,
   OLD_STARTER_RUNES,
   RETIRED_SIGIL_AFFIXES,
-  castingSlots,
   applyTunables,
   clampRuneRolls,
-  holdsStarterRecipe,
-  starterRunesOffRecipe,
-  liveStarterRunes,
-  slotHoldsRecipeRune,
-  starterTuningProblem,
-  matchingStarter,
   retierRoll,
   runeRollsChanged,
   type RuneItem,
@@ -325,7 +318,7 @@ function reportTabs(title: string, before: StashSaveV1): void {
   } else console.log('  tab checks: ok');
 }
 
-const rollTotals = { containers: 0, sigils: 0, affixesRemoved: 0, renamed: 0, rebuilt: new Map<string, number>(), runesRemoved: 0, runesReturned: 0, retiered: 0, unchanged: 0, edited: 0, castClamped: 0, castLive: 0 };
+const rollTotals = { containers: 0, sigils: 0, affixesRemoved: 0, renamed: 0, rebuilt: new Map<string, number>(), runesRemoved: 0, runesReturned: 0, retiered: 0, unchanged: 0, edited: 0 };
 
 const recipeText = (s: SigilItem): string => stable(s.slots.map(toRuneInstance));
 /** A rune with its roll tiers left out: the pass may only move tiers of rolls stronger than their tier. */
@@ -376,40 +369,8 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
     return def !== undefined && recipeText(it) !== recipeText(createStarterSigil(() => 0, def, { bound: false }));
   });
   rollTotals.edited += edited.length;
-  // Starter sigils that no longer hold their starter's runes in order cast with clamped rolls.
-  const clamped = after.filter((it): it is SigilItem => it.kind === 'sigil' && it.starter !== undefined && !holdsStarterRecipe(it) && castingSlots(it).some((s, i) => s !== it.slots[i]));
-  rollTotals.castClamped += clamped.length;
-  const whole = after.filter((it): it is SigilItem => it.kind === 'sigil' && holdsStarterRecipe(it));
-  rollTotals.castLive += whole.length;
   console.log(`  rune rolls: ${changed} of ${before.length} items changed; "first rune is free" removed from ${r.affixesRemoved.length} sigils${r.affixesRemoved.length > 0 ? ` (${r.affixesRemoved.join(', ')})` : ''}; renamed ${r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none'}; starters rebuilt: ${r.startersRebuilt.map((x) => `${x.starter} ${x.sigil} (bound ${x.runesRemoved.join(', ') || 'none'} removed, unbound ${x.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none'}; ${r.runesRetiered.length} runes re-tiered`);
   if (edited.length > 0) console.log(`  buffed starters changed at the forge, left alone: ${edited.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
-  if (clamped.length > 0) console.log(`  starter sigils not holding their starter's runes in order, cast with clamped rolls: ${clamped.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
-  // A starter that holds its runes in order but no longer matches its recipe through a rune the
-  // starter itself made was not changed by its player: the recipe's affix kinds changed, or a roll's
-  // honest tier went up, in code. Every such copy would cast clamped, so the change needs its old
-  // recipe in OLD_STARTER_RUNES (starterRunesOffRecipe says which runes are the starter's own).
-  // Checked on every sigil, not only those that cast clamped: most starters hold only rolls inside
-  // the tables.
-  for (const it of after) {
-    if (it.kind !== 'sigil') continue;
-    const made = starterRunesOffRecipe(it);
-    if (made.length > 0) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order, but its own runes ${made.map((r) => r.uid).join(', ')} no longer match the recipe's affix kinds or tiers, so it casts clamped; add the old recipe to OLD_STARTER_RUNES`);
-    // A bound rune of the recipe's rune id with other affix kinds is either a kit rune moved in from
-    // another starter or a recipe whose affix kinds changed in code without an entry; nothing on the
-    // item tells them apart, so it is listed for a person to look at rather than failed.
-    const def = it.starter !== undefined && !holdsStarterRecipe(it) ? matchingStarter(it) : undefined;
-    const unsure = def ? it.slots.filter((slot, i) => slot.bound === true && slot.bench !== true && !made.includes(slot) && def.runes[i] !== undefined && !slotHoldsRecipeRune(slot, def.runes[i])) : [];
-    if (unsure.length > 0) console.log(`  WARN ${it.starter} sigil ${it.uid}: bound runes ${unsure.map((r) => r.uid).join(', ')} do not match the recipe; a kit rune moved from another starter, or a recipe change that needs OLD_STARTER_RUNES`);
-  }
-  // A whole starter casts the live recipe, whatever values its runes were made with, so a retune of
-  // the numbers within their tiers needs no OLD_STARTER_RUNES entry. Each whole starter must cast
-  // exactly the recipe and compile.
-  for (const it of whole) {
-    const def = matchingStarter(it);
-    if (!def) continue;
-    check(problems, stable(castingSlots(it).map(toRuneInstance)) === stable(liveStarterRunes(def)), `${it.starter} sigil ${it.uid} holds its starter's runes but does not cast the recipe`);
-    check(problems, compileSigilItem(it, def.classId).ok, `${it.starter} sigil ${it.uid} holds its starter's runes but does not compile`);
-  }
 
   check(problems, after.length === before.length, `item count ${before.length} -> ${after.length}`);
   before.forEach((b, i) => {
@@ -438,7 +399,6 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
     }
     const def = starterSigilById(rebuilt.starter);
     check(problems, def !== undefined && recipeText(a) === recipeText(createStarterSigil(() => 0, def, { bound: false })), `rebuilt ${rebuilt.starter} sigil ${b.uid} does not hold the new recipe`);
-    check(problems, holdsStarterRecipe(a), `rebuilt sigil ${b.uid} does not cast as its starter`);
     check(problems, stable(a.slots.map((x) => x.uid)) === stable(b.slots.slice(0, a.slots.length).map((x) => x.uid)), `rebuilt sigil ${b.uid} did not keep its leading rune uids`);
     check(problems, stable(a.slots.map((x) => x.bound === true)) === stable(b.slots.slice(0, a.slots.length).map((x) => x.bound === true)), `rebuilt sigil ${b.uid} changed a rune's binding`);
     const out = b.slots.slice(a.slots.length);
@@ -499,16 +459,11 @@ function main(): void {
   const store = new AccountStore(copy);
   try {
     console.log(`v1 to v2 conversion check of ${src} (read-only copy)`);
-    // Starters cast and compile at the live numbers, so check them at the overrides the server
-    // would load from this database, not only the code defaults.
+    // Rebuilt sigils compile at the live numbers, so check them at the overrides the server would
+    // load from this database, not only the code defaults.
     const tuning = store.tunables.load();
     applyTunables(tuning);
-    const broken = starterTuningProblem(tuning);
     console.log(`live tuning in this database: ${Object.keys(tuning).length} overrides${Object.keys(tuning).length > 0 ? ` (${Object.entries(tuning).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}`);
-    if (broken !== null) {
-      failures++;
-      console.log(`  FAIL tuning: ${broken}`);
-    }
     const classByAccount = new Map<number, ClassId>();
     for (const row of rows(db, 'SELECT id, account_id, name, class_id, save_json FROM characters ORDER BY id')) {
       const classId = row.class_id;
@@ -586,7 +541,7 @@ function main(): void {
     rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.castClamped} starter sigils cast with clamped rolls, ${rollTotals.castLive} cast their starter's live recipe; ${rollTotals.unchanged} items untouched`,
+    `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.unchanged} items untouched`,
   );
   console.log(
     `summary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,

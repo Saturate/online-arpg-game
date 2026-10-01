@@ -285,26 +285,16 @@ describe('live tuning writes', () => {
     server.close();
   });
 
-  it('refuses a set of numbers that would leave a starter not compiling, naming it, and a revert into one', async () => {
+  it('refuses the starter paths that are gone as unknown, and changes nothing', async () => {
     const { server, call, store } = await setup();
-    const bad = await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.0.every': 0.14, 'starter.frozen_orb.2.count': 5 });
+    const bad = await call('PATCH', '/api/admin/tuning', { 'starter.bone_spear.0.damage': 140 });
     expect(bad.status).toBe(400);
-    const body: unknown = await bad.json();
-    expect(typeof body === 'object' && body !== null && 'error' in body ? body.error : '').toMatch(/^Frozen Orb would not compile: /);
     expect(activeTunables()).toEqual({});
     expect(store.tunables.load()).toEqual({});
-    // Each half alone is fine; the revert of the first, once the second is in, would break it again.
-    expect((await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.2.count': 5 })).status).toBe(200);
-    expect((await call('PATCH', '/api/admin/tuning', { 'starter.frozen_orb.0.every': 0.3 })).status).toBe(200);
-    const [row] = store.tunables.commit([{ path: 'starter.frozen_orb.0.every', old: 0.14, new: 0.3 }], { account: 'boss', token: null });
-    if (!row) throw new Error('no row');
-    const revert = await call('POST', '/api/admin/tuning/revert', { id: row.id });
-    expect(revert.status).toBe(400);
-    expect(activeTunables()['starter.frozen_orb.0.every']).toBe(0.3);
     server.close();
   });
 
-  it('retunes a starter in a running room on its next cast, from the stored rolls of the copy the player owns', async () => {
+  it('a kit sigil in a running room casts its stored rolls, and follows a base shape change on its next cast', async () => {
     const { store, rooms, server, call } = await setup();
     const acc = await store.register('binder', 'password123');
     if (acc === 'taken') throw new Error('taken');
@@ -334,9 +324,11 @@ describe('live tuning writes', () => {
       for (const [id, proj] of room.sim.world.projectile) if (proj.ownerId === w.playerId && !before.has(id)) return proj.damage;
       throw new Error('no spear');
     };
+    const rolls = JSON.stringify(p.items.get(p.sigils[slot]?.uid ?? -1));
     const plain = spear();
-    expect((await call('PATCH', '/api/admin/tuning', { 'starter.bone_spear.0.damage': 140 })).status).toBe(200);
-    expect(spear()).toBeCloseTo((plain * 2.4) / 1.4, 5);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 24 })).status).toBe(200);
+    expect(spear()).toBeCloseTo(plain * 1.5, 5);
+    expect(JSON.stringify(p.items.get(p.sigils[slot]?.uid ?? -1))).toBe(rolls);
     server.close();
   });
 });

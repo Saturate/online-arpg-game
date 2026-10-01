@@ -1,4 +1,4 @@
-import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, castingStarter, MINION_DEFS, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
+import { AFFIXES, CLASSES, describeTree, ENEMY_AFFIX_TAGS, HEAT, matchingStarter, MINION_DEFS, toRuneInstance, type SigilCompile, type SigilItem } from '@rune/shared';
 import { useMemo, useState, type CSSProperties } from 'react';
 import { cssColor } from '../render/config.js';
 import { SkillIcon } from './icons.js';
@@ -83,7 +83,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const persistent = result?.ok === true && result.persistent;
   const cooldown = useSigilCooldown(sigil);
   // Named and described as its starter only while it still holds the starter's runes.
-  const skill = sigil ? castingStarter(sigil) : undefined;
+  const skill = sigil ? matchingStarter(sigil) : undefined;
   const name = skill?.name ?? (!sigil ? 'Empty' : sigil.slots.length ? sigil.name : 'Blank sigil');
   const [hovered, setHovered] = useState(false);
   const cost = !result ? '' : !result.ok ? 'fizzles' : persistent ? `${result.spirit} spirit` : `${Math.round(result.force)}`;

@@ -12,7 +12,6 @@ import {
   createStarterSigil,
   createVessel,
   emptyGrid,
-  holdsStarterRecipe,
   isAffixId,
   isItemShape,
   matchingStarter,
@@ -140,7 +139,6 @@ describe('the buffed starters on load', () => {
         if (after?.kind !== 'sigil') throw new Error('not a sigil');
         const d = def(id);
         expect(recipe(after), id).toBe(newRecipe(id));
-        expect(holdsStarterRecipe(after)).toBe(true);
         expect(after.uid).toBe(old.uid);
         expect(after.slots.map((r) => r.uid)).toEqual(old.slots.slice(0, d.runes.length).map((r) => r.uid));
         expect(after.slots.every((r) => (r.bound === true) === bound)).toBe(true);

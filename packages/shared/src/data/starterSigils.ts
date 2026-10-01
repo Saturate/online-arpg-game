@@ -4,15 +4,15 @@ import type { RuneInstance } from '../runes/v2/runes.js';
 import type { ClassId } from './classes.js';
 
 /**
- * The built-in skills as starter sigils: common sigils holding pre-rolled runes, so their numbers
- * are readable, copyable and improvable like any hand-built spell. The rune lists reproduce the v1
- * hand tuning where the grammar can express it; where it cannot, the entry says so.
+ * Each class's first skills (the kit): ordinary common sigils holding ordinary rolled runes. A
+ * recipe only says which runes and rolls a new character gets; every roll lies inside the drop
+ * tables (docs/features/live-tuning.md, "No starters as a special kind"), so a kit sigil casts,
+ * prices and comes apart like any sigil a player builds. The `starter` id on the item only names it.
  *
- * Numbers are relative to each shape's base (SPELL in config/sim.ts). An Orb flies at 0.55 of a
- * Bolt's speed with twice its size and 1.3x its range, and rolls through enemies unless it bursts on
- * hit, so an orb's affixes are the old bolt tuning divided by that.
- *
- * Every entry is held to its v1 Force and damage by test/skillParity.test.ts.
+ * The recipes used to carry hand-set rolls beyond the tables (Fireball's +100% damage Orb, Frozen
+ * Orb's slowed orb and 0.18 s pulse); those were clamped to the best roll a drop below T1 can have,
+ * and drawbacks no drop rolls (negative speed, size, duration or damage) were dropped. How much each
+ * kit lost is in docs/features/runes.md, "Kit sigils at table rolls".
  */
 export interface StarterSigilDef {
   id: string;
@@ -36,26 +36,21 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     name: 'Fireball',
     description: 'Explodes on impact and leaves the ground burning.',
     classId: 'mage',
-    // The Fireball of docs/features/runes.md, not a copy of v1 (a bolt at 0.85 speed and 2x damage). The orb
-    // carries v1's 2x hit, since the burst and the burning ground only add to it. v1 had Linger
-    // (+75% duration), but one caster's zones never stack and it recasts long before the ground
-    // goes out, so the extra time added no damage while its payload price pushed Force past v1.
-    runes: spell('orb[onhit, -15% speed, +100% damage] fire nova[after 0.5s] zone[+30% duration]'),
+    // v1 had Linger (+75% duration), but one caster's zones never stack and it recasts long before
+    // the ground goes out, so the extra time added no damage while its payload price pushed Force up.
+    runes: spell('orb[onhit, +55% damage] fire nova[after 0.5s] zone[+30% duration]'),
   },
   {
     id: 'frozen_orb',
     name: 'Frozen Orb',
     description: 'A slow orb that sprays ice shards in every direction as it travels.',
     classId: 'mage',
-    // v1: speed 0.36, range 0.85, radius 2.2, damage 0.6 on a bolt that passed through everything,
-    // which an orb does by itself. v1 also let it exceed the entity cap (48); the grammar's live cap
-    // is 40 and it peaks under that. Its shards go off 14 times a cast and pay for each release, but
-    // a ring of three faces any one target with little of it, so they add about 3 Force.
-    runes: spell('orb[every 0.18s, -35% speed, -35% duration, +10% size, -40% damage] cold split(3) bolt'),
+    // An orb passes through everything by itself. A ring of three shards faces any one target with
+    // little of it, so its repeat releases add only a few Force.
+    runes: spell('orb[every 0.2s, +10% size] cold split(3) bolt'),
   },
   { id: 'static_nova', name: 'Static Nova', description: 'A wide ring of lightning that shocks everything it touches.', classId: 'mage', runes: spell('nova[+50% size] lightning') },
-  // v1: two Swift runes, 1.3x dash distance each.
-  { id: 'blink', name: 'Blink', description: 'A long, fast dash.', classId: 'mage', runes: spell('dash[+69% speed]') },
+  { id: 'blink', name: 'Blink', description: 'A long, fast dash.', classId: 'mage', runes: spell('dash[+50% speed]') },
   // Warrior
   {
     id: 'leap_slam',
@@ -66,16 +61,12 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     runes: spell('dash[onland] impact nova[+50% size]'),
   },
   { id: 'war_cry', name: 'War Cry', description: 'A shockwave that hurls enemies away.', classId: 'warrior', runes: spell('nova[+50% size] impact') },
-  // The owner's buff (2026-10-01): v1's three short fire waves dealt about 13 damage a cast. A small
-  // burning ring at the v1 price reads as a cleave around the warrior. Sigils that still hold the old
-  // waves are rebuilt on load (items/convertRuneRolls.ts, OLD_STARTER_RUNES).
-  { id: 'flame_cleave', name: 'Flame Cleave', description: 'A ring of fire that burns everything close around you.', classId: 'warrior', runes: spell('nova[-40% size, +50% damage] fire') },
+  // Sigils that still hold v1's three short fire waves are rebuilt on load (items/convertRuneRolls.ts).
+  { id: 'flame_cleave', name: 'Flame Cleave', description: 'A ring of fire that burns everything close around you.', classId: 'warrior', runes: spell('nova[+50% damage] fire') },
   { id: 'iron_skin', name: 'Iron Skin', description: 'Aura: you and nearby allies take less damage.', classId: 'warrior', runes: spell('aura ward') },
   // Ranger
-  // The owner's buff (2026-10-01): v1's nine arrows dealt about 4 damage a cast. Five arrows, each
-  // with split's 1.2 / 5 share of a +300% hit, at about the v1 price. Sigils that still hold the old
-  // nine are rebuilt on load (items/convertRuneRolls.ts, OLD_STARTER_RUNES).
-  { id: 'multishot', name: 'Multishot', description: 'A wide fan of piercing arrows.', classId: 'ranger', runes: spell('bolt[pierce 2, +300% damage] split(5)') },
+  // Sigils that still hold v1's nine arrows are rebuilt on load (items/convertRuneRolls.ts).
+  { id: 'multishot', name: 'Multishot', description: 'A wide fan of piercing arrows.', classId: 'ranger', runes: spell('bolt[pierce 2, +55% damage] split(5)') },
   // v1 set both arrows' Force by hand to 16 with a Swift rune in them; without the speed the formula
   // lands on that price, and speed changed neither arrow's damage.
   { id: 'exploding_arrow', name: 'Exploding Arrow', description: 'Bursts into flame on impact.', classId: 'ranger', runes: spell('bolt[onhit] fire nova') },
@@ -95,30 +86,11 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     name: 'Bone Spear',
     description: 'A fast spear that passes through several enemies.',
     classId: 'binder',
-    runes: spell('bolt[pierce 4, +50% speed, +40% damage]'),
+    runes: spell('bolt[pierce 3, +50% speed, +40% damage]'),
   },
   { id: 'corpse_blast', name: 'Corpse Blast', description: 'A burst of grave fire around you.', classId: 'binder', runes: spell('nova[+50% size] fire') },
   { id: 'frost_mire', name: 'Frost Mire', description: 'A freezing bog that slows enemies.', classId: 'binder', runes: spell('zone[+75% duration] cold') },
 ];
-
-/**
- * The numbers a whole starter casts with, live-tunable (docs/features/live-tuning.md, phase 2). A
- * copy of each recipe that the registry overwrites in place; `STARTER_SIGILS` keeps the code
- * defaults, which new sigils are made with and the stored rolls of every copy are, so a retune
- * never changes what an item sells for or what comes out of it.
- */
-const LIVE_RUNES: ReadonlyMap<string, readonly RuneInstance[]> = new Map(STARTER_SIGILS.map((def) => [def.id, def.runes.map(copyRune)]));
-
-/** A copy that shares nothing mutable with the default, with its keys in the same order. */
-function copyRune(r: RuneInstance): RuneInstance {
-  const release = r.affixes.release;
-  return { id: r.id, affixes: { ...r.affixes, ...(release ? { release: { ...release } } : {}) } };
-}
-
-/** The starter's recipe as it casts now: the code default with any live tuning applied. */
-export function liveStarterRunes(def: StarterSigilDef): readonly RuneInstance[] {
-  return LIVE_RUNES.get(def.id) ?? def.runes;
-}
 
 export function starterSigilById(id: string | null | undefined): StarterSigilDef | undefined {
   return id ? STARTER_SIGILS.find((s) => s.id === id) : undefined;

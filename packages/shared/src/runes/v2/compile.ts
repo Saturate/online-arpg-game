@@ -1,6 +1,6 @@
 import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
-import { affixValue, castingSlots, holdsStarterRecipe, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
+import { affixValue, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
 import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
 import { engineForm, lifetime } from './budget.js';
 import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
@@ -430,10 +430,7 @@ export function sigilCompileContext(item: SigilItem, classId: ClassId): SigilCom
 }
 
 export function compileSigilItem(item: SigilItem, classId: ClassId): SigilCompile {
-  const slots = castingSlots(item);
-  const compiled = compileRunes(slots.map(toRuneInstance), sigilCompileContext(item, classId));
-  // A whole starter casts its live numbers, which differ from its stored rolls by design.
-  const held = holdsStarterRecipe(item) ? [] : slots.flatMap((r, i) => (r === item.slots[i] ? [] : [`${runeName(r.rune)} (rune ${i + 1})`]));
-  if (!compiled.ok || held.length === 0) return compiled;
-  return { ...compiled, notes: [...compiled.notes, `Starter rolls only hold in the whole starter: ${held.join(', ')} cast${held.length === 1 ? 's' : ''} at the loot table's best.`] };
+  // Every sigil casts the rolls its runes store, as stored: rolls beyond the drop tables (old kit
+  // sigils) keep them inside the sigil and clamp only on the way out (items/runeRolls.ts).
+  return compileRunes(item.slots.map(toRuneInstance), sigilCompileContext(item, classId));
 }

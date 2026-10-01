@@ -29,6 +29,7 @@ import {
   type RuneRef,
   type SigilItem,
 } from '../src/index.js';
+import { OLD_KIT_RUNES, oldKitSigil } from './helpers/spell.js';
 
 function town() {
   const sim = new Simulation(4, { kind: 'world', seed: 3 });
@@ -100,9 +101,16 @@ describe('rolls past the loot table', () => {
     expect(rollLosses(strong).map((l) => [l.before.value, l.after.value])).toEqual([[100, best('rune_damage', 'max')]]);
   });
 
-  it('some starter rune is past the table, so the rule is not idle', () => {
+  it('no kit rune is past the table: kits are ordinary sigils', () => {
     let uid = 1;
-    const past = STARTER_SIGILS.flatMap((def) => createStarterSigil(() => uid++, def, { bound: false }).slots.flatMap(rollLosses));
+    for (const def of STARTER_SIGILS) {
+      for (const bound of [true, false]) expect(createStarterSigil(() => uid++, def, { bound }).slots.flatMap(rollLosses), def.id).toEqual([]);
+    }
+  });
+
+  it('old kit sigils from saves hold runes past the table, so the rule is not idle', () => {
+    let uid = 1;
+    const past = Object.keys(OLD_KIT_RUNES).flatMap((id) => oldKitSigil(id, () => uid++, false).slots.flatMap(rollLosses));
     expect(past.length).toBeGreaterThan(0);
   });
 });
@@ -113,15 +121,15 @@ describe('clamped runes are worth no more', () => {
     return rest;
   }
 
-  it('sell for no more and cost no more to insert than before, for every starter rune', () => {
+  it('sell for no more and cost no more to insert than before, for every old kit rune', () => {
     let uid = 1;
     let clamped = 0;
-    for (const def of STARTER_SIGILS) {
-      for (const r of createStarterSigil(() => uid++, def, { bound: false }).slots.map(unbound)) {
+    for (const id of Object.keys(OLD_KIT_RUNES)) {
+      for (const r of oldKitSigil(id, () => uid++, false).slots.map(unbound)) {
         const out = clampRuneRolls(r);
         if (out !== r) clamped++;
-        expect(sellPrice(out), `${def.id} ${r.rune}`).toBeLessThanOrEqual(sellPrice(r));
-        expect(forgeInsertPrice(out), `${def.id} ${r.rune}`).toBeLessThanOrEqual(forgeInsertPrice(r));
+        expect(sellPrice(out), `${id} ${r.rune}`).toBeLessThanOrEqual(sellPrice(r));
+        expect(forgeInsertPrice(out), `${id} ${r.rune}`).toBeLessThanOrEqual(forgeInsertPrice(r));
         out.affixes.forEach((a, i) => expect(a.tier).toBeLessThanOrEqual(r.affixes[i]?.tier ?? 0));
       }
     }
@@ -143,12 +151,9 @@ describe('clamped runes are worth no more', () => {
 });
 
 describe('taking a rune out of a sigil', () => {
-  it('clamps its rolls at the forge, for an unbound dropped starter; putting it back keeps the clamped rolls', () => {
+  it('clamps its rolls at the forge, for an unbound old kit sigil; putting it back keeps the clamped rolls', () => {
     const { sim, pid, p } = town();
-    // Find a starter with a rune past the table, whatever the current balance pass made them.
-    const def = STARTER_SIGILS.find((d) => starter(sim, d.id, false).slots.some((r) => rollLosses(r).length > 0));
-    if (!def) throw new Error('no starter past the table');
-    const s = starter(sim, def.id, false);
+    const s = oldKitSigil('fireball', () => sim.newItemUid(), false);
     addItem(p, s);
     const index = s.slots.findIndex((r) => rollLosses(r).length > 0);
     const out = s.slots[index];
@@ -166,9 +171,9 @@ describe('taking a rune out of a sigil', () => {
     expect(s.slots.at(-1)?.affixes).toEqual(expected);
   });
 
-  it('clamps bound starter runes too, and keeps rolls while runes only move inside the sigil', () => {
+  it('clamps bound old kit runes too, and keeps rolls while runes only move inside the sigil', () => {
     const { sim, pid, p } = town();
-    const s = starter(sim, 'fireball', true);
+    const s = oldKitSigil('fireball', () => sim.newItemUid(), true);
     addItem(p, s);
     const rolls = JSON.stringify(s.slots.map((r) => r.affixes));
     const reversed: RuneRef[] = s.slots.map((_, i): RuneRef => ({ from: 'keep', index: s.slots.length - 1 - i }));
@@ -176,13 +181,13 @@ describe('taking a rune out of a sigil', () => {
     expect(JSON.stringify([...s.slots].reverse().map((r) => r.affixes))).toBe(rolls);
     const orb = s.slots.find((r) => r.rune === 'orb');
     if (!orb) throw new Error('fireball has no orb');
-    const needsClamp = rollLosses(orb).length > 0;
+    expect(rollLosses(orb).length).toBeGreaterThan(0);
     expect(sim.inscribe(pid, s.uid, [])).toBeNull();
     const back = p.items.get(orb.uid);
     if (back?.kind !== 'rune') throw new Error('orb not back');
     expect(back.bound).toBe(true);
     expect(rollLosses(back)).toEqual([]);
-    if (needsClamp) expect(back.affixes).not.toEqual(orb.affixes);
+    expect(back.affixes).not.toEqual(orb.affixes);
   });
 });
 

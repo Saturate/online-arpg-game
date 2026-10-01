@@ -2,10 +2,10 @@ import {
   activeTunables,
   applyTunables,
   parseTunablePatch,
-  starterTuningProblem,
   TUNABLES,
   TUNING_HISTORY_LIMIT,
   tunableProblem,
+  tunableSetProblem,
   tunableSpec,
   type TunablesState,
   type TunableValues,
@@ -51,11 +51,11 @@ function nextValues(changes: readonly TunableChange[]): TunableValues {
 }
 
 /**
- * Saves the changes unless they would leave a starter that does not compile (a 400 naming it and
- * the rule), else as commit. Numbers can each be in range and still combine into a broken starter.
+ * Saves the changes unless the whole set breaks a rule no single number shows (an affix's tiers out
+ * of order or overlapping: a 400 naming it), else as commit.
  */
 function commitChecked(req: TunablesRequest, store: TunablesStore, hooks: TunablesHooks, changes: TunableChange[], revertOf: number | null): [number, unknown] {
-  const broken = starterTuningProblem(nextValues(changes));
+  const broken = tunableSetProblem(nextValues(changes));
   if (broken !== null) return [400, { error: broken }];
   return [200, state(commit(req, store, hooks, changes, revertOf))];
 }

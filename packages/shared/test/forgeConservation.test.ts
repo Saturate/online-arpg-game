@@ -3,9 +3,7 @@ import { addItem } from '../src/sim/inventory.js';
 import {
   clampRoll,
   createGear,
-  createStarterSigil,
   isNoStronger,
-  starterSigilById,
   createRolledRune,
   createRune,
   createSigil,
@@ -26,6 +24,7 @@ import {
   type RuneItem,
   type RuneRef,
 } from '../src/index.js';
+import { oldKitSigil } from './helpers/spell.js';
 import { stashItemUids } from '../src/items/stash.js';
 import { tab1 } from './helpers/stash.js';
 
@@ -191,11 +190,8 @@ function setup(seed: number, flat: boolean, fullBag: boolean): World {
     stash(p, rolled(rune, false));
   }
   stash(p, createSigil(sim.newItemUid(), loot, 'magic'));
-  // Dropped starter sigils are unbound, and their hand-set rolls go past what any drop can have.
-  for (const id of ['fireball', 'frozen_orb', 'multishot']) {
-    const def = starterSigilById(id);
-    if (def) addItem(p, createStarterSigil(() => sim.newItemUid(), def, { bound: false }));
-  }
+  // Kit sigils from old saves can be unbound (dropped), and their hand-set rolls go past what any drop can have.
+  for (const id of ['fireball', 'frozen_orb', 'multishot']) addItem(p, oldKitSigil(id, () => sim.newItemUid(), false));
   // Another character in the same room, with runes of its own in its stash.
   const oid = sim.addPlayer('d', 'mage');
   const other = sim.world.player.get(oid);
@@ -403,7 +399,7 @@ describe('forge conservation', () => {
     });
   }
 
-  it('the random runs took out-of-table starter runes out of their sigils', () => {
+  it('the random runs took out-of-table old kit runes out of their sigils', () => {
     expect(clampedTotal).toBeGreaterThan(0);
   });
 

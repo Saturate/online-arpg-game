@@ -3,9 +3,9 @@ import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffix
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
-import { liveStarterRunes, starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
+import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
-import { clampRuneRolls, honestTier, affixRollTier } from './runeRolls.js';
+import { clampRuneRolls, honestTier } from './runeRolls.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
@@ -283,10 +283,10 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
 }
 
 /**
- * The starter sigil this one still is: its `starter`, while the slots hold that starter's runes in
- * its order. Only the rune ids are compared, since balance passes retune the starters' rolls and
- * sigils already out there keep the rolls they were made with. Once the runes change, the sigil is
- * named and described by what it holds, not by the starter it came from.
+ * The kit skill this sigil still spells, for its name and description only: its `starter`, while
+ * the slots hold that skill's runes in order. Only the rune ids are compared, since sigils already
+ * out there keep the rolls they were made with. Nothing casts, prices or extracts differently
+ * because of it; once the runes change, the sigil is named by what it holds.
  */
 export function matchingStarter(item: SigilItem): StarterSigilDef | undefined {
   const def = starterSigilById(item.starter);
@@ -300,86 +300,9 @@ export function runeRecipeKey(item: RuneItem): string {
 }
 
 /**
- * Whether a rune in a starter's slot stands for the recipe's rune there: the same rune with the
- * same affix kinds, and each roll at least the honest tier of the recipe's roll (the roll's own
- * tier by affixRollTier, so a T3 drop at a shared tier end counts as T3). Values inside a tier are
- * ignored, so a copy made before a retune still matches; a weaker roll does not, so swapping a
- * starter's rune for a cheaper one and keeping the starter's numbers never upgrades what the
- * player holds.
- */
-export function slotHoldsRecipeRune(slot: RuneItem, recipe: RuneInstance): boolean {
-  if (slot.bench === true || slot.rune !== recipe.id) return false;
-  const want = runeItemFromInstance(0, recipe, false).affixes;
-  if (want.length !== slot.affixes.length) return false;
-  return want.every((w) => {
-    const have = slot.affixes.find((a) => a.id === w.id);
-    return have !== undefined && affixRollTier(have) >= honestTier(w.id, w.value);
-  });
-}
-
-/**
- * Whether the sigil casts as its starter: its own `starter` names the starter, and each slot holds
- * the recipe's rune for it (slotHoldsRecipeRune), checked against the code-default recipe so live
- * tuning never makes a copy stop matching. A sigil without that `starter` never casts a starter's
- * numbers, even holding the same runes. Bench runes are free and made on the spot, so a starter
- * refilled from the bench casts what they are.
- */
-export function holdsStarterRecipe(item: SigilItem): boolean {
-  const def = matchingStarter(item);
-  if (!def) return false;
-  return def.runes.every((r, i) => {
-    const slot = item.slots[i];
-    return slot !== undefined && slotHoldsRecipeRune(slot, r);
-  });
-}
-
-/** The starter this sigil casts as (holdsStarterRecipe), for its name, description and filters. */
-export function castingStarter(item: SigilItem): StarterSigilDef | undefined {
-  return holdsStarterRecipe(item) ? matchingStarter(item) : undefined;
-}
-
-/** The slot's rune item with the live recipe's rolls instead of its own; the same object when they are equal. */
-function withLiveRolls(slot: RuneItem, inst: RuneInstance): RuneItem {
-  const affixes = runeItemFromInstance(slot.uid, inst, false).affixes;
-  const same = affixes.length === slot.affixes.length && affixes.every((a, i) => {
-    const b = slot.affixes[i];
-    return b !== undefined && a.id === b.id && a.value === b.value && a.tier === b.tier;
-  });
-  return same ? slot : { ...slot, affixes };
-}
-
-/**
- * The runes as they cast. A whole starter casts its live recipe numbers (the code defaults with any
- * live tuning), not the rolls stored on its runes, so a retune reaches every copy at once and none
- * is clamped by it. The stored rolls stay on the items for prices and for what comes out of the sigil.
- *
- * Anything else casts its rolls clamped into the loot table, as they would be if they came out: a
- * starter's hand-set rolls (Multishot's +300% damage, Frozen Orb's 0.18 s pulse) are balanced for
- * the whole starter, and kept alone, reordered or beside other runes a +300% Bolt dealt 2.85x the
- * best starter's damage per Force. Putting the starter back together restores it.
- */
-export function castingSlots(item: SigilItem): RuneItem[] {
-  const def = castingStarter(item);
-  if (!def) return item.slots.map(clampRuneRolls);
-  const live = liveStarterRunes(def);
-  return item.slots.map((slot, i) => {
-    const inst = live[i];
-    return inst ? withLiveRolls(slot, inst) : slot;
-  });
-}
-
-/**
- * The runes to show with their rolls: what the sigil casts (a whole starter's live numbers, or
- * rolls clamped into the tables), shown beside the stored rolls where they differ, since those are
- * what come out of the sigil.
- */
-export function shownSlots(item: SigilItem): RuneItem[] {
-  return castingSlots(item);
-}
-
-/**
  * Rune slots: the tier's base, plus the slots affix and one for corruption, capped at
- * SIGIL_MAX_SLOTS. A starter sigil always has room for its own runes.
+ * SIGIL_MAX_SLOTS. A kit sigil is common (3 slots) but some kits hold 4 runes, so a sigil made
+ * from a kit always has room for that many.
  */
 export function sigilCapacity(item: SigilItem): number {
   const rolled = SIGIL_CAPACITY[item.tier] + affixValue(item.affixes, 'sigil_slots') + (item.corrupted ? 1 : 0);

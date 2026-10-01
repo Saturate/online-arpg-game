@@ -4,8 +4,7 @@ import {
   forgeInsertPrice,
   formatAffix,
   HEAT,
-  castingStarter,
-  shownSlots,
+  matchingStarter,
   RULES,
   runeColor,
   runeDescription,
@@ -32,7 +31,7 @@ import { cssColor } from '../render/config.js';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refKey, refundOverflow, removeAt, resolveDraft, runeStock, sameDraft, type PlainEntry, type RolledEntry, type RuneOrigin } from './forge/draft.js';
 import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
 import { useHover } from './Inventory.js';
-import { rollWithStored, tierColor } from './parts.js';
+import { tierColor } from './parts.js';
 import { compileFor, itemByUid, sendCommand, useUi } from './store.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
@@ -75,7 +74,7 @@ function sigilsOf(inv: InventoryMessage): SigilPlace[] {
 
 /** The starter a sigil still is, as a subtitle under its own name; nothing once its runes changed. */
 function starterNote(item: SigilItem): string | null {
-  const def = castingStarter(item);
+  const def = matchingStarter(item);
   return def && def.name !== item.name ? def.name : null;
 }
 
@@ -243,8 +242,6 @@ export function ForgeEditor() {
   const drafted = useMemo(() => (sigil && resolution ? draftSigil(sigil, resolution) : null), [sigil, resolution]);
   const tunables = useTunables((s) => s.version);
   const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId, tunables]);
-  // The hover shows what each rune casts as (a whole starter's live numbers, or clamped rolls); the weakening warning reads the stored rolls.
-  const shown = useMemo(() => (drafted ? shownSlots(drafted) : []), [drafted, tunables]);
 
   if (!open || !inv || !classId) return null;
 
@@ -390,9 +387,7 @@ export function ForgeEditor() {
                   const rolled = slot.item.affixes.length > 0;
                   // Only a rune already in the sigil can lose rolls on the way out; a new one came in within the table.
                   const weakens = slot.origin === 'sigil' ? weakening(slot.item) : null;
-                  const live = shown[i];
-                  const own = live && live !== slot.item ? live.affixes.map((a) => rollWithStored(a, slot.item)).filter((t) => t.includes('(rune: ')) : [];
-                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}${own.length > 0 ? ` · Casts as ${own.join('; ')}` : ''}`;
+                  const hint = `Click to take it out · Drag to move it${slot.origin === 'stash' ? ' · From the stash' : ''}`;
                   return (
                     <li key={`${refKey(slot.ref)}-${i}`} className={cls} onDragOver={(e) => dragOver(e, i)} onDragLeave={() => setDropAt(null)} onDrop={(e) => onSlotDrop(e, i)}>
                       <button
@@ -405,8 +400,8 @@ export function ForgeEditor() {
                           unhover();
                           setDraft(removeAt(draft, i));
                         }}
-                        onMouseEnter={(e) => hover(shown[i] ?? slot.item, e, hint, weakens)}
-                        onMouseMove={(e) => hover(shown[i] ?? slot.item, e, hint, weakens)}
+                        onMouseEnter={(e) => hover(slot.item, e, hint, weakens)}
+                        onMouseMove={(e) => hover(slot.item, e, hint, weakens)}
                         onMouseLeave={unhover}
                         data-link-uid={slot.item.uid >= 0 ? slot.item.uid : undefined}
                         aria-label={`Slot ${i + 1}: ${runeName(slot.item.rune)}${rolled ? ', rolled' : ''}${weakens ? `. ${weakens}` : ''}`}

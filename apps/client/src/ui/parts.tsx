@@ -16,8 +16,7 @@ import {
   runeName,
   RUNE_STACK,
   sigilCapacity,
-  castingStarter,
-  shownSlots,
+  matchingStarter,
   STAT_IDS,
   STAT_LABELS,
   vesselPackmates,
@@ -36,24 +35,11 @@ import { formatCooldown } from '../game/castTiming.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 import { useTunables } from '../game/tunables.js';
 
-/**
- * A roll as the sigil casts it, with the rune's own roll beside it when they differ (a live retune,
- * a refill with another roll, or a starter roll clamped outside its whole starter), since the rune's
- * own roll is what it sells for and keeps when it comes out.
- */
-export function rollWithStored(a: AffixRoll, stored: RuneItem | undefined): string {
-  const own = stored?.affixes.find((s) => s.id === a.id);
-  return own && own.value !== a.value ? `${formatAffix(a)} (rune: ${formatAffix(own)})` : formatAffix(a);
-}
-
-/**
- * A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover, and `stored`
- * when `item` carries the rolls it casts with rather than the rune's own.
- */
-export function RuneChip({ id, item, stored, small = false, onClick }: { id: RuneId; item?: RuneItem; stored?: RuneItem | undefined; small?: boolean; onClick?: () => void }) {
+/** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
+export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
   const kind = runeKind(id);
   const style: CSSProperties & Record<'--rune', string> = { '--rune': cssColor(runeColor(id)) };
-  const rolls = item?.affixes.map((a) => rollWithStored(a, stored)) ?? [];
+  const rolls = item?.affixes.map(formatAffix) ?? [];
   return (
     <span
       className={`rune-chip cat-${kind === 'shape' ? 'form' : kind}${small ? ' small' : ''}`}
@@ -240,8 +226,8 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
   useTunables((s) => s.version);
   const result = compileFor(item, classId);
   const cooldown = useSigilCooldown(item);
-  // Still the starter it came from only while it holds the starter's runes.
-  const skill = castingStarter(item);
+  // Named after the kit skill it came from only while it holds that skill's runes; a name only.
+  const skill = matchingStarter(item);
   const sub = item.corrupted ? 'Corrupted Sigil' : skill ? 'Starter Sigil' : 'Sigil';
   return (
     <div className="item-details">
@@ -261,7 +247,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
         {item.slots.length === 0 ? (
           <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span>
         ) : (
-          shownSlots(item).map((r, i) => <RuneChip key={r.uid} id={r.rune} item={r} stored={item.slots[i]} small />)
+          item.slots.map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)
         )}
       </div>
       {item.slots.length > 0 && result.ok && <p className="tt-sec tt-sentence">{describeTree(result.tree)}</p>}
