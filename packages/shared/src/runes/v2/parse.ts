@@ -56,11 +56,7 @@ export interface NodeStats {
   pierce: number;
   bounce: number;
   homing: number;
-  /**
-   * Percent more damage from Concentrated runes, 0 without one. It multiplies the rest of the
-   * damage, but several Concentrated runes add up: multiplied, four of them on a Bolt dealt 3x the
-   * best starter's damage per Force, since Force prices damage on a log scale.
-   */
+  /** Percent more damage from the shape's Concentrated rune, 0 without one. */
   concentration: number;
 }
 
@@ -79,6 +75,8 @@ export interface SpellNode {
   /** Copies after Split (1 when unsplit). */
   copies: number;
   linked: boolean;
+  /** Index of the shape's Concentrated rune, if it has one. */
+  concentratedAt: number | null;
   release: NodeRelease | null;
   /** Shapes spawned when this one releases; cast together with each other. */
   payload: SpellNode[];
@@ -123,6 +121,7 @@ function newNode(runeIndex: number, shape: ShapeId, depth: number): SpellNode {
     stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0 },
     copies: 1,
     linked: false,
+    concentratedAt: null,
     release: null,
     payload: [],
     castTogether: false,
@@ -394,12 +393,17 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
           fail('CONCENTRATED_NEEDS_AREA', i, `${label(i)} trades area for damage, but ${shape} (rune ${target.runeIndex + 1}) has no area to give up.`);
           break;
         }
-        const more = rune.affixes.concentration ?? CONCENTRATED.defaultMore;
-        if (!(more > 0)) {
-          fail('CONCENTRATED_AMOUNT', i, `${label(i)} adds ${more}% damage; it must add more than 0%.`);
+        if (target.concentratedAt !== null) {
+          fail('CONCENTRATED_ONCE', i, `${shape} (rune ${target.runeIndex + 1}) already has Concentrated (rune ${target.concentratedAt + 1}); a shape takes one.`);
           break;
         }
-        target.stats.concentration += more;
+        const more = rune.affixes.concentration ?? CONCENTRATED.defaultMore;
+        if (!(more >= CONCENTRATED.minMore && more <= CONCENTRATED.maxMore)) {
+          fail('CONCENTRATED_AMOUNT', i, `${label(i)} adds ${more}% damage; Concentrated adds ${CONCENTRATED.minMore} to ${CONCENTRATED.maxMore}%.`);
+          break;
+        }
+        target.concentratedAt = i;
+        target.stats.concentration = more;
         target.stats.size += CONCENTRATED.sizePercent;
         break;
       }

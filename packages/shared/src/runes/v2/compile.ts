@@ -125,7 +125,7 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   restore: 12,
   swift: 5,
   large: 8,
-  concentrated: 10,
+  concentrated: 15,
 };
 
 /**
@@ -168,13 +168,22 @@ function runeNodes(runes: readonly RuneInstance[], tree: SpellTree | null): (Spe
   });
 }
 
-/** Damage multiplier of a node from its Splits (each conserves damage on its own, as v1 did), doubled infusions and Concentrated. */
+/** Damage multiplier of a node from its Splits (each conserves damage on its own, as v1 did) and doubled infusions. */
 function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
   const efficiency = SPELL.splitEfficiency + splitEfficiencyBonus;
   let scale = 1;
   for (const s of node.shapers) if (s.id === 'split') scale *= efficiency / s.value;
   const extra = node.effectiveInfusions.length - new Set(node.effectiveInfusions).size;
-  return scale * (1 + extra * STACKED_INFUSION_BONUS) * (1 + node.stats.concentration / 100);
+  return scale * (1 + extra * STACKED_INFUSION_BONUS);
+}
+
+/**
+ * Damage-only multiplier of a node: its damage roll and Concentrated. Heals, shields and the strength
+ * of Ward and Restore auras leave it out; at damageScale a Concentrated Ward aura, with Large to win
+ * back the area, gave a party 51% damage reduction.
+ */
+function damageTuning(node: SpellNode): number {
+  return affixMultiplier(node.stats.damage) * (1 + node.stats.concentration / 100);
 }
 
 function isProjectileShape(node: SpellNode): boolean {
@@ -200,7 +209,7 @@ function nodeReleases(node: SpellNode): number {
 function releaseWeight(node: SpellNode, parent: SpellNode, splitEfficiencyBonus: number): number {
   const ringed = parent.release?.kind === 'every' && node.copies > 1 && isProjectileShape(node) && isProjectileShape(parent);
   const aimed = ringed ? (node.copies * SPELL.splitSpreadRadians) / (2 * Math.PI) : node.copies;
-  return nodeScale(node, splitEfficiencyBonus) * affixMultiplier(node.stats.damage) * aimed;
+  return nodeScale(node, splitEfficiencyBonus) * damageTuning(node) * aimed;
 }
 
 /**
@@ -324,6 +333,11 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
   // An orb rolls through everything unless it bursts on hit: that is what makes it an orb.
   const phase = form === 'orb' && trigger !== 'onhit';
   if (phase && node.stats.pierce > 0) notes.push(`${runeName(node.shape)} (rune ${node.runeIndex + 1}) already rolls through every enemy, so its pierce does nothing.`);
+  // Same test as the engine's isOffensive; an aura only damages through its elements.
+  const damages = elements.length > 0 || (form !== 'aura' && (node.effects.includes('impact') || (!node.effects.includes('restore') && !node.effects.includes('ward'))));
+  if (node.concentratedAt !== null && !damages) {
+    notes.push(`Concentrated (rune ${node.concentratedAt + 1}) only adds damage, and ${runeName(node.shape)} (rune ${node.runeIndex + 1}) deals none: it only shrinks it.`);
+  }
   const payload = trigger ? node.payload.map((child) => buildNode(child, ctx, notes)) : [];
   return {
     form,
@@ -342,7 +356,7 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
       speed: affixMultiplier(node.stats.speed),
       radius: affixMultiplier(node.stats.size),
       range: affixMultiplier(node.stats.duration),
-      damage: affixMultiplier(node.stats.damage),
+      damage: damageTuning(node),
       phase: phase ? 1 : 0,
     },
   };

@@ -12,7 +12,7 @@ Every skill is a sigil holding runes, read left to right like a Noita wand. The 
 - **Shapers** change the current shape's count or motion: Split today.
 - **Triggers** release a payload: On Hit, On Expire, Timer, Pulse, On Land. A **release affix** on a rolled shape rune does the same without taking a slot.
 - **Swift and Large** stay as plain modifier runes (+30% speed, +50% size) that teach the system early.
-- **Concentrated** is Large's opposite: 40 to 60% more damage (rolled per rune) and 30% less size, on any shape with an area.
+- **Concentrated** is Large's opposite: 40 to 60% more damage (rolled per rune; damage only, not healing or shielding) and 30% less size, once per shape with an area.
 
 Examples, in the text form the Spell Lab and the starter sigils use:
 
@@ -132,7 +132,7 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
 - **Number affixes** cost 3 per plain-rune step they stand for, on a log scale: `3 * ln(1 + v/100) / ln(step)`, with steps speed 1.5 (dash 1.3), size 1.5, duration 1.75, damage 2 and pierce 2 extra hits (the v1 Swift, Large, Linger and Pierce runes). A negative roll refunds half.
 - **Nothing is free:** every rune pays its own price. The "first rune is free" affix and its pricing (`HEAT.minWaivedForceShare`, the waiver in `runeForce`) are gone; at the end it was capped at a Bolt's base cost and 95% of the full price, worth about 5% of a cast, because anything more let one-rune spells reach 4 to 6x a starter's damage per Force.
 - **Concentrated** pays its base 5 plus its damage priced like a damage roll of the same size (`3 * ln(1 + v/100) / ln 2`, 1.5 at 40% and 2 at 60%). Its area loss refunds nothing, because on a Bolt or a lone target it costs the spell almost nothing. It is a rider, so on a payload it pays at least 50%.
-- **Aura and Bond cost no Force** and reserve spirit per rune: aura 30, bond 25, fire, cold, lightning and impact 10, ward and restore 12, swift 5, large 8, concentrated 10.
+- **Aura and Bond cost no Force** and reserve spirit per rune: aura 30, bond 25, fire, cold, lightning and impact 10, ward and restore 12, swift 5, large 8, concentrated 15.
 - **Cast rules:** skills cost 75% of their listed Force (`costMultiplier`). The bar cools at 30/s after a 0.5 s pause, ramping up by the base rate every second you hold off, up to 6x, so a full 1000 bar clears in about 8 s. A cast is blocked when it would pass 1.3x the bar. Above the bar each cast can misfire: the chance grows from 0 at the bar to 50% at 1.3x, times 1.5 on corrupted sigils; a misfire still costs the Force and deals 10% of max life, ignoring armour.
 - **Duds:** a spell that breaks a rule fizzles only on a fresh key press (not while held) and costs 50% of its computed Force. A fizzling draft can still be inscribed.
 - **The cap is 1000,** so it effectively never limits play while skills are tuned (see "Planned: Force has to bite again").
@@ -205,7 +205,7 @@ interface SpellProgram { roots: SpellNode[]; form: FormId }
 
 `compileSigilItem(item, classId)` returns either `{ ok: true, tree, program, force, spirit, persistent, peakEntities, notes }` or `{ ok: false, errors, force }`, where every error names a rule id and the rune index. The client compiles locally with the same code for instant feedback; the server recompiles on inscribe.
 
-Rule ids: `empty`, `unknown-rune`, `unknown-affix`, `bad-count`, `first-rune-shape`, `affix-not-allowed`, `trailing-release`, `one-release`, `release-not-for-shape`, `onrelease-needs-hold`, `release-interval`, `multicast`, `shaper-not-for-shape`, `link-needs-split`, `split-once` (Splits multiply up to 12), `split-count`, `duplicate-shaper`, `persistent-alone`, `persistent-no-release`, `persistent-no-split`, `persistent-no-charge`, `dash-root-only`, `charge-root-only`, `max-depth`, `entity-cap`, `plain-modifier-off`, `concentrated-needs-area`, `concentrated-amount`, and from the compiler `over-capacity`, `rune-not-castable`, `engine-not-ready` (homing, bounce, or releasing on a held button).
+Rule ids: `empty`, `unknown-rune`, `unknown-affix`, `bad-count`, `first-rune-shape`, `affix-not-allowed`, `trailing-release`, `one-release`, `release-not-for-shape`, `onrelease-needs-hold`, `release-interval`, `multicast`, `shaper-not-for-shape`, `link-needs-split`, `split-once` (Splits multiply up to 12), `split-count`, `duplicate-shaper`, `persistent-alone`, `persistent-no-release`, `persistent-no-split`, `persistent-no-charge`, `dash-root-only`, `charge-root-only`, `max-depth`, `entity-cap`, `plain-modifier-off`, `concentrated-needs-area`, `concentrated-amount`, `concentrated-once`, and from the compiler `over-capacity`, `rune-not-castable`, `engine-not-ready` (homing, bounce, or releasing on a held button).
 
 Admin tunables (Settings tab, [accounts-admin.md](accounts-admin.md)): the level-1 Force bar (50 to 5000), a cost multiplier and a cooling multiplier (0.1 to 10), the cooling ramp cap (1 to 20) and the global cast cooldown (0.1 to 3 s). They apply to everyone at once; the cost multiplier and the cooldown apply at cast time, not in the compiler.
 
@@ -215,8 +215,8 @@ Tests:
 - `apps/server/test/castCooldown.test.ts`: the setting's default and range, storage, the welcome and `castCooldown` message, and the server enforcing a changed value live.
 - `apps/client/test/castTiming.test.ts`: the client takes the server's value, ignores bad ones, and shows the same cooldown the server counts.
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass ([items.md](items.md), "Rune roll pass").
-- `packages/shared/test/forcePerDamage.test.ts`: 64 hand-picked spells (19 of them with Concentrated), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001) and every starter piece (prefixes in place and single runes, alone and with infusions added) stay under 2x the best starter's damage per Force, single and pack.
-- `packages/shared/test/concentrated.test.ts`: the Concentrated grammar, compile, Force, spirit, drops, rolls, prices, the rune tab sort, grants and the forge; `apps/server/test/concentratedRune.test.ts`: saves holding it load and save back.
+- `packages/shared/test/forcePerDamage.test.ts`: 66 hand-picked spells (21 of them with Concentrated), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001) and every starter piece (prefixes in place and single runes, alone and with infusions added) stay under 2x the best starter's damage per Force, single and pack.
+- `packages/shared/test/concentrated.test.ts`: the Concentrated grammar, compile, Force, spirit, drops, rolls, prices, the rune tab sort, grants and the forge; every aura type's strength per spirit with and without it, and heals and shields per cast unchanged by it (less per Force); `apps/server/test/concentratedRune.test.ts`: saves holding it load and save back.
 - `packages/shared/test/grammarV2.test.ts`: the plan's examples, every rule, ambiguous cases, the tokenizer.
 - `packages/shared/test/compile.test.ts`: castability, named engine gaps, multicast, multi-shape payloads, affixes, capacity, Force by depth, affinity and affixes, spirit, starters compile for their class.
 - `packages/shared/test/spellEngine.test.ts`: the cooldown waits exactly the setting's seconds (0.3, 0.35 and the default), the cast delay share and cast speed shorten it, a changed setting applies from the next cast, multicast, `after` outlasting its shape, per-node speed and size, orb phasing.
@@ -317,7 +317,7 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 - **"First rune is free"** was dropped on 2026-10-01 ("nothing is free"): pricing is per rune, and sigils that had it lose it on load. The copy of live from 2026-10-01 had none.
 - **Skill tooltips show the base Force,** not the admin's cost multiplier.
 - **Swift and Large as plain runes** are behind a grammar flag (`plainModifierRunes`), on in the game. Concentrated is not.
-- **Concentrated on a Ward or Restore aura** makes the ward or the regen 40 to 60% stronger in a smaller radius, for 10 spirit. Damage reduction (60%) and aura regen (8 per second) stay capped. Whether that is too strong for support builds is for the owner to judge.
+- **An aura's damage affix now counts:** elemental auras read the damage tuning since Concentrated goes there, so a hand-written `aura[+50% damage] fire` in the Spell Lab hits harder too. No drop can roll a damage affix on an Aura, so no item reaches it.
 - **Rolling back past Concentrated:** a build from before it does not know the rune, and a stash holding one fails its shape check (`isItemShape`) on load. Roll back only with the database copy from before the deploy. Clients from the old build reload on the build check, so no old client sees the new id.
 - The rune trader, zone merging, the Stack rune and endgame tiers are not built.
 - `SPELL.timerSeconds` duplicates `DEFAULT_TIMER_SECONDS` and only a test reads it. `runes/v2/examples.ts` still carries the plan's older Fireball text (`+30% damage`, `zone[long]`).
@@ -339,12 +339,14 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 
 "We also need a new rune, conc effect, more damage but smaller area."
 
-- **What it does:** a modifier rune, the opposite of Large. The shape before it deals 40 to 60% more damage and has 30% less size (the `[small]` step; size is radius here, as with Large and the sigil's increased area). The damage multiplies the shape's damage roll, its Splits and the sigil's damage, like a separate multiplier. It goes on `damageScale`, so it also strengthens heals, shields and aura strength, the same as the sigil's damage affix does. Text form: `nova concentrated(55)`, or `conc`; without a number it reads the lowest roll, 40.
-- **Where it works:** every shape with an area: Orb, Bolt, Nova, Zone and Aura (and the phase 4 shapes). On a Dash (its hit reach is fixed) or a Bond (no area) the grammar refuses it with `concentrated-needs-area`, naming the rune and the shape, because there it would be damage with nothing given up. Large is silently useless on those shapes; Concentrated is not, so it gets an error. An amount of 0% or less is `concentrated-amount`. It needs no flag: `plainModifierRunes` only exists because Swift and Large have affix forms.
-- **Doubled:** the bonuses add (two 50% runes give 100% more, not 125%) and the size losses add (-60%). Multiplied, four on a Bolt dealt 3.08x the best starter's damage per Force to one target, since Force prices damage on a log scale.
+- **What it does:** a modifier rune, the opposite of Large. The shape on its left deals 40 to 60% more damage and has 30% less size (the `[small]` step; size is radius here, as with Large and the sigil's increased area). The bonus multiplies the shape's damage roll, its Splits and the sigil's damage. It is damage only: it goes on the node's damage tuning, not on `damageScale`, so heals, shields and the strength of Ward, Restore and Impact auras do not change. Elemental auras deal it as damage. A shape that deals no damage (`nova restore`, `aura ward`) gets a forge note that it only shrinks. Text form: `nova concentrated(55)`, or `conc`; without a number it reads the lowest roll, 40.
+- **Which shape:** like an infusion, it goes on the nearest shape to its left, even across a trigger or a Split: `orb[onhit] split concentrated nova` concentrates the Orb, not the Nova. The tooltip says so.
+- **Where it works:** every shape with an area: Orb, Bolt, Nova, Zone and Aura (and the phase 4 shapes). On a Dash (its hit reach is fixed) or a Bond (no area) the grammar refuses it with `concentrated-needs-area`, naming the rune and the shape, because there it would be damage with nothing given up. Large is silently useless on those shapes; Concentrated is not, so it gets an error. It needs no flag: `plainModifierRunes` only exists because Swift and Large have affix forms.
+- **Once per shape** (`concentrated-once`), like Link and Orbit. Stacked, the bonuses added up while each took another 30% of size, and past the size floor (a tenth) every further one was free damage. Multiplied instead, four on a Bolt had dealt 3.08x the best starter's damage per Force.
+- **Amounts outside 40 to 60%** (the table; the bench's plain rune casts at 40, the minimum) are `concentrated-amount`, so the Spell Lab cannot write `concentrated(1000000)`. The sentence shows a fractional bonus as written (40.5%).
 - **The roll:** every Concentrated drop carries the `rune_concentrated` rune affix ("51% more damage"): T1 40 to 46, T2 47 to 53, T3 54 to 60, gated by item level and drop tier like every rune affix. So it never drops plain and never stacks. Monster drops, rolled drops and admin grants all roll it (`dropsRolled`, `ALWAYS_ROLLED_RUNES` in `items/items.ts`). A plain one only comes from the builders' bench and casts at 40%. It sells and prices at the forge by its roll's tier like other rolled runes, and clamps to 60 outside a sigil.
 - **Look:** name Concentrated, glyph `Ct`, a dried-blood tint (`0xb0584a`) on the carved stone icon, darker than the bone white of Swift and Large. It sorts with the modifiers in the stash rune tab and can be sorted by its roll.
-- **Force:** base 5 plus its damage (see "Force" above). At base 3, like Large, a payload Nova with it reached 2.09x the best starter's pack damage per Force; at 5 the worst hand-picked spell is the same one without Concentrated, 1.97x.
+- **Force and spirit:** base 5 plus its damage (see "Force" above). At base 3, like Large, a payload Nova with it reached 2.09x the best starter's pack damage per Force; at 5 the worst hand-picked spell is the same one without Concentrated, 1.97x. On an aura it reserves 15 spirit: at 10, `aura fire large concentrated(60)` dealt 1.32x the damage per spirit of `aura fire large`; at 15 it is 1.22x (1.16x without Large). Ward, Restore and Impact auras keep their strength and so lose per spirit (Ward 0.74x).
 
 Measured with the parity harness at base 5 (per Force as a share of the best starter's, single / pack; best starter 2.13 / 7.71):
 
@@ -358,12 +360,14 @@ Measured with the parity harness at base 5 (per Force as a share of the best sta
 | `nova[+55% damage, +50% size] concentrated(60) large` (warrior) | 26.0 | 1007 / 6041 | 0.63 / 1.04 |
 | `bolt` (ranger) | 4.8 | 448 / 448 | 1.51 / 0.42 |
 | `bolt concentrated(60)` (ranger) | 11.1 | 717 / 717 | 1.05 / 0.29 |
-| `bolt[+55% damage] lightning` + four `concentrated(60)` (ranger) | 35.8 | 2816 / 2816 | 1.32 / 0.36 |
+| `bolt[+55% damage, pierce 3] lightning lightning concentrated(60)` (ranger) | 23.6 | 1657 / 3313 | 1.14 / 0.63 |
+| `orb[+55% damage, +50% size] lightning concentrated(60)` | 22.7 | 1278 / 5111 | 0.91 / 1.01 |
+| `nova[+55% damage] lightning lightning concentrated(60)` | 26.6 | 1502 / 8906 | 0.92 / 1.50 |
 | `bolt[onhit] nova[+55% damage, +50% size] lightning lightning` (ranger) | 14.6 | 448 / 4978 | 0.50 / 1.52 |
 | the same with `concentrated(60) large` on the Nova | 19.1 | 448 / 7696 | 0.38 / 1.80 |
 | `nova[onexpire] zone[after 0.3s, +55% damage] fire cold concentrated(60) nova[+55% damage, +50% size] lightning concentrated(60)` | 32.0 | 2733 / 14114 | 1.38 / 1.97 |
 
-A Concentrated Nova buys damage at about the plain Nova's rate per Force, and on a Bolt at a worse one, so it is a way to put more damage in one cast for more Force and a slot, not a cheaper way to deal damage. The random search with Concentrated (176 of 300 compiled) found nothing above 1.53x. The harness packs stand close together, so the smaller area costs less there than it will in play.
+A Concentrated Nova buys damage at about the plain Nova's rate per Force, and on a Bolt at a worse one, so it is a way to put more damage in one cast for more Force and a slot, not a cheaper way to deal damage. The random search with Concentrated, one per shape (206 of 300 compiled), found nothing above 1.67x (`zone[after 0.7s, +31% duration] nova[+12% size, +55% damage] lightning lightning concentrated(54)`). The harness packs stand close together, so the smaller area costs less there than it will in play.
 
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 

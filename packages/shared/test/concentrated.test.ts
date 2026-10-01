@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AFFIXES,
   bracketTree,
+  BUTTON,
   CASTABLE_RUNES,
   clampRoll,
   compareRunes,
@@ -36,9 +37,12 @@ import {
   type RuleId,
   type RuneItem,
   type SigilCompile,
+  type SigilItem,
   type SpellNode,
 } from '../src/index.js';
 import { addItem } from '../src/sim/inventory.js';
+import { spawnEnemy } from '../src/sim/enemies.js';
+import { slotsFor } from './helpers/spell.js';
 
 function root(text: string, ctx: Partial<GrammarContext> = {}): SpellNode {
   const r = parseSpellText(text, ctx);
@@ -74,10 +78,11 @@ describe('Concentrated in the grammar', () => {
     expect(root('zone conc').stats.concentration).toBe(CONCENTRATED.defaultMore);
   });
 
-  it('adds up when doubled, and sits beside Large', () => {
-    const doubled = root('nova concentrated(50) concentrated(60)');
-    expect(doubled.stats.concentration).toBe(110);
-    expect(doubled.stats.size).toBe(2 * CONCENTRATED.sizePercent);
+  it('goes on a shape once, and sits beside Large', () => {
+    const twice = errorOf('nova concentrated(50) lightning concentrated(60)', 'concentrated-once');
+    expect(twice.runeIndex).toBe(3);
+    expect(twice.message).toContain('already has Concentrated (rune 2)');
+    expect(root('bolt[onhit] concentrated nova concentrated').payload[0]?.stats.concentration).toBe(40);
     expect(root('nova large concentrated').stats.size).toBe(50 + CONCENTRATED.sizePercent);
     expect(root('nova[+50% size] concentrated').stats.size).toBe(50 + CONCENTRATED.sizePercent);
   });
@@ -102,9 +107,15 @@ describe('Concentrated in the grammar', () => {
     expect(errorOf('dash[onland] concentrated nova', 'concentrated-needs-area').runeIndex).toBe(1);
   });
 
-  it('refuses an amount of 0% or less', () => {
+  it('refuses an amount outside what a drop rolls, 40 to 60%', () => {
     expect(errorOf('nova concentrated(0)', 'concentrated-amount').runeIndex).toBe(1);
-    expect(errorOf('nova concentrated(-20)', 'concentrated-amount').message).toContain('-20%');
+    expect(errorOf('nova concentrated(39)', 'concentrated-amount').message).toContain('40 to 60%');
+    expect(errorOf('nova concentrated(1000000)', 'concentrated-amount').message).toContain('1000000%');
+    expect(root('nova concentrated(60)').stats.concentration).toBe(60);
+    const table = AFFIXES.rune_concentrated.tiers;
+    expect(Math.min(...table.map((t) => t.min))).toBe(CONCENTRATED.minMore);
+    expect(Math.max(...table.map((t) => t.max))).toBe(CONCENTRATED.maxMore);
+    expect(CONCENTRATED.defaultMore).toBe(CONCENTRATED.minMore);
   });
 
   it('carries no other affix, and is no shape to start with', () => {
@@ -117,42 +128,50 @@ describe('Concentrated in the grammar', () => {
     if (!r.tree) throw new Error('no tree');
     expect(describeTree(r.tree)).toBe('Casts a small lightning nova, concentrated for 55% more damage.');
     expect(bracketTree(r.tree)).toBe('Nova[small, lightning, 55% more damage]');
-    const runes = tokenizeSpell('nova concentrated(55) concentrated').runes;
-    expect(formatRunes(runes)).toBe('nova concentrated(55) concentrated');
+    const half = parseSpellText('zone concentrated(40.5)');
+    if (!half.tree) throw new Error('no tree');
+    expect(describeTree(half.tree)).toContain('concentrated for 40.5% more damage');
+    const runes = tokenizeSpell('bolt[onhit] concentrated(55) nova concentrated').runes;
+    expect(formatRunes(runes)).toBe('bolt[onhit] concentrated(55) nova concentrated');
     expect(tokenizeSpell('nova concentrated[concentration 48]').runes[1]?.affixes.concentration).toBe(48);
   });
 
-  it('has a name, a glyph and a tooltip', () => {
+  it('has a name, a glyph and a tooltip that says which shape it changes', () => {
     expect(runeName('concentrated')).toBe('Concentrated');
     expect(runeGlyph('concentrated')).toBe('Ct');
     expect(runeDescription('concentrated')).toContain('more damage');
+    expect(runeDescription('concentrated')).toContain('across a trigger or a Split');
+    // Like an infusion: written after a release and a Split, it still goes to the Orb.
+    const orb = root('orb[onhit] split concentrated nova');
+    expect(orb.stats.concentration).toBe(40);
+    expect(orb.payload[0]?.stats.concentration).toBe(0);
   });
 });
 
 describe('Concentrated in the compiler', () => {
-  it('multiplies the damage scale and shrinks the radius', () => {
+  it('multiplies the damage tuning only, and shrinks the radius', () => {
     const plain = compiled('nova lightning').program.roots[0];
     const conc = compiled('nova lightning concentrated(50)').program.roots[0];
     if (!plain || !conc) throw new Error('no root');
-    expect(conc.damageScale / plain.damageScale).toBeCloseTo(1.5, 6);
+    expect(conc.tuning.damage / plain.tuning.damage).toBeCloseTo(1.5, 6);
     expect(conc.tuning.radius).toBeCloseTo(0.7, 6);
-    expect(conc.tuning.damage).toBe(plain.tuning.damage);
+    // damageScale also scales heals and shields, so Concentrated stays out of it.
+    expect(conc.damageScale).toBe(plain.damageScale);
   });
 
   it('multiplies the damage affix and the sigil damage rather than adding to them', () => {
     const conc = compiled('nova[+50% damage] concentrated(50)').program.roots[0];
     if (!conc) throw new Error('no root');
-    expect(conc.tuning.damage * conc.damageScale).toBeCloseTo(1.5 * 1.5, 6);
+    expect(conc.tuning.damage).toBeCloseTo(1.5 * 1.5, 6);
     const c = compileRunes(tokenizeSpell('nova concentrated(50)').runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage', damageMultiplier: 1.2 });
-    expect(c.ok && c.program.roots[0]?.damageScale).toBeCloseTo(1.8, 6);
+    const n = c.ok ? c.program.roots[0] : undefined;
+    expect(n ? n.damageScale * n.tuning.damage : 0).toBeCloseTo(1.8, 6);
   });
 
-  it('strengthens an aura in a smaller radius, for spirit', () => {
-    const aura = compiled('aura fire concentrated(50)');
-    const plain = compiled('aura fire');
-    expect(aura.program.roots[0]?.damageScale).toBeCloseTo(1.5, 6);
-    expect(aura.program.roots[0]?.tuning.radius).toBeCloseTo(0.7, 6);
-    expect(aura.spirit - plain.spirit).toBe(10);
+  it('notes that it only shrinks a shape that deals no damage', () => {
+    expect(compiled('nova restore concentrated').notes.join(' ')).toContain('only adds damage');
+    expect(compiled('aura ward concentrated').notes.join(' ')).toContain('only adds damage');
+    expect(compiled('nova restore fire concentrated').notes.join(' ')).not.toContain('only adds damage');
   });
 
   it('costs Force: its base price plus its damage, priced like a damage roll', () => {
@@ -160,7 +179,6 @@ describe('Concentrated in the compiler', () => {
     expect(force('nova concentrated(60)')).toBeGreaterThan(force('nova concentrated(40)'));
     // More than the +55% damage affix, which takes no slot and gives up no area.
     expect(force('nova concentrated(55)')).toBeGreaterThan(force('nova[+55% damage]'));
-    expect(force('nova concentrated concentrated')).toBeGreaterThan(force('nova concentrated'));
   });
 
   it('pays at least half its price on a payload, like other riders', () => {
@@ -274,5 +292,88 @@ describe('Concentrated runes as items', () => {
     expect(sim.inscribe(pid, blank.uid, [{ from: 'keep', index: 0 }])).toBeNull();
     const back = p.items.get(conc.uid);
     expect(back?.kind === 'rune' && back.affixes).toEqual([{ id: 'rune_concentrated', tier: 2, value: 57 }]);
+  });
+});
+
+/** A mage (no aura of its own) holding one sigil in slot 0, alone in a flat room. */
+function holding(spell: string) {
+  const sim = new Simulation(3);
+  const id = sim.addPlayer('c1', 'mage', 'Tester');
+  const p = sim.world.player.get(id);
+  if (!p) throw new Error('no player');
+  const item: SigilItem = { ...createSigil(sim.newItemUid(), sim.rng, 'relic'), affixes: [], corrupted: true };
+  item.slots = slotsFor(spell, () => sim.newItemUid());
+  addItem(p, item);
+  for (let i = 0; i < p.sigils.length; i++) p.sigils[i] = null;
+  const err = sim.equipSigil(id, item.uid, 0);
+  if (err !== null) throw new Error(`${spell}: ${err}`);
+  const eq = p.sigils[0];
+  if (!eq || !eq.compiled.ok) throw new Error(`${spell} does not compile`);
+  return { sim, id, p, compiled: eq.compiled };
+}
+
+const AURA_TYPES = ['fire', 'cold', 'lightning', 'impact', 'ward', 'restore'] as const;
+type AuraType = (typeof AURA_TYPES)[number];
+
+/** What one aura does in a second: damage to an enemy beside the caster, its push, or the caster's own buff. */
+function auraStrength(type: AuraType, extra: string): { strength: number; spirit: number } {
+  const { sim, id, compiled } = holding(`aura ${type}${extra}`);
+  const pos = sim.world.position.get(id);
+  if (!pos) throw new Error('no position');
+  if (type === 'ward' || type === 'restore') {
+    sim.step();
+    const b = sim.world.buffs.get(id);
+    return { strength: type === 'ward' ? (b?.damageReduction ?? 0) : (b?.regenPerSecond ?? 0), spirit: compiled.spirit };
+  }
+  const eid = spawnEnemy(sim, 'chaser', pos.x + 30, pos.y, { rare: false, level: 1, aggro: false, boss: false });
+  const h = sim.world.health.get(eid);
+  if (!h) throw new Error('no enemy');
+  h.maxLife = 1e9;
+  h.life = 1e9;
+  sim.step();
+  // An idle enemy keeps its knockback queued, so the push one tick adds is readable there.
+  const e = sim.world.enemy.get(eid);
+  return { strength: type === 'impact' ? Math.hypot(e?.knockX ?? 0, e?.knockY ?? 0) : 1e9 - h.life, spirit: compiled.spirit };
+}
+
+describe('Concentrated adds damage only', () => {
+  for (const type of AURA_TYPES) {
+    it(`on a ${type} aura: ${type === 'fire' || type === 'cold' || type === 'lightning' ? 'more damage per tick, at no better than 1.25x the damage per spirit' : 'the same strength, so less per spirit'}`, () => {
+      for (const large of ['', ' large']) {
+        const plain = auraStrength(type, large);
+        const conc = auraStrength(type, `${large} concentrated(60)`);
+        expect(plain.strength, `${type}${large}`).toBeGreaterThan(0);
+        expect(conc.spirit).toBeGreaterThan(plain.spirit);
+        if (type === 'fire' || type === 'cold' || type === 'lightning') {
+          expect(conc.strength / plain.strength).toBeCloseTo(1.6, 2);
+          expect(conc.strength / conc.spirit / (plain.strength / plain.spirit)).toBeLessThanOrEqual(1.25);
+        } else {
+          expect(conc.strength).toBeCloseTo(plain.strength, 6);
+          expect(conc.strength / conc.spirit).toBeLessThan(plain.strength / plain.spirit);
+        }
+      }
+    });
+  }
+
+  it('heals and shields no more per cast, and less per Force', () => {
+    for (const spell of ['nova restore', 'nova ward', 'zone restore', 'nova restore fire']) {
+      const measure = (text: string): { heal: number; shield: number; force: number } => {
+        const { sim, id, compiled } = holding(text);
+        const h = sim.world.health.get(id);
+        if (!h) throw new Error('no health');
+        h.life = 1;
+        sim.applyInput(id, { seq: 0, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: BUTTON.skill1 });
+        sim.step();
+        sim.applyInput(id, { seq: 1, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0 });
+        for (let i = 0; i < 30; i++) sim.step();
+        return { heal: h.life - 1, shield: sim.world.status.get(id)?.shield?.amount ?? 0, force: compiled.force };
+      };
+      const plain = measure(spell);
+      const conc = measure(`${spell} concentrated(60)`);
+      expect(plain.heal + plain.shield, spell).toBeGreaterThan(0);
+      expect(conc.heal, spell).toBeCloseTo(plain.heal, 6);
+      expect(conc.shield, spell).toBeCloseTo(plain.shield, 6);
+      expect(conc.force).toBeGreaterThan(plain.force);
+    }
   });
 });

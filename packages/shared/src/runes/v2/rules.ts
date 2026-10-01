@@ -68,7 +68,12 @@ export const RULES = {
   },
   /** ASSUMED. On a Dash or a Bond, Concentrated would be damage with nothing given up, so it is refused rather than ignored like Large. */
   CONCENTRATED_NEEDS_AREA: { id: 'concentrated-needs-area', text: 'Concentrated trades area for damage, so it needs a shape with an area (not Dash or Bond).' },
-  CONCENTRATED_AMOUNT: { id: 'concentrated-amount', text: 'Concentrated must add more than 0% damage.' },
+  CONCENTRATED_AMOUNT: { id: 'concentrated-amount', text: 'Concentrated adds 40 to 60% more damage, the range a drop rolls.' },
+  /**
+   * One per shape, like Link and Orbit: a second one added damage again and took another 30% of the
+   * size, and once the size hit its floor every further one was free damage.
+   */
+  CONCENTRATED_ONCE: { id: 'concentrated-once', text: 'A shape takes one Concentrated rune.' },
   PLAIN_MODIFIER_OFF: {
     id: 'plain-modifier-off',
     text: 'Swift and Large are affixes; as plain runes they only work when plainModifierRunes is on (open question 1).',

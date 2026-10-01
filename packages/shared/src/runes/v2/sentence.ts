@@ -24,9 +24,9 @@ function shaperValue(node: SpellNode, id: SpellNode['shapers'][number]['id']): n
   return node.shapers.find((s) => s.id === id)?.value ?? null;
 }
 
-/** Concentrated's combined bonus as a whole percent; 0 without one. */
+/** Concentrated's bonus as it is, to two decimals ("40.5"); 0 without one. */
 function morePercent(node: SpellNode): number {
-  return Math.round(node.stats.concentration);
+  return Number(node.stats.concentration.toFixed(2));
 }
 
 function descriptors(node: SpellNode, long: boolean): string[] {

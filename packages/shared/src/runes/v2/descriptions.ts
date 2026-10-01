@@ -41,7 +41,8 @@ export const RUNE_DESCRIPTIONS: Record<RuneId, string> = {
   onland: 'Everything after this rune is released where your Dash lands.',
   swift: 'The shape before it moves faster.',
   large: 'The shape before it is bigger.',
-  concentrated: 'The shape before it hits harder in a smaller area: more damage, 30% less size. Needs a shape with an area, so not a Dash or a Bond.',
+  concentrated:
+    'The nearest shape on its left deals more damage in a smaller area: 40 to 60% more damage (not healing or shielding), 30% less size. Like an infusion, it goes to that shape even across a trigger or a Split. One per shape, and only on a shape with an area, so not a Dash or a Bond.',
 };
 
 type RuneAffixId =
@@ -71,7 +72,7 @@ export const RUNE_AFFIX_DESCRIPTIONS = {
   rune_damage: 'How hard the shape hits.',
   rune_pierce: 'The shape flies through this many enemies before it stops.',
   split_count: 'How many copies the Split makes.',
-  rune_concentrated: 'How much more damage the Concentrated rune gives; several on one shape add up.',
+  rune_concentrated: 'How much more damage the Concentrated rune gives the shape on its left.',
 } as const satisfies Record<RuneAffixId, string> & Partial<Record<AffixId, string>>;
 
 export function runeDescription(id: RuneId): string {

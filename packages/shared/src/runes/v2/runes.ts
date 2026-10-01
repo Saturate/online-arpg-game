@@ -103,7 +103,7 @@ export interface RuneAffixes {
   chargeStages?: number;
   /** Timer and Pulse runes: the delay or interval in seconds. */
   seconds?: number;
-  /** Concentrated: percent more damage, a multiplier of its own on top of the damage affix. */
+  /** Concentrated: percent more damage (not healing or shielding), a multiplier of its own on top of the damage affix. */
   concentration?: number;
 }
 export type AffixKey = keyof RuneAffixes;
@@ -286,11 +286,12 @@ export const PLAIN_MODIFIER_EFFECT: Record<PlainModifierId, { key: 'speed' | 'si
 };
 
 /**
- * Concentrated: more damage in a smaller area. A drop always rolls its amount (the rune_concentrated
- * affix, 40 to 60%); a rune without the roll (the builders' bench, the Spell Lab) gets the lowest
- * one. The size loss matches the [small] word. Doubled, both the damage and the size loss add up.
+ * Concentrated: more damage in a smaller area, once per shape. A drop always rolls its amount (the
+ * rune_concentrated affix, minMore to maxMore, which must match its table in data/affixes.ts); a
+ * rune without the roll (the builders' bench, the Spell Lab) gets the lowest one. The size loss
+ * matches the [small] word.
  */
-export const CONCENTRATED = { defaultMore: 40, sizePercent: -30 } as const;
+export const CONCENTRATED = { defaultMore: 40, minMore: 40, maxMore: 60, sizePercent: -30 } as const;
 
 /**
  * Shapes Concentrated refuses: a Dash hits with a fixed reach and a Bond has no area, so the rune

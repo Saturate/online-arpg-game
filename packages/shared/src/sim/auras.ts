@@ -104,6 +104,8 @@ export function updateAuras(sim: Simulation, dt: number): void {
           if (!apos || distSq(pos.x, pos.y, apos.x, apos.y) > r2) continue;
           for (const t of node.effects) raiseBest(allyBest, aid, t, strength);
         }
+        // Only the elements deal damage, so only they take the damage tuning (Concentrated).
+        const damage = strength * node.tuning.damage;
         for (const [eid] of w.enemy) {
           const epos = w.position.get(eid);
           if (!epos || distSq(pos.x, pos.y, epos.x, epos.y) > r2) continue;
@@ -112,7 +114,7 @@ export function updateAuras(sim: Simulation, dt: number): void {
               const prev = pushFrom.get(eid);
               if (!prev || prev.strength < strength) pushFrom.set(eid, { x: pos.x, y: pos.y, strength });
             } else if (t !== 'ward' && t !== 'restore') {
-              raiseBest(enemyBest, eid, t, strength);
+              raiseBest(enemyBest, eid, t, damage);
             }
           }
         }

@@ -69,19 +69,21 @@ const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId }[]
   { text: 'nova[onexpire, +55% damage] zone[+55% damage]', classId: 'warrior' },
   { text: 'zone[after 1.2s] nova[+55% damage]', classId: 'warrior' },
   { text: 'nova[+55% damage]', classId: 'warrior' },
-  // Concentrated: alone, stacked with damage rolls and other Concentrated runes, beside Large, and on payloads.
+  // Concentrated (one per shape): alone, with damage rolls and doubled infusions, beside Large, on payloads and multicast.
   { text: 'nova concentrated(60)' },
   { text: 'nova lightning concentrated(60)' },
   { text: 'nova[+55% damage] concentrated(60)', classId: 'warrior' },
-  { text: 'nova[+55% damage] lightning concentrated(60) concentrated(60)' },
+  { text: 'nova[+55% damage] lightning lightning concentrated(60)' },
   { text: 'nova[+55% damage, +50% size] concentrated(60) large', classId: 'warrior' },
-  { text: 'nova[+50% size] lightning large concentrated(60) concentrated(60)' },
+  { text: 'nova[+50% size] lightning large large concentrated(60)' },
   { text: 'zone[+55% damage, +75% duration] fire concentrated(60)' },
-  { text: 'zone[+55% damage, +75% duration] fire concentrated(60) concentrated(60) concentrated(60)' },
+  { text: 'zone[+55% damage, +75% duration, +50% size] fire fire concentrated(60) large' },
   { text: 'bolt concentrated(60)', classId: 'ranger' },
-  { text: 'bolt[+55% damage, pierce 3] concentrated(60) concentrated(60) concentrated(60)', classId: 'ranger' },
-  { text: 'bolt[+55% damage] lightning concentrated(60) concentrated(60) concentrated(60) concentrated(60)', classId: 'ranger' },
-  { text: 'orb[+55% damage] lightning concentrated(60) concentrated(60)' },
+  { text: 'bolt[+55% damage, pierce 3] lightning lightning concentrated(60)', classId: 'ranger' },
+  { text: 'bolt[+55% damage, +50% speed] lightning concentrated(60) large', classId: 'ranger' },
+  { text: 'bolt[onhit, +55% damage] concentrated(60) nova[+55% damage] lightning concentrated(60)', classId: 'ranger' },
+  { text: 'nova lightning concentrated(60) nova fire concentrated(60)', multicast: 2 },
+  { text: 'orb[+55% damage, +50% size] lightning concentrated(60)' },
   { text: 'bolt[onhit] fire nova[+55% damage] concentrated(60)', classId: 'ranger' },
   { text: 'bolt[onhit] nova[+55% damage, +50% size] lightning lightning concentrated(60) large', classId: 'ranger' },
   { text: 'zone[every 0.2s] lightning nova concentrated(60)' },
@@ -131,7 +133,7 @@ function seeded(seed: number): () => number {
  * Random spells from the castable runes, with affixes inside their drop tables (data/affixes.ts):
  * speed and size up to +50%, duration up to +75%, damage up to +55%, pierce up to 3, every 0.2 to
  * 0.6 s, after 0.3 to 1.2 s, Split 2 to 6. With `concentrated`, shapes with an area also get
- * Concentrated runes (40 to 60%, one or two on a shape) and sometimes a Large beside them.
+ * Concentrated runes (40 to 60%, at most one on a shape) and sometimes a Large beside them.
  */
 function randomSpell(rnd: () => number, concentrated = false): { text: string; multicast: number } {
   const pick = <T,>(list: readonly T[], fallback: T): T => list[Math.floor(rnd() * list.length)] ?? fallback;
@@ -176,7 +178,7 @@ function randomSpell(rnd: () => number, concentrated = false): { text: string; m
     if (pulse) words.push('pulse');
     for (let n = Math.floor(rnd() * 3); n > 0; n--) words.push(pick(['fire', 'cold', 'lightning', 'lightning'], 'fire'));
     if (concentrated && shape !== 'dash' && rnd() < 0.6) {
-      for (let n = 1 + Math.floor(rnd() * 2); n > 0; n--) words.push(`concentrated(${Math.round(between(40, 60))})`);
+      words.push(`concentrated(${Math.round(between(40, 60))})`);
       if (rnd() < 0.25) words.push('large');
     }
     if (rnd() < 0.3) words.push(`split(${2 + Math.floor(rnd() * 5)})`);
