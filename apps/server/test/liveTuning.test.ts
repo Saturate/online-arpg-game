@@ -294,6 +294,27 @@ describe('live tuning writes', () => {
     server.close();
   });
 
+  it('refuses a set that breaks an affix table, naming it, and a revert into one', async () => {
+    const { server, call, store } = await setup();
+    const t5min = 'affix.rune_damage.t5.min';
+    const t6max = 'affix.rune_damage.t6.max';
+    const bad = await call('PATCH', '/api/admin/tuning', { [t5min]: 15 });
+    expect(bad.status).toBe(400);
+    const body: unknown = await bad.json();
+    expect(typeof body === 'object' && body !== null && 'error' in body ? body.error : '').toMatch(/^rune_damage T5 \(15 to 27\) overlaps/);
+    expect(activeTunables()).toEqual({});
+    expect(store.tunables.load()).toEqual({});
+    // Lowering T6 first makes room; reverting that change once T5 moved down would overlap again.
+    expect((await call('PATCH', '/api/admin/tuning', { [t6max]: 14 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { [t5min]: 15 })).status).toBe(200);
+    const [row] = store.tunables.commit([{ path: t6max, old: null, new: 14 }], { account: 'boss', token: null });
+    if (!row) throw new Error('no row');
+    const revert = await call('POST', '/api/admin/tuning/revert', { id: row.id });
+    expect(revert.status).toBe(400);
+    expect(activeTunables()[t6max]).toBe(14);
+    server.close();
+  });
+
   it('a kit sigil in a running room casts its stored rolls, and follows a base shape change on its next cast', async () => {
     const { store, rooms, server, call } = await setup();
     const acc = await store.register('binder', 'password123');

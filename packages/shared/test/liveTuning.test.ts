@@ -154,7 +154,8 @@ describe('validating a change', () => {
   it('keeps the good entries of stored or received values and drops the rest', () => {
     const dropped: string[] = [];
     expect(parseTunableValues({ 'spell.bolt.damage': 30, 'spell.gone': 3, 'spell.orb.radius': -5, 'spell.nova.radius': 130 }, (why) => dropped.push(why))).toEqual({ 'spell.bolt.damage': 30 });
-    expect(dropped).toHaveLength(2);
+    // An unknown path (a retired one, or a newer server's) goes without a report; a bad value is reported.
+    expect(dropped).toHaveLength(1);
     expect(parseTunableValues('nope')).toEqual({});
   });
 

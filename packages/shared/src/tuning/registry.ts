@@ -1,4 +1,7 @@
 import { AILMENTS, AURA, HEAT, LINK, SPELL } from '../config/sim.js';
+import { AFFIX_IDS, AFFIXES, RUNE_AFFIX_TIERS, type AffixId } from '../data/affixes.js';
+import { SIGIL_MAX_SLOTS } from '../items/items.js';
+import { betterOf } from '../items/runeRolls.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
 import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
@@ -11,7 +14,7 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['runes', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
+export const TUNING_CATEGORIES = ['runes', 'sigils', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
@@ -23,6 +26,7 @@ export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
   force: 'Force prices',
   spirit: 'Spirit prices',
   runes: 'Rune balance',
+  sigils: 'Sigil balance',
 };
 
 export interface TunableSpec {
@@ -208,6 +212,65 @@ add('rune.concentrated.defaultMore', 'runes', 'Concentrated: % more damage witho
 SPECIAL['rune.split.defaultCount'] = { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
 add('rune.split.defaultCount', 'runes', 'Split: copies without a count', DEFAULTS, 'splitCount');
 
+/**
+ * Affix roll tables (Rune balance and Sigil balance): each tier's lowest and highest roll, and for
+ * the six rune tiers their weight and the least item level that rolls them. Paths name the tier as
+ * players read it, from the best: `affix.rune_damage.t1.max` is T1's top damage roll. A change
+ * reaches new drops, new kits and where extraction clamps; it never changes a stored roll.
+ * Release flags (on hit, on expire, on landing) carry no number and are left out.
+ */
+const FLAG_AFFIXES: ReadonlySet<AffixId> = new Set(['release_onhit', 'release_onexpire', 'release_onland']);
+
+/** The widest a roll may go per affix: past these the grammar refuses the spell or the number stops meaning anything. */
+const AFFIX_LIMITS: Partial<Record<AffixId, { min: number; max: number }>> = {
+  split_count: { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max },
+  rune_concentrated: { min: CONCENTRATED.minMore, max: CONCENTRATED.maxMore },
+  release_every: { min: MIN_RELEASE_SECONDS, max: 10 },
+  release_after: { min: MIN_RELEASE_SECONDS, max: 10 },
+  rune_pierce: { min: 0, max: 20 },
+  // Shares of a cost or a wait: at 100% the Force, spirit or cooldown would be gone.
+  heat_reduced: { min: 0, max: 90 },
+  spirit_reduced: { min: 0, max: 90 },
+  cast_delay: { min: 0, max: 90 },
+  sigil_slots: { min: 0, max: SIGIL_MAX_SLOTS },
+  // Rule-breaking rolls stay small; compiling still checks every spell against depth and the entity cap.
+  max_depth: { min: 0, max: 3 },
+  multicast: { min: 0, max: 3 },
+};
+
+/** Monster levels stop at 50; dungeon caches drop a level above, so gates may sit a little past it. */
+const MAX_GATE_LEVEL = 60;
+
+export function affixTierPath(id: AffixId, tier: number, key: 'min' | 'max' | 'weight' | 'ilvl'): string {
+  return `affix.${id}.t${AFFIXES[id].tiers.length - tier}.${key}`;
+}
+
+function affixGroup(id: AffixId): string {
+  return `${capital(AFFIXES[id].text.replace('{v}', '#'))} (${id})`;
+}
+
+for (const id of AFFIX_IDS) {
+  const def = AFFIXES[id];
+  const rune = def.targets.includes('rune');
+  if ((!rune && !def.targets.includes('sigil')) || FLAG_AFFIXES.has(id)) continue;
+  const category: TuningCategory = rune ? 'runes' : 'sigils';
+  const top = Math.max(...def.tiers.map((t) => t.max));
+  const limits = AFFIX_LIMITS[id] ?? { min: 0, max: tidy(10 * top) };
+  const int = (def.decimals ?? 0) === 0;
+  // Listed from T1, the best, down, as the Tuning tab reads them.
+  for (let tier = def.tiers.length - 1; tier >= 0; tier--) {
+    const t = def.tiers[tier];
+    if (!t) continue;
+    const name = `T${def.tiers.length - tier}`;
+    const opts = (range: Range) => ({ range, group: affixGroup(id) });
+    add(affixTierPath(id, tier, 'min'), category, `${name}: lowest roll`, t, 'min', opts({ ...limits, int }));
+    add(affixTierPath(id, tier, 'max'), category, `${name}: highest roll`, t, 'max', opts({ ...limits, int }));
+    if (!rune || def.tiers.length !== RUNE_AFFIX_TIERS) continue;
+    add(affixTierPath(id, tier, 'weight'), category, `${name}: drop weight`, t, 'weight', opts({ min: 0, max: 1000, int: true }));
+    add(affixTierPath(id, tier, 'ilvl'), category, `${name}: least item level`, t, 'ilvl', opts({ min: 1, max: MAX_GATE_LEVEL, int: true }));
+  }
+}
+
 /** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
 export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));
 
@@ -233,11 +296,24 @@ let version = 0;
  */
 export function applyTunables(values: Readonly<TunableValues>): void {
   for (const s of slots) Reflect.set(s.target, s.key, s.spec.default);
-  const next: TunableValues = {};
+  const valid: TunableValues = {};
   for (const path of Object.keys(values).sort()) {
     const slot = byPath.get(path);
     const v = values[path];
     if (!slot || v === undefined || tunableProblem(slot.spec, v) !== null || v === slot.spec.default) continue;
+    valid[path] = v;
+  }
+  // An affix table that a partial set leaves broken (one of its numbers dropped as out of range)
+  // keeps its code defaults whole rather than half its tuning.
+  for (const id of AFFIX_IDS) {
+    if (affixTableProblem(id, valid) === null) continue;
+    for (const path of Object.keys(valid)) if (path.startsWith(`affix.${id}.`)) delete valid[path];
+  }
+  const next: TunableValues = {};
+  for (const path of Object.keys(valid).sort()) {
+    const slot = byPath.get(path);
+    const v = valid[path];
+    if (!slot || v === undefined) continue;
     Reflect.set(slot.target, slot.key, v);
     next[path] = v;
   }
@@ -298,25 +374,65 @@ export function parseTunablePatch(v: unknown): Record<string, number | null> | s
 
 /**
  * Stored or received overrides: bad entries are dropped (and reported), the rest kept, so one value a
- * later range refuses cannot cost the others.
+ * later range refuses cannot cost the others. A path the game no longer has (the retired
+ * `starter.*` numbers) or does not have yet (a newer server's) is dropped without a report.
  */
 export function parseTunableValues(v: unknown, onBad?: (why: string) => void): TunableValues {
   if (!isRecord(v)) return {};
   const out: TunableValues = {};
   for (const [path, value] of Object.entries(v)) {
     const spec = tunableSpec(path);
-    const problem = spec ? tunableProblem(spec, value) : `unknown tunable ${path.slice(0, 80)}`;
+    if (!spec) continue;
+    const problem = tunableProblem(spec, value);
     if (problem !== null || typeof value !== 'number') {
       onBad?.(problem ?? `${path} is not a number`);
       continue;
     }
-    if (value !== spec?.default) out[path] = value;
+    if (value !== spec.default) out[path] = value;
   }
   return out;
 }
 
+/** The value a set of overrides gives a path: its override, else its code default. */
+function valueIn(values: Readonly<TunableValues>, path: string): number | undefined {
+  const v = values[path];
+  return v ?? byPath.get(path)?.spec.default;
+}
+
+/**
+ * Why one affix's tiers break under a set of overrides, or null: every tier's lowest roll at most
+ * its highest, and the tiers in order from the weakest up without overlapping (neighbours may share
+ * an end, as whole-number tiers must), so the tier a roll counts as, and its price, is never in
+ * doubt. A better tier may not unlock at a lower item level than a worse one.
+ */
+function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string | null {
+  const def = AFFIXES[id];
+  if (!byPath.has(affixTierPath(id, 0, 'min'))) return null;
+  const lower = betterOf(id) === 'lower';
+  let prev: { min: number; max: number; ilvl: number | undefined; name: string } | null = null;
+  for (let tier = 0; tier < def.tiers.length; tier++) {
+    const min = valueIn(values, affixTierPath(id, tier, 'min'));
+    const max = valueIn(values, affixTierPath(id, tier, 'max'));
+    if (min === undefined || max === undefined) continue;
+    const ilvl = valueIn(values, affixTierPath(id, tier, 'ilvl'));
+    const name = `${id} T${def.tiers.length - tier}`;
+    if (min > max) return `${name}: its lowest roll ${min} is above its highest ${max}`;
+    if (prev) {
+      // A shorter pulse is the better roll, so its tiers run downward.
+      if (!lower && min < prev.max) return `${name} (${min} to ${max}) overlaps or sits below ${prev.name} (${prev.min} to ${prev.max})`;
+      if (lower && max > prev.min) return `${name} (${min} to ${max}) overlaps or sits above ${prev.name} (${prev.min} to ${prev.max}); shorter is better here`;
+      if (ilvl !== undefined && prev.ilvl !== undefined && ilvl < prev.ilvl) return `${name} unlocks at item level ${ilvl}, below ${prev.name} at ${prev.ilvl}`;
+    }
+    prev = { min, max, ilvl, name };
+  }
+  return null;
+}
+
 /** Why a whole set of overrides cannot be applied though each number is in range, or null. */
 export function tunableSetProblem(values: Readonly<TunableValues>): string | null {
-  void values;
+  for (const id of AFFIX_IDS) {
+    const problem = affixTableProblem(id, values);
+    if (problem !== null) return problem;
+  }
   return null;
 }
