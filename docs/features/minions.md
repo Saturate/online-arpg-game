@@ -38,7 +38,7 @@ One Hound vessel binds a whole pack: a **Leader** and **1 to 6 packmates**, draw
 | rare | 2 to 4 |
 | relic | 3 to 6 |
 
-- **The Leader:** 1.35x life and 1.15x damage of the hound numbers. It pounces with the monster `leap` ability data (the Grave Hound's pounce with a longer reach): cooldown 6 s, 110 to 480 units (the monster's is 400), a 0.25 s crouch with no telegraph since it is an ally, 0.5 s in the air, 24 damage in a 60 radius. The landing pins every enemy under it for 1 s (not bosses or knockback-immune monsters) and poisons them. Every 14 s while it fights it howls: the whole pack moves 25% faster and bites 20% harder for 6 s. Its bite is plain.
+- **The Leader:** 1.35x life and 1.15x damage of the hound numbers. It pounces with the monster `leap` ability data (the Grave Hound's pounce with a longer reach): cooldown 6 s, 110 to 480 units (the monster's is 400), a 0.25 s crouch with no telegraph since it is an ally, 0.5 s in the air, 24 damage in a 60 radius. It only pounces along a line it could walk (since 2026-10-01; fences let shots through, so before that it jumped over town fences). The landing pins every enemy under it for 1 s (not bosses or knockback-immune monsters) and poisons them. Every 14 s while it fights it howls: the whole pack moves 25% faster and bites 20% harder for 6 s. Its bite is plain.
 - **Packmates:** each has `0.55 / sqrt(n)` of a hound's life and damage (n packmates), moves 1.15x faster and bites 1.15x as often. Every bite poisons ([monsters.md](monsters.md), "Poison"). They take their Leader's target and circle it to their own angle (1.25, -1.25, 2.2, -2.2, pi and 0.6 rad from the Leader's side), so the pack flanks. Out of a fight they trot in a loose ring behind the Leader.
 - **Why those numbers:** the packmates together are worth 0.55 of a hound with one, 0.78 with two, 1.1 with four and 1.35 with six, so a whole pack is 1.55 to 2.35 hounds rather than up to 7. A relic pack is clearly the better find, but it pays in fragile bodies (41 life each at level 1 with six packmates) that area damage hits all at once.
 - **One vessel's spirit:** the pack reserves exactly what the vessel reserves (15 to 30 by tier plus 5 per affix), however many dogs it has.
@@ -112,6 +112,7 @@ Tests:
 The Hound pack is built. The rest of the first batch:
 - **Melee:** Shieldbearer (taunts nearby enemies about every 10 s), Banner-bearer (plants a banner aura, damage or armour, about every 20 s).
 - **Ranged:** Hawk (flies over walls, marks a target so it takes more damage).
+  - Flying means a terrain mask parameter on `settle`, `walkToward` and the line tests in `sim/minions.ts` (`'shots'` for a flyer, like `knockMove` in `sim/enemies.ts`), since every minion today moves and checks lines against the walking mask.
 - **Spell:** Fire, Frost and Storm elementals (one per element, a nova or bolt ability, using the planned damage types).
 - **Owner's:** a fireball minion (a bone mage that casts a fireball sigil on a cooldown; a "random sigil" can be its vessel roll), and a healing minion that tethers (Bond-like) to the player or minion with the most missing life and heals it.
 - Abilities use the monster ability data wherever a monster already does the same thing; no Force; the AI decides when; Follow never uses offensive abilities.
