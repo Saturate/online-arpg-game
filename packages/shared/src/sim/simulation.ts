@@ -1,4 +1,4 @@
-import { HEAT, MINIONS, SIM, WAVES } from '../config/sim.js';
+import { ENEMY_LEVEL, HEAT, MINIONS, SIM, WAVES } from '../config/sim.js';
 import { CLASSES, type ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { STANCES, type Stance } from '../data/minions.js';
@@ -82,6 +82,10 @@ export interface SimRates {
   forceCool: number;
   /** Cap on the cooling speed-up after a pause in casting. */
   forceRampMax: number;
+  /** Every boss's life, on top of the rare multiplier; read when a boss spawns, so the living keep theirs. */
+  bossLife: number;
+  /** Every boss's damage, all of it; read when a boss spawns, like `bossLife`. */
+  bossDamage: number;
 }
 
 /**
@@ -95,7 +99,16 @@ export interface RoomRules {
   waves: boolean;
 }
 
-export const DEFAULT_RATES: SimRates = { xp: 1, loot: 1, forceMax: HEAT.max, forceCost: 1, forceCool: 1, forceRampMax: HEAT.coolRampMax };
+export const DEFAULT_RATES: SimRates = {
+  xp: 1,
+  loot: 1,
+  forceMax: HEAT.max,
+  forceCost: 1,
+  forceCool: 1,
+  forceRampMax: HEAT.coolRampMax,
+  bossLife: ENEMY_LEVEL.bossLifeMultiplier,
+  bossDamage: ENEMY_LEVEL.bossDamageMultiplier,
+};
 
 export class Simulation {
   readonly world = new World();

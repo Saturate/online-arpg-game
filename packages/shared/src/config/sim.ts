@@ -353,6 +353,8 @@ export const STREAMING = {
    */
   respawnMinutes: 10,
   bossRespawnMinutes: 20,
+  /** Default of the admin setting for gate bosses, counted from death rather than by inactivity (`gates.ts`). */
+  gateRespawnMinutes: 20,
   /** A refill held up by a monster of the chunk standing near someone tries again this often. */
   respawnRetryTicks: 200,
 } as const;
@@ -508,7 +510,14 @@ export const DUNGEON = {
 export const ENEMY_LEVEL = {
   lifePerLevel: 0.28,
   damagePerLevel: 0.14,
-  bossLifeMultiplier: 3,
+  /**
+   * Defaults of the admin settings for every boss (region, gate, dungeon, Arena, waves). Life is on
+   * top of the rare 3x, so a boss has 4.5x base life; damage covers everything the boss deals. Owner
+   * decision (2026-10-01): bosses were 9x life and 1x damage, a long fight with little to dodge; half
+   * the life and twice the damage makes the telegraphed attacks the thing to play around.
+   */
+  bossLifeMultiplier: 1.5,
+  bossDamageMultiplier: 2,
   /**
    * Below this level spread shots fire one projectile and rares cannot roll Multishot: a fan of
    * bullets from the first monsters a new character meets felt unfair and like a later-game threat.

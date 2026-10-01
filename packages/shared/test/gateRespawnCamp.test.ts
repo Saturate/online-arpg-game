@@ -8,7 +8,7 @@ function setup() {
   const sim = new Simulation(5, DESC, { waves: false });
   const g = (loadMap(DESC).def.gates ?? [])[0];
   if (!g) throw new Error('no gate');
-  setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.05 });
+  setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 0.05 });
   const wp = sim.mapDef.portals
     .filter((p) => p.target === 'waypoint')
     .sort((a, b) => Math.hypot(a.x - g.bossX, a.y - g.bossY) - Math.hypot(b.x - g.bossX, b.y - g.bossY))[0];

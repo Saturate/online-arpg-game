@@ -1,4 +1,4 @@
-import { HEAT, STREAMING } from '../config/sim.js';
+import { ENEMY_LEVEL, HEAT, STREAMING } from '../config/sim.js';
 import { isClassId, type ClassId } from '../data/classes.js';
 import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
@@ -131,6 +131,12 @@ export interface ServerSettings {
   respawnMinutes: number;
   /** The same for bosses (region bosses and their escorts), on their own, longer timer. */
   bossRespawnMinutes: number;
+  /** Minutes from a gate boss's death until it comes back, apart from the region bosses' timer. */
+  gateRespawnMinutes: number;
+  /** Every boss's life, on top of the rare 3x; applies to bosses that spawn after a change. */
+  bossLifeMultiplier: number;
+  /** Every boss's damage (contact, abilities, projectiles, pools); applies to bosses that spawn after a change. */
+  bossDamageMultiplier: number;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -157,6 +163,9 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   zoomMax: 1.4,
   respawnMinutes: STREAMING.respawnMinutes,
   bossRespawnMinutes: STREAMING.bossRespawnMinutes,
+  gateRespawnMinutes: STREAMING.gateRespawnMinutes,
+  bossLifeMultiplier: ENEMY_LEVEL.bossLifeMultiplier,
+  bossDamageMultiplier: ENEMY_LEVEL.bossDamageMultiplier,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
@@ -229,6 +238,12 @@ export const SETTINGS_LIMITS = {
   /** Under a minute, stepping out of a chunk's wake range and back would farm it. */
   respawnMinutesMin: 1,
   respawnMinutesMax: 240,
+  /**
+   * Below 0.5 a boss (on top of the rare 3x) falls quicker than the pack round it; above 10 one hit
+   * of a big attack takes most of a geared character's life.
+   */
+  bossMultiplierMin: 0.5,
+  bossMultiplierMax: 10,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -283,8 +298,11 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     zoomMax: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
     respawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
     bossRespawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
+    gateRespawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
+    bossLifeMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
+    bossDamageMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

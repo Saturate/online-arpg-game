@@ -35,9 +35,9 @@ Status: Live. The roster since 2026-09-28 (two batches); the admin Monsters, Min
 - **Leash:** outside wave maps, a monster dragged more than 1300 units from home gives up, walks all the way home and heals fully. It takes no target for the first 3 s of the walk; after that a target in sight within its aggro radius, or a hit, turns it round ([world-streaming.md](world-streaming.md)).
 - **Pathing:** a monster that sees its target walks straight at it. Otherwise it follows a flow field, a multi-source BFS from every targetable player and minion, rebuilt every 5 ticks.
 - **Safe zone:** `isTargetable` is the one check both aggro and damage go through, so monsters lose their target at the town gate.
-- **Rare and boss numbers:** bosses always roll 3 affixes, are 1.885x size (1.45 x 1.3) and get 9x base life (3x rare, 3x boss). Monster life grows 28% per level and damage 14% per level above 1.
+- **Rare and boss numbers:** bosses always roll 3 affixes, are 1.885x size (1.45 x 1.3) and get 4.5x base life (3x rare, 1.5x boss) and 2x damage, both boss factors admin settings (below). Monster life grows 28% per level and damage 14% per level above 1.
 - **Low-level fairness:** below level 5, spread shots fire one projectile and rares cannot roll Multishot. A fan of bullets from the first monsters a new character meets felt unfair.
-- **Planned: boss tuning (owner, 2026-10-01).** "Bosses need less HP but more damage, so they are dangerous and you have to dodge attacks." Boss life halves (4.5x base instead of 9x) and boss damage doubles, both as admin settings so they tune live. Applies to every boss: region, gate, dungeon and Arena. The telegraphs stay as they are, since every big attack can already be dodged; a review in play should check that the doubled hits read in time, at night too.
+- **Boss tuning** (owner, 2026-10-01, built 2026-10-01, not yet deployed): "Bosses need less HP but more damage, so they are dangerous and you have to dodge attacks." Boss life is half what it was (4.5x base instead of 9x) and boss damage twice, as two admin settings, `bossLifeMultiplier` (1.5, on top of the rare 3x) and `bossDamageMultiplier` (2), each 0.5 to 10 ([accounts-admin.md](accounts-admin.md)). Every boss spawns through `spawnEnemy` with `boss: true` (region, gate, dungeon, Arena and the sandbox waves' every fifth wave), which reads them from `sim.rates.bossLife` and `sim.rates.bossDamage`. The damage factor is folded into the boss's `damageMult`, which every hit it deals already goes through: contact, slams, blasts, charges, leaps, projectiles, pools and poison from those hits, and the death burst. Its summons are not bosses and keep normal numbers. A change applies to bosses that spawn after it; a boss already alive keeps its life and damage, as monster tuning does. The client shows the life the snapshot carries, so nothing there computes it. The telegraphs stay as they are, since every big attack can already be dodged; a review in play should check that the doubled hits read in time, at night too.
 - **Bosses never roll Regenerates.** Affixes are filtered after the roll, so a rare can end up with none.
 - **Reflected projectiles** are capped at 12 damage and live 1.5 s; the reflect chance is the affix value (20% to 60% by tier).
 - **Summons do not pay:** anything a monster summons drops no loot and gives a quarter of the XP. A shaman's raised corpse gives nothing at all (no XP, no loot, no Arena score), so a monster raised a second time cannot be farmed. Monsters split from a splitter pay in full.
@@ -81,8 +81,8 @@ Movement kinds: melee, flank, ranged, kite, stationary, ghost, erratic, burrow, 
 
 Formulas:
 
-- Life: `base * (rare or boss ? 3 : 1) * (boss ? 3 : 1) * (1 + 0.28 * (level - 1)) * (1 + armored%)`.
-- Damage: `1 + 0.14 * (level - 1)`.
+- Life: `base * (rare or boss ? 3 : 1) * (boss ? bossLifeMultiplier : 1) * (1 + 0.28 * (level - 1)) * (1 + armored%)`, the boss factor 1.5 by default.
+- Damage: `(1 + 0.14 * (level - 1)) * (boss ? bossDamageMultiplier : 1)`, the boss factor 2 by default.
 - XP: `6 * level^1.35`, x4 rare, x18 boss, x0.25 summoned, times the type's `xp` override ([characters.md](characters.md)).
 
 Invariants:
@@ -188,7 +188,7 @@ The testground and sandbox-style maps keep the old wave spawner (`WAVES`), when 
 
 Tests:
 
-- `packages/shared/test/monsters.test.ts`: every type runs 15 s without errors and deterministically; summon caps, splitting, wind-ups, dodging a slam, burrowed monsters cannot be hit, shielders block from the front, a shaman raises a corpse once, poison pools, boss enrage; every biome has monsters at levels 1 to 30, families appear by level.
+- `packages/shared/test/monsters.test.ts`: every type runs 15 s without errors and deterministically; summon caps, splitting, wind-ups, dodging a slam, burrowed monsters cannot be hit, shielders block from the front, a shaman raises a corpse once, poison pools, boss enrage; boss tuning (4.5x base life and 2x damage by default against a rare's 3x and 1x, changed rates reach bosses that spawn after and not the living, a boss's first hit is twice the same rare's, the settings' range); every biome has monsters at levels 1 to 30, families appear by level.
 - `packages/shared/test/poison.test.ts`: poison stacks, ticks and wears off on every kind of target; the Grave Hound's bite poisons.
 - `packages/shared/test/monsters2.test.ts`: the second roster, 8 or more types per biome, the Grave Hound's zones and pounce, biome bosses, blink, dormancy, mimics wake when hit, the mummy curse, flyers over water, one projectile below level 5, bosses never regenerate.
 - `packages/shared/test/tuning.test.ts`: override validation, stale kinds dropped, overrides at spawn, XP scaled but Arena score untouched, living monsters unchanged, export format and round trip.

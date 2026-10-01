@@ -91,7 +91,7 @@ function isAccounts(v: unknown): v is AdminAccount[] {
 }
 
 function isSettings(v: unknown): v is ServerSettings {
-  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number' && typeof v.heroLight === 'number' && typeof v.heroLightRadius === 'number' && typeof v.lampLight === 'number' && typeof v.respawnMinutes === 'number' && typeof v.bossRespawnMinutes === 'number';
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number' && typeof v.heroLight === 'number' && typeof v.heroLightRadius === 'number' && typeof v.lampLight === 'number' && typeof v.respawnMinutes === 'number' && typeof v.bossRespawnMinutes === 'number' && typeof v.gateRespawnMinutes === 'number' && typeof v.bossLifeMultiplier === 'number' && typeof v.bossDamageMultiplier === 'number';
 }
 
 function isClaimed(v: unknown): v is { username: string } {

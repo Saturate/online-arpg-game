@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { freshWorld, gateBoss, gateSeal, gateTimers, loadMap, NET, PROGRESSION, rememberWorld, respawnGateBoss, restoreWorld, setRespawnTimes, SIM, Simulation, stepPlayer, type GateInfo, type MoveState, type Vec2 } from '../src/index.js';
+import { freshWorld, gateBoss, gateSeal, gateTimers, loadMap, NET, PROGRESSION, rememberWorld, respawnGateBoss, restoreWorld, respawnTicks, setRespawnTimes, SIM, Simulation, stepPlayer, type GateInfo, type MoveState, type Vec2 } from '../src/index.js';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
 
@@ -167,7 +167,7 @@ describe('gate bosses', () => {
     if (!g) throw new Error('no gate');
     const sim = newSim();
     // Three seconds, so the test does not wait out the default.
-    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.05 });
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 0.05 });
     const a = hero(sim, 'a', beforeGate(g, 400));
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
@@ -192,8 +192,28 @@ describe('gate bosses', () => {
     if (second === null) return;
     dealDamage(sim, second, 1e9, a, []);
     expect(player(sim, a).gates).toEqual([g.id]);
-    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 30 });
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 30 });
     respawnGateBoss(sim, g.id);
+    for (let i = 0; i < 6; i++) sim.step();
+    expect(gateBoss(sim, g.id)).not.toBeNull();
+  });
+
+  it("waits out the gate boss's own respawn time, not the region bosses'", () => {
+    const g = gates()[0];
+    if (!g) throw new Error('no gate');
+    const sim = newSim();
+    // Region bosses due in three seconds, gate bosses in half an hour.
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.05, gateRespawnMinutes: 30 });
+    expect(respawnTicks(sim).gates).toBe(30 * 60 * SIM.tickRate);
+    const a = hero(sim, 'a', beforeGate(g, 1500));
+    for (let i = 0; i < 6; i++) sim.step();
+    const first = gateBoss(sim, g.id);
+    if (first === null) throw new Error('no gate boss');
+    dealDamage(sim, first, 1e9, a, []);
+    for (let i = 0; i < 200; i++) sim.step();
+    expect(gateBoss(sim, g.id)).toBeNull();
+    // A shorter gate time reaches the boss already waiting, counted from its death.
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 30, gateRespawnMinutes: 0.05 });
     for (let i = 0; i < 6; i++) sim.step();
     expect(gateBoss(sim, g.id)).not.toBeNull();
   });
@@ -245,7 +265,7 @@ describe('gate bosses', () => {
     const g = gates()[1];
     if (!g) throw new Error('no gate');
     const sim = newSim();
-    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.25 });
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 0.25 });
     const a = hero(sim, 'a', beforeGate(g, 1500));
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
@@ -258,7 +278,7 @@ describe('gate bosses', () => {
     expect(served).toBeGreaterThanOrEqual(100);
 
     const next = newSim();
-    setRespawnTimes(next, { respawnMinutes: 10, bossRespawnMinutes: 0.25 });
+    setRespawnTimes(next, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 0.25 });
     restoreWorld(next, memory);
     hero(next, 'b', beforeGate(g, 1500));
     // 0.25 minutes is 300 ticks; the 100 served before the close count, the rest are still to wait.

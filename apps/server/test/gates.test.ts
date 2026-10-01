@@ -1,4 +1,4 @@
-import { gateBoss, loadMap, SIM, type GateInfo, type ServerMessage } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, gateBoss, loadMap, respawnTicks, SIM, type GateInfo, type ServerMessage } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
@@ -145,5 +145,23 @@ describe('gates on the server', () => {
     again.emit({ t: 'join', token: store.createSession(id.account), characterId: id.character });
     ticks(rooms, 0.2);
     expect(hero(rooms, again).gates).toEqual([g.id]);
+  });
+});
+
+describe('boss settings', () => {
+  it('reach running rooms on save: boss life and damage, and the gate timer apart from the region one', async () => {
+    const { store, rooms, sockets } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('no socket');
+    const sim = roomOf(rooms, a).sim;
+    expect(sim.rates.bossLife).toBe(DEFAULT_SERVER_SETTINGS.bossLifeMultiplier);
+    expect(sim.rates.bossDamage).toBe(DEFAULT_SERVER_SETTINGS.bossDamageMultiplier);
+    expect(respawnTicks(sim).gates).toBe(DEFAULT_SERVER_SETTINGS.gateRespawnMinutes * 60 * SIM.tickRate);
+    rooms.updateSettings({ bossLifeMultiplier: 2.5, bossDamageMultiplier: 4, gateRespawnMinutes: 45 });
+    expect(sim.rates.bossLife).toBe(2.5);
+    expect(sim.rates.bossDamage).toBe(4);
+    expect(respawnTicks(sim).gates).toBe(45 * 60 * SIM.tickRate);
+    expect(respawnTicks(sim).bosses).toBe(DEFAULT_SERVER_SETTINGS.bossRespawnMinutes * 60 * SIM.tickRate);
+    expect(store.loadSettings()).toMatchObject({ bossLifeMultiplier: 2.5, bossDamageMultiplier: 4, gateRespawnMinutes: 45 });
   });
 });

@@ -182,7 +182,16 @@ export class RoomManager implements AdminHooks {
 
   private applySettings(room: Room): void {
     const s = this.current;
-    room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax });
+    room.sim.setRates({
+      xp: s.xpRate,
+      loot: s.lootRate,
+      forceMax: s.forceMax,
+      forceCost: s.forceCostRate,
+      forceCool: s.forceCoolRate,
+      forceRampMax: s.forceRampMax,
+      bossLife: s.bossLifeMultiplier,
+      bossDamage: s.bossDamageMultiplier,
+    });
     setRespawnTimes(room.sim, s);
   }
 

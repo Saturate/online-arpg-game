@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BIOMES, bossFor, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, packScale, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
+import { BIOMES, bossFor, DEFAULT_RATES, DEFAULT_SERVER_SETTINGS, ENEMIES, ENEMY_LEVEL, ENEMY_TYPE_IDS, familyOf, monsterPool, packScale, parseSettingsPatch, SETTINGS_LIMITS, SIM, Simulation, WAVES, type EnemyTypeId } from '../src/index.js';
+import { affixValue } from '../src/items/items.js';
 import { dealDamage } from '../src/sim/combat.js';
 import { activeHazards, spawnEnemy } from '../src/sim/enemies.js';
 import { spawnProjectile } from '../src/sim/spells.js';
@@ -187,6 +188,75 @@ describe('monster behaviours', () => {
     dealDamage(sim, boss, h.maxLife * 0.6, pid, []);
     run(sim, 2, () => sim.takeEvents());
     expect(sim.world.enemy.get(boss)?.enraged).toBe(true);
+  });
+});
+
+describe('boss tuning', () => {
+  /** Life before the armored affix, which a boss may roll. */
+  const baseLife = (sim: Simulation, id: number): number => {
+    const e = sim.world.enemy.get(id);
+    const h = sim.world.health.get(id);
+    if (!e || !h) throw new Error('no monster');
+    return h.maxLife / (1 + affixValue(e.affixes, 'armored') / 100);
+  };
+  const levelLife = (level: number) => 1 + ENEMY_LEVEL.lifePerLevel * (level - 1);
+  const levelDamage = (level: number) => 1 + ENEMY_LEVEL.damagePerLevel * (level - 1);
+
+  it('defaults to half the old boss life (4.5x base) and twice the damage', () => {
+    expect(WAVES.rareLifeMultiplier * DEFAULT_RATES.bossLife).toBe(4.5);
+    expect(DEFAULT_RATES.bossDamage).toBe(2);
+    expect(DEFAULT_SERVER_SETTINGS.bossLifeMultiplier).toBe(DEFAULT_RATES.bossLife);
+    expect(DEFAULT_SERVER_SETTINGS.bossDamageMultiplier).toBe(DEFAULT_RATES.bossDamage);
+    const { sim, pos } = setup(21);
+    const level = 4;
+    const boss = spawnEnemy(sim, 'butcher', pos.x + 400, pos.y, { rare: true, level, aggro: false, boss: true });
+    const rare = spawnEnemy(sim, 'butcher', pos.x - 400, pos.y, { rare: true, level, aggro: false });
+    const def = ENEMIES.butcher;
+    expect(baseLife(sim, boss)).toBeCloseTo(def.life * 4.5 * levelLife(level), -1);
+    expect(baseLife(sim, rare)).toBeCloseTo(def.life * 3 * levelLife(level), -1);
+    expect(sim.world.enemy.get(boss)?.damageMult).toBeCloseTo(2 * levelDamage(level));
+    expect(sim.world.enemy.get(rare)?.damageMult).toBeCloseTo(levelDamage(level));
+  });
+
+  it('applies changed admin rates to bosses that spawn after, and leaves the living as they are', () => {
+    const { sim, pos } = setup(22);
+    const before = spawnEnemy(sim, 'lich', pos.x + 400, pos.y, { rare: true, level: 1, aggro: false, boss: true });
+    sim.setRates({ ...DEFAULT_RATES, bossLife: 3, bossDamage: 0.5 });
+    const after = spawnEnemy(sim, 'lich', pos.x - 400, pos.y, { rare: true, level: 1, aggro: false, boss: true });
+    const rare = spawnEnemy(sim, 'lich', pos.x, pos.y + 400, { rare: true, level: 1, aggro: false });
+    expect(baseLife(sim, before)).toBeCloseTo(ENEMIES.lich.life * 4.5, -1);
+    expect(baseLife(sim, after)).toBeCloseTo(ENEMIES.lich.life * 9, -1);
+    expect(sim.world.enemy.get(before)?.damageMult).toBe(2);
+    expect(sim.world.enemy.get(after)?.damageMult).toBe(0.5);
+    // Rares are not bosses and keep the rare numbers whatever the boss rates.
+    expect(baseLife(sim, rare)).toBeCloseTo(ENEMIES.lich.life * 3, -1);
+    expect(sim.world.enemy.get(rare)?.damageMult).toBe(1);
+  });
+
+  it('a boss hits twice as hard as the same monster as a rare', () => {
+    const firstHit = (boss: boolean): number => {
+      const { sim, pid, pos } = setup(23, false);
+      const h = sim.world.health.get(pid);
+      if (!h) throw new Error('no player');
+      h.life = h.maxLife = 1e6;
+      spawnEnemy(sim, 'butcher', pos.x + 30, pos.y, { rare: true, level: 1, aggro: true, boss });
+      for (let i = 0; i < 40 && h.life === h.maxLife; i++) sim.step();
+      return h.maxLife - h.life;
+    };
+    const rare = firstHit(false);
+    expect(rare).toBeGreaterThan(0);
+    expect(firstHit(true) / rare).toBeCloseTo(2);
+  });
+
+  it('settings accept boss multipliers and the gate timer in range and refuse the rest', () => {
+    expect(parseSettingsPatch({ bossLifeMultiplier: 2, bossDamageMultiplier: 3, gateRespawnMinutes: 45 })).toEqual({ bossLifeMultiplier: 2, bossDamageMultiplier: 3, gateRespawnMinutes: 45 });
+    for (const key of ['bossLifeMultiplier', 'bossDamageMultiplier'] as const) {
+      expect(parseSettingsPatch({ [key]: SETTINGS_LIMITS.bossMultiplierMin })).toEqual({ [key]: SETTINGS_LIMITS.bossMultiplierMin });
+      expect(parseSettingsPatch({ [key]: SETTINGS_LIMITS.bossMultiplierMax })).toEqual({ [key]: SETTINGS_LIMITS.bossMultiplierMax });
+      for (const bad of [0, SETTINGS_LIMITS.bossMultiplierMin - 0.01, SETTINGS_LIMITS.bossMultiplierMax + 1, -1, Number.NaN, Infinity, '2', null]) {
+        expect(typeof parseSettingsPatch({ [key]: bad }), `${key} ${String(bad)}`).toBe('string');
+      }
+    }
   });
 });
 

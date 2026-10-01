@@ -102,8 +102,7 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
   // with regen turned into a slog the party could not out-damage.
   const affixes = rolled.filter((a) => !(a.id === 'extra_projectiles' && opts.level < ENEMY_LEVEL.multishotFromLevel) && !(a.id === 'regenerating' && boss));
   const levelMult = 1 + ENEMY_LEVEL.lifePerLevel * (opts.level - 1);
-  const lifeMult =
-    (opts.rare || boss ? WAVES.rareLifeMultiplier : 1) * (boss ? ENEMY_LEVEL.bossLifeMultiplier : 1) * levelMult * (1 + affixValue(affixes, 'armored') / 100);
+  const lifeMult = (opts.rare || boss ? WAVES.rareLifeMultiplier : 1) * (boss ? sim.rates.bossLife : 1) * levelMult * (1 + affixValue(affixes, 'armored') / 100);
   const life = Math.round(def.life * lifeMult);
   const pos = sim.map.findOpen(x, y, def.radius);
   const mdef = def.behaviour === 'monster' ? def : null;
@@ -120,7 +119,8 @@ export function spawnEnemy(sim: Simulation, typeId: EnemyTypeId, x: number, y: n
     rare: opts.rare || boss,
     boss,
     level: opts.level,
-    damageMult: 1 + ENEMY_LEVEL.damagePerLevel * (opts.level - 1),
+    // Every hit, projectile, pool and burst the monster deals goes through this, so one factor covers a boss's damage.
+    damageMult: (1 + ENEMY_LEVEL.damagePerLevel * (opts.level - 1)) * (boss ? sim.rates.bossDamage : 1),
     aggro: opts.aggro,
     homeX: pos.x,
     homeY: pos.y,

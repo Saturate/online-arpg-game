@@ -11,7 +11,7 @@ const BOSS_TICKS = BOSS_MINUTES * 60 * SIM.tickRate;
 
 function room(desc: MapDescriptor = WILDS_DESC, seed = 9): { sim: Simulation; pid: EntityId } {
   const sim = new Simulation(seed, desc);
-  setRespawnTimes(sim, { respawnMinutes: PACK_MINUTES, bossRespawnMinutes: BOSS_MINUTES });
+  setRespawnTimes(sim, { respawnMinutes: PACK_MINUTES, bossRespawnMinutes: BOSS_MINUTES, gateRespawnMinutes: BOSS_MINUTES });
   const pid = sim.addPlayer('p', 'warrior', 'P');
   const p = sim.world.player.get(pid);
   if (p) p.god = true;
@@ -301,9 +301,10 @@ describe('respawn by inactivity', () => {
 });
 
 describe('respawn settings', () => {
-  it('defaults to 10 minutes, bosses 20', () => {
+  it('defaults to 10 minutes, region bosses and gate bosses 20 each', () => {
     expect(DEFAULT_SERVER_SETTINGS.respawnMinutes).toBe(10);
     expect(DEFAULT_SERVER_SETTINGS.bossRespawnMinutes).toBe(20);
+    expect(DEFAULT_SERVER_SETTINGS.gateRespawnMinutes).toBe(20);
   });
 
   it('accepts minutes in range and refuses the rest', () => {
@@ -312,12 +313,13 @@ describe('respawn settings', () => {
     for (const bad of [0, SETTINGS_LIMITS.respawnMinutesMax + 1, -5, Number.NaN, '10', null]) {
       expect(typeof parseSettingsPatch({ respawnMinutes: bad }), `respawnMinutes ${String(bad)}`).toBe('string');
       expect(typeof parseSettingsPatch({ bossRespawnMinutes: bad }), `bossRespawnMinutes ${String(bad)}`).toBe('string');
+      expect(typeof parseSettingsPatch({ gateRespawnMinutes: bad }), `gateRespawnMinutes ${String(bad)}`).toBe('string');
     }
   });
 
   it('applies a changed time to a running room', () => {
     const { sim, at } = clearedAndLeft();
-    setRespawnTimes(sim, { respawnMinutes: 3, bossRespawnMinutes: 3 });
+    setRespawnTimes(sim, { respawnMinutes: 3, bossRespawnMinutes: 3, gateRespawnMinutes: 3 });
     advance(sim, PACK_TICKS + 20);
     expect(spawnedAt(sim, at).respawns.packs).toBe(0);
     advance(sim, 2 * PACK_TICKS);
