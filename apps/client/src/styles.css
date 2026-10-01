@@ -1944,6 +1944,12 @@ kbd {
   opacity: 0.45;
   cursor: var(--cur);
 }
+.waypoints li button.sealed {
+  border-color: #4a2018;
+}
+.waypoints li button.sealed .muted {
+  color: #b0503a;
+}
 
 /* XP bar and item requirements */
 .xp-bar {

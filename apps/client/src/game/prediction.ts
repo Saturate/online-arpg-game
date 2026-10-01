@@ -1,4 +1,4 @@
-import { SIM, stepPlayer, type DashState, type GameMap, type InputFrame, type MoveState, type Vec2 } from '@rune/shared';
+import { gateSeal, SIM, stepPlayer, type DashState, type GameMap, type InputFrame, type MoveState, type Vec2, type ZoneWorld } from '@rune/shared';
 
 /**
  * Client-side prediction for the own player. Every sampled input is applied locally and kept until
@@ -18,10 +18,13 @@ export class Predictor {
 
   /** Updated from the server's effective speed (gear can change it) before inputs are replayed. */
   moveSpeed: number;
+  /** The gates this character has opened, from the snapshot, so the seals hold here as on the server. */
+  gates: readonly string[] = [];
 
   constructor(
     moveSpeed: number,
     private readonly map: GameMap,
+    private readonly zone: ZoneWorld | null = null,
   ) {
     this.moveSpeed = moveSpeed;
   }
@@ -56,6 +59,6 @@ export class Predictor {
   }
 
   private step(s: MoveState, input: InputFrame): MoveState {
-    return stepPlayer(this.map, s, input.moveDir, this.moveSpeed, SIM.dt, SIM.playerRadius);
+    return stepPlayer(this.map, s, input.moveDir, this.moveSpeed, SIM.dt, SIM.playerRadius, gateSeal({ zone: this.zone }, this.gates));
   }
 }

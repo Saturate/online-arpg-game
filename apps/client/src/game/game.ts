@@ -37,6 +37,7 @@ import { netSettings } from '../net/settings.js';
 import { cssColor, FX, TIER_COLORS, UNIQUE_COLOR, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { ExitPortal } from '../render/exitPortal.js';
+import { GateSeals } from '../render/gateSeals.js';
 import { Effects } from '../render/fx.js';
 import { playFxEvent } from '../render/fxEvents.js';
 import { Minimap } from '../render/minimap.js';
@@ -127,6 +128,8 @@ interface RoomView {
   /** A dungeon's exit while its boss lives: kept out of `def`, so nothing draws or labels it yet. */
   sealed: Portal[];
   exits: ExitPortal[];
+  /** The world's gate seals, drawn sealed or open for this character. */
+  gateSeals: GateSeals | null;
 }
 
 /** Dev panel teleport spots: the spawn side of each portal, open ground close enough to step in. */
@@ -356,6 +359,7 @@ export class Game {
     if (!this.room) return;
     this.room.input.dispose();
     for (const exit of this.room.exits) exit.dispose();
+    this.room.gateSeals?.dispose();
     this.room.fx.dispose();
     this.room.world.dispose();
     this.room = null;
@@ -400,7 +404,7 @@ export class Game {
       entities,
       fx,
       input,
-      predictor: new Predictor(CLASSES[this.classId].moveSpeed, game),
+      predictor: new Predictor(CLASSES[this.classId].moveSpeed, game, loaded.zone),
       interp: new InterpolationBuffer(SIM.tickMs, NET.interpolationDelayMs),
       spells: new SpellTable(),
       mover: new ClickMover(game),
@@ -408,6 +412,7 @@ export class Game {
       minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`, loaded.zone, { large: this.mounts.worldMap ?? null, persist: this.fogStore(desc) }) : null,
       sealed,
       exits: [],
+      gateSeals: def.gates && def.gates.length > 0 ? new GateSeals(world.scene, fx.vfx, def.gates) : null,
     };
     this.latest = null;
     this.pendingEvents = [];
@@ -647,7 +652,12 @@ export class Game {
       if (first) p.reset(self);
       const wasFrozen = p.frozen;
       // Replay with the server's current speed, so gear changes never show up as corrections.
-      if (snap.self) p.moveSpeed = snap.self.moveSpeed;
+      if (snap.self) {
+        p.moveSpeed = snap.self.moveSpeed;
+        p.gates = snap.self.gates;
+        // Cheap when unchanged: the minimap keys its gate marks on the list.
+        room.minimap?.setOpenGates(snap.self.gates);
+      }
       p.reconcile(self, snap.self?.dash ?? null, snap.lastProcessedInputSeq, self.dead);
       const v = p.lastCorrectionVector;
       // Respawns and large corrections snap; small ones blend out over a few frames.
@@ -998,12 +1008,19 @@ export class Game {
     if (room.def.forge) labels.push({ key: 'forge', x: room.def.forge.x, y: room.def.forge.y, text: 'Forge', color: '#e8c860', height: 90, className: 'fx-label portal' });
     if (room.def.board) labels.push({ key: 'board', x: room.def.board.x, y: room.def.board.y, text: 'Champions of the Pit', color: '#e8c860', height: 90, className: 'fx-label portal' });
     if (room.def.stash) labels.push({ key: 'stash', x: room.def.stash.x, y: room.def.stash.y, text: 'Stash', color: '#e8c860', height: 70, className: 'fx-label portal' });
+    // A gate says whether it is sealed to you; the seal itself is per character.
+    const opened = useUi.getState().gates;
+    for (const g of room.def.gates ?? []) {
+      const open = opened.includes(g.id);
+      labels.push({ key: `gate-${g.id}`, x: g.x, y: g.y, text: open ? g.name : `${g.name}: sealed`, color: open ? '#a8a090' : '#d0603c', height: 230, className: 'fx-label portal' });
+    }
 
     this.playEvents(now);
     entities.render(items, dt);
     fx.syncLabels(labels);
     const seconds = performance.now() / 1000;
     for (const exit of room.exits) exit.update(dt, seconds);
+    room.gateSeals?.update(dt, seconds, opened);
     fx.update(dt);
     const focus = this.editor?.camera ?? { x: px, y: py };
     world.follow(focus.x, focus.y, dt);
@@ -1040,6 +1057,17 @@ export class Game {
               if (useUi.getState().banner?.id === id) useUi.setState({ banner: null });
             }, 4000);
           }
+          break;
+        }
+        case 'gateOpened': {
+          if (ev.id !== this.playerId) break;
+          room.gateSeals?.open(ev.gate);
+          const gate = room.def.gates?.find((g) => g.id === ev.gate);
+          const id = performance.now();
+          useUi.setState({ banner: { id, title: 'The seal breaks', text: `The ${gate?.name ?? 'gate'} is open to you, now and for good.` } });
+          setTimeout(() => {
+            if (useUi.getState().banner?.id === id) useUi.setState({ banner: null });
+          }, 4500);
           break;
         }
         case 'waypoint':
@@ -1092,6 +1120,7 @@ export class Game {
       if (ui.castCooldownFull !== s.castCooldownFull) patch.castCooldownFull = s.castCooldownFull;
       const respawns = s.minionRespawn.map((t) => Math.ceil(t));
       if (respawns.join() !== ui.minionRespawn.join()) patch.minionRespawn = respawns;
+      if (s.gates.join() !== ui.gates.join()) patch.gates = s.gates;
     }
     const partyKey = snap.players.map((p) => `${p.id}:${p.life}:${p.dead}`).join();
     if (partyKey !== ui.party.map((p) => `${p.id}:${p.life}:${p.dead}`).join()) patch.party = snap.players;

@@ -198,7 +198,8 @@ function addGatePass(map: WorldMap, space: Space, plan: WorldPlan, gate: WorldPl
     space.obstacle(o);
   };
   // The arch is decor; its legs are what blocks, so the road between them stays the only way through.
-  map.decor.push({ asset: 'grave_arch', x: g.x, y: g.y, angle: gate.angle + Math.PI / 2, scale: 2.35 });
+  // A decor angle equal to the road heading lays the arch's span across the road.
+  map.decor.push({ asset: 'grave_arch', x: g.x, y: g.y, angle: gate.angle, scale: 2.35 });
   for (const side of [1, -1]) {
     const lx = g.x + nx * GATE_LEG * side;
     const ly = g.y + ny * GATE_LEG * side;

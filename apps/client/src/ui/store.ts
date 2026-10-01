@@ -129,6 +129,8 @@ interface UiState {
   castCooldownFull: number;
   stance: Stance;
   minionRespawn: number[];
+  /** Gates this character has opened; the waypoint menu marks the waypoints behind the others. */
+  gates: string[];
   wave: number;
   party: Snapshot['players'];
 
@@ -265,6 +267,7 @@ export const useUi = create<UiState>((set, get) => ({
   castCooldownFull: 0,
   stance: 'aggressive',
   minionRespawn: [],
+  gates: [],
   wave: 0,
   party: [],
   inventory: null,
