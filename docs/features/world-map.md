@@ -74,7 +74,7 @@ Players standing apart over the world (at waypoints and branch ends, 2500 or mor
 | 8 | 1975 | 1832 | 143 | 2.09 / 6.30 | 2.49 / 6.72 |
 
 - **A room's tick stays under 8 ms** at worst with 8 players fighting in different corners, against a 50 ms tick. The p95 is still the flow field's rebuild every 5th tick (world-streaming.md, step 1).
-- **Creating the world room takes 17 ms,** 7 more than step 3's 9x zone: the plan's nearest-road lookups behind the per-chunk weights and the reach flood over 105,625 nav cells. Room memory after the first player arrives is 2.3 MB.
+- **Creating the world room takes 17 ms** in the bench (10 ms for the map alone once warm), against 10.5 for step 3's 9x zone. The tree of roads itself is 0.7 ms; the rest (the map's layout, the reach flood over 105,625 nav cells, the per-chunk quotas with their nearest-road lookups) was not timed apart. Room memory after the first player arrives is 2.3 MB.
 - **Monsters grow with ground covered,** not with the map: a walk to one branch end spawns about 700, and 8 players spread over the world wake almost all of it (2000 monsters).
 
 The World bench (`/admin/dev/#world/<town|road0|road1|road2>`, Chrome, 1600 by 900, the live town), the camera walked from the town spawn to a road's deepest branch end at 360 units a second:
