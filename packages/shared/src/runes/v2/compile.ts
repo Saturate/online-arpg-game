@@ -1,6 +1,6 @@
 import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
-import { affixValue, hasAffix, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
+import { affixValue, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
 import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
 import { engineForm, lifetime } from './budget.js';
 import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
@@ -38,8 +38,6 @@ export interface SigilCompileContext {
   damageMultiplier: number;
   areaMultiplier: number;
   splitEfficiencyBonus: number;
-  /** The first rune's base cost is waived, not its affixes (a rare sigil roll). */
-  firstRuneFree: boolean;
 }
 
 export const DEFAULT_SIGIL_CONTEXT: Omit<SigilCompileContext, 'classId'> = {
@@ -51,7 +49,6 @@ export const DEFAULT_SIGIL_CONTEXT: Omit<SigilCompileContext, 'classId'> = {
   damageMultiplier: 1,
   areaMultiplier: 1,
   splitEfficiencyBonus: 0,
-  firstRuneFree: false,
 };
 
 export type SigilCompile =
@@ -262,9 +259,7 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
  * one that goes off many times). Affix costs are `affixForce`. On a payload, affixes and rider runes
  * (RIDER_KINDS) pay at least HEAT.payloadAffixShare: they make the payload as much stronger as they
  * would the cast whenever it lands, and at the payload's base share they were near free. A rune never costs
- * less than nothing. On a sigil that rolled "first rune is free", the first rune's base cost is
- * waived up to a plain Bolt's (RUNE_FORCE.bolt), never its release or number affixes, and the cast
- * still pays at least HEAT.minWaivedForceShare of its unwaived price. `forceMultiplier` is
+ * less than nothing. `forceMultiplier` is
  * HEAT.costMultiplier and the sigil's Force cost affix. At least HEAT.minForcePerCast, rounded to 0.1.
  */
 export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null, ctx: SigilCompileContext): number {
@@ -272,26 +267,20 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
   const affinity = (id: RuneId): number => (affinitySet.has(id) ? HEAT.affinityMultiplier : HEAT.offAffinityMultiplier);
   const nodes = runeNodes(runes, tree);
   const shares = nodeShares(tree, ctx);
-  const price = (waiveFirst: boolean): number => {
-    let force = 0;
-    runes.forEach((rune, i) => {
-      let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
-      if (i === 0 && waiveFirst) cost -= Math.min(cost, RUNE_FORCE.bolt);
-      if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
-      const node = nodes[i];
-      const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
-      const affixes = affixForce(rune, affinity);
-      const raised = Math.max(share, HEAT.payloadAffixShare);
-      const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
-      // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
-      const affixShare = affixes > 0 ? raised : share;
-      force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
-    });
-    return force * ctx.forceMultiplier;
-  };
-  const full = price(false);
-  const paid = ctx.firstRuneFree ? Math.max(price(true), full * HEAT.minWaivedForceShare) : full;
-  return Math.max(HEAT.minForcePerCast, round1(paid));
+  let force = 0;
+  runes.forEach((rune, i) => {
+    let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
+    if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
+    const node = nodes[i];
+    const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
+    const affixes = affixForce(rune, affinity);
+    const raised = Math.max(share, HEAT.payloadAffixShare);
+    const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
+    // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
+    const affixShare = affixes > 0 ? raised : share;
+    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
+  });
+  return Math.max(HEAT.minForcePerCast, round1(force * ctx.forceMultiplier));
 }
 
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {
@@ -397,7 +386,6 @@ export function sigilCompileContext(item: SigilItem, classId: ClassId): SigilCom
     damageMultiplier: 1 + affixValue(a, 'damage_increased') / 100,
     areaMultiplier: 1 + affixValue(a, 'area_increased') / 100,
     splitEfficiencyBonus: affixValue(a, 'split_efficiency'),
-    firstRuneFree: hasAffix(a, 'first_rune_free'),
   };
 }
 

@@ -66,11 +66,16 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
     runes: spell('dash[onland] impact nova[+50% size]'),
   },
   { id: 'war_cry', name: 'War Cry', description: 'A shockwave that hurls enemies away.', classId: 'warrior', runes: spell('nova[+50% size] impact') },
-  // v1 radius was 1.8x; 1.6x hits the same dummies and keeps its v1 price.
-  { id: 'flame_cleave', name: 'Flame Cleave', description: 'Three burning waves in a cone.', classId: 'warrior', runes: spell('bolt[-50% duration, +60% size] fire split(3)') },
+  // The owner's buff (2026-10-01): v1's three short fire waves dealt about 13 damage a cast. A small
+  // burning ring at the v1 price reads as a cleave around the warrior. Sigils that still hold the old
+  // waves are rebuilt on load (items/convertRuneRolls.ts, OLD_STARTER_RUNES).
+  { id: 'flame_cleave', name: 'Flame Cleave', description: 'A ring of fire that burns everything close around you.', classId: 'warrior', runes: spell('nova[-40% size, +50% damage] fire') },
   { id: 'iron_skin', name: 'Iron Skin', description: 'Aura: you and nearby allies take less damage.', classId: 'warrior', runes: spell('aura ward') },
   // Ranger
-  { id: 'multishot', name: 'Multishot', description: 'A wide fan of piercing arrows.', classId: 'ranger', runes: spell('bolt[pierce 2, +60% damage] split(3) split(3)') },
+  // The owner's buff (2026-10-01): v1's nine arrows dealt about 4 damage a cast. Five arrows, each
+  // with split's 1.2 / 5 share of a +300% hit, at about the v1 price. Sigils that still hold the old
+  // nine are rebuilt on load (items/convertRuneRolls.ts, OLD_STARTER_RUNES).
+  { id: 'multishot', name: 'Multishot', description: 'A wide fan of piercing arrows.', classId: 'ranger', runes: spell('bolt[pierce 2, +300% damage] split(5)') },
   // v1 set both arrows' Force by hand to 16 with a Swift rune in them; without the speed the formula
   // lands on that price, and speed changed neither arrow's damage.
   { id: 'exploding_arrow', name: 'Exploding Arrow', description: 'Bursts into flame on impact.', classId: 'ranger', runes: spell('bolt[onhit] fire nova') },

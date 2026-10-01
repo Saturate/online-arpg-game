@@ -75,6 +75,17 @@ v2 replaced v1 runes outright, with no switch and no fallback, because only a ha
 - Gold owed for runes in a stash goes to the character that joins, in the same transaction as the converted stash, so it is paid once.
 - `pnpm runes:convert-check <db>` copies the database, converts everything in memory and checks every rune, gold coin and uid. On a copy of the live database (2026-09-29): 7 characters, 2 stashes and a 50-item shelf, 95 starter sigils, 3 runes to 36 gold, all checks passed.
 
+### Rune roll pass (2026-10-01)
+
+Two owner decisions changed items players already own: "first rune is free" left the game ("nothing is free"), and Multishot and Flame Cleave got new runes ([runes.md](runes.md), "Balance").
+
+- **It runs on every load** of a character (bag, equipment, pending items), an account stash (every tab) and the trader shelf, after the v1 and stash tab conversions. There is no format marker: what it looks for can no longer be made, so a second pass finds nothing. Ground items are not saved, so they never need it.
+- **"First rune is free" is removed** from any sigil that has it. The sigil keeps its uid, tier, name, slots and every other affix.
+- **An old Multishot or Flame Cleave is rebuilt** only while its slots still hold the old recipe exactly: the same runes in the same order, each with the starter's own rolls at tier 0, count 1, and no bench runes, on a sigil whose `starter` names it. The leading runes keep their uids and binding and take the new rolls (Flame Cleave's Bolt becomes the Nova; its Fire stays the same item). The rune the new recipe has no room for (Multishot's second Split, Flame Cleave's Split) is removed, not handed back, as the v1 conversion replaced starter runes: those runes were never the player's to spend.
+- **Anything changed at the forge is left alone,** even by one roll. Old recipe rolls cannot be rebuilt by hand (they are above every drop table and clamp when they leave a sigil), so an old recipe found on load is always an untouched starter.
+- Each change is logged as a `conversion` line naming the sigil uids and the removed rune uids.
+- `pnpm runes:convert-check <db>` runs the pass on every row after the earlier conversions and checks it: same items in the same order, only sigils' affixes and slots changed, rebuilt sigils hold the new recipe and keep their leading uids and binding, the uid multiset loses exactly the reported runes and holds no uid twice, loose rune counts unchanged, a second pass changes nothing, and the server's own load path (`AccountStore`) gives the same items. On a copy of live (`rune.db.live-pre-world-20261001`): 10 rows, 123 sigils, no "first rune is free" rolls, 6 Multishots and 4 Flame Cleaves rebuilt (10 runes removed with them), no buffed starter changed at the forge, 302 items untouched; all checks passed.
+
 ## How
 
 Code:
@@ -84,7 +95,7 @@ Code:
 - Grid: `packages/shared/src/items/grid.ts` (`BAG`, `STASH`, footprints, `findSpot`).
 - Inventory rules: `packages/shared/src/sim/inventory.ts` (`addItem`, `takeFromGround`, `addOrPend`, `layOut`, `placePending`, `settlePending`, `sortInventory`, `discard`, `moveItem`, `sellItem`, `buyItem`, equip functions, the starter kit).
 - Trader shelf: `Market` in `apps/server/src/accounts.ts`, trades in `apps/server/src/manager.ts` (`saveTrade`).
-- Conversion: `packages/shared/src/items/convertV2.ts`, `scripts/runes-convert-check.ts`.
+- Conversion: `packages/shared/src/items/convertV2.ts` (v1 to v2), `items/convertRuneRolls.ts` (the rune roll pass), `scripts/runes-convert-check.ts` (both).
 - Client: `apps/client/src/ui/Inventory.tsx` (bag, stash window, `PendingStrip`, drop and sell prompts), `ui/itemActions.ts`, `ui/parts.tsx` (tooltips), 3D item icons in `ui/itemIconRenderer.ts`.
 
 ```ts
@@ -114,6 +125,7 @@ Tests:
 - `packages/shared/test/gear.test.ts`: starter weapon, bases respect item level and slot, even spread over slots, gear survives room moves.
 - `packages/shared/test/sortInventory.test.ts`, `trader.test.ts`: sort order; selling to the shared shelf, starter items refused, stall reach, buying a fresh copy at 3x.
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
+- `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass: no drop rolls the retired affix, rebuilt sigils keep uids and binding, edited sigils left alone, the uid multiset is kept except the removed runes, a second pass changes nothing, and characters, pending items, stashes and the shelf convert on load and are written back converted.
 - `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.
 - `apps/client/test/stations.test.ts`: one station window at a time, the editor and the character sheet with them, which station takes the bag's clicks.
 - `apps/server/test/grants.test.ts`: a grant adds exactly one item with a uid above every uid in the save, unbound, and it reaches the character on the next login once, with every other item unchanged; nothing is written on a refusal.

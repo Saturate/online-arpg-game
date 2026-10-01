@@ -14,7 +14,7 @@ declare const console: { log(message: string): void };
 const BOUND = 2;
 
 /** Spells that once dealt far more per Force than any starter, and neighbours of them. */
-const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId; firstRuneFree?: boolean }[] = [
+const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId }[] = [
   // Repeating payloads, then faster and nested variants.
   { text: 'nova[+50% size] lightning' },
   { text: 'orb[every 0.2s] lightning nova' },
@@ -65,10 +65,10 @@ const SPELLS: readonly { text: string; multicast?: number; classId?: ClassId; fi
   { text: 'bolt[after 0.3s] bolt lightning fire', classId: 'ranger' },
   { text: 'nova[onexpire] zone[after 0.3s, +55% damage] fire cold nova[+55% damage, +50% size] lightning' },
   { text: 'bolt[after 0.3s, +55% damage] nova[onexpire, +50% size, +55% damage] cold cold zone[+55% damage, +75% duration, +50% size] cold lightning', classId: 'ranger' },
-  // "First rune is free" once waived a whole stationary root and its release, down to the 4 floor.
-  { text: 'nova[onexpire, +55% damage] zone[+55% damage]', classId: 'warrior', firstRuneFree: true },
-  { text: 'zone[after 1.2s] nova[+55% damage]', classId: 'warrior', firstRuneFree: true },
-  { text: 'nova[+55% damage]', classId: 'warrior', firstRuneFree: true },
+  // Stationary roots with a payload, once the cheapest spells a waived first rune reached.
+  { text: 'nova[onexpire, +55% damage] zone[+55% damage]', classId: 'warrior' },
+  { text: 'zone[after 1.2s] nova[+55% damage]', classId: 'warrior' },
+  { text: 'nova[+55% damage]', classId: 'warrior' },
 ];
 
 const SELF_CENTRED = new Set(['nova', 'zone', 'dash']);
@@ -83,8 +83,8 @@ function measureCompiled(text: string, classId: ClassId, compiled: SigilCompile)
   });
 }
 
-function measureText(text: string, multicast = 1, classId: ClassId = 'mage', firstRuneFree = false): SkillDpsResult {
-  const compiled = compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, classId, multicast, firstRuneFree });
+function measureText(text: string, multicast = 1, classId: ClassId = 'mage'): SkillDpsResult {
+  const compiled = compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, classId, multicast });
   if (!compiled.ok) throw new Error(`${text}: ${compiled.errors.map((e) => e.message).join('; ')}`);
   return measureCompiled(text, classId, compiled);
 }
@@ -183,7 +183,7 @@ describe('damage per Force', () => {
     single: Math.max(...starters.map((s) => perForce(s.r).single)),
     pack: Math.max(...starters.map((s) => perForce(s.r).pack)),
   };
-  const rows = SPELLS.map((s) => ({ text: s.firstRuneFree ? `${s.text} (first rune free)` : s.text, r: measureText(s.text, s.multicast, s.classId, s.firstRuneFree) }));
+  const rows = SPELLS.map((s) => ({ text: s.text, r: measureText(s.text, s.multicast, s.classId) }));
 
   it('prints the table', () => {
     const f = (n: number): string => n.toFixed(2);
