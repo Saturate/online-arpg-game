@@ -1,4 +1,4 @@
-import { Rng, type Decor, type Obstacle, type Shape, type WorldMap, type ZoneWorld } from '@rune/shared';
+import { Rng, ZONES, type Decor, type Obstacle, type Shape, type WorldMap, type ZoneWorld } from '@rune/shared';
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -404,7 +404,19 @@ function shapeCentre(s: Shape): { x: number; y: number } {
  * streaming step 3) registers its plan here and each chunk's trees, rocks and bones the first time
  * that chunk is about to be built, generating them then from the zone's seed.
  */
+/**
+ * Bleak places get more dead trees: in the world by the region a tree stands in, set up by
+ * `buildWorld` for its map; on any other map by the map's name, as zones always had it.
+ */
+const bleakness = new WeakMap<WorldMap, (x: number, y: number) => boolean>();
+
+function bleakAt(def: WorldMap, x: number, y: number): boolean {
+  return bleakness.get(def)?.(x, y) ?? /Ashen|Gloom/.test(def.name);
+}
+
 export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltWorld {
+  const plan = zone?.plan;
+  if (plan) bleakness.set(def, (x, y) => ZONES[plan.regionAt(x, y)].bleak);
   const group = new Group();
   const chunks = new WorldChunks();
   group.add(chunks.group);
@@ -533,10 +545,8 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
   }
   if (!underground) addBorder(chunks, def, owned);
 
-  const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, zone: 0x8fe07a, waypoint: 0x5ff0e0 } as const;
+  const PORTAL_COLORS = { town: 0x6bb6ff, arena: 0xff7a3a, wilds: 0xb49cff, staging: 0xd04a3a, dungeon: 0xffb347, waypoint: 0x5ff0e0 } as const;
   for (const p of def.portals) {
-    // Zone exits are walk-through gates (an arch and lanterns from the map's decor), not portals.
-    if (p.target === 'zone') continue;
     // In town the way to the Arena is a building, walked into; elsewhere 'arena' is still a portal.
     const arenaEntrance = p.target === 'arena' && (def.theme === 'town' || !!def.safeZones?.length);
     const built = p.target === 'waypoint' ? waypoint(p.x, p.y, p.r) : arenaEntrance ? arenaBuilding(p.x, p.y, p.r) : portal(p.x, p.y, p.r, PORTAL_COLORS[p.target]);
@@ -688,7 +698,6 @@ function treeMaterial(chunks: WorldChunks): MeshStandardMaterial {
  */
 /** `placed`: trees from a hand-made layout (the town), whose oaks are listed in `def.oaks`; generated trees get their look from their position. */
 function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap, placed = true): void {
-  const bleak = /Ashen|Gloom/.test(def.name);
   const byChunk = new Map<number, { x: number; y: number; kind: TreeKind; h: number; size: number }[]>();
   // Shared by every tree of the world while it stands at full opacity; a tree near the hero fades on a copy of its own.
   const solid = treeMaterial(chunks);
@@ -698,7 +707,7 @@ function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap
     const h = hash(x, y);
     const listed = placed && def.oaks !== undefined;
     const isOak = listed ? (def.oaks ?? []).some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
-    const kind: TreeKind = !listed && h % 100 < (bleak ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
+    const kind: TreeKind = !listed && h % 100 < (bleakAt(def, x, y) ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
     const size = o.visual * (kind === 'pine' ? 1.05 : 1.25);
     const key = chunkKey(chunkCoord(x), chunkCoord(y));
     const list = byChunk.get(key);
@@ -1346,16 +1355,6 @@ export function previewObject(id: string): Object3D | null {
   return null;
 }
 
-/** True where the scenery outside the map should open up for a zone gate's road. */
-function inGateGap(def: WorldMap, x: number, y: number, depth: number): boolean {
-  return def.portals.some((p) => {
-    if (p.target !== 'zone') return false;
-    const west = p.x < def.width / 2;
-    const out = west ? -x : x - def.width;
-    return out > -60 && out < depth && Math.abs(y - p.y) < 110 + out * 0.15;
-  });
-}
-
 /** A band of big rocks and trees just outside the playable edge, so the map ends in wilderness, not a cliff of nothing. */
 function addBorder(chunks: WorldChunks, def: WorldMap, owned: Owned): void {
   const rng = new Rng(def.width * 31 + def.height);
@@ -1371,7 +1370,6 @@ function addBorder(chunks: WorldChunks, def: WorldMap, owned: Owned): void {
     else [x, y] = [-30, perimeter - d];
     x += rng.range(-20, 20);
     y += rng.range(-20, 20);
-    if (inGateGap(def, x, y, 200)) continue;
     if (rng.next() < 0.5 && def.theme !== 'town') rocks.push({ kind: 'rock', shape: { type: 'circle', x, y, r: rng.range(40, 70) }, blocksMove: true, blocksShots: true, visual: rng.range(40, 90) });
     else trees.push({ kind: 'tree', shape: { type: 'circle', x, y, r: 16 }, blocksMove: true, blocksShots: true, visual: rng.range(55, 80) });
   }
@@ -1391,7 +1389,6 @@ const BORDER_PEAKS = ['mountain_A_grass_trees', 'mountain_B_grass', 'mountain_C'
  */
 function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng, owned: Owned): void {
   const { width: w, height: h } = def;
-  const bleak = /Ashen|Gloom/.test(def.name);
   /** Distance outside the map, 0 inside it. */
   const outside = (x: number, y: number): number => Math.max(-x, x - w, -y, y - h, 0);
   // Per chunk, the transforms of each tree variant; each chunk draws one instanced mesh per variant.
@@ -1408,8 +1405,6 @@ function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng, owned: Owne
       // The edge row itself is drawn by addBorder with fading trees the player can walk behind.
       if (d < 80) continue;
       const roll = rng.next();
-      // The road out of a gate runs a little way into the forest before the trees close over it.
-      if (inGateGap(def, px, py, 520)) continue;
       if (roll < 0.05 && def.theme !== 'town') {
         rocks.push({ kind: 'rock', shape: { type: 'circle', x: px, y: py, r: rng.range(35, 75) }, blocksMove: false, blocksShots: false, visual: 60 });
         continue;
@@ -1417,7 +1412,7 @@ function addWildBorder(chunks: WorldChunks, def: WorldMap, rng: Rng, owned: Owne
       // Thins out far away, where mountains and fog take over.
       if (roll > (d < 700 ? 0.85 : 0.45)) continue;
       const k = hash(px, py);
-      const kind: TreeKind = k % 100 < (bleak ? 35 : 6) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
+      const kind: TreeKind = k % 100 < (bleakAt(def, px, py) ? 35 : 6) ? 'dead' : k % 3 === 0 ? 'oak' : 'pine';
       const size = rng.range(55, 90) * (kind === 'pine' ? 1.05 : 1.25);
       const geo = treeGeometry(kind, k);
       chunks.shared.add(geo);

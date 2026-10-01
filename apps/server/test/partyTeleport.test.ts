@@ -94,31 +94,48 @@ function ended(s: FakeSocket) {
   return m && m.to === null ? m : undefined;
 }
 
-/** Hero1 goes out into the first zone, away from Hero0 in town, and clears it. */
+/** Out of town along the east road, beside its first waypoint: the same world room, far from the town. */
+function goOut(rooms: RoomManager, sockets: FakeSocket[]): void {
+  for (const [i, s] of sockets.entries()) {
+    const wp = loadMap(welcome(s).map).def.portals.find((p) => p.waypoint === 'east-1');
+    if (!wp) throw new Error('no east waypoint');
+    s.emit({ t: 'dev', cmd: { c: 'teleport', x: wp.x + 160 + i * 30, y: wp.y } });
+  }
+  ticks(rooms, 0.5);
+}
+
+/** Hero1 goes out of town into the world, away from Hero0 in town, and clears it. */
 async function apart() {
   const { store, rooms, sockets } = await setup(2);
   const [a, b] = pair(sockets);
   party(a, b);
-  walkInto(rooms, [b], 'zone');
-  expect(welcome(b).map.kind).toBe('zone');
-  expect(welcome(b).roomId).not.toBe(welcome(a).roomId);
+  goOut(rooms, [b]);
+  expect(welcome(b).map.kind).toBe('world');
+  expect(welcome(b).roomId).toBe(welcome(a).roomId);
   b.emit({ t: 'dev', cmd: { c: 'killAll' } });
   return { store, rooms, a, b };
 }
 
 describe('party status', () => {
-  it('sends every member the others once a second, with place, zone, life and a position only in the same room', async () => {
+  it('sends every member the others once a second, with place, region, life and a position only in the same room', async () => {
     const { rooms, a, b } = await apart();
     a.sent.length = 0;
     ticks(rooms, 1);
     expect(a.sent.filter((m) => m.t === 'partyStatus')).toHaveLength(1);
     const seen = status(a, 'Hero1');
-    expect(seen).toMatchObject({ cls: 'warrior', level: 1, place: 'wilds', dead: false, zone: roomOf(rooms, b).name });
+    // Out on the east road the world names the region, not the room.
+    expect(seen).toMatchObject({ cls: 'warrior', level: 1, place: 'wilds', dead: false, zone: 'Ashen Steppe' });
     expect(seen?.maxLife).toBeGreaterThan(0);
-    expect(seen?.x).toBeUndefined();
+    // The whole world is one room, so the frames get a position to point the minimap at.
+    expect(seen?.x).toBeDefined();
     expect(seen?.no).toBeUndefined();
     expect(status(a, 'Hero0')).toBeUndefined();
-    expect(status(b, 'Hero0')?.place).toBe('town');
+    expect(status(b, 'Hero0')).toMatchObject({ place: 'town', zone: 'Emberwatch' });
+    // In another room (a dungeon's antechamber), no position.
+    walkInto(rooms, [b], 'staging');
+    ticks(rooms, 1);
+    expect(status(a, 'Hero1')?.place).toBe('dungeon');
+    expect(status(a, 'Hero1')?.x).toBeUndefined();
 
     // A byte budget: a party of two costs a couple of hundred bytes a second each.
     const size = JSON.stringify(a.last('partyStatus')).length;
@@ -135,27 +152,38 @@ describe('party status', () => {
 });
 
 describe('teleport to a party member', () => {
-  it('channels for 3 s, then moves the player into the member\'s room beside them, saving on the way', async () => {
-    const { store, rooms, a, b } = await apart();
-    const save = vi.spyOn(store, 'saveCharacterAndStash');
+  it('channels for 3 s, then puts the player beside the member across the world', async () => {
+    const { rooms, a, b } = await apart();
     a.emit({ t: 'partyTeleport', name: 'hero1' });
     expect(a.last('teleportChannel')).toEqual({ t: 'teleportChannel', to: 'Hero1', seconds: TELEPORT_CHANNEL_SECONDS });
+    const target = self(rooms, b).pos;
+    expect(Math.hypot(self(rooms, a).pos.x - target.x, self(rooms, a).pos.y - target.y)).toBeGreaterThan(2000);
     ticks(rooms, TELEPORT_CHANNEL_SECONDS - 0.2);
-    expect(welcome(a).roomId).not.toBe(welcome(b).roomId);
+    expect(Math.hypot(self(rooms, a).pos.x - target.x, self(rooms, a).pos.y - target.y)).toBeGreaterThan(2000);
     ticks(rooms, 0.3);
     expect(ended(a)).toEqual({ t: 'teleportChannel', to: null, reason: null });
     expect(welcome(a).roomId).toBe(welcome(b).roomId);
+    const there = self(rooms, a).pos;
+    expect(Math.hypot(there.x - target.x, there.y - target.y)).toBeLessThan(150);
+  });
+
+  it('carries the player into the member\'s room when that is another one, saving on the way', async () => {
+    const { store, rooms, a, b } = await apart();
+    walkInto(rooms, [b], 'staging');
+    expect(welcome(b).map.kind).toBe('staging');
+    const save = vi.spyOn(store, 'saveCharacterAndStash');
+    a.emit({ t: 'partyTeleport', name: 'Hero1' });
+    ticks(rooms, TELEPORT_CHANNEL_SECONDS + 0.1);
+    expect(welcome(a).roomId).toBe(welcome(b).roomId);
     // The same room change as waypoints and portals: the character is written on the way out.
     expect(save).toHaveBeenCalled();
-    const there = self(rooms, a).pos;
-    const target = self(rooms, b).pos;
-    expect(Math.hypot(there.x - target.x, there.y - target.y)).toBeLessThan(150);
 
-    // And back the other way.
-    b.emit({ t: 'townPortal' });
+    // And back the other way, into the world.
+    a.emit({ t: 'townPortal' });
     b.emit({ t: 'partyTeleport', name: 'Hero0' });
     ticks(rooms, TELEPORT_CHANNEL_SECONDS + 0.1);
     expect(welcome(b).roomId).toBe(welcome(a).roomId);
+    expect(welcome(b).map.kind).toBe('world');
   });
 
   it('breaks on moving, on a hit and on a cast', async () => {
@@ -179,7 +207,7 @@ describe('teleport to a party member', () => {
     self(rooms, a).p.castCooldown = 0.8;
     ticks(rooms, 0.1);
     expect(ended(a)?.reason).toBe('Teleport cancelled: you cast a spell');
-    expect(welcome(a).map.kind).toBe('zone');
+    expect(welcome(a).map.kind).toBe('world');
   });
 
   it('refuses yourself, strangers, the dead, offline members and anyone outside a party', async () => {
@@ -240,10 +268,6 @@ describe('teleport to a party member', () => {
     if (!c) throw new Error('no socket');
     party(a, b);
     // Hero1 and the stranger Hero2 go into the same dungeon run through the first dungeon's gate.
-    walkInto(rooms, [b, c], 'zone');
-    const def = loadMap(welcome(b).map).def;
-    const gate = def.portals.find((p) => p.target === 'staging');
-    if (!gate) throw new Error("the first zone has no dungeon gate");
     walkInto(rooms, [b, c], 'staging');
     b.emit({ t: 'ready', ready: true });
     c.emit({ t: 'ready', ready: true });
@@ -321,7 +345,7 @@ describe('party XP', () => {
     const c = sockets[2];
     if (!c) throw new Error('no socket');
     party(a, b);
-    walkInto(rooms, [a, b, c], 'zone');
+    goOut(rooms, [a, b, c]);
     const room = roomOf(rooms, a);
     expect(roomOf(rooms, c)).toBe(room);
     a.emit({ t: 'dev', cmd: { c: 'killAll' } });

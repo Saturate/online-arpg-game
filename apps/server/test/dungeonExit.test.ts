@@ -57,12 +57,17 @@ function walkInto(rooms: RoomManager, s: FakeSocket, find: (p: Portal) => boolea
 
 const isExit = (p: Portal) => p.sealed === 'boss';
 
-/** Hero0 goes through the first zone gate, into the first dungeon's antechamber and a fresh run. */
+function self(rooms: RoomManager, s: FakeSocket): { x: number; y: number } {
+  const pos = roomOf(rooms, s).sim.world.position.get(welcome(s).playerId);
+  if (!pos) throw new Error('no player');
+  return pos;
+}
+
+/** Hero0 walks onto the world's first dungeon entrance, into its antechamber and a fresh run. */
 async function inDungeon() {
   const { rooms, sockets } = await setup(2);
   const [a, b] = sockets;
   if (!a || !b) throw new Error('no sockets');
-  walkInto(rooms, a, (p) => p.target === 'zone');
   walkInto(rooms, a, (p) => p.target === 'staging');
   a.emit({ t: 'ready', ready: true });
   ticks(rooms, DUNGEON.countdownSeconds + 0.2);
@@ -92,8 +97,16 @@ describe('dungeon exit', () => {
     ticks(rooms, 0.2);
     expect(a.last('snapshot')?.exitOpen).toBe(true);
     expect(a.sent.some((m) => m.t === 'chat' && m.kind === 'system' && m.text === 'The way out opens in the boss chamber')).toBe(true);
+    const seed = welcome(a).map;
     walkInto(rooms, a, isExit);
-    expect(welcome(a).map.kind).toBe('zone');
+    // Back in the world, beside the entrance the run was entered from.
+    const out = welcome(a).map;
+    expect(out.kind).toBe('world');
+    if (out.kind !== 'world' || seed.kind !== 'dungeon') throw new Error('not out');
+    const entrance = loadMap(out).def.portals.find((p) => p.target === 'staging' && p.dungeon?.seed === seed.seed);
+    if (!entrance) throw new Error('no entrance');
+    const at = self(rooms, a);
+    expect(Math.hypot(at.x - entrance.x, at.y - entrance.y)).toBeLessThan(250);
   });
 
   it('shows the exit already open to someone joining after the boss died', async () => {
@@ -101,7 +114,6 @@ describe('dungeon exit', () => {
     const run = welcome(a).roomId;
     a.emit({ t: 'dev', cmd: { c: 'killAll' } });
     ticks(rooms, 0.2);
-    walkInto(rooms, b, (p) => p.target === 'zone');
     walkInto(rooms, b, (p) => p.target === 'staging');
     walkInto(rooms, b, (p) => p.target === 'dungeon');
     expect(welcome(b).roomId).toBe(run);

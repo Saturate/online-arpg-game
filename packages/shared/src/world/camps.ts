@@ -58,27 +58,40 @@ export function campSiteClear(map: WorldMap, x: number, y: number, keepClear: re
  * boss and the entrances, before any chunk content, on its own random stream. Only ground reachable
  * from the spawn is used. Trees and rocks generated later keep off a camp, and packs keep their
  * spacing from a guarded one (it is a pack) and `unguardedPackGap` from the rest.
+ *
+ * With `spots` (the world plan's side valleys) each camp is looked for around its spot instead of
+ * anywhere on the map, and a spot with no room for one is skipped.
  */
-export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { has(cell: number): boolean }, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biome: Biome, scale: number, fitsAt?: CampFits): void {
+export function placeCamps(map: WorldMap, seed: number, gm: GameMap, reach: { has(cell: number): boolean }, keepClear: readonly SafeZone[], levelAt: (x: number, y: number) => number, biomeAt: (x: number, y: number) => Biome, scale: number, fitsAt?: CampFits, spots?: readonly { x: number; y: number }[]): void {
   const rng = Rng.stream(seed, 'camps');
-  const wanted = Math.max(1, Math.round(CAMPS.perMap * scale));
+  const wanted = spots ? spots.length : Math.max(1, Math.round(CAMPS.perMap * scale));
   const camps: CampSite[] = [];
   map.camps = camps;
-  for (let attempt = 0; attempt < 3000 && camps.length < wanted; attempt++) {
-    const x = rng.range(300, map.width - 300);
-    const y = rng.range(300, map.height - 300);
-    if (!reach.has(gm.navCell(x, y)) || !campSiteClear(map, x, y, keepClear, fitsAt)) continue;
+  const tryAt = (x: number, y: number): boolean => {
+    if (!reach.has(gm.navCell(x, y)) || !campSiteClear(map, x, y, keepClear, fitsAt)) return false;
     const nearest = map.packs.reduce((best, p) => Math.min(best, Math.hypot(p.x - x, p.y - y)), Infinity);
     // A camp can only take a guard where a new pack keeps the usual spacing from the others.
     const guarded = nearest >= WILDS.packSpacing && rng.next() < CAMPS.guardChance;
-    if (!guarded && nearest < CAMPS.unguardedPackGap) continue;
+    if (!guarded && nearest < CAMPS.unguardedPackGap) return false;
     buildCamp(map, rng, x, y);
     if (guarded) {
       const level = levelAt(x, y);
-      map.packs.push({ x, y, ...rollPack(rng, biome, level), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
+      map.packs.push({ x, y, ...rollPack(rng, biomeAt(x, y), level), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
     }
     camps.push({ x, y, guarded });
+    return true;
+  };
+  if (spots) {
+    for (const spot of spots) {
+      for (let k = 0; k < 24; k++) {
+        const a = rng.range(0, Math.PI * 2);
+        const d = k === 0 ? 0 : rng.range(40, 260);
+        if (tryAt(spot.x + Math.cos(a) * d, spot.y + Math.sin(a) * d)) break;
+      }
+    }
+    return;
   }
+  for (let attempt = 0; attempt < 3000 && camps.length < wanted; attempt++) tryAt(rng.range(300, map.width - 300), rng.range(300, map.height - 300));
 }
 
 /** The fire in the middle on trampled dirt, a tent or a cart facing it, and supplies around. */

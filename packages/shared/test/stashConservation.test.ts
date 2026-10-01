@@ -148,7 +148,7 @@ interface World {
 }
 
 function town(seed: number): World {
-  const sim = new Simulation(seed, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(seed, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage');
   const p = sim.world.player.get(pid);
   if (!p) throw new Error('setup');
@@ -292,7 +292,7 @@ function reload(w: World, seed: number): World {
   const save = w.sim.exportPlayer(w.pid);
   if (!save) throw new Error('no save');
   const { character, stash } = splitStash(JSON.parse(JSON.stringify(save)));
-  const sim = new Simulation(seed, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(seed, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage', 'Back', JSON.parse(JSON.stringify(character)));
   restoreStash(sim, pid, JSON.parse(JSON.stringify(stash)));
   const p = sim.world.player.get(pid);

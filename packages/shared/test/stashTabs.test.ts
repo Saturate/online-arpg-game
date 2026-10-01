@@ -29,7 +29,7 @@ import {
 import { inStash, stashOf, tab1 } from './helpers/stash.js';
 
 function town(seed = 4) {
-  const sim = new Simulation(seed, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(seed, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);
@@ -351,7 +351,7 @@ describe('loading the stash', () => {
     const save = sim.exportPlayer(pid);
     if (!save) throw new Error('no save');
     const { character, stash } = splitStash(save);
-    const sim2 = new Simulation(5, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const sim2 = new Simulation(5, { kind: 'world', seed: 3 });
     const pid2 = sim2.addPlayer('c', 'mage', 'Again', character);
     restoreStash(sim2, pid2, stash);
     const p2 = sim2.world.player.get(pid2);

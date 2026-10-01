@@ -7,6 +7,7 @@ import { inRect, rock, scatterDecor, tree } from './gen.js';
 import { GameMap, type ChunkObstacleSource } from './gamemap.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import type { Decor, MonsterPack, Obstacle, SafeZone, WorldMap } from './types.js';
+import type { WorldPlan } from './worldPlan.js';
 
 /**
  * World streaming step 3: a generated zone (a Wilds or an overworld zone) is a cheap zone-wide plan
@@ -51,8 +52,16 @@ export interface ZoneSpec {
   /** Kept clear by the layout: ruins, the waypoint, gate roads. */
   keepOutCircles: { x: number; y: number; r: number }[];
   keepOutRects: { x: number; y: number; w: number; h: number; pad: number }[];
+  /** Kept clear by the layout: the world's roads. */
+  keepOutCapsules?: { ax: number; ay: number; bx: number; by: number; r: number }[];
   /** Overworld zones have camps; a bare Wilds has its own camp at the spawn instead. */
   camps: boolean;
+  /**
+   * The seamless world's plan. When set it decides by position what `biome` and `levels` decide
+   * for a single zone: biome, monster level, how many packs and forests a chunk gets and how big
+   * packs are; and the boss, dungeon, rare and camp spots come from it instead of random tries.
+   */
+  plan?: WorldPlan;
 }
 
 /** Per chunk, how many of each thing it places. */
@@ -139,11 +148,14 @@ export class ZoneWorld implements ChunkObstacleSource {
   readonly def: WorldMap;
   private readonly spec: ZoneSpec;
   private readonly levelAt: (x: number, y: number) => number;
+  private readonly biomeAt: (x: number, y: number) => Biome;
+  /** The world plan behind this map, for the region of a spot; null for a single zone. */
+  readonly plan: WorldPlan | null;
   /** Nav cells reachable from the spawn past the plan's barriers (rivers, ridges, ruins, the town). */
   private readonly reach: Uint8Array;
   private readonly navCols: number;
   private readonly navRows: number;
-  private readonly plan = new Space();
+  private readonly space = new Space();
   private readonly quotas: Quotas;
   /** Packs the plan places (the boss, guarded camps), by chunk. */
   private readonly planPacks: MonsterPack[][];
@@ -160,7 +172,10 @@ export class ZoneWorld implements ChunkObstacleSource {
     this.spec = spec;
     this.cols = Math.max(1, Math.ceil(map.width / this.size));
     this.rows = Math.max(1, Math.ceil(map.height / this.size));
-    this.levelAt = levelFunction(map, spec.levels);
+    const plan = spec.plan ?? null;
+    this.plan = plan;
+    this.levelAt = plan ? (x, y) => plan.levelAt(x, y) : levelFunction(map, spec.levels);
+    this.biomeAt = plan ? (x, y) => plan.biomeAt(x, y) : () => spec.biome;
     const gm = new GameMap(map);
     this.navCols = gm.navCols;
     this.navRows = gm.navRows;
@@ -169,17 +184,19 @@ export class ZoneWorld implements ChunkObstacleSource {
 
     map.packs = [];
     // The plan's obstacles, water and bridges, indexed for everything placed from here on.
-    for (const o of map.obstacles) this.plan.obstacle(o);
-    for (const r of map.rivers) this.plan.river(r.path, r.width);
-    for (const b of map.bridges) this.plan.bridge(b.x, b.y, b.length);
-    this.placeBoss(map, gm);
-    this.entrances = this.placeEntrances(map, gm);
+    for (const o of map.obstacles) this.space.obstacle(o);
+    for (const r of map.rivers) this.space.river(r.path, r.width);
+    for (const b of map.bridges) this.space.bridge(b.x, b.y, b.length);
+    if (plan) this.placePlanned(map, gm, plan);
+    else this.placeBoss(map, gm);
+    this.entrances = plan ? this.placePlannedEntrances(map, gm, plan) : this.placeEntrances(map, gm);
     if (spec.camps) {
       const before = map.obstacles.length;
       const campRules: PlacementRules = { spacing: 8, riverPad: 40, keepOut: false, bridges: true };
-      placeCamps(map, spec.seed, gm, reach, spec.keepClear, this.levelAt, spec.biome, spec.scale, (x, y, r) => fitsIn(this.plan, map.width, map.height, x, y, r, campRules));
+      const spots = plan?.spots.filter((p) => p.kind === 'camp');
+      placeCamps(map, spec.seed, gm, reach, spec.keepClear, this.levelAt, this.biomeAt, spec.scale, (x, y, r) => fitsIn(this.space, map.width, map.height, x, y, r, campRules), spots);
       // The tents.
-      for (const o of map.obstacles.slice(before)) this.plan.obstacle(o);
+      for (const o of map.obstacles.slice(before)) this.space.obstacle(o);
     }
     this.openCamps = (map.camps ?? []).filter((c) => !c.guarded);
     this.allPlanPacks = map.packs;
@@ -224,7 +241,7 @@ export class ZoneWorld implements ChunkObstacleSource {
       best = { x, y, d };
     }
     if (!best) return;
-    const { biome } = this.spec;
+    const biome = this.biomeAt(best.x, best.y);
     const under = this.levelAt(best.x, best.y);
     map.packs.push({ x: best.x, y: best.y, ...rollPack(rng, biome, under), rareLeader: rng.next() < WILDS.rareLeaderChance, level: under, boss: false });
     const level = under + 1;
@@ -233,10 +250,73 @@ export class ZoneWorld implements ChunkObstacleSource {
     this.spec.keepOutCircles.push({ x: best.x, y: best.y, r: 60 });
   }
 
+  /** The nearest spot within `range` of (x, y) that is reachable and open for a circle of `r`, or null. */
+  private openNear(gm: GameMap, rng: Rng, x: number, y: number, r: number, range: number): { x: number; y: number } | null {
+    for (let k = 0; k < 40; k++) {
+      const a = rng.range(0, Math.PI * 2);
+      const d = k === 0 ? 0 : (range * k) / 40;
+      const px = x + Math.cos(a) * d;
+      const py = y + Math.sin(a) * d;
+      if (px < 200 || py < 200 || px > gm.width - 200 || py > gm.height - 200) continue;
+      if (this.reach[gm.navCell(px, py)] === 1 && !gm.pointBlocked(px, py, r, 'move')) return { x: px, y: py };
+    }
+    return null;
+  }
+
+  /** The world's bosses (one per region, at its deepest end) and its rare packs at dead ends. */
+  private placePlanned(map: WorldMap, gm: GameMap, plan: WorldPlan): void {
+    const rng = Rng.stream(this.spec.seed, 'boss');
+    for (const spot of plan.spots) {
+      if (spot.kind !== 'boss' && spot.kind !== 'rare') continue;
+      const at = this.openNear(gm, rng, spot.x, spot.y, 60, 360);
+      if (!at || map.packs.some((p) => Math.hypot(p.x - at.x, p.y - at.y) < WILDS.packSpacing)) continue;
+      const biome = this.biomeAt(at.x, at.y);
+      const under = this.levelAt(at.x, at.y);
+      if (spot.kind === 'rare') {
+        // A dead end's reward: a rare leader a level up, with a bigger crowd than the road's packs.
+        const level = under + 1;
+        const pack = rollPack(rng, biome, level);
+        map.packs.push({ x: at.x, y: at.y, types: pack.types, count: Math.max(2, Math.round(pack.count * plan.packScale(at.x, at.y) * 1.25)), rareLeader: true, level, boss: false });
+        this.spec.keepOutCircles.push({ x: at.x, y: at.y, r: 60 });
+        continue;
+      }
+      map.packs.push({ x: at.x, y: at.y, ...rollPack(rng, biome, under), rareLeader: rng.next() < WILDS.rareLeaderChance, level: under, boss: false });
+      const level = under + 1;
+      const escort = rollPack(rng, biome, level);
+      map.packs.push({ x: at.x, y: at.y, types: [bossFor(biome, level), ...escort.types], count: Math.max(3, Math.round(escort.count * 0.6)), rareLeader: true, level, boss: true });
+      this.spec.keepOutCircles.push({ x: at.x, y: at.y, r: 60 });
+    }
+  }
+
+  /** The world's dungeon entrances, at the dead ends the plan gave them. */
+  private placePlannedEntrances(map: WorldMap, gm: GameMap, plan: WorldPlan): { x: number; y: number }[] {
+    const rng = Rng.stream(this.spec.seed, 'entrances');
+    const out: { x: number; y: number }[] = [];
+    for (const spot of plan.spots) {
+      if (spot.kind !== 'dungeon') continue;
+      const at = this.openNear(gm, rng, spot.x, spot.y, 90, 320);
+      if (!at || map.portals.some((p) => Math.hypot(p.x - at.x, p.y - at.y) < 500)) continue;
+      this.addEntrance(map, rng, at.x, at.y, out.length);
+      out.push(at);
+    }
+    return out;
+  }
+
+  /** A ring of rubble around a staging portal; `index` makes the dungeon's seed. */
+  private addEntrance(map: WorldMap, rng: Rng, x: number, y: number, index: number): void {
+    const level = this.levelAt(x, y) + 1;
+    // Derived from the map seed so everyone in one instance shares the same antechamber.
+    const dungeonSeed = ((Math.imul(this.spec.seed + 1, 2246822519) + index * 3266489917) >>> 0) % 1_000_000;
+    map.portals.push({ x, y, r: 46, target: 'staging', label: dungeonName(dungeonSeed), dungeon: { seed: dungeonSeed, level } });
+    map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 130 } });
+    scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10, (px, py) => this.space.conflicts(px, py, 0, SCATTER_RULES));
+    // The rubble ring reaches 170 out; trees and rocks generated later keep off it.
+    this.spec.keepOutCircles.push({ x, y, r: 170 });
+  }
+
   /** Dungeon entrances: a ring of rubble around a staging portal, out in reachable ground far from the spawn. */
   private placeEntrances(map: WorldMap, gm: GameMap): { x: number; y: number }[] {
     const rng = Rng.stream(this.spec.seed, 'entrances');
-    const seed = this.spec.seed;
     const out: { x: number; y: number }[] = [];
     for (let attempt = 0, placed = 0; attempt < 2000 && placed < DUNGEON.entrances; attempt++) {
       const x = rng.range(300, map.width - 300);
@@ -245,14 +325,7 @@ export class ZoneWorld implements ChunkObstacleSource {
       if (d < DUNGEON.entranceMinDistance || this.reach[gm.navCell(x, y)] !== 1 || gm.pointBlocked(x, y, 90, 'move')) continue;
       if (this.spec.clearRects.some((z) => inRect(x, y, z, z.pad))) continue;
       if (map.packs.some((p) => Math.hypot(p.x - x, p.y - y) < 260) || map.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 1200)) continue;
-      const level = this.levelAt(x, y) + 1;
-      // Derived from the map seed so everyone in one instance shares the same antechamber.
-      const dungeonSeed = ((Math.imul(seed + 1, 2246822519) + placed * 3266489917) >>> 0) % 1_000_000;
-      map.portals.push({ x, y, r: 46, target: 'staging', label: dungeonName(dungeonSeed), dungeon: { seed: dungeonSeed, level } });
-      map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 130 } });
-      scatterDecor(map, rng, x, y, 170, ['dungeon_rubble_large', 'dungeon_rubble_half', 'grave_skull', 'dungeon_torch_lit'], 10, (px, py) => this.plan.conflicts(px, py, 0, SCATTER_RULES));
-      // The rubble ring reaches 170 out; trees and rocks generated later keep off it.
-      this.spec.keepOutCircles.push({ x, y, r: 170 });
+      this.addEntrance(map, rng, x, y, placed);
       out.push({ x, y });
       placed++;
     }
@@ -261,13 +334,14 @@ export class ZoneWorld implements ChunkObstacleSource {
 
   /** What chunk content keeps out of, once the plan has placed everything of its own. */
   private indexKeepOuts(map: WorldMap): void {
-    const s = this.plan;
+    const s = this.space;
     const c = this.spec.spawnClear;
     s.keepOutCircle(c.x, c.y, c.r);
     for (const k of this.spec.keepOutCircles) s.keepOutCircle(k.x, k.y, k.r);
     for (const camp of map.camps ?? []) s.keepOutCircle(camp.x, camp.y, CAMPS.radius + 8);
     for (const r of this.spec.clearRects) s.keepOutRect(r);
     for (const r of this.spec.keepOutRects) s.keepOutRect(r);
+    for (const k of this.spec.keepOutCapsules ?? []) s.keepOutCapsule(k.ax, k.ay, k.bx, k.by, k.r);
   }
 
   /** The chunk's square clipped to `[m, size - m]` of the map on both axes, or null when empty. */
@@ -306,16 +380,21 @@ export class ZoneWorld implements ChunkObstacleSource {
       return s ? (s.x1 - s.x0) * (s.y1 - s.y0) : 0;
     };
     const inMap = (x: number, y: number, r: number): boolean => x >= r + 50 && y >= r + 50 && x <= map.width - r - 50 && y <= map.height - r - 50;
-    const rockFits = (x: number, y: number): boolean => inMap(x, y, 20) && !this.plan.conflicts(x, y, 20, SCENERY);
+    const rockFits = (x: number, y: number): boolean => inMap(x, y, 20) && !this.space.conflicts(x, y, 20, SCENERY);
     const packFits = (x: number, y: number): boolean => this.packSpotOpen(x, y);
     const boneFits = (x: number, y: number): boolean => !this.spec.clearRects.some((z) => inRect(x, y, z, z.pad));
-    // The pack under the boss is one of the zone's packs.
-    const packs = Math.max(0, Math.round(WILDS.packs * scale) - (this.allPlanPacks.some((p) => p.boss) ? 1 : 0));
+    // The pack under each boss is one of the zone's packs.
+    const packs = Math.max(0, Math.round(WILDS.packs * scale) - this.allPlanPacks.filter((p) => p.boss).length);
+    // A world weighs each chunk by its middle: thicker forest off the roads and in wooded regions, more packs further out.
+    const plan = this.spec.plan;
+    const mid = (cx: number, cy: number): [number, number] => [Math.min(map.width, (cx + 0.5) * this.size), Math.min(map.height, (cy + 0.5) * this.size)];
+    const forestWeight = (cx: number, cy: number): number => (plan ? plan.forestWeight(...mid(cx, cy)) : 1);
+    const packWeight = (cx: number, cy: number): number => (plan ? plan.packWeight(...mid(cx, cy)) : 1);
     return {
-      forests: apportion(Math.round(WILDS.forests * scale), each(area(300))),
+      forests: apportion(Math.round(WILDS.forests * scale), each((cx, cy) => area(300)(cx, cy) * forestWeight(cx, cy))),
       rocks: apportion(Math.round(WILDS.looseRocks * scale), each((cx, cy) => this.usableArea(cx, cy, 100, rockFits))),
       bones: apportion(Math.round(40 * scale), each((cx, cy) => this.usableArea(cx, cy, 200, boneFits))),
-      packs: apportion(packs, each((cx, cy) => this.usableArea(cx, cy, 200, packFits))),
+      packs: apportion(packs, each((cx, cy) => this.usableArea(cx, cy, 200, packFits) * packWeight(cx, cy))),
     };
   }
 
@@ -323,7 +402,7 @@ export class ZoneWorld implements ChunkObstacleSource {
   private packSpotOpen(x: number, y: number): boolean {
     const { spawn, width, height } = this.def;
     if (Math.hypot(x - spawn.x, y - spawn.y) < WILDS.safeRadius || this.reach[this.navCell(x, y)] !== 1) return false;
-    if (x < 40 || y < 40 || x > width - 40 || y > height - 40 || this.plan.blocks(x, y, 40)) return false;
+    if (x < 40 || y < 40 || x > width - 40 || y > height - 40 || this.space.blocks(x, y, 40)) return false;
     return !this.spec.clearRects.some((z) => inRect(x, y, z, z.pad + WILDS.aggroRadius));
   }
 
@@ -361,7 +440,7 @@ export class ZoneWorld implements ChunkObstacleSource {
     });
     const { width, height } = this.def;
     const fitsHere = (x: number, y: number, r: number): boolean =>
-      x >= r + 50 && y >= r + 50 && x <= width - r - 50 && y <= height - r - 50 && !this.plan.conflicts(x, y, r, SCENERY) && !local.conflicts(x, y, r, SCENERY);
+      x >= r + 50 && y >= r + 50 && x <= width - r - 50 && y <= height - r - 50 && !this.space.conflicts(x, y, r, SCENERY) && !local.conflicts(x, y, r, SCENERY);
     const rng = Rng.stream(this.spec.seed, `chunk:${cx},${cy}:scenery`);
     const i = cy * this.cols + cx;
     const out: Obstacle[] = [];
@@ -437,7 +516,9 @@ export class ZoneWorld implements ChunkObstacleSource {
       // An unguarded camp stays unguarded; an entrance keeps its approach clear.
       if (this.openCamps.some((c) => crowded(c, CAMPS.unguardedPackGap)) || this.entrances.some((e) => crowded(e, 260))) continue;
       const level = this.levelAt(x, y);
-      out.push({ x, y, ...rollPack(rng, this.spec.biome, level), rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
+      const pack = rollPack(rng, this.biomeAt(x, y), level);
+      const count = this.plan ? Math.max(1, Math.round(pack.count * this.plan.packScale(x, y))) : pack.count;
+      out.push({ x, y, types: pack.types, count, rareLeader: rng.next() < WILDS.rareLeaderChance, level, boss: false });
     }
     return out;
   }
@@ -473,7 +554,7 @@ export class ZoneWorld implements ChunkObstacleSource {
         const px = x + Math.cos(a) * d;
         const py = y + Math.sin(a) * d;
         if (px < 30 || py < 30 || px > width - 30 || py > height - 30) continue;
-        if (this.plan.conflicts(px, py, 0, SCATTER_RULES) || local.conflicts(px, py, 0, SCATTER_RULES)) continue;
+        if (this.space.conflicts(px, py, 0, SCATTER_RULES) || local.conflicts(px, py, 0, SCATTER_RULES)) continue;
         const asset = BONES[rng.int(0, BONES.length - 1)] ?? 'grave_bone_A';
         out.push({ asset, x: px, y: py, angle: rng.range(0, Math.PI * 2), scale: rng.range(0.85, 1.2) });
         placed++;

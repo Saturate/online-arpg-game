@@ -2,7 +2,6 @@ import type { Lighting, ZoomSettings } from './accounts.js';
 import type { ArenaResult, ArenaStatus } from './arena.js';
 import type { AffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
-import type { ZoneId } from '../data/zones.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { MinionTypeId, Stance } from '../data/minions.js';
 import type { ElementId } from '../sim/program.js';
@@ -72,7 +71,7 @@ export type ClientMessage =
    */
   | { t: 'chat'; text: string; links?: ItemUid[] }
   /** Travel from the waypoint the player stands on to another unlocked one. */
-  | { t: 'useWaypoint'; zone: ZoneId }
+  | { t: 'useWaypoint'; waypoint: string }
   /** Start the channel that takes you to a party member (by character name); the server checks everything. */
   | { t: 'partyTeleport'; name: string }
   | ({ t: 'input' } & InputFrame)
@@ -232,7 +231,7 @@ export type GameEvent =
   /** A monster or minion attacking, so clients can play the attack animation. */
   | { e: 'attack'; id: EntityId }
   /** A character touched a waypoint for the first time. */
-  | { e: 'waypoint'; id: EntityId; zone: ZoneId }
+  | { e: 'waypoint'; id: EntityId; waypoint: string }
   | { e: 'levelUp'; id: EntityId; level: number; x: number; y: number }
   /**
    * A monster winding up an attack: where it will land and when. Circles are areas, lines are
@@ -426,7 +425,7 @@ export type ServerMessage =
   | { t: 'trader'; stock: TraderEntry[] }
   | ChatMessage
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
-  | { t: 'waypoints'; current: ZoneId; unlocked: ZoneId[] }
+  | { t: 'waypoints'; current: string; unlocked: string[] }
   | StagingMessage
   | ArenaStatus
   | ArenaResult

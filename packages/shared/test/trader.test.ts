@@ -3,7 +3,7 @@ import { buyItem, buyPrice, createGear, sellItem, sellPrice, Simulation } from '
 import { addItem, unequipGear } from '../src/sim/inventory.js';
 
 function atTrader() {
-  const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(4, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'warrior');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);

@@ -1,78 +1,60 @@
 import { describe, expect, it } from 'vitest';
-import { applyDev, buildMap, GameMap, HOME_ZONE, Rng, scaledZone, Simulation, STREAMING, WILDS, ZONE_IDS, ZONE_SIZE, type EntityId, type MapDescriptor, type Obstacle, type WorldMap, type ZoneId } from '../src/index.js';
+import { applyDev, buildMap, DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutToMap, loadMap, Rng, Simulation, STREAMING, WILDS, WORLD, type EntityId, type MapDescriptor, type Obstacle, type WorldMap } from '../src/index.js';
+import { placeTown } from '../src/world/worldMap.js';
 import { reachableCells, SPILL } from '../src/world/zoneGen.js';
 import { spawnEverywhere, streamingStats, updateStreaming } from '../src/sim/streaming.js';
 
-function fnv(s: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
-  return h.toString(36);
-}
-
 const SEEDS = [1, 42, 9001];
 
-/** A zone generated afresh, every chunk still ungenerated. */
-function fresh(zone: ZoneId, seed: number) {
-  return scaledZone(zone, seed, 1);
+type Kind = 'world' | 'wilds';
+
+/** A generated map built afresh, every chunk still ungenerated: the world, or a standalone Wilds. */
+function fresh(kind: Kind, seed: number) {
+  if (kind === 'world') return freshWorld(seed);
+  // A seed loadMap never sees elsewhere would do too, but the Wilds builds fast enough to make anew.
+  const m = loadMap({ kind: 'wilds', seed });
+  if (!m.zone) throw new Error('not generated');
+  return { def: m.def, game: m.game, zone: m.zone };
 }
 
 function centre(o: Obstacle): { x: number; y: number } {
   return o.shape.type === 'capsule' ? { x: (o.shape.ax + o.shape.bx) / 2, y: (o.shape.ay + o.shape.by) / 2 } : o.shape;
 }
 
-describe('zone plan', () => {
-  it('rivers, bridges, the road and the ridges are where the whole-zone generator put them', () => {
-    // Taken with the generator before step 3 (HEAD 366b5c0): these draw from the seed's main stream
-    // in the same order, so they must not move.
-    const before: Record<string, [string, string, number, string]> = {
-      'barrens:1': ['12dfag0', '1q5iyom', 22, '17sq14g'],
-      'barrens:9001': ['1jqd66o', '1ade7sn', 25, 'y49ojr'],
-      'steppe:1': ['dzc2yx', '1tiuxu2', 17, '1tytbfk'],
-      'thornwood:42': ['skq0vw', '1rgm7cu', 14, '1ptiwzl'],
-      'hollows:9001': ['a24n75', 'qn5ts3', 18, '3jfqn3'],
-    };
-    for (const [key, [rivers, roads, ridgeCount, ridges]] of Object.entries(before)) {
-      const [zone, seed] = key.split(':');
-      const def = buildMap({ kind: 'zone', zone: ZONE_IDS.find((z) => z === zone) ?? HOME_ZONE, seed: Number(seed) });
-      const plan = fresh(ZONE_IDS.find((z) => z === zone) ?? HOME_ZONE, Number(seed)).def;
-      expect(fnv(JSON.stringify([def.rivers, def.bridges])), key).toBe(rivers);
-      expect(fnv(JSON.stringify(def.ground.filter((g) => g.kind === 'road'))), key).toBe(roads);
-      const ridgeRocks = plan.obstacles.filter((o) => o.kind === 'rock');
-      expect(ridgeRocks.length, key).toBe(ridgeCount);
-      expect(fnv(JSON.stringify(ridgeRocks)), key).toBe(ridges);
-    }
-  });
-
-  it('carries no chunk content and no packs, and the home zone carries the town whole', () => {
-    const { def, zone } = fresh(HOME_ZONE, 7);
+describe('generated map plan', () => {
+  it('carries no chunk content and no packs, and the world carries the town whole, moved to its place', () => {
+    const { def, zone } = fresh('world', 7);
     expect(def.packs).toEqual([]);
     const town = def.safeZones?.[0];
     if (!town) throw new Error('no town');
     // No tree or loose rock outside the town: those are chunk content. Ridge rocks are the plan's.
-    expect(def.obstacles.some((o) => o.kind === 'tree' && o.shape.type === 'circle' && o.shape.x > town.x + town.w)).toBe(false);
+    expect(def.obstacles.some((o) => o.kind === 'tree' && o.shape.type === 'circle' && (o.shape.x > town.x + town.w || o.shape.x < town.x))).toBe(false);
     expect(zone.generatedChunks).toBe(0);
-    // Every town obstacle is in the plan, in the town's own order.
+    // Every town obstacle is in the plan, in the town's own order, shifted by where the town sits.
     const planJson = def.obstacles.map((o) => JSON.stringify(o));
-    const townJson = buildMap({ kind: 'town' }).obstacles.map((o) => JSON.stringify(o));
+    const townJson = placeTown(layoutToMap(DEFAULT_TOWN_LAYOUT), def.townAt ?? { x: 0, y: 0 }).obstacles.map((o) => JSON.stringify(o));
     const start = planJson.indexOf(townJson[0] ?? '');
     expect(start).toBeGreaterThanOrEqual(0);
     expect(planJson.slice(start, start + townJson.length)).toEqual(townJson);
   });
 
   it('is the same for the same seed and differs between seeds', () => {
-    for (const id of ZONE_IDS) {
-      const a = fresh(id, 42).zone.whole();
-      const b = fresh(id, 42).zone.whole();
+    for (const kind of ['world', 'wilds'] as const) {
+      const a = fresh(kind, 42).zone.whole();
+      const b = (kind === 'world' ? freshWorld(42) : { zone: loadMap({ kind: 'wilds', seed: 42 }).zone }).zone?.whole();
       expect(JSON.stringify(a)).toBe(JSON.stringify(b));
-      expect(JSON.stringify(fresh(id, 43).zone.whole().obstacles)).not.toBe(JSON.stringify(a.obstacles));
+      expect(JSON.stringify(fresh(kind, 43).zone.whole().obstacles)).not.toBe(JSON.stringify(a.obstacles));
     }
   });
 });
 
 describe('zone chunks', () => {
   it('a chunk generated alone is exactly that chunk of a whole-zone build', () => {
-    for (const id of [HOME_ZONE, 'steppe', 'hollows'] as const) {
-      for (const seed of [1, 9001]) {
+    for (const [id, seeds] of [
+      ['world', [1]],
+      ['wilds', [1, 9001]],
+    ] as const) {
+      for (const seed of seeds) {
         const whole = fresh(id, seed).zone;
         whole.whole();
         for (let cy = 0; cy < whole.rows; cy++) {
@@ -82,16 +64,16 @@ describe('zone chunks', () => {
             expect(alone.packs(cx, cy), `${id}/${seed} packs ${cx},${cy}`).toEqual(whole.packs(cx, cy));
             expect(alone.obstacles(cx, cy), `${id}/${seed} obstacles ${cx},${cy}`).toEqual(whole.obstacles(cx, cy));
             expect(alone.decor(cx, cy), `${id}/${seed} decor ${cx},${cy}`).toEqual(whole.decor(cx, cy));
-            // Alone means alone: at most the chunks within 3 of it, for the phases it reads.
-            expect(alone.generatedChunks).toBeLessThanOrEqual(49);
+            // Alone means alone: at most the 15 by 15 window its packs can read.
+            expect(alone.generatedChunks).toBeLessThanOrEqual(15 * 15);
           }
         }
       }
     }
   });
 
-  it('a chunk generated in a zone 25 times today\'s reads only a fixed window of chunks around it', () => {
-    const big = scaledZone('thornwood', 5, 5).zone;
+  it('a chunk generated in a world 4 times as wide and tall reads only a fixed window of chunks around it', () => {
+    const big = freshWorld(5, undefined, { width: WORLD.width * 2, height: WORLD.height * 2 }).zone;
     const cx = Math.floor(big.cols / 2);
     const cy = Math.floor(big.rows / 2);
     // Obstacles read earlier phases up to 3 chunks out; packs read packs up to 3 out and the
@@ -104,8 +86,11 @@ describe('zone chunks', () => {
   });
 
   it('obstacles stay within the spill of their chunk, and keep their spacing across chunk borders', () => {
-    for (const id of ['steppe', 'thornwood'] as const) {
-      for (const seed of SEEDS) {
+    for (const [id, seeds] of [
+      ['world', [1, 42]],
+      ['wilds', SEEDS],
+    ] as const) {
+      for (const seed of seeds) {
         const { zone } = fresh(id, seed);
         const placed: { o: Obstacle; cx: number; cy: number; fit: number }[] = [];
         for (let cy = 0; cy < zone.rows; cy++) {
@@ -153,24 +138,33 @@ describe('zone packs', () => {
     return { gm, seen: reachableCells(gm, def.spawn.x, def.spawn.y) };
   }
 
-  it('keep the counts of the whole-zone generator, their spacing, and stay reachable', () => {
-    for (const id of ZONE_IDS) {
-      for (const seed of SEEDS) {
-        const def = buildMap({ kind: 'zone', zone: id, seed });
+  it('keep the counts of the whole-map generator, their spacing, and stay reachable', () => {
+    for (const [id, seeds] of [
+      ['world', [1, 42]],
+      ['wilds', SEEDS],
+    ] as const) {
+      for (const seed of seeds) {
+        const def = id === 'world' ? fresh('world', seed).zone.whole() : buildMap({ kind: 'wilds', seed });
         const scale = (def.width * def.height) / (WILDS.width * WILDS.height);
-        const regular = def.packs.filter((p) => !p.boss);
-        const camps = (def.camps ?? []).filter((c) => c.guarded).length;
-        // Every chunk got its share and found room for it, give or take one.
-        expect(regular.length - camps, `${id}/${seed}`).toBeGreaterThanOrEqual(Math.round(WILDS.packs * scale) - 1);
-        expect(regular.length - camps, `${id}/${seed}`).toBeLessThanOrEqual(Math.round(WILDS.packs * scale));
-        expect(def.packs.filter((p) => p.boss)).toHaveLength(1);
-        const { gm, seen } = reach(def);
+        const bosses = def.packs.filter((p) => p.boss).length;
+        // The plan's own packs: the one under each boss, guarded camps and, in the world, rares at dead ends.
+        const regular = def.packs.filter((p) => !p.boss && !(def.camps ?? []).some((c) => c.guarded && c.x === p.x && c.y === p.y));
+        // Every chunk got its share and found room for it, give or take a few in the world, whose rivers and ridges leave less room.
+        // The pack each boss stands over is one of them.
+        const want = Math.round(WILDS.packs * scale);
+        expect(regular.length, `${id}/${seed}`).toBeGreaterThanOrEqual(want - (id === 'world' ? 8 : 1));
+        // On top: the world's rares at dead ends, at most one per plan spot.
+        expect(regular.length, `${id}/${seed}`).toBeLessThanOrEqual(want + (id === 'world' ? 30 : 0));
+        // One boss per region in the world, one in a Wilds.
+        expect(bosses, `${id}/${seed}`).toBe(id === 'world' ? 6 : 1);
+        const gm = new GameMap(def);
+        const seen = reachableCells(gm, def.spawn.x, def.spawn.y);
         for (const p of def.packs) {
           expect(seen[gm.navCell(p.x, p.y)], `${id}/${seed} pack at ${Math.round(p.x)},${Math.round(p.y)} reachable`).toBe(1);
           expect(Math.hypot(p.x - def.spawn.x, p.y - def.spawn.y)).toBeGreaterThanOrEqual(WILDS.safeRadius);
           expect(gm.pointBlocked(p.x, p.y, 20, 'move')).toBe(false);
         }
-        // Only the boss stands on another pack (the one it holds the far end over).
+        // Only a boss stands on another pack (the one it holds the far end over).
         for (const [i, a] of def.packs.entries()) {
           for (const b of def.packs.slice(i + 1)) {
             if (a.boss || b.boss) continue;
@@ -185,8 +179,8 @@ describe('zone packs', () => {
 describe('collision and nav built by chunk', () => {
   it('answer every query exactly as the map built whole, whatever order chunks are asked in', () => {
     for (const [id, seed] of [
-      [HOME_ZONE, 3],
-      ['dunes', 77],
+      ['world', 3],
+      ['wilds', 77],
     ] as const) {
       const { zone } = fresh(id, seed);
       const whole = new GameMap(zone.whole());
@@ -216,43 +210,36 @@ describe('collision and nav built by chunk', () => {
   });
 });
 
-describe('a room over a zone generated by chunk', () => {
+describe('a room over a map generated by chunk', () => {
   /** A descriptor nothing else in this file loads, so its chunks start ungenerated. */
-  const desc = (zone: ZoneId, seed: number): MapDescriptor => ({ kind: 'zone', zone, seed });
+  const desc = (seed: number): MapDescriptor => ({ kind: 'world', seed });
 
   it('builds no chunk when created, and only the chunks near its players when they arrive', () => {
-    const old = { ...ZONE_SIZE };
-    // A zone 25 times today's; loadMap caches by descriptor, so the seed is used nowhere else.
-    Object.assign(ZONE_SIZE, { width: old.width * 5, height: old.height * 5 });
-    try {
-      const sim = new Simulation(1, desc('thornwood', 424242));
-      const zone = sim.zone;
-      if (!zone) throw new Error('not a generated zone');
-      expect(zone.generatedChunks).toBe(0);
-      expect(sim.map.builtChunks).toBe(0);
-      expect(sim.world.enemy.size).toBe(0);
-      sim.addPlayer('p', 'mage');
-      sim.step();
-      const total = zone.cols * zone.rows;
-      const stats = streamingStats(sim);
-      expect(stats.spawnedChunks).toBe(stats.awakeChunks);
-      // Awake: within 2000 of the player. Built: what anything asked about, the flow field's
-      // search (90 nav cells, 3600 units) the farthest. Generated: those and what they read.
-      expect(stats.spawnedChunks).toBeLessThanOrEqual(5 * 5);
-      expect(sim.map.builtChunks).toBeLessThanOrEqual(10 * 10);
-      expect(zone.generatedChunks).toBeLessThan(total / 2);
-      // Every monster stands in or next to a chunk that has woken.
-      for (const id of sim.world.enemy.keys()) {
-        const p = sim.world.position.get(id);
-        if (p) expect(Math.hypot(p.x - sim.mapDef.spawn.x, p.y - sim.mapDef.spawn.y)).toBeLessThan(STREAMING.awakeChunks * STREAMING.chunkSize * 2);
-      }
-    } finally {
-      Object.assign(ZONE_SIZE, old);
+    const sim = new Simulation(1, desc(424242));
+    const zone = sim.zone;
+    if (!zone) throw new Error('not a generated map');
+    expect(zone.generatedChunks).toBe(0);
+    expect(sim.map.builtChunks).toBe(0);
+    expect(sim.world.enemy.size).toBe(0);
+    sim.addPlayer('p', 'mage');
+    sim.step();
+    const total = zone.cols * zone.rows;
+    const stats = streamingStats(sim);
+    expect(stats.spawnedChunks).toBe(stats.awakeChunks);
+    // Awake: within 2000 of the player. Built: what anything asked about, the flow field's
+    // search (90 nav cells, 3600 units) the farthest. Generated: those and what they read.
+    expect(stats.spawnedChunks).toBeLessThanOrEqual(5 * 5);
+    expect(sim.map.builtChunks).toBeLessThanOrEqual(10 * 10);
+    expect(zone.generatedChunks).toBeLessThan(total);
+    // Every monster stands in or next to a chunk that has woken.
+    for (const id of sim.world.enemy.keys()) {
+      const p = sim.world.position.get(id);
+      if (p) expect(Math.hypot(p.x - sim.mapDef.spawn.x, p.y - sim.mapDef.spawn.y)).toBeLessThan(STREAMING.awakeChunks * STREAMING.chunkSize * 2);
     }
   });
 
   it('a chunk spawns the same monsters whenever it first wakes, as all at once did', () => {
-    const d = desc('gloomvale', 515151);
+    const d = desc(515151);
     const key = (sim: Simulation, id: EntityId): string => {
       const e = sim.world.enemy.get(id);
       const q = sim.world.position.get(id);
@@ -286,7 +273,7 @@ describe('a room over a zone generated by chunk', () => {
     expect([...lazy.world.enemy.keys()].map((id) => key(lazy, id)).sort()).toEqual(everything);
   });
   it('spawns nothing with nobody there, and the dev tools\' kill all clears packs not spawned yet', () => {
-    const sim = new Simulation(3, desc('dunes', 626262));
+    const sim = new Simulation(3, desc(626262));
     for (let t = 0; t < 10; t++) sim.step();
     expect(sim.world.enemy.size).toBe(0);
     expect(sim.map.builtChunks).toBe(0);

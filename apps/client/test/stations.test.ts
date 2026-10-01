@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { HOME_ZONE } from '@rune/shared';
 import { activeStation, closeStation, openStation, openWaypointMenu, type StationWindows } from '../src/ui/stations.js';
 
 const closed: StationWindows = { station: null, waypointMenu: null, inventoryOpen: false, editorOpen: false, characterOpen: false };
-const menu = { current: HOME_ZONE, unlocked: [HOME_ZONE] };
+const menu = { current: 'town', unlocked: ['town'], list: [] };
 
 describe('station windows', () => {
   it('opening one station closes the others and shows the bag', () => {

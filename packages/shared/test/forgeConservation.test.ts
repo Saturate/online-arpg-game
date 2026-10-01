@@ -158,7 +158,7 @@ interface World {
 }
 
 function setup(seed: number, flat: boolean, fullBag: boolean): World {
-  const sim = flat ? new Simulation(seed) : new Simulation(seed, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = flat ? new Simulation(seed) : new Simulation(seed, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);

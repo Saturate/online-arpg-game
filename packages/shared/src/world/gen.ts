@@ -64,6 +64,44 @@ export function addRiver(map: WorldMap, spec: RiverSpec): void {
   }
 }
 
+/**
+ * A river along any path, with a bridge at each of `bridges` (distances along the path). The water
+ * is cut back where a bridge crosses, as `addRiver` cuts it, so a bridge is never sealed by the caps.
+ */
+export function addPathRiver(map: WorldMap, path: readonly Vec2[], width: number, bridges: readonly number[], bridgeWidth: number): void {
+  const r = width / 2;
+  const cuts = bridges.map((s) => ({ top: s - bridgeWidth / 2 - r, bottom: s + bridgeWidth / 2 + r }));
+  let along = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    if (!a || !b) continue;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const at = (s: number): Vec2 => ({ x: a.x + ((b.x - a.x) * (s - along)) / (len || 1), y: a.y + ((b.y - a.y) * (s - along)) / (len || 1) });
+    // The same clipping as `addRiver`, by distance along the path instead of by y.
+    for (const [p, q] of clipSegment({ x: along, y: along }, { x: along + len, y: along + len }, cuts)) {
+      const pa = at(p.y);
+      const pb = at(q.y);
+      map.obstacles.push({ kind: 'water', shape: { type: 'capsule', ax: pa.x, ay: pa.y, bx: pb.x, by: pb.y, r }, blocksMove: true, blocksShots: false, visual: 0 });
+    }
+    along += len;
+  }
+  map.rivers.push({ path: [...path], width });
+  along = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    if (!a || !b) continue;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    for (const s of bridges) {
+      if (s < along || s >= along + len) continue;
+      const t = (s - along) / (len || 1);
+      map.bridges.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, angle: Math.atan2(b.y - a.y, b.x - a.x) + Math.PI / 2, length: width + 80, width: bridgeWidth - 20 });
+    }
+    along += len;
+  }
+}
+
 /** The parts of segment a to b (running north to south) that lie outside every [top, bottom] band. */
 function clipSegment(a: Vec2, b: Vec2, cuts: readonly { top: number; bottom: number }[]): [Vec2, Vec2][] {
   const at = (y: number): Vec2 => {

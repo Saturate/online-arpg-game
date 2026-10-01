@@ -1,9 +1,9 @@
 import type { Biome } from './monsterPools.js';
 
 /**
- * The overworld: a chain of zones with rising monster levels, D2 act style. The first zone has the
- * town built into its west edge, so leaving town is a walk, not a load. Each zone has a waypoint
- * that a character unlocks by visiting it once.
+ * The regions of the seamless world (`world/worldPlan.ts`), which were zones of their own before:
+ * each is a theme (name, monster biome, ground colour). Their levels are the bands the zones had;
+ * in the world a region's monster levels come from its distance from town instead.
  */
 
 export const ZONE_IDS = ['barrens', 'steppe', 'gloomvale', 'thornwood', 'dunes', 'hollows'] as const;
@@ -13,7 +13,7 @@ export type ZoneId = (typeof ZONE_IDS)[number];
 export interface ZoneDef {
   id: ZoneId;
   name: string;
-  /** Monster levels from the entrance to the far end of the zone. */
+  /** The band this theme had as a zone of its own, before the world. */
   levels: readonly [number, number];
   /** Which monster pool the zone draws from. */
   biome: Biome;
@@ -31,20 +31,8 @@ export const ZONES: Record<ZoneId, ZoneDef> = {
   hollows: { id: 'hollows', name: 'The Hollows', levels: [20, 25], biome: 'cave', groundTint: 0x544a40, bleak: true },
 };
 
-/** The zone every instance starts in; it contains the town. */
-export const HOME_ZONE: ZoneId = 'barrens';
-
 export function isZoneId(v: unknown): v is ZoneId {
   return typeof v === 'string' && ZONE_IDS.some((z) => z === v);
-}
-
-export function nextZone(id: ZoneId): ZoneId | null {
-  return ZONE_IDS[ZONE_IDS.indexOf(id) + 1] ?? null;
-}
-
-export function previousZone(id: ZoneId): ZoneId | null {
-  const i = ZONE_IDS.indexOf(id);
-  return i > 0 ? (ZONE_IDS[i - 1] ?? null) : null;
 }
 
 /** Most players a world holds; the public world opens another copy once one is full. */

@@ -180,7 +180,7 @@ describe('Arena runs', () => {
     const room = roomOf(rooms, a);
     untilWave(rooms, room, 1);
     b.emit({ t: 'townPortal' });
-    expect(welcome(b).map.kind).toBe('zone');
+    expect(welcome(b).map.kind).toBe('world');
     rooms.tick();
     expect(a.last('arenaResult')).toBeUndefined();
     dealDamage(room.sim, welcome(a).playerId, 1e9, welcome(a).playerId, []);
@@ -207,7 +207,7 @@ describe('builders sandbox', () => {
     if (!builder || !player) throw new Error('no sockets');
     player.emit({ t: 'chat', text: '/sandbox' });
     expect(player.last('chat')?.text).toBe('Unknown command /sandbox. Try /help');
-    expect(welcome(player).map.kind).toBe('zone');
+    expect(welcome(player).map.kind).toBe('world');
 
     builder.emit({ t: 'chat', text: '/sandbox' });
     expect(welcome(builder)).toMatchObject({ map: { kind: 'flat' }, editor: true, devTools: true });
@@ -216,10 +216,10 @@ describe('builders sandbox', () => {
     // No waves: builders spawn what they test.
     expect(sandbox.sim.world.enemy.size).toBe(0);
     player.emit({ t: 'chat', text: '/goto Hero0' });
-    expect(welcome(player).map.kind).toBe('zone');
+    expect(welcome(player).map.kind).toBe('world');
 
     builder.emit({ t: 'chat', text: '/sandbox' });
-    expect(welcome(builder).map.kind).toBe('zone');
+    expect(welcome(builder).map.kind).toBe('world');
   });
 });
 

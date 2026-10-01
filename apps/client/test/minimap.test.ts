@@ -61,6 +61,8 @@ describe('minimap tiles', () => {
     const big = minimapScale(10400, 7200, angle);
     expect(big.windowed).toBe(true);
     expect(big.scale).toBe(MIN_SCALE);
+    // The seamless world is shown as a window round the hero.
+    expect(minimapScale(13000, 13000, angle).windowed).toBe(true);
   });
 
   it('keeps a map shown whole inside one tile', () => {

@@ -2,6 +2,7 @@ import { HEAT } from '../config/sim.js';
 import { portalOpen } from './dungeon.js';
 import { emptyStatus } from './ecs.js';
 import type { Simulation } from './simulation.js';
+import { TOWN_WAYPOINT } from '../world/worldPlan.js';
 
 const COOLDOWN_EPS = 1e-6;
 
@@ -18,9 +19,9 @@ export function updatePlayers(sim: Simulation, dt: number): void {
       for (const portal of sim.mapDef.portals) {
         if ((pos.x - portal.x) ** 2 + (pos.y - portal.y) ** 2 > portal.r * portal.r || !portalOpen(sim, portal)) continue;
         // Touching a waypoint activates it for this character before the menu opens.
-        if (portal.target === 'waypoint' && portal.zone && !p.waypoints.includes(portal.zone)) {
-          p.waypoints.push(portal.zone);
-          sim.emit({ e: 'waypoint', id, zone: portal.zone }, pos.x, pos.y);
+        if (portal.target === 'waypoint' && portal.waypoint && portal.waypoint !== TOWN_WAYPOINT && !p.waypoints.includes(portal.waypoint)) {
+          p.waypoints.push(portal.waypoint);
+          sim.emit({ e: 'waypoint', id, waypoint: portal.waypoint }, pos.x, pos.y);
         }
         sim.portalRequests.push({ playerId: id, target: portal.target, portal });
         p.portalCooldown = PORTAL_RETRY_SECONDS;

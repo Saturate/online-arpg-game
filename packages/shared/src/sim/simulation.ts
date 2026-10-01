@@ -16,7 +16,6 @@ import { loadMap } from '../world/maps.js';
 import { FlowField } from '../world/nav.js';
 import type { MapDescriptor, Portal, PortalTarget, WorldMap } from '../world/types.js';
 import type { ZoneWorld } from '../world/zoneGen.js';
-import { HOME_ZONE, type ZoneId } from '../data/zones.js';
 import type { ArenaState } from './arena.js';
 import { emptyBuffs, emptyStatus, World, type EntityId } from './ecs.js';
 import { spawnEnemy, spawnPacks } from './enemies.js';
@@ -48,7 +47,11 @@ export interface PlayerSave {
   warband: (ItemUid | null)[];
   gear: Record<GearSlot, ItemUid | null>;
   stance: Stance;
-  waypoints: ZoneId[];
+  /**
+   * Waypoints this character has touched, by id. Ids of the zones before the seamless world stay
+   * in the list untouched until the save conversion maps them.
+   */
+  waypoints: string[];
   level: number;
   xp: number;
   gold: number;
@@ -221,8 +224,8 @@ export class Simulation {
       focusTarget: null,
       focusTick: 0,
       god: false,
-      // Everyone starts with the town's waypoint, like D2's.
-      waypoints: [HOME_ZONE],
+      // The town's waypoint is everyone's without being listed, like D2's.
+      waypoints: [],
       level: 1,
       xp: 0,
       gold: 0,

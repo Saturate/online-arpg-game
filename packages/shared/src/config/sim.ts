@@ -422,10 +422,33 @@ export const PROGRESSION = {
   requirementSlack: 2,
 } as const;
 
-/** Overworld zones east of the town (the home zone adds the town's width on top). */
-export const ZONE_SIZE = {
-  width: 5200,
-  height: 3600,
+/**
+ * The seamless world (`world/worldPlan.ts`): one map per world copy with the town in the middle.
+ * 13000 square is 9 times a zone of before (5200 by 3600), which the streaming numbers carry with room
+ * to spare (world-streaming.md, step 4).
+ */
+export const WORLD = {
+  width: 13000,
+  height: 13000,
+  /** The home region around the town; the roads leave it into their own regions. */
+  hubRadius: 2400,
+  /** Roads and branches keep this far inside the map edge. */
+  edgeMargin: 650,
+  trunkStep: 450,
+  branchStep: 420,
+  /** Half the angle of each road's sector, and how far inside its edges branches stay. */
+  sectorHalf: Math.PI / 3,
+  sectorInset: 0.11,
+  /** Unrelated roads stay this far apart, so branches read as separate valleys. */
+  roadGap: 760,
+  /** Monster levels from the town gate to the farthest branch end, on a curve that starts slow. */
+  levels: [1, 25] as readonly [number, number],
+  levelCurve: 1.3,
+  /** Off-road distance counts this much toward a spot's distance from town. */
+  offRoad: 0.6,
+  /** Road half widths: the trunk out of each gate, and the branches. */
+  trunkWidth: 52,
+  branchWidth: 40,
 } as const;
 
 export const DUNGEON = {

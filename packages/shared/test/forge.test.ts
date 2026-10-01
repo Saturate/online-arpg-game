@@ -24,7 +24,7 @@ import { addItem } from '../src/sim/inventory.js';
 import { applyDev, parseDevCommand } from '../src/sim/dev.js';
 
 function atForge() {
-  const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(4, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);

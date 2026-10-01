@@ -36,7 +36,7 @@ import {
 } from '../src/index.js';
 
 function town() {
-  const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
+  const sim = new Simulation(4, { kind: 'world', seed: 3 });
   const pid = sim.addPlayer('c', 'mage');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);
@@ -137,7 +137,7 @@ describe('item safety', () => {
     const bound = createGear(9998, sim.rand.loot, 'common', 1, { category: 'ring' });
     bound.bound = true;
     save.items.push(bound);
-    const other = new Simulation(5, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const other = new Simulation(5, { kind: 'world', seed: 3 });
     const id = other.addPlayer('c', 'mage', 'P', save);
     const p = other.world.player.get(id);
     if (!p) throw new Error('setup');
@@ -196,7 +196,7 @@ describe('item safety', () => {
   });
 
   it('cannot pick up loot through a wall', () => {
-    const sim = new Simulation(2, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const sim = new Simulation(2, { kind: 'world', seed: 3 });
     const pid = sim.addPlayer('b', 'mage');
     const pos = sim.world.position.get(pid);
     if (!pos) throw new Error('setup');

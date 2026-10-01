@@ -1,6 +1,5 @@
 import {
   applyDev,
-  HOME_ZONE,
   buyItem,
   pendingItems,
   portalOpen,
@@ -11,6 +10,7 @@ import {
   can,
   inventoryMessage,
   mapKey,
+  placeName,
   NET,
   serializeEntities,
   SIM,
@@ -51,7 +51,7 @@ export class Room {
   readonly sim: Simulation;
   readonly members = new Map<string, Member>();
   paused = false;
-  /** The home zone room, where builders get the town editor. */
+  /** The world room, which holds the town: builders get the town editor there. */
   hostsTown = false;
   /** Encounter sandbox time scale: simulation steps per server tick, accumulated so fractions work. */
   timeScale = 1;
@@ -77,9 +77,19 @@ export class Room {
     return this.sim.mapDef.name;
   }
 
-  /** The town is where everyone meets, so it never pauses; it lives inside the home zone room. */
+  /** The town is where everyone meets, so it never pauses; it lives inside the world room. */
   get shared(): boolean {
-    return this.desc.kind === 'town' || (this.desc.kind === 'zone' && this.desc.zone === HOME_ZONE);
+    return this.desc.kind === 'town' || this.desc.kind === 'world';
+  }
+
+  /** Where a member is, for the party frames: the world's region (or the town), otherwise the room's name. */
+  placeName(x: number, y: number): string {
+    return placeName(this.desc, x, y) ?? this.name;
+  }
+
+  /** Whether a spot is inside a safe area of the map: the town in the world. */
+  inSafeZone(x: number, y: number): boolean {
+    return (this.sim.mapDef.safeZones ?? []).some((z) => x >= z.x && y >= z.y && x <= z.x + z.w && y <= z.y + z.h);
   }
 
   /** Pausing a server-authoritative world is only fair when nobody else is in it. Arena runs are timed and scored, so they never pause. */

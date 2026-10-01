@@ -252,7 +252,7 @@ export function Hud() {
   const heat = useUi((s) => s.heat);
   const heatMax = useUi((s) => s.heatMax);
   const respawnIn = useUi((s) => s.respawnIn);
-  const roomName = useUi((s) => s.roomName);
+  const roomName = useUi((s) => s.spawnName || s.roomName);
   const arena = useUi((s) => s.arena);
   const scoreScreen = useUi((s) => s.arenaResult !== null);
   const lowLife = maxLife > 0 && life / maxLife < 0.3;

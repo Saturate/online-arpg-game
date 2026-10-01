@@ -2,7 +2,6 @@ import {
   ARENA,
   can,
   resolveChatLinks,
-  HOME_ZONE,
   INSTANCE_CAPACITY,
   jsonCodec,
   parseClientMessage,
@@ -16,8 +15,9 @@ import {
   SIM,
   splitStash,
   WILDS,
-  ZONE_IDS,
-  zoneArrival,
+  entranceArrival,
+  TOWN_WAYPOINT,
+  waypointArrival,
   type AdminOverview,
   type ArenaResult,
   type ClassId,
@@ -45,7 +45,6 @@ import {
   type TownLayout,
   type Vec2,
   type WorldInfo,
-  type ZoneId,
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
 import { ArenaRun } from './arena.js';
@@ -76,8 +75,8 @@ const CHAT_WINDOW_MS = 5000;
  * Most players a world copy takes when the newcomer is joining a party member there. The public
  * world stops sending strangers at INSTANCE_CAPACITY, and a party holds at most INSTANCE_CAPACITY
  * members, so a copy that was full when a party's first member got in can still take the other 7:
- * 8 + 7 = 15. Only two parties overflowing the same copy at once can reach it. Zones are rooms of
- * their own, so 15 players rarely share one simulation; the cap stops a copy from growing without end.
+ * 8 + 7 = 15. Only two parties overflowing the same copy at once can reach it. The whole world is
+ * one room, so this many can share one simulation; the cap stops a copy from growing without end.
  */
 const INSTANCE_HARD_CAP = INSTANCE_CAPACITY * 2 - 1;
 
@@ -85,10 +84,11 @@ const INSTANCE_HARD_CAP = INSTANCE_CAPACITY * 2 - 1;
 const WAYPOINT_REACH = 120;
 
 /**
- * One copy of the world: its own town and zones, seeded once, for up to INSTANCE_CAPACITY players.
- * Public copies all use the owner's world seed and fill up in turn; a party copy has a random seed
- * of its own and only lets the party in. Zone rooms are created when someone first walks in and
- * closed when abandoned; they regenerate identically from the seed, with fresh monsters.
+ * One copy of the world: one seamless room holding the town and every region, seeded once, for up to
+ * INSTANCE_CAPACITY players. Public copies all use the owner's world seed and fill up in turn; a
+ * party copy has a random seed of its own and only lets the party in. The world room is created when
+ * someone first enters the copy and closed when abandoned; it regenerates identically from the
+ * seed, with fresh monsters. Dungeons, their antechambers and the Arena are rooms of their own.
  */
 interface Instance {
   id: string;
@@ -112,7 +112,7 @@ interface Party {
 }
 
 /**
- * Owns every room and every connection. Every room belongs to a world instance: its zones, the
+ * Owns every room and every connection. Every room belongs to a world instance: its world, the
  * dungeon and Arena antechambers and their runs, and builders' private sandboxes.
  */
 export class RoomManager implements AdminHooks {
@@ -161,7 +161,7 @@ export class RoomManager implements AdminHooks {
     const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules }, this.tuning.current);
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
-    if (desc.kind === 'zone' && desc.zone === HOME_ZONE) room.hostsTown = true;
+    if (desc.kind === 'world') room.hostsTown = true;
     this.rooms.set(room.id, room);
     instance?.rooms.add(room.id);
     return room;
@@ -362,15 +362,19 @@ export class RoomManager implements AdminHooks {
     return party.instanceId === null ? null : (this.instances.get(party.instanceId) ?? null);
   }
 
-  private zoneDesc(inst: Instance, zone: ZoneId): Extract<MapDescriptor, { kind: 'zone' }> {
-    // Each zone gets its own seed from the instance seed, so an instance's world is fixed but zones differ.
-    const seed = ((Math.imul(inst.seed + 1, 2654435761) + ZONE_IDS.indexOf(zone) * 40503) >>> 0) % 1_000_000;
-    return zone === HOME_ZONE ? { kind: 'zone', zone, seed, layout: this.townLayout } : { kind: 'zone', zone, seed };
+  private worldDesc(inst: Instance): Extract<MapDescriptor, { kind: 'world' }> {
+    // From the instance seed, so a world copy is the same world each time it opens.
+    const seed = (Math.imul(inst.seed + 1, 2654435761) >>> 0) % 1_000_000;
+    return { kind: 'world', seed, layout: this.townLayout };
   }
 
-  private zoneRoom(inst: Instance, zone: ZoneId): Room {
-    const id = `${inst.id}-${zone}`;
-    return this.rooms.get(id) ?? this.createRoom(id, this.zoneDesc(inst, zone), inst);
+  private worldRoomId(inst: Instance): string {
+    return `${inst.id}-world`;
+  }
+
+  private worldRoom(inst: Instance): Room {
+    const id = this.worldRoomId(inst);
+    return this.rooms.get(id) ?? this.createRoom(id, this.worldDesc(inst), inst);
   }
 
   private instanceOf(client: Client): Instance | null {
@@ -645,7 +649,7 @@ export class RoomManager implements AdminHooks {
         else this.enterInstance(client, this.publicInstance());
         return;
       case 'useWaypoint':
-        this.useWaypoint(client, msg.zone);
+        this.useWaypoint(client, msg.waypoint);
         return;
       case 'partyTeleport':
         this.startTeleport(client, msg.name);
@@ -703,7 +707,7 @@ export class RoomManager implements AdminHooks {
   private enterInstance(client: Client, inst: Instance): void {
     const before = this.instanceOf(client);
     client.instanceId = inst.id;
-    this.move(client, this.zoneRoom(inst, HOME_ZONE));
+    this.move(client, this.worldRoom(inst));
     if (before && before !== inst) this.sendWorldToAll(before);
     this.sendWorldToAll(inst);
   }
@@ -863,17 +867,22 @@ export class RoomManager implements AdminHooks {
     this.enterInstance(client, world);
   }
 
-  /** Rebuilds every town with the new layout and carries everyone inside over. */
+  /**
+   * Rebuilds every world with the new town and carries everyone inside over, each to where they
+   * stood (on open ground nearby). The world's roads start at the town's gates, so a town whose
+   * gates moved gets a new world around it, with fresh monsters.
+   */
   private replaceTown(layout: TownLayout): void {
     this.townLayout = layout;
     for (const inst of this.instances.values()) {
-      const old = this.rooms.get(`${inst.id}-${HOME_ZONE}`);
+      const old = this.rooms.get(this.worldRoomId(inst));
       if (!old) continue;
       this.close(old);
-      const next = this.zoneRoom(inst, HOME_ZONE);
+      const next = this.worldRoom(inst);
       for (const m of [...old.members.values()]) {
+        const at = old.playerState(m.client);
         const save = old.remove(m.client);
-        if (save) next.add(m.client, save.classId, save.name, save);
+        if (save) next.add(m.client, save.classId, save.name, save, at ? { x: at.x, y: at.y } : undefined);
       }
     }
   }
@@ -887,18 +896,12 @@ export class RoomManager implements AdminHooks {
       case 'arena':
         if (inst) this.move(client, this.arenaGateFor(inst));
         return;
-      case 'zone': {
-        const zone = request.portal.zone;
-        if (!inst || !zone || from.desc.kind !== 'zone') return;
-        const to = this.zoneRoom(inst, zone);
-        if (to.desc.kind === 'zone') this.move(client, to, zoneArrival(to.desc, from.desc.zone));
-        return;
-      }
       case 'waypoint': {
         const state = from.playerState(client);
-        const zone = request.portal.zone;
-        if (!state || !zone) return;
-        client.send({ t: 'waypoints', current: zone, unlocked: ZONE_IDS.filter((z) => state.waypoints.includes(z)) });
+        const current = request.portal.waypoint;
+        if (!state || !current) return;
+        const known = new Set((from.sim.mapDef.waypoints ?? []).map((w) => w.id));
+        client.send({ t: 'waypoints', current, unlocked: [TOWN_WAYPOINT, ...state.waypoints.filter((w) => w !== TOWN_WAYPOINT && known.has(w))] });
         return;
       }
       case 'staging':
@@ -916,9 +919,12 @@ export class RoomManager implements AdminHooks {
         return;
       }
       case 'wilds': {
-        const last = client.lastZoneRoomId === null ? undefined : this.rooms.get(client.lastZoneRoomId);
-        if (last) this.move(client, last);
-        else this.goHome(client);
+        // Out of a dungeon or its antechamber: back beside its entrance in the world it was entered from.
+        const last = client.lastWorldRoomId === null ? undefined : this.rooms.get(client.lastWorldRoomId);
+        const world = last ?? (inst ? this.worldRoom(inst) : undefined);
+        if (!world || world.desc.kind !== 'world') return this.goHome(client);
+        const seed = from.desc.kind === 'staging' || from.desc.kind === 'dungeon' ? from.desc.seed : null;
+        this.move(client, world, (seed === null ? null : entranceArrival(world.desc, seed)) ?? undefined);
       }
     }
   }
@@ -1057,8 +1063,11 @@ export class RoomManager implements AdminHooks {
     this.system(client, 'Your sandbox: free inscriptions and F3 dev tools. /sandbox or the town portal takes you back.');
   }
 
-  /** Checked on the server: standing on a waypoint, and the destination unlocked by this character. */
-  private useWaypoint(client: Client, zone: ZoneId): void {
+  /**
+   * Checked on the server: standing on a waypoint, the destination unlocked by this character and in
+   * this world. Inside the world room it is a teleport; from anywhere else it carries the character in.
+   */
+  private useWaypoint(client: Client, id: string): void {
     const room = client.room;
     const inst = this.instanceOf(client);
     const state = room?.playerState(client);
@@ -1068,12 +1077,18 @@ export class RoomManager implements AdminHooks {
       client.send({ t: 'notice', text: 'Stand on a waypoint to travel' });
       return;
     }
-    if (!state.waypoints.includes(zone)) {
+    if (id !== TOWN_WAYPOINT && !state.waypoints.includes(id)) {
       client.send({ t: 'notice', text: 'You have not found that waypoint yet' });
       return;
     }
-    const to = this.zoneRoom(inst, zone);
-    if (to !== room && to.desc.kind === 'zone') this.move(client, to, zoneArrival(to.desc, 'waypoint'));
+    const world = this.worldRoom(inst);
+    const at = world.desc.kind === 'world' ? waypointArrival(world.desc, id) : null;
+    if (!at) {
+      client.send({ t: 'notice', text: 'That waypoint is not in this world' });
+      return;
+    }
+    if (world === room) room.placeMember(client, at.x, at.y);
+    else this.move(client, world, at);
   }
 
   /** Carries the character (class, name, items, equipment) from the current room into `to`. */
@@ -1083,18 +1098,18 @@ export class RoomManager implements AdminHooks {
     const carried = from.remove(client);
     if (!carried) return false;
     this.persist(client, carried);
-    if (to.desc.kind === 'zone') client.lastZoneRoomId = to.id;
+    if (to.desc.kind === 'world') client.lastWorldRoomId = to.id;
     to.add(client, carried.classId, carried.name, carried, at);
     return true;
   }
 
   // Party frames and teleport ----------------------------------------------------------------
 
-  private placeOf(room: Room): PartyPlace {
+  private placeOf(room: Room, x: number, y: number): PartyPlace {
     if (this.arenaRuns.has(room.id) || room.desc.kind === 'arenaGate' || room.desc.kind === 'arena') return 'arena';
     if (this.sandboxes.has(room.id)) return 'sandbox';
     if (room.desc.kind === 'staging' || room.desc.kind === 'dungeon') return 'dungeon';
-    if (room.shared) return 'town';
+    if (room.desc.kind === 'town' || (room.desc.kind === 'world' && room.inSafeZone(x, y))) return 'town';
     return 'wilds';
   }
 
@@ -1168,7 +1183,7 @@ export class RoomManager implements AdminHooks {
         continue;
       }
       party.seen.set(acc, { cls: v.cls, level: v.level });
-      const status: PartyMemberStatus = { name, cls: v.cls, level: v.level, life: Math.ceil(v.life), maxLife: Math.round(v.maxLife), dead: v.dead, place: this.placeOf(room), zone: room.name };
+      const status: PartyMemberStatus = { name, cls: v.cls, level: v.level, life: Math.ceil(v.life), maxLife: Math.round(v.maxLife), dead: v.dead, place: this.placeOf(room, v.x, v.y), zone: room.placeName(v.x, v.y) };
       views.set(acc, { client, status, x: Math.round(v.x), y: Math.round(v.y) });
     }
     for (const [acc, me] of views) {
@@ -1279,7 +1294,7 @@ export class RoomManager implements AdminHooks {
     const partyWorld = party ? this.partyInstance(party) : null;
     const inst = partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance();
     client.instanceId = inst.id;
-    const room = this.zoneRoom(inst, HOME_ZONE);
+    const room = this.worldRoom(inst);
     const stash = this.store.loadStash(account.id);
     if (stash === 'unreadable') {
       // Joining would save an empty stash over it; leave the row alone for a human to look at.

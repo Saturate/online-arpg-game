@@ -1,4 +1,4 @@
-import { HOME_ZONE, loadMap, SIM, type ServerMessage } from '@rune/shared';
+import { loadMap, SIM, type ServerMessage } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
@@ -32,10 +32,10 @@ function pausedNow(rooms: RoomManager, s: FakeSocket): boolean {
 }
 
 describe('pause', () => {
-  it('never pauses the home zone, where the town is, even for a player alone in it', async () => {
+  it('never pauses the world, where the town is, even for a player alone in it', async () => {
     const { rooms, socket } = await soloPlayer();
     const map = welcome(socket).map;
-    expect(map.kind === 'zone' && map.zone === HOME_ZONE).toBe(true);
+    expect(map.kind).toBe('world');
     expect(welcome(socket).canPause).toBe(false);
     socket.emit({ t: 'pause', paused: true });
     expect(pausedNow(rooms, socket)).toBe(false);

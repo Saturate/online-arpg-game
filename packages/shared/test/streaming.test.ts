@@ -3,7 +3,8 @@ import { applyDev, buildMap, NET, SKILL_BUTTONS, SIM, Simulation, startArena, ST
 import { dealDamage } from '../src/sim/combat.js';
 import { chunkAwake, isAsleep, setStreaming, sleepingEnemies, spawnEverywhere, streamingStats } from '../src/sim/streaming.js';
 
-const STEPPE: MapDescriptor = { kind: 'zone', zone: 'steppe', seed: 77 };
+// A standalone Wilds, about the size of a zone of before the world.
+const STEPPE: MapDescriptor = { kind: 'wilds', seed: 77 };
 
 /** Everything about a monster that its AI changes, at full precision. */
 function monsterState(sim: Simulation, id: EntityId): string {

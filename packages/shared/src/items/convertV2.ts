@@ -3,7 +3,7 @@ import { isClassId } from '../data/classes.js';
 import { GEAR_SLOTS, type GearCategory, type GearSlot } from '../data/gear.js';
 import { isMinionTypeId, STANCES, type Stance } from '../data/minions.js';
 import { createStarterSigil, starterSigilById } from '../data/starterSigils.js';
-import { isZoneId } from '../data/zones.js';
+import { isWaypointId } from '../world/worldPlan.js';
 import type { TraderEntry } from '../protocol/messages.js';
 import type { RuneId } from '../runes/v2/runes.js';
 import { legacyLayout, saveStashLayout, type StashSaveV1 } from './stash.js';
@@ -556,7 +556,7 @@ export function convertCharacterSave(raw: unknown): CharacterConversion {
   }
   const inventoryRaw = drop(uidList(raw.inventory, 'inventory'), removed);
   const stash = raw.stash === undefined ? [] : drop(uidList(raw.stash, 'stash'), removed);
-  const waypoints = Array.isArray(raw.waypoints) ? raw.waypoints.filter(isZoneId) : [];
+  const waypoints = Array.isArray(raw.waypoints) ? raw.waypoints.filter(isWaypointId) : [];
   const level = typeof raw.level === 'number' && Number.isFinite(raw.level) ? raw.level : 1;
   const xp = typeof raw.xp === 'number' && Number.isFinite(raw.xp) ? raw.xp : 0;
   const goldBefore = typeof raw.gold === 'number' && Number.isFinite(raw.gold) ? raw.gold : 0;

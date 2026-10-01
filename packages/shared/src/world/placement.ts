@@ -30,6 +30,7 @@ export function fitsIn(space: Space, width: number, height: number, x: number, y
 type Entry =
   | { t: 'circle'; x: number; y: number; r: number; mark: number }
   | { t: 'rect'; x: number; y: number; w: number; h: number; pad: number; mark: number }
+  | { t: 'capsule'; ax: number; ay: number; bx: number; by: number; r: number; mark: number }
   | { t: 'river'; ax: number; ay: number; bx: number; by: number; half: number; mark: number }
   | { t: 'bridge'; x: number; y: number; r: number; mark: number }
   | { t: 'obstacle'; o: Obstacle; mark: number };
@@ -66,6 +67,11 @@ export class Space {
   /** A rectangle new placements stay out of, `pad` plus their radius, like `Placement.avoidRects`. */
   keepOutRect(r: { x: number; y: number; w: number; h: number; pad: number }): void {
     this.insert({ t: 'rect', x: r.x, y: r.y, w: r.w, h: r.h, pad: r.pad, mark: 0 }, r.x - r.pad, r.y - r.pad, r.x + r.w + r.pad, r.y + r.h + r.pad);
+  }
+
+  /** A capsule new placements stay out of (by their own radius): a road. */
+  keepOutCapsule(ax: number, ay: number, bx: number, by: number, r: number): void {
+    this.insert({ t: 'capsule', ax, ay, bx, by, r, mark: 0 }, Math.min(ax, bx) - r, Math.min(ay, by) - r, Math.max(ax, bx) + r, Math.max(ay, by) + r);
   }
 
   river(path: readonly Vec2[], width: number): void {
@@ -113,6 +119,8 @@ export class Space {
       switch (e.t) {
         case 'circle':
           return rules.keepOut && Math.hypot(x - e.x, y - e.y) < e.r + r;
+        case 'capsule':
+          return rules.keepOut && distToSegment(x, y, e.ax, e.ay, e.bx, e.by) < e.r + r;
         case 'rect':
           return rules.keepOut && x >= e.x - e.pad - r && y >= e.y - e.pad - r && x <= e.x + e.w + e.pad + r && y <= e.y + e.h + e.pad + r;
         case 'river':

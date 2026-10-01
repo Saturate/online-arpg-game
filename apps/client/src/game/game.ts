@@ -24,12 +24,10 @@ import {
   type Vec2,
   type WorldMap,
   type ZoneWorld,
-  type ZoneId,
   DEFAULT_TOWN_LAYOUT,
   ENEMIES,
   parseModelOverrides,
-  HOME_ZONE,
-  ZONES,
+  placeName,
   enemyDisplayName,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
@@ -73,7 +71,7 @@ const STATION_PICK = 60;
 /** The leaderboard stone is only read, never checked by the server, so this is just a comfortable distance. */
 const BOARD_REACH = 110;
 
-type Station = { kind: 'stash' | 'forge' | 'trader' | 'board' } | { kind: 'waypoint'; zone: ZoneId; x: number; y: number; r: number };
+type Station = { kind: 'stash' | 'forge' | 'trader' | 'board' } | { kind: 'waypoint'; waypoint: string; x: number; y: number; r: number };
 
 function stationPos(def: WorldMap, s: Station): Vec2 | null {
   return s.kind === 'waypoint' ? s : (def[s.kind] ?? null);
@@ -97,7 +95,7 @@ function stationAt(def: WorldMap, p: Vec2): Station | null {
     if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= STATION_PICK) return { kind };
   }
   for (const w of def.portals) {
-    if (w.target === 'waypoint' && w.zone && Math.hypot(w.x - p.x, w.y - p.y) <= w.r + 10) return { kind: 'waypoint', zone: w.zone, x: w.x, y: w.y, r: w.r };
+    if (w.target === 'waypoint' && w.waypoint && Math.hypot(w.x - p.x, w.y - p.y) <= w.r + 10) return { kind: 'waypoint', waypoint: w.waypoint, x: w.x, y: w.y, r: w.r };
   }
   return null;
 }
@@ -107,7 +105,10 @@ type PlayerSnap = Extract<EntitySnap, { k: 'player' }>;
 /** Everything tied to one room. Replaced wholesale when the server moves us to another room. */
 interface RoomView {
   id: string;
+  desc: MapDescriptor;
   def: WorldMap;
+  /** Where the region name was last looked up, so it is looked up again only after a walk. */
+  placeAt: Vec2 | null;
   /** A generated zone's chunks; `def` is then its plan only. */
   zone: ZoneWorld | null;
   map: GameMap;
@@ -180,7 +181,7 @@ export class Game {
   /** A town station or waypoint the player clicked: walk to it, then open its window. */
   private stationTarget: Station | null = null;
   /** The latest waypoint menu the server offered; it only opens once the waypoint is clicked. */
-  private waypointOffer: { current: ZoneId; unlocked: ZoneId[]; at: number } | null = null;
+  private waypointOffer: { current: string; unlocked: string[]; at: number } | null = null;
   /** The left button went down on loot or a station, so this press interacts instead of casting or walking. */
   private leftOnLoot = false;
   private pickPresses = 0;
@@ -376,7 +377,9 @@ export class Game {
     );
     this.room = {
       id,
+      desc,
       def,
+      placeAt: null,
       map: game,
       world,
       entities,
@@ -397,9 +400,10 @@ export class Game {
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
     this.inDungeon = desc.kind === 'dungeon' || desc.kind === 'staging';
-    useUi.setState({ roomName: def.name, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'zone' ? desc.seed : null, waypointMenu: null, godMode: false });
-    // The town editor works on the town part of the home zone, which sits at the map origin.
-    this.townLayout = desc.kind === 'town' || (desc.kind === 'zone' && desc.zone === HOME_ZONE) ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
+    const spawnName = placeName(desc, def.spawn.x, def.spawn.y) ?? def.name;
+    useUi.setState({ roomName: spawnName, spawnName, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'world' ? desc.seed : null, waypointMenu: null, godMode: false });
+    // The town editor works on the town inside the world, in the layout's own coordinates (`def.townAt` in the map).
+    this.townLayout = desc.kind === 'town' || desc.kind === 'world' ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
   }
 
   private toggleTownEditor(): void {
@@ -421,7 +425,9 @@ export class Game {
       return;
     }
     // After a save the room is rebuilt before the first snapshot arrives, so keep the editor's own camera.
-    const start = this.editorCamera ?? (this.latest ? room.predictor.position : this.townLayout.spawn);
+    const origin = room.def.townAt ?? { x: 0, y: 0 };
+    const here = this.latest ? { x: room.predictor.position.x - origin.x, y: room.predictor.position.y - origin.y } : this.townLayout.spawn;
+    const start = this.editorCamera ?? { x: Math.max(0, Math.min(this.townLayout.width, here.x)), y: Math.max(0, Math.min(this.townLayout.height, here.y)) };
     this.editor = new TownEditor(room.world, this.townLayout, { x: start.x, y: start.y }, (layout) => {
       this.reopenEditor = true;
       this.editorCamera = this.editor ? { ...this.editor.camera } : null;
@@ -796,12 +802,12 @@ export class Game {
       if (station.kind === 'waypoint') {
         // The server re-offers every few seconds while you stand on it; wait for a fresh offer.
         const offer = this.waypointOffer;
-        if (!offer || offer.current !== station.zone || now - offer.at > WAYPOINT_OFFER_MS) {
+        if (!offer || offer.current !== station.waypoint || now - offer.at > WAYPOINT_OFFER_MS) {
           room.mover.moveTo(origin, at, now);
           sampled.moveDir = room.mover.direction(origin);
           return;
         }
-        useUi.getState().openWaypointMenu({ current: offer.current, unlocked: offer.unlocked });
+        useUi.getState().openWaypointMenu({ current: offer.current, unlocked: offer.unlocked, list: room.def.waypoints ?? [] });
       } else if (station.kind === 'stash') useUi.getState().openStation('stash');
       else if (station.kind === 'board') useUi.setState({ boardOpen: true });
       else if (station.kind === 'forge') {
@@ -843,6 +849,15 @@ export class Game {
       else if (action === 'stance') this.send({ t: 'cycleStance' });
       else useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
     }
+  }
+
+  /** The HUD names the region the hero stands in; looked up again every 120 units walked. */
+  private updatePlaceName(room: RoomView, at: Vec2): void {
+    if (room.desc.kind !== 'world' || !this.latest) return;
+    if (room.placeAt && Math.hypot(room.placeAt.x - at.x, room.placeAt.y - at.y) < 120) return;
+    room.placeAt = { x: at.x, y: at.y };
+    const name = placeName(room.desc, at.x, at.y);
+    if (name && name !== useUi.getState().roomName) useUi.setState({ roomName: name });
   }
 
   /** The waypoint menu belongs to the waypoint you stand on; walking off closes it, as in D2. */
@@ -936,6 +951,7 @@ export class Game {
 
     this.updateTarget(room, now);
     this.closeWaypointMenuWhenAway(room, room.predictor.position);
+    this.updatePlaceName(room, room.predictor.position);
 
     const alpha = this.paused ? 1 : this.accumulator / SIM.tickMs;
     const prev = room.predictor.previous;
@@ -1006,7 +1022,7 @@ export class Game {
           break;
         }
         case 'waypoint':
-          if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${ZONES[ev.zone].name}`);
+          if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${this.room?.def.waypoints?.find((w) => w.id === ev.waypoint)?.name ?? 'unknown'}`);
           break;
         case 'fizzle':
           if (ev.id === this.playerId) this.lastFizzle = ev.why === 'misfire' ? 'misfire' : `dud: ${ev.reason ?? '?'}`;

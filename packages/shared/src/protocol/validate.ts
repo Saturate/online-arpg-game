@@ -14,7 +14,8 @@ import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
 import { isSessionToken, isZoomSettings } from './accounts.js';
 import { CHAT_LINKS, isLinkedItem, parseChatLinkUids } from './chatLinks.js';
-import { INSTANCE_CAPACITY, isZoneId } from '../data/zones.js';
+import { INSTANCE_CAPACITY } from '../data/zones.js';
+import { isWaypointId } from '../world/worldPlan.js';
 import { isClassId } from '../data/classes.js';
 import { BUTTON_MASK, type ChatMessage, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
 const SLOT_COUNT = 4;
@@ -166,7 +167,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return links.length > 0 ? { t: 'chat', text, links } : { t: 'chat', text };
     }
     case 'useWaypoint':
-      return isZoneId(value.zone) ? { t: 'useWaypoint', zone: value.zone } : null;
+      return isWaypointId(value.waypoint) ? { t: 'useWaypoint', waypoint: value.waypoint } : null;
     case 'partyTeleport':
       return typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 24 ? { t: 'partyTeleport', name: value.name } : null;
     case 'input': {

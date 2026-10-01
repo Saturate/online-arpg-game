@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createVessel, SIM, Simulation, type EntityId, type VesselItem } from '../src/index.js';
+import { createVessel, loadMap, SIM, Simulation, type EntityId, type VesselItem } from '../src/index.js';
 import { dealDamage, isTargetable } from '../src/sim/combat.js';
 import { findNavPath } from '../src/sim/minionPath.js';
 import { pathBudgetStats } from '../src/sim/minions.js';
@@ -13,6 +13,9 @@ function binderOn(sim: Simulation) {
   if (!p || !pos || m === undefined) throw new Error('setup');
   return { id, p, pos, m };
 }
+
+/** The town's corner in the world map: the coordinates below are the town layout's own. */
+const T = loadMap({ kind: 'world', seed: 3 }).def.townAt ?? { x: 0, y: 0 };
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -79,28 +82,28 @@ describe('minions while their master is dead', () => {
 });
 
 describe('minion pathing behind the town fence', () => {
-  // The Mossy Barrens town: its east fence runs along x = 2140 with the gate between y = 760 and 940.
+  // The town (in its own coordinates, offset by T): its east fence runs along x = 2140 with the gate between y = 760 and 940.
   function townFence() {
-    const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
-    const fence = sim.mapDef.obstacles.find((o) => o.kind === 'fence' && o.shape.type === 'capsule' && o.shape.ax === 2140 && o.shape.by === 760);
+    const sim = new Simulation(4, { kind: 'world', seed: 3 });
+    const fence = sim.mapDef.obstacles.find((o) => o.kind === 'fence' && o.shape.type === 'capsule' && o.shape.ax === T.x + 2140 && o.shape.by === T.y + 760);
     if (!fence) throw new Error('the town layout has no east fence');
     const b = binderOn(sim);
-    b.pos.x = 2060;
-    b.pos.y = 400;
+    b.pos.x = T.x + 2060;
+    b.pos.y = T.y + 400;
     b.p.trail = [];
     const mpos = sim.world.position.get(b.m);
     if (!mpos) throw new Error('setup');
-    mpos.x = 2220;
-    mpos.y = 400;
+    mpos.x = T.x + 2220;
+    mpos.y = T.y + 400;
     return { sim, mpos, ...b };
   }
 
   it('finds a nav route through the gate', () => {
     const { sim } = townFence();
-    const route = findNavPath(sim.map, { x: 2220, y: 400 }, { x: 2060, y: 400 }, 2500);
+    const route = findNavPath(sim.map, { x: T.x + 2220, y: T.y + 400 }, { x: T.x + 2060, y: T.y + 400 }, 2500);
     expect(route).not.toBeNull();
-    expect(route?.some((r) => r.y > 760 && r.y < 940 && Math.abs(r.x - 2140) < 40)).toBe(true);
-    expect(route?.at(-1)).toEqual({ x: 2060, y: 400 });
+    expect(route?.some((r) => r.y > T.y + 760 && r.y < T.y + 940 && Math.abs(r.x - (T.x + 2140)) < 40)).toBe(true);
+    expect(route?.at(-1)).toEqual({ x: T.x + 2060, y: T.y + 400 });
   });
 
   it('walks round through the gate after a teleport left it outside with no trail', () => {
@@ -109,11 +112,11 @@ describe('minion pathing behind the town fence', () => {
     let steps = 0;
     for (; steps < 12 * SIM.tickRate; steps++) {
       sim.step();
-      if (mpos.y > 760 && mpos.y < 940 && Math.abs(mpos.x - 2140) < 40) throughGate = true;
-      if (mpos.x < 2140 && dist(mpos, pos) < 120) break;
+      if (mpos.y > T.y + 760 && mpos.y < T.y + 940 && Math.abs(mpos.x - (T.x + 2140)) < 40) throughGate = true;
+      if (mpos.x < T.x + 2140 && dist(mpos, pos) < 120) break;
     }
     expect(sim.world.isAlive(m)).toBe(true);
-    expect(mpos.x).toBeLessThan(2140);
+    expect(mpos.x).toBeLessThan(T.x + 2140);
     expect(dist(mpos, pos)).toBeLessThan(120);
     // It walked the gate route rather than being pulled over by the stuck rule.
     expect(throughGate).toBe(true);
@@ -126,9 +129,9 @@ describe('minion pathing behind the town fence', () => {
     // A minion that cannot move stands for one whose way is blocked in every direction.
     mc.moveSpeed = 0;
     for (let i = 0; i < 1.5 * SIM.tickRate; i++) sim.step();
-    expect(mpos.x).toBeGreaterThan(2140);
+    expect(mpos.x).toBeGreaterThan(T.x + 2140);
     for (let i = 0; i < 1 * SIM.tickRate; i++) sim.step();
-    expect(mpos.x).toBeLessThan(2140);
+    expect(mpos.x).toBeLessThan(T.x + 2140);
     expect(dist(mpos, pos)).toBeLessThan(80);
   });
 
@@ -137,10 +140,10 @@ describe('minion pathing behind the town fence', () => {
     const mc = sim.world.minion.get(m);
     if (!mc) throw new Error('setup');
     // A route planned a tick ago toward a goal far south; the master is now north-west, out of sight.
-    mc.path = [{ x: 2230, y: 1400 }];
-    mc.pathGoal = sim.map.navCell(2230, 1400);
+    mc.path = [{ x: T.x + 2230, y: T.y + 1400 }];
+    mc.pathGoal = sim.map.navCell(T.x + 2230, T.y + 1400);
     mc.pathTick = sim.tick;
-    const stale = { x: 2230, y: 1400 };
+    const stale = { x: T.x + 2230, y: T.y + 1400 };
     const before = dist(mpos, stale);
     const stride = mc.moveSpeed / SIM.tickRate;
     sim.step();
@@ -152,7 +155,7 @@ describe('minion pathing behind the town fence', () => {
 
 describe('the route search budget', () => {
   function brutesOutside(count: number, spacing: number) {
-    const sim = new Simulation(4, { kind: 'zone', zone: 'barrens', seed: 3 });
+    const sim = new Simulation(4, { kind: 'world', seed: 3 });
     const b = binderOn(sim);
     b.p.stats.spiritMax = 10_000;
     b.p.level = 30;
@@ -163,16 +166,16 @@ describe('the route search budget', () => {
       expect(sim.equipVessel(b.id, v.uid, slot)).toBeNull();
     }
     sim.step();
-    b.pos.x = 2060;
-    b.pos.y = 400;
+    b.pos.x = T.x + 2060;
+    b.pos.y = T.y + 400;
     b.p.trail = [];
     const minions = b.p.minions.filter((x): x is EntityId => x !== null && x !== undefined);
     expect(minions.length).toBe(count);
     for (const [k, id] of minions.entries()) {
       const mp = sim.world.position.get(id);
       if (!mp) throw new Error('setup');
-      mp.x = 2220 + (k % 2) * spacing;
-      mp.y = 200 + Math.floor(k / 2) * spacing;
+      mp.x = T.x + 2220 + (k % 2) * spacing;
+      mp.y = T.y + 200 + Math.floor(k / 2) * spacing;
     }
     return { sim, minions, ...b };
   }
@@ -195,7 +198,7 @@ describe('the route search budget', () => {
     for (const id of minions) {
       const mp = sim.world.position.get(id);
       if (!mp) throw new Error('gone');
-      expect(mp.x).toBeLessThan(2140);
+      expect(mp.x).toBeLessThan(T.x + 2140);
       expect(dist(mp, pos)).toBeLessThan(300);
     }
   });

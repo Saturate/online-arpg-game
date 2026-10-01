@@ -1,4 +1,3 @@
-import type { ZoneId } from '../data/zones.js';
 import type { BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import type { EnemyDef, EnemyTypeId } from '../data/enemies.js';
@@ -105,7 +104,7 @@ export interface PlayerComp {
   /** Dev tools: takes no damage. */
   god: boolean;
   /** Zones whose waypoint this character has touched; the waypoint menu offers these. */
-  waypoints: ZoneId[];
+  waypoints: string[];
   level: number;
   /** Progress into the current level, not lifetime total. */
   xp: number;

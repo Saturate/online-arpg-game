@@ -1,4 +1,4 @@
-import type { ZoneId } from '@rune/shared';
+import type { WaypointInfo } from '@rune/shared';
 
 /**
  * A town station whose window works together with the bag. In town the chest sits inside the
@@ -8,8 +8,10 @@ import type { ZoneId } from '@rune/shared';
 export type ItemStation = 'stash' | 'trader' | 'forge';
 
 export interface WaypointMenu {
-  current: ZoneId;
-  unlocked: ZoneId[];
+  current: string;
+  unlocked: string[];
+  /** Every waypoint of the world, in menu order. */
+  list: WaypointInfo[];
 }
 
 /** The slice of the UI store the station windows live in. */

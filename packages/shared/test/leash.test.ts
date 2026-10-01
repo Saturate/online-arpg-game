@@ -3,7 +3,8 @@ import { SIM, Simulation, STREAMING, WILDS, type EntityId, type MapDescriptor } 
 import { alertPack, spawnEnemy } from '../src/sim/enemies.js';
 import { isAsleep, sleepingEnemies } from '../src/sim/streaming.js';
 
-const STEPPE: MapDescriptor = { kind: 'zone', zone: 'steppe', seed: 77 };
+// A standalone Wilds, about the size of a zone of before the world.
+const STEPPE: MapDescriptor = { kind: 'wilds', seed: 77 };
 
 interface Lane {
   sim: Simulation;

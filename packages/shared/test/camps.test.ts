@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildMap, DEFAULT_TOWN_LAYOUT, GameMap, HOME_ZONE, layoutToMap, WILDS, ZONE_IDS, type MapDescriptor, type WorldMap } from '../src/index.js';
+import { buildMap, DEFAULT_TOWN_LAYOUT, GameMap, layoutToMap, WILDS, type MapDescriptor, type WorldMap } from '../src/index.js';
+import { placeTown } from '../src/world/worldMap.js';
 import { CAMPS } from '../src/world/camps.js';
 import { distToSegment, distToShape } from '../src/world/gen.js';
 
-const zone = (z: (typeof ZONE_IDS)[number], seed: number): Extract<MapDescriptor, { kind: 'zone' }> => ({ kind: 'zone', zone: z, seed });
-const SEEDS = [1, 42, 9001, 123456, 777];
+const zone = (_id: 'world', seed: number): Extract<MapDescriptor, { kind: 'world' }> => ({ kind: 'world', seed });
+const SEEDS = [1, 42, 9001];
+/** Camps are in the world now, which was the zones' maps. */
+const ZONE_IDS = ['world'] as const;
 
 function reachable(map: WorldMap): { gm: GameMap; seen: Set<number> } {
   const gm = new GameMap(map);
@@ -42,7 +45,7 @@ function isCampGround(map: WorldMap, g: WorldMap['ground'][number]): boolean {
   return g.kind === 'dirt' && g.shape.type === 'circle' && (map.camps ?? []).some((c) => g.shape.type === 'circle' && g.shape.x === c.x && g.shape.y === c.y);
 }
 
-describe('zone camps', () => {
+describe('world camps', () => {
   it('are the same for the same seed and differ between seeds', () => {
     for (const id of ZONE_IDS) {
       const a = buildMap(zone(id, 42));
@@ -61,8 +64,9 @@ describe('zone camps', () => {
       for (const seed of SEEDS) {
         const map = buildMap(zone(id, seed));
         const camps = map.camps ?? [];
-        expect(camps.length, `${id}/${seed}`).toBeGreaterThanOrEqual(2);
-        expect(camps.length, `${id}/${seed}`).toBeLessThanOrEqual(6);
+        // Up to five in the home region and four in each other, where the plan's side valleys have room.
+        expect(camps.length, `${id}/${seed}`).toBeGreaterThanOrEqual(10);
+        expect(camps.length, `${id}/${seed}`).toBeLessThanOrEqual(29);
         for (const c of camps) {
           expect(map.decor.some((d) => d.asset === 'campfire' && d.x === c.x && d.y === c.y)).toBe(true);
           expect(campDecor(map, c.x, c.y).length).toBeGreaterThanOrEqual(4);
@@ -108,12 +112,12 @@ describe('zone camps', () => {
   it('leave the town alone', () => {
     const town = layoutToMap(DEFAULT_TOWN_LAYOUT);
     for (const seed of SEEDS) {
-      const map = buildMap(zone(HOME_ZONE, seed));
+      const map = buildMap(zone('world', seed));
       const rect = map.safeZones?.[0];
       expect(rect).toBeDefined();
       if (!rect) continue;
       const inTown = (x: number, y: number): boolean => x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h;
-      expect(map.decor.filter((d) => inTown(d.x, d.y))).toEqual(town.decor);
+      expect(map.decor.filter((d) => inTown(d.x, d.y))).toEqual(placeTown(town, map.townAt ?? { x: 0, y: 0 }).decor);
       for (const c of map.camps ?? []) {
         const pad = 140 + WILDS.aggroRadius;
         const near = c.x > rect.x - pad && c.x < rect.x + rect.w + pad && c.y > rect.y - pad && c.y < rect.y + rect.h + pad;

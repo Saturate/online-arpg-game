@@ -26,8 +26,8 @@ export class Client {
   room: Room | null = null;
   /** The party instance this client plays in (kept while visiting the Arena). */
   instanceId: string | null = null;
-  /** The last zone room, so leaving a dungeon returns there. */
-  lastZoneRoomId: string | null = null;
+  /** The world room last left, so leaving a dungeon or the Arena returns there. */
+  lastWorldRoomId: string | null = null;
   /** Set once the client joins with a valid session; everything before that is ignored. */
   accountId: number | null = null;
   /** For the admin overview. */

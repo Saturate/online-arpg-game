@@ -1,4 +1,4 @@
-import { CHUNK_DECOR_ASSETS, DEFAULT_TOWN_LAYOUT, layoutToMap, scaledZone } from '@rune/shared';
+import { CHUNK_DECOR_ASSETS, DEFAULT_TOWN_LAYOUT, freshWorld, layoutToMap, WORLD } from '@rune/shared';
 import { BoxGeometry, Group, InstancedMesh, Material, Mesh, MeshBasicMaterial, Texture, type Object3D } from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { streamRadii } from '../src/render/chunks.js';
@@ -130,8 +130,9 @@ describe('a built world', () => {
     b.dispose();
   });
 
-  it('generates a zone\'s chunks only as the camera nears them', () => {
-    const { def, zone } = scaledZone('thornwood', 11, 3);
+  it('generates a world\'s chunks only as the camera nears them', () => {
+    // Twice the live world's width and height, so the window a view reads is a small part of it.
+    const { def, zone } = freshWorld(11, undefined, { width: WORLD.width * 2, height: WORLD.height * 2 });
     const w = buildWorld(def, zone);
     expect(zone.generatedChunks).toBe(0);
     w.update(0, def.spawn.x, def.spawn.y, 600);

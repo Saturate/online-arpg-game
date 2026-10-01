@@ -1,4 +1,4 @@
-import { HOME_ZONE, scaledZone, type TownLayout, type WorldMap, type ZoneWorld } from '@rune/shared';
+import { freshWorld, loadMap, type TownLayout, type WorldMap, type WorldPlan, type ZoneWorld } from '@rune/shared';
 import { BufferAttribute, InstancedMesh, InterleavedBufferAttribute, Mesh, Texture, type Object3D } from 'three';
 import { Effects } from '../../render/fx.js';
 import { Minimap } from '../../render/minimap.js';
@@ -10,51 +10,50 @@ export interface WorldBenchScene {
   /** Generated afresh on every run, so the build time includes generating the zone's plan. */
   map: (town: TownLayout | undefined) => { def: WorldMap; zone: ZoneWorld | null };
   /** The walk, as points the camera moves between at WALK_SPEED. */
-  path: (def: WorldMap) => { x: number; y: number }[];
+  path: (def: WorldMap, zone: ZoneWorld | null) => { x: number; y: number }[];
 }
 
 /** Faster than a hero (220), so anything that would pop in on a real walk shows up here first. */
 const WALK_SPEED = 360;
 
+/** The town spawn, out of road `k`'s gate and along its roads to its deepest branch end. */
+function roadWalk(def: WorldMap, plan: WorldPlan | null, k: number): { x: number; y: number }[] {
+  if (!plan) return [def.spawn];
+  const ends = plan.nodes.filter((n) => n.road === k && n.children.length === 0);
+  const end = ends.reduce<(typeof ends)[number] | undefined>((a, b) => (!a || b.depth > a.depth ? b : a), undefined);
+  const chain: { x: number; y: number }[] = [];
+  for (let n = end; n && n.parent !== null; n = plan.node(n.parent)) chain.push({ x: n.x, y: n.y });
+  return [def.spawn, ...chain.reverse()];
+}
+
 const SCENES: readonly WorldBenchScene[] = [
   {
     id: 'town',
-    label: 'Home zone: across the town square and out of the east gate',
-    map: (town) => scaledZone(HOME_ZONE, 7, 1, town),
+    label: 'The world: across the town square and out of the east gate',
+    map: (town) => freshWorld(7, town),
     path: (def) => [
       { x: def.spawn.x, y: def.spawn.y },
       { x: def.spawn.x + 900, y: def.spawn.y - 300 },
       { x: def.spawn.x + 2600, y: def.spawn.y },
     ],
   },
+  ...[0, 1, 2].map((k) => ({
+    id: `road${k}`,
+    label: `The world: from the town out road ${k + 1} to its deepest branch end`,
+    map: (town: TownLayout | undefined) => freshWorld(7, town),
+    path: (def: WorldMap, zone: ZoneWorld | null) => roadWalk(def, zone?.plan ?? null, k),
+  })),
   {
     id: 'wilds',
-    label: 'Thornwood (forest zone): spawn to the far east edge',
-    map: () => scaledZone('thornwood', 7, 1),
+    label: 'A standalone Wilds (tests and tools): spawn to the far east edge',
+    map: () => {
+      const m = loadMap({ kind: 'wilds', seed: 7 });
+      return { def: m.def, zone: m.zone };
+    },
     path: (def) => [
       { x: def.spawn.x, y: def.spawn.y },
       { x: def.width * 0.5, y: def.height * 0.3 },
       { x: def.width - 300, y: def.height * 0.6 },
-    ],
-  },
-  {
-    id: 'big',
-    label: 'Thornwood at twice the width and height (4x the area), never live',
-    map: () => scaledZone('thornwood', 7, 2),
-    path: (def) => [
-      { x: def.spawn.x, y: def.spawn.y },
-      { x: def.width * 0.5, y: def.height * 0.2 },
-      { x: def.width - 300, y: def.height * 0.8 },
-    ],
-  },
-  {
-    id: 'huge',
-    label: 'Thornwood at three times the width and height (9x the area), never live',
-    map: () => scaledZone('thornwood', 7, 3),
-    path: (def) => [
-      { x: def.spawn.x, y: def.spawn.y },
-      { x: def.width * 0.5, y: def.height * 0.2 },
-      { x: def.width - 300, y: def.height * 0.8 },
     ],
   },
 ];
@@ -173,13 +172,13 @@ export class WorldBench {
   } | null = null;
 
   constructor(host: HTMLElement, fxLayer: HTMLElement, sceneId: string, town?: TownLayout, minimap?: HTMLCanvasElement) {
-    this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', map: () => scaledZone('thornwood', 7, 1), path: () => [] };
+    this.scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0] ?? { id: 'none', label: 'none', map: () => freshWorld(7), path: () => [] };
     const t0 = performance.now();
     const map = this.scene.map(town);
     this.genMs = performance.now() - t0;
     this.def = map.def;
     this.zone = map.zone;
-    this.path = this.scene.path(this.def);
+    this.path = this.scene.path(this.def, this.zone);
     this.world = new WorldScene(host, this.def, this.zone);
     this.fx = new Effects(this.world.scene, this.world, fxLayer);
     this.buildMs = performance.now() - t0;

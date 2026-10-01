@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, HOME_ZONE, isRuneFormat2, isAssignableRole, isClassId, isZoneId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -125,9 +125,10 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     if (conversion) logConversion(`character ${conversion.save.name}`, conversion.report);
     const v: unknown = conversion ? conversion.save : raw;
     if (!isPlayerSave(v, classId)) return null;
-    // Saves from before waypoints existed have none; everyone owns the town's.
+    // Saves from before waypoints existed have none. The old zones' waypoint ids are kept as they
+    // are until the save conversion maps them; the town's waypoint is everyone's without being listed.
     const waypoints: unknown = Reflect.get(v, 'waypoints');
-    const found = Array.isArray(waypoints) ? waypoints.filter(isZoneId) : [];
+    const found = Array.isArray(waypoints) ? waypoints.filter(isWaypointId) : [];
     // Saves from before levels existed start at level 1.
     const level: unknown = Reflect.get(v, 'level');
     const xp: unknown = Reflect.get(v, 'xp');
@@ -139,7 +140,7 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
       stash,
       // Saves from before gold have none.
       gold: typeof Reflect.get(v, 'gold') === 'number' && Number.isFinite(Reflect.get(v, 'gold')) ? Math.max(0, Math.floor(Number(Reflect.get(v, 'gold')))) : 0,
-      waypoints: found.includes(HOME_ZONE) ? found : [HOME_ZONE, ...found],
+      waypoints: found,
       level: typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= PROGRESSION.maxLevel ? level : 1,
       xp: typeof xp === 'number' && Number.isFinite(xp) && xp >= 0 ? xp : 0,
       runeFormat: 2,

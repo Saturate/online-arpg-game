@@ -100,7 +100,7 @@ describe('item grid', () => {
 
 describe('stash', () => {
   it('only moves items to or from the stash while standing at the chest', () => {
-    const { sim, pid, p } = setup({ kind: 'zone', zone: 'barrens', seed: 3 });
+    const { sim, pid, p } = setup({ kind: 'world', seed: 3 });
     const stashAt = sim.mapDef.stash;
     if (!stashAt) throw new Error('no stash in the home zone');
     const ring = createGear(sim.newItemUid(), sim.rand.loot, 'common', 1, { category: 'ring' });

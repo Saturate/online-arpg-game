@@ -1,7 +1,10 @@
-import { STREAMING, WILDS, ZONE_SIZE } from '../config/sim.js';
+import { WILDS } from '../config/sim.js';
 import type { Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
+import { addRuin, worldZone } from './worldMap.js';
+import type { WorldPlan } from './worldPlan.js';
+import { ZONES } from '../data/zones.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { GameMap } from './gamemap.js';
 import { arenaGateMap, colosseumMap, dungeonMap, stagingMap } from './dungeon.js';
@@ -9,7 +12,6 @@ import { ZoneWorld, type ZoneSpec } from './zoneGen.js';
 import { DEFAULT_TOWN_LAYOUT, layoutHash, layoutToMap } from './town.js';
 import type { MapDescriptor, Obstacle, SafeZone, WorldMap } from './types.js';
 import type { Vec2 } from '../sim/math.js';
-import { HOME_ZONE, nextZone, previousZone, ZONES, type ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
 /**
@@ -160,13 +162,7 @@ function wildsPlan(o: WildsOptions): { map: WorldMap; spec: ZoneSpec } {
     const x = ruinRng.range(Math.min(west, width - 500), width - 400);
     const y = ruinRng.range(400, height - 400);
     if (!fitsIn(space, width, height, x, y, 280, ruinRules)) continue;
-    map.ground.push({ kind: 'plaza', shape: { type: 'circle', x, y, r: 200 } });
-    const before = map.obstacles.length;
-    pillarRing(map, x, y, 250, ruinRng.int(8, 12), ruinRng);
-    if (ruinRng.next() < 0.7) map.obstacles.push(wall(x - 300, y - 150, x - 300, y + 120));
-    for (const o of map.obstacles.slice(before)) space.obstacle(o);
-    scatterDecor(map, ruinRng, x, y, 200, ['grave_grave_A', 'grave_grave_B', 'grave_gravestone', 'grave_gravemarker_A', 'grave_lantern_standing', 'grave_skull', 'grave_ribcage', 'grave_post_skull'], 16, (px, py) => space.conflicts(px, py, 0, SCATTER_RULES));
-    keepOutCircles.push({ x, y, r: 280 });
+    addRuin(map, space, ruinRng, x, y, keepOutCircles);
   }
   if (o.camp) {
     map.portals.push({ x: spawn.x - 120, y: spawn.y, r: 44, target: 'town', label: 'Town' });
@@ -198,92 +194,45 @@ function wildsZone(seed: number): ZoneWorld {
 }
 
 /**
- * An overworld zone. The home zone has the town at its top-left corner, fenced, with the east and
- * south gates opening straight onto the wilderness, so leaving town is a walk. Every zone has a
- * waypoint near where you arrive, and transitions to its neighbours at the west and east edges.
+ * A world built afresh, never from the cache, for benches and tests that time it or need it
+ * ungenerated; `size` makes a bigger one than the live world, which nothing in the game builds.
  */
-function overworldZone(zoneId: ZoneId, seed: number, layout: TownLayout | undefined, size: { width: number; height: number } = ZONE_SIZE): ZoneWorld {
-  const zone = ZONES[zoneId];
-  const town = zoneId === HOME_ZONE ? layoutToMap(layout ?? DEFAULT_TOWN_LAYOUT) : null;
-  const width = (town?.width ?? 0) + size.width;
-  const height = Math.max(size.height, town?.height ?? 0);
-  const spawn = town ? town.spawn : { x: 260, y: height / 2 };
-  const keepClear: SafeZone[] = town ? [{ x: 0, y: 0, w: town.width, h: town.height }] : [];
-  const { map, spec } = wildsPlan({ name: zone.name, tint: zone.groundTint, width, height, spawn, levels: zone.levels, keepClear, camp: false, seed, biome: zone.biome });
-  map.safeZones = keepClear;
-
-  if (town) {
-    map.obstacles.push(...town.obstacles);
-    map.ground.push(...town.ground);
-    map.decor.push(...town.decor);
-    map.lamps = [...(map.lamps ?? []), ...(town.lamps ?? [])];
-    map.oaks = [...(map.oaks ?? []), ...(town.oaks ?? [])];
-    if (town.stash) map.stash = town.stash;
-    if (town.trader) map.trader = town.trader;
-    if (town.forge) map.forge = town.forge;
-    // The town's own Wilds portal is replaced by the open gates; the rest (the Arena) stays.
-    map.portals.push(...town.portals.filter((p) => p.target !== 'wilds' && p.target !== 'town'));
-  }
-  // Only open spots are looked up here, so nav cells are never needed: no chunk source, no obstacles in chunks.
-  const gm = new GameMap(map, { cols: Math.ceil(width / STREAMING.chunkSize), rows: Math.ceil(height / STREAMING.chunkSize), size: STREAMING.chunkSize, spill: 0, obstacles: () => [] });
-  const wp = gm.findOpen(spawn.x + (town ? 170 : 150), spawn.y - 90, 60);
-  map.portals.push({ x: wp.x, y: wp.y, r: 46, target: 'waypoint', label: `Waypoint: ${zone.name}`, zone: zoneId });
-  spec.keepOutCircles.push({ x: wp.x, y: wp.y, r: 80 });
-  const prev = previousZone(zoneId);
-  if (prev) addGate(map, spec, 'west', spawn.y, prev);
-  const next = nextZone(zoneId);
-  if (next) addGate(map, spec, 'east', gm.findOpen(width - 130, height / 2, 60).y, next);
-  // Camps, the boss and the entrances are planned by the zone, after the waypoint and gates, so they keep clear of them.
-  return new ZoneWorld(map, { ...spec, camps: true });
+export function freshWorld(seed: number, layout?: TownLayout, size?: { width: number; height: number }): { def: WorldMap; game: GameMap; zone: ZoneWorld; plan: WorldPlan } {
+  const { zone, plan } = worldZone(seed, layout, size);
+  return { def: zone.def, game: new GameMap(zone.def, zone), zone, plan };
 }
 
-/**
- * A zone `scale` times the usual width and height, for the world streaming benches, so a much bigger
- * zone can be measured without changing the live ones; generated afresh, never from the cache.
- * Nothing in the game builds it.
- */
-export function scaledZone(zoneId: ZoneId, seed: number, scale: number, layout?: TownLayout): { def: WorldMap; game: GameMap; zone: ZoneWorld } {
-  const zone = overworldZone(zoneId, seed, layout, { width: ZONE_SIZE.width * scale, height: ZONE_SIZE.height * scale });
-  return { def: zone.def, game: new GameMap(zone.def, zone), zone };
-}
-
-/** How far inside the map edge a gate's trigger sits, and how deep the cleared road into it runs. */
-const GATE = { inset: 40, triggerRadius: 60, road: 280, halfWidth: 75 } as const;
-
-/**
- * A zone exit, D2 style: a stone arch on the map edge with lanterns and a dirt road leading out.
- * Walking through the arch changes zone. The road is kept clear of obstacles so the gate can always
- * be walked into from the zone side: the plan's are removed, and chunks keep out of it.
- */
-function addGate(map: WorldMap, spec: ZoneSpec, side: 'west' | 'east', y: number, zone: ZoneId): void {
-  const dir = side === 'west' ? 1 : -1;
-  const edge = side === 'west' ? 0 : map.width;
-  const x = edge + dir * GATE.inset;
-  const inner = edge + dir * GATE.road;
-  const [minX, maxX] = [Math.min(edge, inner), Math.max(edge, inner)];
-  const inCorridor = (px: number, py: number): boolean => px >= minX - 40 && px <= maxX + 40 && Math.abs(py - y) <= GATE.halfWidth + 40;
-  map.obstacles = map.obstacles.filter((o) => {
-    const c = o.shape.type === 'capsule' ? { x: (o.shape.ax + o.shape.bx) / 2, y: (o.shape.ay + o.shape.by) / 2 } : o.shape;
-    return !inCorridor(c.x, c.y);
-  });
-  map.decor = map.decor.filter((d) => !inCorridor(d.x, d.y));
-  spec.keepOutRects.push({ x: minX - 40, y: y - GATE.halfWidth - 40, w: maxX - minX + 80, h: (GATE.halfWidth + 40) * 2, pad: 0 });
-  // The road runs on past the edge into the gap in the border forest, so the gate leads somewhere.
-  map.ground.push({ kind: 'dirt', shape: { type: 'capsule', ax: edge - dir * 360, ay: y, bx: inner, by: y, r: GATE.halfWidth * 0.7 } });
-  // The arch spans the road, so it faces along it.
-  map.decor.push({ asset: 'grave_arch', x: x + dir * 12, y, angle: Math.PI / 2, scale: 1.6 });
-  map.lamps = [...(map.lamps ?? []), { x: x + dir * 40, y: y - GATE.halfWidth }, { x: x + dir * 40, y: y + GATE.halfWidth }];
-  map.portals.push({ x, y, r: GATE.triggerRadius, target: 'zone', label: ZONES[zone].name, zone });
-}
-
-/** Where a player lands when entering a zone by waypoint or from a neighbouring zone. */
-export function zoneArrival(desc: Extract<MapDescriptor, { kind: 'zone' }>, from: ZoneId | 'waypoint'): Vec2 {
+/** Where a waypoint traveller lands: just off the waypoint, toward the town, on open ground. */
+export function waypointArrival(desc: Extract<MapDescriptor, { kind: 'world' }>, id: string): Vec2 | null {
   const { def, game } = loadMap(desc);
-  const portal = from === 'waypoint' ? def.portals.find((p) => p.target === 'waypoint') : def.portals.find((p) => p.target === 'zone' && p.zone === from);
-  if (!portal) return def.spawn;
-  // Step off the portal toward the middle of the map, so arriving does not trigger it again.
-  const dir = portal.x < def.width / 2 ? 1 : -1;
-  return game.findOpen(portal.x + dir * (portal.r + 70), portal.y, 20);
+  const portal = def.portals.find((p) => p.target === 'waypoint' && p.waypoint === id);
+  if (!portal) return null;
+  // Stepping off toward the middle of the map, so arriving does not stand on it.
+  const dx = def.width / 2 - portal.x;
+  const dy = def.height / 2 - portal.y;
+  const d = Math.hypot(dx, dy) || 1;
+  return game.findOpen(portal.x + (dx / d) * (portal.r + 70), portal.y + (dy / d) * (portal.r + 70), 20);
+}
+
+/** Where someone coming out of a dungeon lands: beside the entrance to it in the world, or null when there is none. */
+export function entranceArrival(desc: Extract<MapDescriptor, { kind: 'world' }>, dungeonSeed: number): Vec2 | null {
+  const { def, game } = loadMap(desc);
+  const portal = def.portals.find((p) => p.target === 'staging' && p.dungeon?.seed === dungeonSeed);
+  if (!portal) return null;
+  const dx = def.width / 2 - portal.x;
+  const dy = def.height / 2 - portal.y;
+  const d = Math.hypot(dx, dy) || 1;
+  return game.findOpen(portal.x + (dx / d) * (portal.r + 80), portal.y + (dy / d) * (portal.r + 80), 20);
+}
+
+/** The region name for a spot of a world map (the town's name inside the town), or null for any other map. */
+export function placeName(desc: MapDescriptor, x: number, y: number): string | null {
+  if (desc.kind !== 'world') return null;
+  const { def, zone } = loadMap(desc);
+  const town = def.safeZones?.[0];
+  if (town && x >= town.x && y >= town.y && x <= town.x + town.w && y <= town.y + town.h) return desc.layout?.name || 'Emberwatch';
+  const plan = zone?.plan;
+  return plan ? ZONES[plan.regionAt(x, y)].name : def.name;
 }
 
 function flatMap(): WorldMap {
@@ -293,7 +242,7 @@ function flatMap(): WorldMap {
 /** The generated zone behind a descriptor, or null for a map built whole (town, dungeons, the Arena). */
 function zoneWorld(desc: MapDescriptor): ZoneWorld | null {
   if (desc.kind === 'wilds') return wildsZone(desc.seed);
-  if (desc.kind === 'zone') return overworldZone(desc.zone, desc.seed, desc.layout);
+  if (desc.kind === 'world') return worldZone(desc.seed, desc.layout).zone;
   return null;
 }
 
@@ -318,7 +267,7 @@ export function buildMap(desc: MapDescriptor): WorldMap {
     case 'dungeon':
       return dungeonMap(desc, desc.run);
     case 'wilds':
-    case 'zone':
+    case 'world':
       return zoneWorld(desc)?.whole() ?? flatMap();
   }
 }
@@ -339,7 +288,7 @@ export function mapKey(desc: MapDescriptor): string {
   if (desc.kind === 'town') return `town:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}`;
   if (desc.kind === 'staging') return `staging:${desc.seed}:${desc.level}`;
   if (desc.kind === 'dungeon') return `dungeon:${desc.seed}:${desc.level}:${desc.run}`;
-  if (desc.kind === 'zone') return `zone:${desc.zone}:${desc.seed}${desc.zone === HOME_ZONE ? `:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}` : ''}`;
+  if (desc.kind === 'world') return `world:${desc.seed}:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}`;
   return desc.kind;
 }
 

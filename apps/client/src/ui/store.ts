@@ -78,6 +78,8 @@ interface UiState {
   classId: ClassId | null;
   name: string;
   roomName: string;
+  /** Where a death sends you back to: the town in the world. */
+  spawnName: string;
   roomTheme: MapTheme;
   /** Seed of the current Wilds instance, or null outside the wilds. */
   roomSeed: number | null;
@@ -227,6 +229,7 @@ export const useUi = create<UiState>((set, get) => ({
   classId: null,
   name: '',
   roomName: '',
+  spawnName: '',
   roomTheme: 'town',
   roomSeed: null,
   canPause: false,

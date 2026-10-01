@@ -1,6 +1,5 @@
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { Vec2 } from '../sim/math.js';
-import type { ZoneId } from '../data/zones.js';
 import type { TownLayout } from './town.js';
 
 /** `decor` is a town editor piece marked solid: it blocks like the rest, and its model is drawn from the map's decor. */
@@ -33,9 +32,9 @@ export interface Bridge {
 /**
  * `staging` is a dungeon entrance's antechamber; `dungeon` is the gate from an antechamber (a
  * dungeon's or the Arena gate) into the run itself; `arena` leads from town to the Arena gate;
- * `zone` is an area transition at a zone's edge; `waypoint` opens the waypoint menu.
+ * `waypoint` opens the waypoint menu; `wilds` leads back out into the world.
  */
-export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon' | 'zone' | 'waypoint';
+export type PortalTarget = 'town' | 'wilds' | 'arena' | 'staging' | 'dungeon' | 'waypoint';
 
 /** Identifies a dungeon: the same seed and level always generate the same staging room. */
 export interface DungeonRef {
@@ -51,8 +50,8 @@ export interface Portal {
   label: string;
   /** Set on `staging` portals: which dungeon the entrance leads to. */
   dungeon?: DungeonRef;
-  /** Set on `zone` portals (where they lead) and `waypoint` portals (which zone's waypoint this is). */
-  zone?: ZoneId;
+  /** Set on `waypoint` portals: which waypoint this is. */
+  waypoint?: string;
   /** Hidden and closed until the room's boss dies (`Simulation.cleared`): a dungeon's exit. */
   sealed?: 'boss';
 }
@@ -125,6 +124,25 @@ export interface WorldMap {
   playArea?: { x: number; y: number; r: number };
   /** Generated camps in a zone (`camps.ts`): where each fire burns and whether a pack holds it. */
   camps?: { x: number; y: number; guarded: boolean }[];
+  /** The world's waypoints, in the order the menu lists them. */
+  waypoints?: WaypointInfo[];
+  /** Chests at the world's dead ends: each opens once per world copy, for the first to reach it. */
+  chests?: { x: number; y: number; level: number }[];
+  /** Narrow passes a gate boss will hold (gate bosses come later); passable today. */
+  gates?: { id: string; x: number; y: number; angle: number; region: string }[];
+  /** Where the town layout's origin sits in this map; the town editor works in town coordinates. */
+  townAt?: Vec2;
+}
+
+export interface WaypointInfo {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  /** Monster level around it, for the menu. */
+  level: number;
+  /** The gate it lies behind, if any (gate bosses will make it need that gate's progress). */
+  behind: string | null;
 }
 
 export interface Decor {
@@ -149,8 +167,8 @@ export type MapDescriptor =
   | { kind: 'town'; layout?: TownLayout }
   | { kind: 'flat' }
   | { kind: 'wilds'; seed: number }
-  /** An overworld zone of an instance. The home zone carries the town layout, since it contains the town. */
-  | { kind: 'zone'; zone: ZoneId; seed: number; layout?: TownLayout }
+  /** A world copy's one seamless map: the town in the middle and every region around it. */
+  | { kind: 'world'; seed: number; layout?: TownLayout }
   | ({ kind: 'staging' } & DungeonRef)
   /** `run` counts attempts from the same staging room, so every run gets a fresh layout. */
   | ({ kind: 'dungeon'; run: number } & DungeonRef);
