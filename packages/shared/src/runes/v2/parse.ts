@@ -1,10 +1,9 @@
+import { SPELL } from '../../config/sim.js';
 import { measureBudget } from './budget.js';
 import {
   AFFIX_KEYS,
   affixesFor,
   CONCENTRATED,
-  DEFAULT_PULSE_SECONDS,
-  DEFAULT_TIMER_SECONDS,
   DEFAULTS,
   isPersistentShape,
   isShapeId,
@@ -373,7 +372,7 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       case 'timer':
       case 'pulse': {
         const kind = TRIGGER_RELEASE[rune.id];
-        const fallback = rune.id === 'timer' ? DEFAULT_TIMER_SECONDS : rune.id === 'pulse' ? DEFAULT_PULSE_SECONDS : 0;
+        const fallback = rune.id === 'timer' ? SPELL.timerSeconds : rune.id === 'pulse' ? SPELL.pulseSeconds : 0;
         setRelease(target, { kind, seconds: rune.affixes.seconds ?? fallback, runeIndex: i, source: 'rune' });
         break;
       }

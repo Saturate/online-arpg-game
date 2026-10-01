@@ -45,6 +45,20 @@ export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
   return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
 }
 
+/**
+ * Compiles every equipped sigil again, after live tuning changed what runes cost or do. A sigil
+ * keeps its slot and Bond target even if its spirit now passes the pool, as on loading a save:
+ * refusing would unequip someone's skill under them.
+ */
+export function recompileSigils(sim: Simulation): void {
+  for (const [, p] of sim.world.player) {
+    p.sigils.forEach((eq, slot) => {
+      const item = eq ? p.items.get(eq.uid) : undefined;
+      if (item?.kind === 'sigil') p.sigils[slot] = compileSigil(p, item);
+    });
+  }
+}
+
 function spiritMax(p: PlayerComp): number {
   return p.stats.spiritMax;
 }

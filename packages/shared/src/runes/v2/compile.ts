@@ -17,6 +17,7 @@ import {
   type RuneId,
   type RuneInstance,
   type RuneKind,
+  type TriggerId,
 } from './runes.js';
 
 /**
@@ -110,8 +111,13 @@ export const RUNE_FORCE: Record<RuneId, number> = {
   large: 3,
   concentrated: 5,
 };
-const SPLIT_FORCE_PER_COPY = 2;
-const RELEASE_FORCE: Record<ReleaseKind, number> = { onhit: 2, onexpire: 2, after: 2, every: 3, onland: 2, onrelease: 2 };
+
+/**
+ * The trigger rune each release affix stands for, so the affix costs what that rune costs and
+ * follows a live change of its price. Release on release has no rune of its own yet; it is priced
+ * like On Hit.
+ */
+const RELEASE_RUNE: Record<ReleaseKind, TriggerId> = { onhit: 'onhit', onexpire: 'onexpire', after: 'timer', every: 'pulse', onland: 'onland', onrelease: 'onhit' };
 
 /** Spirit a persistent skill reserves per rune in it (the v1 numbers, Bond taking Link's). */
 export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
@@ -125,16 +131,20 @@ export const RUNE_SPIRIT: Partial<Record<RuneId, number>> = {
   restore: 12,
   swift: 5,
   large: 8,
-  /** The least Concentrated reserves; it reserves CONCENTRATED_SPIRIT_SHARE of the rest when that is more. */
+  /** The least Concentrated reserves; it reserves RUNE_PRICE.concentratedSpiritShare of the rest when that is more. */
   concentrated: 10,
 };
 
-/**
- * Concentrated multiplies every element on an aura, so a flat price let a three-element aura reach
- * 1.31x the damage per spirit. As a share of the rest of the aura it costs the same per damage for
- * any mix: a 60% roll gives 1.6 / 1.35, at most 1.19x the damage per spirit.
- */
-const CONCENTRATED_SPIRIT_SHARE = 0.35;
+export const RUNE_PRICE = {
+  /** Split's Force per copy it makes, so a Split of 3 costs the old 6. */
+  splitForcePerCopy: 2,
+  /**
+   * Concentrated multiplies every element on an aura, so a flat price let a three-element aura reach
+   * 1.31x the damage per spirit. As a share of the rest of the aura it costs the same per damage for
+   * any mix: a 60% roll gives 1.6 / 1.35, at most 1.19x the damage per spirit.
+   */
+  concentratedSpiritShare: 0.35,
+} as const;
 
 /**
  * Runes that only change the shape they sit on. On a payload they pay HEAT.payloadAffixShare like a
@@ -143,9 +153,6 @@ const CONCENTRATED_SPIRIT_SHARE = 0.35;
 const RIDER_KINDS: ReadonlySet<RuneKind> = new Set<RuneKind>(['infusion', 'effect', 'modifier']);
 
 const TRIGGER_FOR_RELEASE: Partial<Record<ReleaseKind, ReleaseTrigger>> = { onhit: 'onhit', onexpire: 'onexpire', after: 'after', every: 'every', onland: 'onland' };
-
-/** Each extra copy of an infusion adds this much damage: doubled runes stack for now (owner decision). */
-const STACKED_INFUSION_BONUS = 0.25;
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 
@@ -182,7 +189,7 @@ function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
   let scale = 1;
   for (const s of node.shapers) if (s.id === 'split') scale *= efficiency / s.value;
   const extra = node.effectiveInfusions.length - new Set(node.effectiveInfusions).size;
-  return scale * (1 + extra * STACKED_INFUSION_BONUS);
+  return scale * (1 + extra * SPELL.stackedInfusionBonus);
 }
 
 /**
@@ -292,8 +299,8 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
   const shares = nodeShares(tree, ctx);
   let force = 0;
   runes.forEach((rune, i) => {
-    let cost = rune.id === 'split' ? SPLIT_FORCE_PER_COPY * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
-    if (rune.affixes.release) cost += RELEASE_FORCE[rune.affixes.release.kind];
+    let cost = rune.id === 'split' ? RUNE_PRICE.splitForcePerCopy * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
+    if (rune.affixes.release) cost += RUNE_FORCE[RELEASE_RUNE[rune.affixes.release.kind]];
     const node = nodes[i];
     const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
     const affixes = affixForce(rune, affinity);
@@ -313,7 +320,7 @@ function runeSpirit(runes: readonly RuneInstance[], mult: number): number {
     if (r.id === 'concentrated') concentrated++;
     else rest += RUNE_SPIRIT[r.id] ?? 0;
   }
-  const each = Math.max(RUNE_SPIRIT.concentrated ?? 0, rest * CONCENTRATED_SPIRIT_SHARE);
+  const each = Math.max(RUNE_SPIRIT.concentrated ?? 0, rest * RUNE_PRICE.concentratedSpiritShare);
   return Math.round((rest + concentrated * each) * mult);
 }
 

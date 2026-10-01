@@ -8,7 +8,7 @@ import type { Permission } from './roles.js';
  * `townEdit` and `devTools` are left out because they gate the game socket, which a token cannot
  * open. `apiTokens` is left out so a leaked token can never mint more tokens.
  */
-export const TOKEN_SCOPES = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'manageRoles', 'grantItems', 'serverLog', 'backup'] as const satisfies readonly Permission[];
+export const TOKEN_SCOPES = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'manageRoles', 'grantItems', 'serverLog', 'backup', 'tuning'] as const satisfies readonly Permission[];
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 export const TOKEN_SCOPE_INFO: Record<TokenScope, string> = {
@@ -22,6 +22,7 @@ export const TOKEN_SCOPE_INFO: Record<TokenScope, string> = {
   grantItems: 'Grant items to offline characters',
   serverLog: 'Read the recent server log',
   backup: 'Download a copy of the database',
+  tuning: 'Change live spell and rune numbers (the Tuning tab)',
 };
 
 export const TOKEN_RULES = {

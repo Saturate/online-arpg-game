@@ -234,10 +234,6 @@ export const TRIGGER_RELEASE: Record<TriggerId, ReleaseKind> = {
   onland: 'onland',
 };
 
-/** Seconds a Timer or Pulse rune uses when it carries no `seconds` affix. */
-export const DEFAULT_TIMER_SECONDS = 0.5;
-export const DEFAULT_PULSE_SECONDS = 0.25;
-
 /** Which affix keys each rune may carry. Anything else is an error. */
 export function affixesFor(id: RuneId): readonly AffixKey[] {
   if (isShapeId(id)) return ['release', 'speed', 'size', 'duration', 'damage', 'pierce', 'bounce', 'homing'];

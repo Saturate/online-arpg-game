@@ -89,6 +89,11 @@ export const HEAT = {
   castCooldownSeconds: 0.5,
 } as const;
 
+/**
+ * Live tuning (tuning/registry.ts) overwrites the numbers in SPELL, AURA, LINK, AILMENTS and HEAT's
+ * Force pricing in place, so read them where they are used and never copy one into a constant at
+ * module load: a copy would keep the code default after an admin changes it.
+ */
 export const SPELL = {
   splitEfficiency: 1.2,
   /** Angle between split copies of a directional form. */
@@ -97,6 +102,10 @@ export const SPELL = {
   splitRingOffset: 70,
   /** Seconds a Timer rune waits when it carries no seconds of its own. */
   timerSeconds: 0.5,
+  /** Seconds between releases of a Pulse rune that carries no seconds of its own. */
+  pulseSeconds: 0.25,
+  /** Each extra copy of an infusion on one shape adds this much damage: doubled runes stack for now (owner decision). */
+  stackedInfusionBonus: 0.25,
   /** Split payloads released every X s spray outward, rotating this much between releases. */
   pulseRotation: 0.7,
   bolt: { damage: 16, speed: 520, range: 560, radius: 8 },

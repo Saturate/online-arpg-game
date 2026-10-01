@@ -1,0 +1,311 @@
+import { AILMENTS, AURA, HEAT, LINK, SPELL } from '../config/sim.js';
+import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
+import { SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
+import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
+import type { TunableValues } from './values.js';
+
+/**
+ * Live tuning (docs/features/live-tuning.md): every balance number an admin may change without a
+ * deploy, with its code default and allowed range. The defaults stay in the config objects; an
+ * override overwrites the number in place, so the sim, the compiler and the tooltips read it where
+ * they always did. The server and every client apply the same overrides with `applyTunables`.
+ */
+
+export const TUNING_CATEGORIES = ['shapes', 'spell', 'aura', 'bond', 'ailments', 'force', 'spirit', 'runes'] as const;
+export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
+
+export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
+  shapes: 'Shapes',
+  spell: 'Spell engine',
+  aura: 'Aura',
+  bond: 'Bond',
+  ailments: 'Ailments',
+  force: 'Force prices',
+  spirit: 'Spirit prices',
+  runes: 'Rune effects',
+};
+
+export interface TunableSpec {
+  /** Stable id, for example `spell.bolt.damage`; what the API and storage use. */
+  path: string;
+  category: TuningCategory;
+  label: string;
+  /** The code default, read from the config when this module loads. */
+  default: number;
+  min: number;
+  max: number;
+  /** Whole numbers only (tick counts, caps, copy counts). */
+  int: boolean;
+  note?: string;
+}
+
+export { isTunableValues, type TunableValues } from './values.js';
+
+interface Slot {
+  spec: TunableSpec;
+  target: object;
+  key: string;
+}
+
+interface Range {
+  min?: number;
+  max?: number;
+  int?: boolean;
+  label?: string;
+  note?: string;
+}
+
+/** Rounds away float noise such as 10 x 0.35 = 3.5000000000000004. */
+const tidy = (n: number): number => Number(n.toPrecision(6));
+
+/**
+ * Ranges are wide on purpose, from 0 to ten times the default: they stop typos and numbers that
+ * break the engine (a zero tick interval, a slow above 100%), not unusual balance. The owner chose
+ * no balance guard.
+ */
+function defaultRange(d: number): { min: number; max: number } {
+  if (d < 0) return { min: tidy(10 * d), max: 0 };
+  return { min: 0, max: tidy(Math.max(10 * d, 1)) };
+}
+
+const PI = tidy(Math.PI);
+const TWO_PI = tidy(2 * Math.PI);
+/** One sim tick: anything shorter is the same as zero to the engine, and zero divides by zero. */
+const TICK = 0.05;
+
+/** Paths whose default range would break something, and labels the key names do not make clear. */
+const SPECIAL: Record<string, Range> = {
+  'spell.splitSpreadRadians': { max: PI, label: 'Split fan angle (radians)' },
+  'spell.splitRingOffset': { label: 'Split ring offset' },
+  'spell.timerSeconds': { min: 0.1, max: 5, label: 'Timer rune default seconds' },
+  'spell.pulseSeconds': { min: 0.1, max: 2.5, label: 'Pulse rune default interval' },
+  'spell.pulseRotation': { max: TWO_PI, label: 'Interval spray rotation (radians)' },
+  'spell.splitEfficiency': { label: 'Split damage conserved', note: 'Each copy of n gets this / n of the damage.' },
+  'spell.stackedInfusionBonus': { label: 'Doubled infusion bonus damage' },
+  'spell.bolt.speed': { min: 52 },
+  'spell.orb.speed': { min: 28 },
+  'spell.nova.durationSeconds': { min: TICK },
+  'spell.zone.durationSeconds': { min: TICK },
+  'spell.zone.tickSeconds': { min: TICK, label: 'Zone: seconds between damage ticks' },
+  'spell.dash.ticks': { min: 1, max: 40, int: true, label: 'Dash: ticks it lasts' },
+  'spell.liveCap.max': { min: 1, int: true, label: 'Live spell cap per caster' },
+  'spell.liveCap.roomMax': { min: 1, int: true, label: 'Live spell cap per room' },
+  'spell.liveCap.projectile': { min: 0.05, label: 'Live cap weight: projectile' },
+  'spell.liveCap.nova': { min: 0.05, label: 'Live cap weight: nova' },
+  'spell.liveCap.zone': { min: 0.05, label: 'Live cap weight: zone' },
+  'spell.affixSteps.speed': { min: 1.05, label: 'Affix price step: speed' },
+  'spell.affixSteps.dashSpeed': { min: 1.05, label: 'Affix price step: dash speed' },
+  'spell.affixSteps.size': { min: 1.05, label: 'Affix price step: size' },
+  'spell.affixSteps.duration': { min: 1.05, label: 'Affix price step: duration' },
+  'spell.affixSteps.damage': { min: 1.05, label: 'Affix price step: damage' },
+  'spell.affixSteps.pierce': { min: 0.1, label: 'Affix price step: pierce' },
+  'spell.forceKnockback': { label: 'Impact knockback' },
+  'spell.shieldSeconds': { min: TICK, label: 'Ward shield seconds' },
+  'spell.comboDamageBonus': { label: 'Frostfire bonus damage' },
+  'spell.burningWardDamage': { label: 'Burning Ward damage per touch' },
+  'aura.wardReduction': { max: 1 },
+  'aura.forcePushPerTick': { label: 'Aura: Impact push per tick' },
+  'bond.acquireConeRadians': { max: PI, label: 'Bond: acquire cone (radians)' },
+  'bond.wardReduction': { max: 1 },
+  'ailment.chill.slow': { max: 1 },
+  'ailment.poison.maxStacks': { min: 1, int: true },
+  'force.affixRefundShare': { max: 1 },
+  'force.minForcePerCast': { max: 40 },
+};
+
+const slots: Slot[] = [];
+const byPath = new Map<string, Slot>();
+
+function humanise(key: string): string {
+  return key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function add(path: string, category: TuningCategory, label: string, target: object, key: string): void {
+  const v: unknown = Reflect.get(target, key);
+  if (typeof v !== 'number') throw new Error(`tunable ${path} is not a number`);
+  const special = SPECIAL[path] ?? {};
+  const range = defaultRange(v);
+  const spec: TunableSpec = {
+    path,
+    category,
+    label: special.label ?? label,
+    default: v,
+    min: special.min ?? range.min,
+    max: special.max ?? range.max,
+    int: special.int ?? false,
+    ...(special.note === undefined ? {} : { note: special.note }),
+  };
+  if (spec.default < spec.min || spec.default > spec.max) throw new Error(`tunable ${path} default ${v} is outside ${spec.min} to ${spec.max}`);
+  const slot = { spec, target, key };
+  slots.push(slot);
+  byPath.set(path, slot);
+}
+
+function isPlainObject(v: unknown): v is object {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Every number in a config object, nested ones included, so a field added later is tunable by default. */
+function walk(prefix: string, obj: object, each: (path: string, keys: string[], target: object, key: string) => void, keys: string[] = []): void {
+  for (const key of Object.keys(obj)) {
+    const v: unknown = Reflect.get(obj, key);
+    const path = `${prefix}.${key}`;
+    if (typeof v === 'number') each(path, [...keys, key], obj, key);
+    else if (isPlainObject(v)) walk(path, v, each, [...keys, key]);
+  }
+}
+
+const SHAPE_KEYS: ReadonlySet<string> = new Set(['bolt', 'orb', 'nova', 'zone', 'dash']);
+
+walk('spell', SPELL, (path, keys, target, key) => {
+  const head = keys[0] ?? '';
+  const shape = SHAPE_KEYS.has(head);
+  const label = shape ? `${capital(head)}: ${humanise(keys.slice(1).join(' '))}` : capital(humanise(keys.join(' ')));
+  add(path, shape ? 'shapes' : 'spell', label, target, key);
+});
+walk('aura', AURA, (path, keys, target, key) => add(path, 'aura', `Aura: ${humanise(keys.join(' '))}`, target, key));
+walk('bond', LINK, (path, keys, target, key) => add(path, 'bond', `Bond: ${humanise(keys.join(' '))}`, target, key));
+walk('ailment', AILMENTS, (path, keys, target, key) => {
+  const [name = '', ...rest] = keys;
+  add(path, 'ailments', `${capital(name)}: ${humanise(rest.join(' '))}`, target, key);
+});
+
+/** HEAT's pricing numbers; the bar, cooling and misfires are admin settings or a later phase. */
+const FORCE_PRICING = [
+  ['affinityMultiplier', 'Class rune price multiplier'],
+  ['offAffinityMultiplier', 'Off-class rune price multiplier'],
+  ['payloadForceFactor', 'Payload first spawn share'],
+  ['payloadRepeatShare', 'Payload repeat share from a flying shape'],
+  ['payloadAffixShare', 'Payload rider and affix share'],
+  ['minForcePerCast', 'Least Force per cast'],
+  ['affixStepForce', 'Force per affix step'],
+  ['affixRefundShare', 'Negative roll refund share'],
+] as const satisfies readonly (readonly [keyof typeof HEAT, string])[];
+for (const [key, label] of FORCE_PRICING) add(`force.${key}`, 'force', label, HEAT, key);
+
+/** Aura and Bond never cost Force, and Split is priced per copy, so their listed Force means nothing. */
+const UNPRICED: ReadonlySet<string> = new Set(['aura', 'bond', 'split']);
+for (const id of CASTABLE_RUNES) if (!UNPRICED.has(id)) add(`force.rune.${id}`, 'force', `${runeName(id)} Force`, RUNE_FORCE, id);
+add('force.splitPerCopy', 'force', 'Split Force per copy', RUNE_PRICE, 'splitForcePerCopy');
+
+for (const id of CASTABLE_RUNES) if (RUNE_SPIRIT[id] !== undefined) add(`spirit.rune.${id}`, 'spirit', `${runeName(id)} spirit`, RUNE_SPIRIT, id);
+add('spirit.concentratedShare', 'spirit', 'Concentrated share of the rest of the aura', RUNE_PRICE, 'concentratedSpiritShare');
+
+add('rune.swift.speed', 'runes', 'Swift: % speed', PLAIN_MODIFIER_EFFECT.swift, 'value');
+add('rune.large.size', 'runes', 'Large: % size', PLAIN_MODIFIER_EFFECT.large, 'value');
+add('rune.concentrated.sizePercent', 'runes', 'Concentrated: % size', CONCENTRATED, 'sizePercent');
+SPECIAL['rune.concentrated.defaultMore'] = { min: CONCENTRATED.minMore, max: CONCENTRATED.maxMore };
+add('rune.concentrated.defaultMore', 'runes', 'Concentrated: % more damage without a roll', CONCENTRATED, 'defaultMore');
+SPECIAL['rune.split.defaultCount'] = { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
+add('rune.split.defaultCount', 'runes', 'Split: copies without a count', DEFAULTS, 'splitCount');
+
+/** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
+export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));
+
+export function tunableSpec(path: string): TunableSpec | undefined {
+  return byPath.get(path)?.spec;
+}
+
+/** Why a value cannot be set at this path, or null when it can. */
+export function tunableProblem(spec: TunableSpec, v: unknown): string | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return `${spec.path} must be a number`;
+  if (spec.int && !Number.isInteger(v)) return `${spec.path} must be a whole number`;
+  if (v < spec.min || v > spec.max) return `${spec.path} must be ${spec.min} to ${spec.max}`;
+  return null;
+}
+
+let active: TunableValues = {};
+let version = 0;
+
+/**
+ * Sets every tunable to its code default, then applies `values`. Entries for unknown paths or out
+ * of range are skipped, so a client older or newer than the server keeps the rest. The same values
+ * always give the same numbers, whatever was applied before.
+ */
+export function applyTunables(values: Readonly<TunableValues>): void {
+  for (const s of slots) Reflect.set(s.target, s.key, s.spec.default);
+  const next: TunableValues = {};
+  for (const path of Object.keys(values).sort()) {
+    const slot = byPath.get(path);
+    const v = values[path];
+    if (!slot || v === undefined || tunableProblem(slot.spec, v) !== null || v === slot.spec.default) continue;
+    Reflect.set(slot.target, slot.key, v);
+    next[path] = v;
+  }
+  active = next;
+  version++;
+}
+
+export function resetTunables(): void {
+  applyTunables({});
+}
+
+/** The overrides in force now, as applied (a copy). */
+export function activeTunables(): TunableValues {
+  return { ...active };
+}
+
+/** Goes up on every apply, so a cache of compiled spells knows to rebuild. */
+export function tunablesVersion(): number {
+  return version;
+}
+
+/** The live number at a path, override or default. */
+export function tunableValue(path: string): number | undefined {
+  const slot = byPath.get(path);
+  if (!slot) return undefined;
+  const v: unknown = Reflect.get(slot.target, slot.key);
+  return typeof v === 'number' ? v : undefined;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * An admin's change: path to a number, or null to go back to the code default. All or nothing: one
+ * bad entry refuses the whole patch with the reason.
+ */
+export function parseTunablePatch(v: unknown): Record<string, number | null> | string {
+  if (!isRecord(v)) return 'The body must be an object of path to number or null';
+  const keys = Object.keys(v);
+  if (keys.length === 0) return 'Nothing to change';
+  if (keys.length > TUNABLES.length) return 'Too many entries';
+  const out: Record<string, number | null> = {};
+  for (const path of keys) {
+    const spec = tunableSpec(path);
+    if (!spec) return `Unknown tunable ${path.slice(0, 80)}`;
+    const value = v[path];
+    if (value === null) {
+      out[path] = null;
+      continue;
+    }
+    const problem = tunableProblem(spec, value);
+    if (problem !== null || typeof value !== 'number') return problem ?? `${path} must be a number`;
+    out[path] = value;
+  }
+  return out;
+}
+
+/**
+ * Stored or received overrides: bad entries are dropped (and reported), the rest kept, so one value a
+ * later range refuses cannot cost the others.
+ */
+export function parseTunableValues(v: unknown, onBad?: (why: string) => void): TunableValues {
+  if (!isRecord(v)) return {};
+  const out: TunableValues = {};
+  for (const [path, value] of Object.entries(v)) {
+    const spec = tunableSpec(path);
+    const problem = spec ? tunableProblem(spec, value) : `unknown tunable ${path.slice(0, 80)}`;
+    if (problem !== null || typeof value !== 'number') {
+      onBad?.(problem ?? `${path} is not a number`);
+      continue;
+    }
+    if (value !== spec?.default) out[path] = value;
+  }
+  return out;
+}

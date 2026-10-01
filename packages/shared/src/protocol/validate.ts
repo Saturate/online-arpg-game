@@ -17,6 +17,7 @@ import { CHAT_LINKS, isLinkedItem, parseChatLinkUids } from './chatLinks.js';
 import { INSTANCE_CAPACITY } from '../data/zones.js';
 import { isWaypointId } from '../world/worldPlan.js';
 import { isClassId } from '../data/classes.js';
+import { isTunableValues } from '../tuning/values.js';
 import { BUTTON_MASK, type ChatMessage, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
@@ -264,7 +265,7 @@ function isPlanHash(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -277,6 +278,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   if (value.t === 'chat') return isChatMessage(value);
   if (value.t === 'zoom') return isZoomSettings(value.zoom);
   if (value.t === 'castCooldown') return isCastCooldown(value.seconds);
+  if (value.t === 'tunables') return isTunableValues(value.values);
   return value.t !== 'inscribed' || isInscribeReply(value);
 }
 

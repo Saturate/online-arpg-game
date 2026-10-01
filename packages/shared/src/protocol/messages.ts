@@ -16,6 +16,7 @@ import type { DevCommand } from '../sim/dev.js';
 import type { TownLayout } from '../world/town.js';
 import type { MapDescriptor } from '../world/types.js';
 import type { ModelOverrides } from '../data/tuning.js';
+import type { TunableValues } from '../tuning/values.js';
 import type { StashColorId } from '../config/stash.js';
 import type { StashLayout, StashSortKey, StashTabRef } from '../items/stash.js';
 
@@ -420,6 +421,8 @@ export type ServerMessage =
       planHash?: string;
       /** The admin's global cast cooldown in seconds, so tooltips show what the server enforces. */
       castCooldown?: number;
+      /** Live tuning overrides in force (docs/features/live-tuning.md); missing means code defaults. */
+      tunables?: TunableValues;
     }
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
@@ -431,6 +434,8 @@ export type ServerMessage =
   | { t: 'zoom'; zoom: ZoomSettings }
   /** The admin's global cast cooldown in seconds; sent whenever an admin changes it (the welcome carries it too). */
   | { t: 'castCooldown'; seconds: number }
+  /** Every live tuning override in force; sent whenever an admin changes one (the welcome carries them too). */
+  | { t: 'tunables'; values: TunableValues }
   /** Admin model and height overrides; sent on entering the game and again whenever they change. */
   | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */
