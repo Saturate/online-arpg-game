@@ -37,6 +37,11 @@ interface ChunkSpawn {
   bosses: EntityId[];
   /** How many times each kind has refilled: the respawn number in its random stream. */
   respawns: Record<RefillKind, number>;
+  /**
+   * Its region boss was dead when an earlier room of this world copy closed, so it woke without its
+   * boss pack and waits out the boss timer like a chunk whose boss was killed here.
+   */
+  bossesDown: boolean;
 }
 
 /** A chunk waiting out the respawn time after everyone left its wake range. */
@@ -75,6 +80,8 @@ interface StreamState {
   respawnTicks: Record<RefillKind, number>;
   /** Chest keys by chunk, built on first use. */
   chestsByChunk: Map<number, string[]> | null;
+  /** Chunks not woken yet whose region boss an earlier room of this world copy left dead (`markBossesDown`). */
+  downBosses: Set<number>;
 }
 
 const states = new WeakMap<Simulation, StreamState>();
@@ -127,6 +134,7 @@ function state(sim: Simulation): StreamState {
       queues: { packs: queue(), bosses: queue() },
       respawnTicks: { packs: minutesToTicks(STREAMING.respawnMinutes), bosses: minutesToTicks(STREAMING.bossRespawnMinutes) },
       chestsByChunk: null,
+      downBosses: new Set(),
     };
     states.set(sim, s);
   }
@@ -290,8 +298,12 @@ function wakeChunks(sim: Simulation, s: StreamState): void {
       sim.map.ensureChunk(cx, cy);
       // One stream across the chunk's packs, in order, as before respawning; pack by pack only to tell bosses apart.
       const rng = Rng.stream(sim.seed, `packs:${cx},${cy}`);
-      const c: ChunkSpawn = { packs: [], bosses: [], respawns: { packs: 0, bosses: 0 } };
-      for (const pack of zone.packs(cx, cy)) (pack.boss ? c.bosses : c.packs).push(...spawnPackList(sim, [pack], rng));
+      const down = s.downBosses.delete(i);
+      const c: ChunkSpawn = { packs: [], bosses: [], respawns: { packs: 0, bosses: 0 }, bossesDown: down };
+      for (const pack of zone.packs(cx, cy)) {
+        if (pack.boss && down) continue;
+        (pack.boss ? c.bosses : c.packs).push(...spawnPackList(sim, [pack], rng));
+      }
       s.chunkSpawns.set(i, c);
     }
   }
@@ -358,7 +370,7 @@ function queueLeaver(s: StreamState, chunk: number): void {
   for (const kind of KINDS) {
     const q = s.queues[kind];
     // A chunk already queued keeps its older entry, which is found stale when due and queued again from here.
-    if (q.queued[chunk] === 1 || (kind === 'bosses' && c.bosses.length === 0)) continue;
+    if (q.queued[chunk] === 1 || (kind === 'bosses' && c.bosses.length === 0 && !c.bossesDown)) continue;
     heapPush(q, { chunk, since, key: since });
   }
 }
@@ -400,7 +412,8 @@ function refillChunk(sim: Simulation, s: StreamState, kind: RefillKind, chunk: n
   const w = sim.world;
   if (kind === 'packs') reopenChests(sim, chestsIn(sim, s, chunk));
   const ids = c[kind];
-  if (ids.every((id) => w.isAlive(id))) return true;
+  const carried = kind === 'bosses' && c.bossesDown;
+  if (!carried && ids.every((id) => w.isAlive(id))) return true;
   // A survivor chasing someone, or standing in someone's wake range after a chase, holds the refill up:
   // it would vanish where it might be seen.
   for (const id of ids) {
@@ -415,7 +428,55 @@ function refillChunk(sim: Simulation, s: StreamState, kind: RefillKind, chunk: n
   const cy = Math.floor(chunk / s.cols);
   const packs = zone.packs(cx, cy).filter((p) => p.boss === (kind === 'bosses'));
   c[kind] = spawnPackList(sim, packs, Rng.stream(sim.seed, `${kind}:${cx},${cy}:${n}`));
+  if (kind === 'bosses') c.bossesDown = false;
   return true;
+}
+
+/*
+ * Region bosses across room closes (docs/features/world-map.md, "World copy memory"): a world room
+ * closed after standing empty would otherwise reopen with every region boss back, long before the
+ * boss timer. The server keeps the chunks whose boss is dead, by a key that also names the boss
+ * packs' types, and a new room of the same world copy wakes those chunks without their boss pack.
+ * Waking a chunk means someone came within its wake range, which restarts the wait in this room too,
+ * so the time served before the close is not needed: the boss comes back on the usual rule once
+ * everyone has left it for the boss respawn time.
+ */
+
+function bossChunkKey(sim: Simulation, s: StreamState, chunk: number): string | null {
+  const cx = chunk % s.cols;
+  const cy = Math.floor(chunk / s.cols);
+  const bosses = sim.zone?.packs(cx, cy).filter((p) => p.boss) ?? [];
+  return bosses.length === 0 ? null : `${cx},${cy}:${bosses.map((p) => p.types.join('+')).join('|')}`;
+}
+
+/** Keys of the chunks whose region boss is dead now, or was carried in dead and has not woken yet. */
+export function bossesDown(sim: Simulation): string[] {
+  const s = state(sim);
+  const w = sim.world;
+  const chunks = new Set(s.downBosses);
+  for (const [i, c] of s.chunkSpawns) {
+    const bossAlive = c.bosses.some((id) => w.isAlive(id) && w.enemy.get(id)?.boss === true);
+    if (c.bossesDown || (c.bosses.length > 0 && !bossAlive)) chunks.add(i);
+  }
+  return [...chunks].flatMap((i) => bossChunkKey(sim, s, i) ?? []);
+}
+
+/**
+ * Carries dead region bosses into a new room of the same world copy, before anyone is near. A key
+ * whose chunk now holds other boss packs (a town save changed the world) is dropped.
+ */
+export function markBossesDown(sim: Simulation, keys: Iterable<string>): void {
+  const s = state(sim);
+  const size = STREAMING.chunkSize;
+  for (const key of keys) {
+    const m = /^(\d+),(\d+):/.exec(key);
+    if (!m) continue;
+    const cx = Number(m[1]);
+    const cy = Number(m[2]);
+    if (cx >= s.cols || cy >= s.rows) continue;
+    const i = chunkIndex(s, cx * size, cy * size);
+    if (bossChunkKey(sim, s, i) === key && s.spawned?.[i] !== 1) s.downBosses.add(i);
+  }
 }
 
 /** Marks every chunk's packs as spawned without spawning them: the dev tools' "kill all" clears the zone. */

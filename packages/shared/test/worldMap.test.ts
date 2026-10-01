@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
+import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, planChecksum, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
 import { dealDamage, inSafeZone, isTargetable } from '../src/sim/combat.js';
 import { chestKey, openedChests } from '../src/sim/chests.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
@@ -28,6 +28,13 @@ describe('world plan', () => {
     const b = freshWorld(42).plan;
     expect(JSON.stringify([a.nodes, a.edges, a.spots, a.waypoints, a.gates])).toBe(JSON.stringify([b.nodes, b.edges, b.spots, b.waypoints, b.gates]));
     expect(JSON.stringify(freshWorld(43).plan.edges)).not.toBe(JSON.stringify(a.edges));
+  });
+
+  it('hashes the plan the same for the same seed and otherwise for another', () => {
+    const a = planChecksum(freshWorld(42).plan);
+    expect(a).toMatch(/^[0-9a-f]{8}$/);
+    expect(planChecksum(freshWorld(42).plan)).toBe(a);
+    expect(planChecksum(freshWorld(43).plan)).not.toBe(a);
   });
 
   it('has three roads, each from its own town gate into its own third of the circle', () => {

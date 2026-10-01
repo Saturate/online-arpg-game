@@ -1,4 +1,5 @@
-import { GATES } from '../config/sim.js';
+import { GATES, NET } from '../config/sim.js';
+import type { EnemyTypeId } from '../data/enemies.js';
 import type { GateInfo } from '../world/types.js';
 import type { EnemyComp, EntityId } from './ecs.js';
 import { spawnEnemy } from './enemies.js';
@@ -81,11 +82,12 @@ export function gateBoss(sim: Simulation, gateId: string): EntityId | null {
   return sim.world.enemy.get(b.entity)?.gate === gateId ? b.entity : null;
 }
 
-function playerNear(sim: Simulation, x: number, y: number, range: number): boolean {
+/** `living` false counts the dead too: someone waiting to respawn still sees the screen. */
+function playerNear(sim: Simulation, x: number, y: number, range: number, living = true): boolean {
   const w = sim.world;
   const r2 = range * range;
   for (const [id, p] of w.player) {
-    if (p.respawnIn !== null) continue;
+    if (living && p.respawnIn !== null) continue;
     const pos = w.position.get(id);
     if (pos && (pos.x - x) ** 2 + (pos.y - y) ** 2 <= r2) return true;
   }
@@ -106,8 +108,10 @@ const EVERY_TICKS = 5;
 
 /**
  * Spawns each gate's boss once a living player comes within range of the gate, the first time and
- * again once its respawn time has passed since it died. A boss removed without being killed (dev
- * tools, a room rebuilt) counts as dead from the tick it was missed.
+ * again once its respawn time has passed since it died. A respawn also waits until nobody is within
+ * the network interest radius of the boss's spot, so nobody sees it appear out of thin air; the first
+ * spawn does not, since a waypoint can stand that close and the gate would never get its boss. A boss
+ * removed without being killed (dev tools, a room rebuilt) counts as dead from the tick it was missed.
  */
 export function updateGates(sim: Simulation): void {
   const gates = sim.mapDef.gates;
@@ -121,7 +125,7 @@ export function updateGates(sim: Simulation): void {
       b.entity = null;
       b.diedAt ??= sim.tick;
     }
-    if (b.diedAt !== null && sim.tick - b.diedAt < wait) continue;
+    if (b.diedAt !== null && (sim.tick - b.diedAt < wait || playerNear(sim, g.bossX, g.bossY, NET.interestRadius, false))) continue;
     if (playerNear(sim, g.x, g.y, GATES.spawnRange)) spawnGateBoss(sim, g, b);
   }
 }
@@ -145,11 +149,58 @@ export function openGate(sim: Simulation, pid: EntityId, gateId: string): boolea
 export function onGateBossKilled(sim: Simulation, e: EnemyComp, x: number, y: number, sourceId: EntityId | null): void {
   const gateId = e.gate;
   if (!gateId) return;
-  const b = slot(sim, gateId);
-  b.entity = null;
-  b.diedAt = sim.tick;
+  gateBossDied(sim, gateId);
   if (!e.rewards) return;
   const killer = killerOf(sim, e, sourceId);
   if (killer === null) return;
   for (const pid of killSharers(sim, killer, x, y)) openGate(sim, pid, gateId);
+}
+
+/** Starts the gate boss's respawn timer from now. */
+export function gateBossDied(sim: Simulation, gateId: string): void {
+  const b = slot(sim, gateId);
+  b.entity = null;
+  b.diedAt = sim.tick;
+}
+
+/**
+ * A dead gate boss's timer, for a world room that closes or is rebuilt: game ticks since its death
+ * (time the room stood empty does not count, as with every respawn) and its spawns so far.
+ */
+export interface GateTimer {
+  id: string;
+  boss: EnemyTypeId;
+  sinceDeath: number;
+  spawns: number;
+}
+
+/** The timers of gate bosses dead right now; a living or never spawned boss needs nothing kept. */
+export function gateTimers(sim: Simulation): GateTimer[] {
+  const out: GateTimer[] = [];
+  for (const g of sim.mapDef.gates ?? []) {
+    const b = state(sim).slots.get(g.id);
+    if (!b) continue;
+    if (b.entity !== null) {
+      if (sim.world.enemy.get(b.entity)?.gate === g.id) continue;
+      // Gone since the last check: dead from now, as `updateGates` would count it.
+      out.push({ id: g.id, boss: g.boss, sinceDeath: 0, spawns: b.spawns });
+    } else if (b.diedAt !== null) out.push({ id: g.id, boss: g.boss, sinceDeath: sim.tick - b.diedAt, spawns: b.spawns });
+  }
+  return out;
+}
+
+/**
+ * Carries timers into a new simulation of the same world copy, before anyone is near. Only where the
+ * gate still exists with the same boss: a town save that moved things must not hand one gate's
+ * timer to another.
+ */
+export function restoreGateTimers(sim: Simulation, timers: readonly GateTimer[]): void {
+  for (const t of timers) {
+    const g = sim.mapDef.gates?.find((x) => x.id === t.id);
+    if (!g || g.boss !== t.boss) continue;
+    const b = slot(sim, t.id);
+    b.entity = null;
+    b.diedAt = sim.tick - t.sinceDeath;
+    b.spawns = t.spawns;
+  }
 }

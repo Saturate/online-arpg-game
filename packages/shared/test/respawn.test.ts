@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SERVER_SETTINGS, NET, parseSettingsPatch, SETTINGS_LIMITS, SIM, Simulation, STREAMING, type EntityId, type MapDescriptor } from '../src/index.js';
+import { DEFAULT_SERVER_SETTINGS, NET, parseSettingsPatch, rememberWorld, restoreWorld, SETTINGS_LIMITS, SIM, Simulation, STREAMING, type EntityId, type MapDescriptor } from '../src/index.js';
 import { chestKey, openedChests } from '../src/sim/chests.js';
 import { chunkAwake, chunkSpawnAt, setRespawnTimes, updateStreaming } from '../src/sim/streaming.js';
 
@@ -207,6 +207,57 @@ describe('respawn by inactivity', () => {
     const after = spawnedAt(sim, at);
     expect(after.respawns.bosses).toBe(1);
     expect(after.bosses.some((id) => sim.world.isAlive(id) && sim.world.enemy.get(id)?.boss)).toBe(true);
+  });
+
+  it('keeps a dead region boss dead in a new room of the same world copy, until the boss timer runs out there', () => {
+    const { sim, pid } = room();
+    const at = chunkWith(sim, true);
+    moveTo(sim, pid, at.x, at.y);
+    advance(sim, 5);
+    const c = spawnedAt(sim, at);
+    // Only the boss pack dies; a living boss elsewhere is not carried.
+    kill(sim, c.bosses);
+    const memory = rememberWorld(sim);
+    const cx = Math.floor(at.x / STREAMING.chunkSize);
+    const cy = Math.floor(at.y / STREAMING.chunkSize);
+    expect(memory.bosses).toEqual([expect.stringMatching(new RegExp(`^${cx},${cy}:`))]);
+
+    const next = room();
+    restoreWorld(next.sim, memory);
+    moveTo(next.sim, next.pid, at.x, at.y);
+    advance(next.sim, 5);
+    const woke = spawnedAt(next.sim, at);
+    expect(woke.bosses).toEqual([]);
+    expect(woke.packs.length).toBe(c.packs.length);
+    expect(woke.packs.every((id) => next.sim.world.isAlive(id))).toBe(true);
+    // Still down if this room closes too, before anyone left it for the timer.
+    expect(rememberWorld(next.sim).bosses).toEqual(memory.bosses);
+    const away = farFrom(next.sim, at);
+    moveTo(next.sim, next.pid, away.x, away.y);
+    advance(next.sim, BOSS_TICKS - 20);
+    expect(spawnedAt(next.sim, at).bosses).toEqual([]);
+    advance(next.sim, 40);
+    const back = spawnedAt(next.sim, at);
+    expect(back.bosses.some((id) => next.sim.world.isAlive(id) && next.sim.world.enemy.get(id)?.boss)).toBe(true);
+    expect(rememberWorld(next.sim).bosses).toEqual([]);
+
+    // A key whose chunk now holds other boss packs (a town save changed the world) is dropped.
+    const other = room();
+    restoreWorld(other.sim, { gates: [], bosses: [`${cx},${cy}:nobody`], chests: [] });
+    moveTo(other.sim, other.pid, at.x, at.y);
+    advance(other.sim, 5);
+    expect(spawnedAt(other.sim, at).bosses.some((id) => other.sim.world.enemy.get(id)?.boss)).toBe(true);
+  });
+
+  it('carries opened chests into a new room of the world copy', () => {
+    const { sim, pid } = room({ kind: 'world', seed: 3 }, 4);
+    const chest = sim.mapDef.chests?.[0];
+    if (!chest) throw new Error('no chest');
+    moveTo(sim, pid, chest.x + 30, chest.y);
+    sim.step();
+    const next = room({ kind: 'world', seed: 3 }, 4);
+    restoreWorld(next.sim, rememberWorld(sim));
+    expect(openedChests(next.sim).has(chestKey(chest))).toBe(true);
   });
 
   it('refills the same way on every run, from a stream that counts refills', () => {

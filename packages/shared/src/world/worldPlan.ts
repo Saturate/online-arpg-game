@@ -621,3 +621,25 @@ export function isGateId(v: unknown): v is string {
 export function isWaypointId(v: unknown): v is string {
   return typeof v === 'string' && v.length <= 24 && /^[a-z]+(-[0-9a-z]+)?$/.test(v);
 }
+
+/**
+ * A short hash of the plan's nodes and gates. Server and client each build the plan from the seed
+ * with `atan2`, `cos`, `sin` and `hypot`, which browsers need not compute bit for bit alike; one
+ * flipped comparison changes a road's later branches. The server sends its hash in the welcome and a
+ * client that gets another one reports it, so a split shows in the server log. Positions are rounded
+ * to a hundredth of a unit: a last-bit difference that flips nothing is harmless and should not report.
+ */
+export function planChecksum(plan: WorldPlan): string {
+  // FNV-1a, 32 bits: no crypto needed, only the same answer in Node and every browser.
+  let h = 0x811c9dc5;
+  const add = (s: string): void => {
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+  };
+  const q = (v: number): string => String(Math.round(v * 100));
+  for (const n of plan.nodes) add(`n${n.id},${q(n.x)},${q(n.y)},${n.parent ?? '-'},${n.region},${n.road},${n.behind ?? '-'};`);
+  for (const g of plan.gates) add(`g${g.id},${g.node},${g.road},${g.region},${q(g.angle * 1000)};`);
+  return h.toString(16).padStart(8, '0');
+}

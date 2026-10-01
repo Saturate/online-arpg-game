@@ -123,7 +123,9 @@ export type ClientMessage =
   /** Town editor: replace the town layout. Only honoured when the server enables the editor. */
   | { t: 'saveTown'; layout: TownLayout }
   /** Encounter sandbox. Only honoured for roles with the devTools permission (builder and up). */
-  | { t: 'dev'; cmd: DevCommand };
+  | { t: 'dev'; cmd: DevCommand }
+  /** The client built a world plan whose `planChecksum` differs from the welcome's; logged on the server. */
+  | { t: 'planMismatch'; roomId: string; server: string; client: string };
 
 /** Status flags packed into one number per entity. */
 export const STATUS = {
@@ -414,6 +416,8 @@ export type ServerMessage =
       devTools: boolean;
       /** Server build; a client from another build reloads itself. 'dev' disables the check. */
       build: string;
+      /** In a world room, the server's `planChecksum`; a client whose own plan hashes otherwise reports it. */
+      planHash?: string;
     }
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }

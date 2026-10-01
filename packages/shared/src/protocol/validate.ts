@@ -238,6 +238,10 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return { t: 'cycleStance' };
     case 'ready':
       return typeof value.ready === 'boolean' ? { t: 'ready', ready: value.ready } : null;
+    case 'planMismatch':
+      return isPlanHash(value.server) && isPlanHash(value.client) && typeof value.roomId === 'string' && /^[a-z0-9-]{1,64}$/.test(value.roomId)
+        ? { t: 'planMismatch', roomId: value.roomId, server: value.server, client: value.client }
+        : null;
     case 'equipGear':
       return isNonNegativeInt(value.uid) ? { t: 'equipGear', uid: value.uid, slot: isGearSlot(value.slot) ? value.slot : null } : null;
     case 'unequipGear':
@@ -253,6 +257,11 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     default:
       return null;
   }
+}
+
+/** `planChecksum`'s output: 8 hex digits, so a report cannot carry anything else into the log. */
+function isPlanHash(v: unknown): v is string {
+  return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
 const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom']);

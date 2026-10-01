@@ -5,7 +5,7 @@ import type { RuneId } from '../runes/v2/runes.js';
 import { dropSigil } from '../items/drops.js';
 import { onBossKilled } from './dungeon.js';
 import type { EnemyComp, EntityId } from './ecs.js';
-import { onGateBossKilled } from './gates.js';
+import { gateBossDied, openGate } from './gates.js';
 import { spawnEnemy } from './enemies.js';
 import { forgoUnspawnedPacks } from './streaming.js';
 import { addItem } from './inventory.js';
@@ -108,7 +108,11 @@ export function applyDev(sim: Simulation, pid: EntityId, cmd: DevCommand): strin
       forgoUnspawnedPacks(sim);
       for (const b of bosses) {
         onBossKilled(sim, b.x, b.y, b.level);
-        if (b.e.gate) onGateBossKilled(sim, b.e, b.x, b.y, pid);
+        // Only the builder, not their party in range: a dev tool must not hand real players a gate.
+        if (b.e.gate) {
+          gateBossDied(sim, b.e.gate);
+          openGate(sim, pid, b.e.gate);
+        }
       }
       return 'Cleared all monsters';
     }

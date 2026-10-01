@@ -467,6 +467,12 @@ export const GATES = {
   levelBonus: 2,
   /** Where it stands: this far back along the road from the gate, on the side everyone can reach. */
   standBack: 170,
+  /**
+   * Where the server puts someone a placement would leave behind a gate sealed to them: this far back
+   * along the road from the gate, a trunk step and a bit, so they land on the town side clear of the
+   * boss standing 170 back rather than on top of it.
+   */
+  returnBack: 520,
 } as const;
 
 export const DUNGEON = {

@@ -28,6 +28,7 @@ import {
   ENEMIES,
   parseModelOverrides,
   placeName,
+  planChecksum,
   enemyDisplayName,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
@@ -426,6 +427,20 @@ export class Game {
     this.townLayout = desc.kind === 'town' || desc.kind === 'world' ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
   }
 
+  /**
+   * The server's world plan hash against this browser's own build of it. A mismatch means this
+   * browser's maths built other roads (see `planChecksum`), so prediction will disagree near them;
+   * it is logged here and reported once, so it shows in the server log.
+   */
+  private checkPlan(roomId: string, server: string | undefined): void {
+    const plan = this.room?.zone?.plan;
+    if (server === undefined || !plan) return;
+    const mine = planChecksum(plan);
+    if (mine === server) return;
+    console.warn(`World plan checksum differs from the server's: server ${server}, this browser ${mine}`);
+    if (this.session.kind === 'live') this.send({ t: 'planMismatch', roomId, server, client: mine });
+  }
+
   private toggleTownEditor(): void {
     const room = this.room;
     if (this.editor) {
@@ -533,6 +548,7 @@ export class Game {
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
         if (this.room?.id !== msg.roomId) {
           this.enterRoom(msg.roomId, msg.map);
+          this.checkPlan(msg.roomId, msg.planHash);
           if (this.reopenEditor) {
             this.reopenEditor = false;
             this.toggleTownEditor();

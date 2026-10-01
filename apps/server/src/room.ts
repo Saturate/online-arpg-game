@@ -11,6 +11,7 @@ import {
   inventoryMessage,
   mapKey,
   placeName,
+  planChecksum,
   NET,
   serializeEntities,
   SIM,
@@ -19,6 +20,7 @@ import {
   type ClassId,
   type ClientMessage,
   type EntityId,
+  type GateInfo,
   type MapDescriptor,
   type MonsterTuning,
   type PlayerSave,
@@ -61,6 +63,13 @@ export class Room {
   instanceId: string | null = null;
   /** Seconds with nobody inside, so the manager can close abandoned instances. */
   emptySeconds = 0;
+  /**
+   * For a dungeon's antechamber and its runs: the gate the dungeon's entrance lies behind, taken from
+   * the world when the antechamber opened, so the manager's gate checks never need the world room
+   * open (it closes after standing empty while people are still inside the dungeon).
+   */
+  entranceGate: GateInfo | null = null;
+  private planHash: string | undefined;
 
   constructor(
     readonly id: string,
@@ -71,6 +80,8 @@ export class Room {
   ) {
     this.sim = new Simulation(seed, desc, rules, tuning);
     this.sim.startItemUidsAt(++roomSerial * ITEM_UIDS_PER_ROOM);
+    const plan = this.sim.zone?.plan;
+    if (plan) this.planHash = planChecksum(plan);
   }
 
   get name(): string {
@@ -340,6 +351,7 @@ export class Room {
       townEditor: this.hostsTown && can(m.client.role, 'townEdit'),
       devTools: can(m.client.role, 'devTools') && this.sim.arena === null,
       build: SERVER_BUILD,
+      ...(this.planHash === undefined ? {} : { planHash: this.planHash }),
     });
     m.sentInventoryVersion = -1;
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { freshWorld, gateBoss, gateSeal, loadMap, PROGRESSION, respawnGateBoss, setRespawnTimes, SIM, Simulation, stepPlayer, type GateInfo, type MoveState, type Vec2 } from '../src/index.js';
+import { freshWorld, gateBoss, gateSeal, gateTimers, loadMap, NET, PROGRESSION, rememberWorld, respawnGateBoss, restoreWorld, setRespawnTimes, SIM, Simulation, stepPlayer, type GateInfo, type MoveState, type Vec2 } from '../src/index.js';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
 
@@ -175,7 +175,13 @@ describe('gate bosses', () => {
     dealDamage(sim, first, 1e9, a, []);
     for (let i = 0; i < 50; i++) sim.step();
     expect(gateBoss(sim, g.id)).toBeNull();
-    for (let i = 0; i < 20; i++) sim.step();
+    // Due, but the hero stands within view of the boss's spot: it waits rather than appear in plain sight.
+    for (let i = 0; i < 40; i++) sim.step();
+    expect(gateBoss(sim, g.id)).toBeNull();
+    // Out of view of the spot (the interest radius, 1100) but still near enough the gate to spawn it.
+    sim.world.position.set(a, sim.map.findOpen(beforeGate(g, 1500).x, beforeGate(g, 1500).y, 16));
+    expect(Math.hypot((sim.world.position.get(a)?.x ?? 0) - g.bossX, (sim.world.position.get(a)?.y ?? 0) - g.bossY)).toBeGreaterThan(NET.interestRadius);
+    for (let i = 0; i < 6; i++) sim.step();
     const second = gateBoss(sim, g.id);
     expect(second).not.toBeNull();
     expect(second).not.toBe(first);
@@ -215,14 +221,64 @@ describe('gate bosses', () => {
     expect(g1.id).not.toBe(g0.id);
   });
 
-  it('opens the gate for whoever clears the monsters with dev tools', () => {
+  it('opens the gate for whoever clears the monsters with dev tools, and nobody else in the party', () => {
     const g = gates()[0];
     if (!g) throw new Error('no gate');
     const sim = newSim();
     const a = hero(sim, 'a', beforeGate(g, 300));
+    const b = hero(sim, 'b', beforeGate(g, 340));
+    for (const id of [a, b]) player(sim, id).party = 'p1';
     for (let i = 0; i < 6; i++) sim.step();
     expect(gateBoss(sim, g.id)).not.toBeNull();
     applyDev(sim, a, { c: 'killAll' });
     expect(player(sim, a).gates).toEqual([g.id]);
+    expect(player(sim, b).gates).toEqual([]);
+    // Its timer runs as after a kill.
+    for (let i = 0; i < 20; i++) sim.step();
+    expect(gateTimers(sim).map((t) => t.id)).toEqual([g.id]);
+  });
+
+  it("carries a dead gate boss's timer into a new room of the world copy, so a reopen does not bring it back early", () => {
+    const g = gates()[1];
+    if (!g) throw new Error('no gate');
+    const sim = newSim();
+    setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.25 });
+    const a = hero(sim, 'a', beforeGate(g, 1500));
+    for (let i = 0; i < 6; i++) sim.step();
+    const first = gateBoss(sim, g.id);
+    if (first === null) throw new Error('no gate boss');
+    dealDamage(sim, first, 1e9, a, []);
+    for (let i = 0; i < 100; i++) sim.step();
+    const memory = rememberWorld(sim);
+    expect(memory.gates).toEqual([expect.objectContaining({ id: g.id, boss: g.boss })]);
+    const served = memory.gates[0]?.sinceDeath ?? 0;
+    expect(served).toBeGreaterThanOrEqual(100);
+
+    const next = newSim();
+    setRespawnTimes(next, { respawnMinutes: 10, bossRespawnMinutes: 0.25 });
+    restoreWorld(next, memory);
+    hero(next, 'b', beforeGate(g, 1500));
+    // 0.25 minutes is 300 ticks; the 100 served before the close count, the rest are still to wait.
+    const left = 300 - served;
+    for (let i = 0; i < left - 10; i++) next.step();
+    expect(gateBoss(next, g.id)).toBeNull();
+    for (let i = 0; i < 20; i++) next.step();
+    expect(gateBoss(next, g.id)).not.toBeNull();
+
+    // Without the memory, the same world opens with the boss there at once.
+    const fresh = newSim();
+    hero(fresh, 'c', beforeGate(g, 1500));
+    for (let i = 0; i < 6; i++) fresh.step();
+    expect(gateBoss(fresh, g.id)).not.toBeNull();
+  });
+
+  it('drops a carried timer whose gate now has another boss', () => {
+    const g = gates()[0];
+    if (!g) throw new Error('no gate');
+    const sim = newSim();
+    restoreWorld(sim, { gates: [{ id: g.id, boss: g.boss === 'lich' ? 'butcher' : 'lich', sinceDeath: 0, spawns: 1 }], bosses: [], chests: [] });
+    hero(sim, 'a', beforeGate(g, 1500));
+    for (let i = 0; i < 6; i++) sim.step();
+    expect(gateBoss(sim, g.id)).not.toBeNull();
   });
 });

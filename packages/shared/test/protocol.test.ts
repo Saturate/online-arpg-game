@@ -17,8 +17,16 @@ describe('parseClientMessage', () => {
     { t: 'join', classId: 'necromancer' },
     { t: 'ping', clientTime: 'now' },
     { t: 'admin' },
+    { t: 'planMismatch', roomId: 'i1-world', server: 'deadbeef', client: 'not hex!' },
+    { t: 'planMismatch', roomId: 'i1-world', server: 'deadbeef0', client: '01234567' },
+    { t: 'planMismatch', roomId: 'I1 world\n', server: 'deadbeef', client: '01234567' },
+    { t: 'planMismatch', roomId: 'x'.repeat(65), server: 'deadbeef', client: '01234567' },
   ])('rejects %j', (value) => {
     expect(parseClientMessage(value)).toBeNull();
+  });
+
+  it('accepts a plan mismatch report of two hashes and a room id, and nothing else from it', () => {
+    expect(parseClientMessage({ t: 'planMismatch', roomId: 'i1-world', server: 'deadbeef', client: '01234567', extra: 'x' })).toEqual({ t: 'planMismatch', roomId: 'i1-world', server: 'deadbeef', client: '01234567' });
   });
 });
 

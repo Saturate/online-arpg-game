@@ -17,8 +17,9 @@ import {
   WILDS,
   carryGroundLoot,
   entranceArrival,
-  markChestsOpened,
-  openedChests,
+  GATES,
+  rememberWorld,
+  restoreWorld,
   setRespawnTimes,
   TOWN_WAYPOINT,
   waypointArrival,
@@ -50,6 +51,7 @@ import {
   type Vec2,
   type GateInfo,
   type WorldInfo,
+  type WorldMemory,
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
 import { ArenaRun } from './arena.js';
@@ -103,6 +105,12 @@ interface Instance {
   rooms: Set<string>;
   /** The party a party world belongs to. */
   partyId: string | null;
+  /**
+   * What the world room kept when it last closed or was rebuilt (`rememberWorld`): dead bosses'
+   * timers and opened chests, so a room reopened after standing empty does not hand them out again.
+   * In memory only; a restart starts every copy fresh.
+   */
+  memory: WorldMemory | null;
 }
 
 /** Players who travel together. Kept by account, in memory, so a reconnect stays in the party. */
@@ -269,7 +277,7 @@ export class RoomManager implements AdminHooks {
     // A scored run takes nobody who was not there at the start, and a sandbox is its builder's own.
     if (this.arenaRuns.has(room.id)) return 'That player is in an Arena run';
     if (this.sandboxes.has(room.id)) return 'That player is in a private sandbox';
-    const error = this.travelTo(staff, target);
+    const error = this.travelTo(staff, target, true);
     if (error) return error;
     events.log('staff', `[admin] ${staff.accountName}: teleported to ${this.playerName(target)}`);
     return null;
@@ -277,21 +285,25 @@ export class RoomManager implements AdminHooks {
 
   /**
    * Puts the client beside the target: moved within the room, or carried into the target's world
-   * copy and room the same way waypoints and portals do it (saved on the way out).
+   * copy and room the same way waypoints and portals do it (saved on the way out). `staff` is an
+   * admin's goto, the one placement the gate seals do not hold.
    */
-  private travelTo(client: Client, target: Client): string | null {
+  private travelTo(client: Client, target: Client, staff = false): string | null {
     const room = target.room;
     const at = room?.playerState(target);
     if (!room || !at) return 'That player is between rooms, try again';
-    const beside = { x: at.x + 40, y: at.y };
+    // The step aside can cross a seal the target stands at; then onto the target's own spot, which
+    // the teleport's refusal already checked.
+    const gates = client.room?.playerState(client)?.gates ?? [];
+    const beside = this.sealedAt(room, at.x + 40, at.y, gates) === null ? { x: at.x + 40, y: at.y } : { x: at.x, y: at.y };
     if (client.room === room) {
-      room.placeMember(client, beside.x, beside.y);
+      this.move(client, room, beside, staff);
       return null;
     }
     const before = this.instanceOf(client);
     const beforeId = client.instanceId;
     client.instanceId = target.instanceId;
-    if (!this.move(client, room, beside)) {
+    if (!this.move(client, room, beside, staff)) {
       client.instanceId = beforeId;
       return 'Could not travel there, try again';
     }
@@ -350,7 +362,7 @@ export class RoomManager implements AdminHooks {
   // -------------------------------------------------------------------------------------------
 
   private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null = null): Instance {
-    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId };
+    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId, memory: null };
     this.instances.set(inst.id, inst);
     return inst;
   }
@@ -380,7 +392,11 @@ export class RoomManager implements AdminHooks {
 
   private worldRoom(inst: Instance): Room {
     const id = this.worldRoomId(inst);
-    return this.rooms.get(id) ?? this.createRoom(id, this.worldDesc(inst), inst);
+    const open = this.rooms.get(id);
+    if (open) return open;
+    const room = this.createRoom(id, this.worldDesc(inst), inst);
+    if (inst.memory) restoreWorld(room.sim, inst.memory);
+    return room;
   }
 
   private instanceOf(client: Client): Instance | null {
@@ -421,6 +437,8 @@ export class RoomManager implements AdminHooks {
   }
 
   private readonly roomErrors = new Map<string, number>();
+  /** Clients that reported a world plan mismatch already. */
+  private readonly planReported = new WeakSet<Client>();
 
   /** Logged once per room per minute at most, so a room that throws every tick cannot flood the log. */
   private reportRoomError(room: Room, err: unknown): void {
@@ -467,6 +485,9 @@ export class RoomManager implements AdminHooks {
       for (const party of this.parties.values()) this.sendPartyStatus(party);
     }
     for (const inst of [...this.instances.values()]) {
+      // A public copy on the current seed is kept, empty, for its memory: deleting it would let the
+      // next player open a fresh copy of the same world with every boss and chest back.
+      if (inst.kind === 'public' && inst.seed === this.current.worldSeed) continue;
       if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) {
         this.instances.delete(inst.id);
         const party = inst.partyId === null ? undefined : this.parties.get(inst.partyId);
@@ -491,6 +512,8 @@ export class RoomManager implements AdminHooks {
   }
 
   private close(room: Room): void {
+    const inst = room.instanceId === null ? undefined : this.instances.get(room.instanceId);
+    if (inst && room.id === this.worldRoomId(inst)) inst.memory = rememberWorld(room.sim);
     this.rooms.delete(room.id);
     this.stagings.delete(room.id);
     this.arenaRuns.delete(room.id);
@@ -498,8 +521,11 @@ export class RoomManager implements AdminHooks {
     if (room.instanceId !== null) this.instances.get(room.instanceId)?.rooms.delete(room.id);
   }
 
-  private stagingFor(inst: Instance, ref: DungeonRef): Room {
-    return this.antechamber(inst, `${inst.id}-st-${ref.seed}-${ref.level}`, { kind: 'staging', seed: ref.seed, level: ref.level }, { kind: 'dungeon', ref });
+  /** `gate`: the gate the entrance lies behind in the world, kept on the antechamber (see Room.entranceGate). */
+  private stagingFor(inst: Instance, ref: DungeonRef, gate: GateInfo | null): Room {
+    const room = this.antechamber(inst, `${inst.id}-st-${ref.seed}-${ref.level}`, { kind: 'staging', seed: ref.seed, level: ref.level }, { kind: 'dungeon', ref });
+    room.entranceGate ??= gate;
+    return room;
   }
 
   /** One Arena gate per world instance; parties in the same world share the hall and its board. */
@@ -531,9 +557,11 @@ export class RoomManager implements AdminHooks {
       return;
     }
     const run = this.createRoom(`${inst.id}-dg-${target.ref.seed}-${staging.runs}`, { kind: 'dungeon', seed: target.ref.seed, level: target.ref.level, run: staging.runs++ }, inst);
+    run.entranceGate = staging.room.entranceGate;
     staging.runRoomId = run.id;
     staging.cleared = false;
-    for (const m of [...staging.room.members.values()]) this.move(m.client, run);
+    // Everyone in the antechamber passed its gate check on the way in.
+    for (const m of [...staging.room.members.values()]) this.move(m.client, run, undefined, true);
   }
 
   /** Live score to the players; at the end, the leaderboard row, the score screen, then back to the gate. */
@@ -657,6 +685,12 @@ export class RoomManager implements AdminHooks {
       case 'useWaypoint':
         this.useWaypoint(client, msg.waypoint);
         return;
+      case 'planMismatch':
+        // Once per connection: a client stuck on a split plan rejoins rooms and would repeat itself.
+        if (this.planReported.has(client)) return;
+        this.planReported.add(client);
+        events.warn('server', `[world] plan checksum differs for ${this.playerName(client)} in ${msg.roomId}: server ${msg.server}, client ${msg.client}`);
+        return;
       case 'partyTeleport':
         this.startTeleport(client, msg.name);
         return;
@@ -715,10 +749,7 @@ export class RoomManager implements AdminHooks {
     client.instanceId = inst.id;
     const world = this.worldRoom(inst);
     // The town is inside the world room, so going home from out in the world is a move within it.
-    if (client.room === world) {
-      const spawn = world.sim.playerSpawnPoint();
-      world.placeMember(client, spawn.x, spawn.y);
-    } else this.move(client, world);
+    this.move(client, world, client.room === world ? world.sim.playerSpawnPoint() : undefined);
     if (before && before !== inst) this.sendWorldToAll(before);
     this.sendWorldToAll(inst);
   }
@@ -892,12 +923,16 @@ export class RoomManager implements AdminHooks {
       this.close(old);
       const next = this.worldRoom(inst);
       // What lies on the ground and which chests were opened stay as they were; only the town changed.
+      // Gate and region boss timers and opened chests came over through the instance's memory, which
+      // `close` took and `worldRoom` restored.
       carryGroundLoot(old.sim, next.sim);
-      markChestsOpened(next.sim, openedChests(old.sim));
       for (const m of [...old.members.values()]) {
         const at = old.playerState(m.client);
         const save = old.remove(m.client);
-        if (save) next.add(m.client, save.classId, save.name, save, at ? { x: at.x, y: at.y } : undefined);
+        if (!save) continue;
+        next.add(m.client, save.classId, save.name, save, at ? { x: at.x, y: at.y } : undefined);
+        // The new world's seals may lie elsewhere: someone left standing behind one goes back out.
+        this.keepOutOfSeal(m.client, next);
       }
     }
   }
@@ -919,9 +954,19 @@ export class RoomManager implements AdminHooks {
         client.send({ t: 'waypoints', current, unlocked: [TOWN_WAYPOINT, ...state.waypoints.filter((w) => w !== TOWN_WAYPOINT && known.has(w))] });
         return;
       }
-      case 'staging':
-        if (inst && request.portal.dungeon) this.move(client, this.stagingFor(inst, request.portal.dungeon));
+      case 'staging': {
+        const portal = request.portal;
+        if (!inst || !portal.dungeon) return;
+        const gateId = from.sim.zone?.plan?.gateAt(portal.x, portal.y) ?? null;
+        const gate = gateId === null ? null : (from.sim.mapDef.gates?.find((g) => g.id === gateId) ?? null);
+        // Only someone carried past the seal (an admin's goto, the dev teleport) stands here without the gate.
+        if (gate && !(from.playerState(client)?.gates.includes(gate.id) ?? false)) {
+          client.send({ t: 'notice', text: `The ${gate.name} is sealed to you: slay its guardian first` });
+          return;
+        }
+        this.move(client, this.stagingFor(inst, portal.dungeon, gate));
         return;
+      }
       case 'dungeon': {
         const staging = this.stagings.get(from.id);
         if (staging?.target.kind === 'arena') {
@@ -1108,19 +1153,61 @@ export class RoomManager implements AdminHooks {
       client.send({ t: 'notice', text: 'That waypoint is not in this world' });
       return;
     }
-    if (world === room) room.placeMember(client, at.x, at.y);
-    else this.move(client, world, at);
+    this.move(client, world, at);
   }
 
-  /** Carries the character (class, name, items, equipment) from the current room into `to`. */
-  private move(client: Client, to: Room, at?: Vec2): boolean {
+  /**
+   * Every placement of a player goes through here: within the room (onto open ground near `at`), or
+   * carried with the character (class, name, items, equipment) from the current room into `to`.
+   *
+   * The gate seals hold for every placement, whatever moved the player, except an `unchecked` one (an
+   * admin's goto, or from an antechamber into its own dungeon run, checked on the way in): a dungeon or antechamber whose entrance lies behind a gate sealed to the player is
+   * refused, and a spot in the world behind one becomes the town side of that gate (`keepOutOfSeal`).
+   * Walking through the gate after its boss is the only way past it.
+   */
+  private move(client: Client, to: Room, at?: Vec2, unchecked = false): boolean {
     const from = client.room;
-    if (!from || from === to) return false;
-    const carried = from.remove(client);
-    if (!carried) return false;
-    this.persist(client, carried);
-    to.add(client, carried.classId, carried.name, carried, at);
+    if (!from) return false;
+    if (!unchecked && to.entranceGate && !(from.playerState(client)?.gates.includes(to.entranceGate.id) ?? false)) return false;
+    if (from === to) {
+      if (at) to.placeMember(client, at.x, at.y);
+    } else {
+      const carried = from.remove(client);
+      if (!carried) return false;
+      this.persist(client, carried);
+      to.add(client, carried.classId, carried.name, carried, at);
+    }
+    if (!unchecked) this.keepOutOfSeal(client, to);
     return true;
+  }
+
+  /** The gate a spot of the room lies behind that these gates do not open, or null. Only the world has seals. */
+  private sealedAt(room: Room, x: number, y: number, gates: readonly string[]): string | null {
+    const gate = room.sim.zone?.plan?.gateAt(x, y) ?? null;
+    return gate === null || gates.includes(gate) ? null : gate;
+  }
+
+  /**
+   * Checked where the player actually stands after a placement, so the open-ground search that moved
+   * them a few units cannot cross a seal either. Behind a gate sealed to them, they go to the road on
+   * the town side of it, or to the town if that spot is no good.
+   */
+  private keepOutOfSeal(client: Client, room: Room): void {
+    const state = room.playerState(client);
+    if (!state) return;
+    const gate = this.sealedAt(room, state.x, state.y, state.gates);
+    if (gate === null) return;
+    const g = room.sim.mapDef.gates?.find((x) => x.id === gate);
+    const back = g ? room.sim.map.findOpen(g.x - Math.cos(g.angle) * GATES.returnBack, g.y - Math.sin(g.angle) * GATES.returnBack, 20) : null;
+    const safe = back && this.sealedAt(room, back.x, back.y, state.gates) === null ? back : room.sim.playerSpawnPoint();
+    room.placeMember(client, safe.x, safe.y);
+    const after = room.playerState(client);
+    // Belt and braces: the town spawn is never sealed, so this only fires if `findOpen` strayed.
+    if (after && this.sealedAt(room, after.x, after.y, after.gates) !== null) {
+      const spawn = room.sim.playerSpawnPoint();
+      room.placeMember(client, spawn.x, spawn.y);
+    }
+    events.log('server', `[world] ${this.playerName(client)} placed behind the ${g?.name ?? gate}, sealed to them; moved to the town side`);
   }
 
   // Party frames and teleport ----------------------------------------------------------------
@@ -1173,23 +1260,15 @@ export class RoomManager implements AdminHooks {
   }
 
   /**
-   * The gate a player stands behind in their world copy, a dungeon or its antechamber counting as
-   * where its entrance is, or null. Reads the world room only if it is open, since the party frames
-   * ask this every second and must not open one.
+   * The gate a player stands behind: in the world room by its own plan, in a dungeon or its
+   * antechamber the gate its entrance lies behind, kept on the room when it opened, so the answer
+   * never depends on the world room being open. Null anywhere else.
    */
   private gateBehind(target: Client, room: Room): GateInfo | null {
-    const inst = this.instanceOf(target);
-    const world = inst ? this.rooms.get(this.worldRoomId(inst)) : undefined;
-    const plan = world?.sim.zone?.plan;
-    if (!world || !plan) return null;
-    let at: Vec2 | null = null;
-    if (room === world) at = room.playerState(target);
-    else if (room.desc.kind === 'staging' || room.desc.kind === 'dungeon') {
-      const seed = room.desc.seed;
-      at = world.sim.mapDef.portals.find((p) => p.target === 'staging' && p.dungeon?.seed === seed) ?? null;
-    }
-    const id = at ? plan.gateAt(at.x, at.y) : null;
-    return id === null ? null : (world.sim.mapDef.gates?.find((g) => g.id === id) ?? null);
+    if (room.entranceGate) return room.entranceGate;
+    const at = room.playerState(target);
+    const id = at ? (room.sim.zone?.plan?.gateAt(at.x, at.y) ?? null) : null;
+    return id === null ? null : (room.sim.mapDef.gates?.find((g) => g.id === id) ?? null);
   }
 
   /**
@@ -1348,6 +1427,7 @@ export class RoomManager implements AdminHooks {
     // Before the welcome, so the first snapshot already draws overridden monsters with their models.
     client.send(this.tuning.modelsMessage());
     room.add(client, character.classId, character.name, character.save ?? undefined);
+    this.keepOutOfSeal(client, room);
     if (stash) {
       // Gold for Linger and Pierce runes in a v1 stash; saved together with the converted stash, so paid once.
       if (stash.refundGold > 0) {
