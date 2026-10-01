@@ -63,8 +63,8 @@ describe('world plan', () => {
         for (let i = 1; i < levels.length; i++) expect(levels[i] ?? 0, `${seed} toward node ${end.id}`).toBeGreaterThanOrEqual(levels[i - 1] ?? 0);
       }
       expect(plan.levelAt(plan.town.x + plan.town.w + 50, plan.town.y + plan.town.h / 2)).toBe(WORLD.levels[0]);
-      const deepest = Math.max(...plan.nodes.map((n) => plan.levelAt(n.x, n.y)));
-      expect(deepest).toBe(WORLD.levels[1]);
+      // Every road's far end is the hardest, however far its sector lets it run.
+      for (const k of [0, 1, 2]) expect(Math.max(...plan.nodes.filter((n) => n.road === k).map((n) => plan.levelAt(n.x, n.y))), `${seed} road ${k}`).toBe(WORLD.levels[1]);
       const home = plan.regions.get(HOME_REGION);
       for (const r of plan.roads) {
         const [inner, outer] = r.regions.map((id) => plan.regions.get(id));

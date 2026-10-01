@@ -59,6 +59,8 @@ export interface WorldEdge {
   readonly depthA: number;
   readonly length: number;
   readonly region: ZoneId;
+  /** Index into `roads`. */
+  readonly road: number;
   /** Half width of the road drawn along it. */
   readonly width: number;
 }
@@ -155,8 +157,11 @@ export class WorldPlan {
   readonly waypoints: readonly PlanWaypoint[];
   readonly gates: readonly PlanGate[];
   readonly spots: readonly PlanSpot[];
-  /** The deepest branch end's distance from town: the top of the level curve. */
-  readonly maxDepth: number;
+  /**
+   * Per road, its deepest branch end's distance from town: the top of the level curve there. Each
+   * road's far end is the hardest, however long its sector lets it run.
+   */
+  readonly roadDepth: readonly number[];
   private readonly cols: number;
   private readonly rows: number;
   /** Per lookup cell, the edges that can be nearest to a point in it; worked out on first use. */
@@ -201,7 +206,7 @@ export class WorldPlan {
     this.waypoints = waypoints;
     this.gates = gates;
     const ends = this.list.filter((n) => n.children.length === 0 && n.parent !== null);
-    this.maxDepth = Math.max(1, ...ends.map((n) => n.depth));
+    this.roadDepth = this.roads.map((_, k) => Math.max(1, ...ends.filter((n) => n.road === k).map((n) => n.depth)));
     this.cols = Math.ceil(input.width / CELL);
     this.rows = Math.ceil(input.height / CELL);
     this.cellEdges = new Array<Int32Array | undefined>(this.cols * this.rows);
@@ -219,7 +224,7 @@ export class WorldPlan {
       // The town's own streets lead to its gates; the world's roads start there.
       if (drawn) {
         const width = trunk ? WORLD.trunkWidth : WORLD.branchWidth;
-        this.edgeList.push({ a: parent.id, b: node.id, ax: parent.x, ay: parent.y, bx: x, by: y, depthA: parent.depth, length, region, width });
+        this.edgeList.push({ a: parent.id, b: node.id, ax: parent.x, ay: parent.y, bx: x, by: y, depthA: parent.depth, length, region, road, width });
       }
     }
     return node;
@@ -468,11 +473,9 @@ export class WorldPlan {
     const out = new Map<ZoneId, PlanRegion>();
     const ids = [HOME_REGION, ...this.roads.flatMap((r) => r.regions)].filter((r, i, all) => all.indexOf(r) === i);
     for (const id of ids) {
-      const nodes = this.list.filter((n) => n.region === id && n.road >= 0);
-      const lo = Math.min(...nodes.map((n) => n.depth));
-      const hi = Math.max(...nodes.map((n) => n.depth));
+      const levels = this.list.filter((n) => n.region === id && n.road >= 0).map((n) => this.levelOf(n.depth, n.road));
       const road = this.roads.findIndex((r) => r.regions.includes(id));
-      out.set(id, { id, def: ZONES[id], road: id === HOME_REGION || road < 0 ? null : road, levels: [this.levelOf(Number.isFinite(lo) ? lo : 0), this.levelOf(Number.isFinite(hi) ? hi : 0)] });
+      out.set(id, { id, def: ZONES[id], road: id === HOME_REGION || road < 0 ? null : road, levels: [Math.min(...levels), Math.max(...levels)] });
     }
     return out;
   }
@@ -536,19 +539,23 @@ export class WorldPlan {
     return n ? n.edge.depthA + n.t * n.edge.length + WORLD.offRoad * n.d : 0;
   }
 
-  /** 0 at the town gates, 1 at the farthest branch end and beyond. */
+  /** 0 at the town gates, 1 at the farthest branch end of the nearest road's tree and beyond. */
   progressAt(x: number, y: number): number {
-    return Math.min(1, this.distanceAt(x, y) / this.maxDepth);
+    if (this.inTown(x, y)) return 0;
+    const n = this.nearest(x, y);
+    return n ? Math.min(1, this.distanceAt(x, y) / (this.roadDepth[n.edge.road] ?? 1)) : 0;
   }
 
-  levelOf(distance: number): number {
+  /** The monster level at `distance` from town along road `road`. */
+  levelOf(distance: number, road: number): number {
     const [lo, hi] = WORLD.levels;
-    const t = Math.min(1, Math.max(0, distance / this.maxDepth));
+    const t = Math.min(1, Math.max(0, distance / (this.roadDepth[road] ?? 1)));
     return Math.round(lo + (hi - lo) * t ** WORLD.levelCurve);
   }
 
   levelAt(x: number, y: number): number {
-    return this.levelOf(this.distanceAt(x, y));
+    const [lo, hi] = WORLD.levels;
+    return Math.round(lo + (hi - lo) * this.progressAt(x, y) ** WORLD.levelCurve);
   }
 
   biomeAt(x: number, y: number): Biome {
