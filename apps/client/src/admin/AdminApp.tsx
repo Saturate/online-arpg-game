@@ -5,6 +5,7 @@ import { StaffGate, type StaffAccess } from './access.js';
 import { LeaderboardTables } from '../ui/ArenaBoard.js';
 import { ModelCheckTab } from './monsters/ModelCheckTab.js';
 import { TuningTab } from './monsters/TuningTab.js';
+import { TunablesTab } from './TunablesTab.js';
 import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
 
@@ -14,13 +15,13 @@ import { TokensTab } from './TokensTab.js';
  * cannot use, reusing the game's login from this browser.
  */
 
-type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'monsters' | 'minions' | 'modelCheck' | 'grant' | 'tokens';
+type Tab = 'overview' | 'players' | 'arena' | 'settings' | 'tuning' | 'monsters' | 'minions' | 'modelCheck' | 'grant' | 'tokens';
 
-const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item', tokens: 'API tokens' };
+const TAB_NAMES: Record<Tab, string> = { overview: 'Overview', players: 'Players', arena: 'Arena', settings: 'Settings', tuning: 'Tuning', monsters: 'Monsters', minions: 'Minions', modelCheck: 'Model check', grant: 'Grant item', tokens: 'API tokens' };
 /** Tabs only some roles see; the server checks the same permission on every call. */
 const TAB_PERMISSION: Partial<Record<Tab, Permission>> = { grant: 'grantItems', tokens: 'apiTokens' };
 /** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
-const WIDE_TABS: ReadonlySet<Tab> = new Set(['monsters', 'minions', 'modelCheck']);
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['tuning', 'monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -661,7 +662,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <header className="adm-header">
         <h1>Allan's ARPG admin</h1>
         <nav>
-          {(['overview', 'players', 'arena', 'settings', 'monsters', 'minions', 'modelCheck', 'grant', 'tokens'] as const)
+          {(['overview', 'players', 'arena', 'settings', 'tuning', 'monsters', 'minions', 'modelCheck', 'grant', 'tokens'] as const)
             .filter((t) => {
               const p = TAB_PERMISSION[t];
               return p === undefined || can(role, p);
@@ -685,6 +686,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
         {tab === 'players' && <Players token={token} role={role} notify={notify} />}
         {tab === 'arena' && <Arena notify={notify} />}
         {tab === 'settings' && <Settings token={token} role={role} notify={notify} />}
+        {tab === 'tuning' && <TunablesTab token={token} role={role} notify={notify} />}
         {tab === 'monsters' && <TuningTab key="monsters" kind="monsters" token={token} role={role} notify={notify} />}
         {tab === 'minions' && <TuningTab key="minions" kind="minions" token={token} role={role} notify={notify} />}
         {tab === 'modelCheck' && <ModelCheckTab notify={notify} />}

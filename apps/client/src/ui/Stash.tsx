@@ -49,6 +49,7 @@ import { tip } from './Tip.js';
 import './forge.css';
 import './stash.css';
 import { formatCooldown, sigilCooldown, useCastTiming } from '../game/castTiming.js';
+import { tunablesVersion } from '@rune/shared';
 
 const RUNE_SORT_LABELS: Record<RuneSortKey, string> = { rune: 'Rune', kind: 'Kind', tier: 'Tier', ilvl: 'Item level', affix: 'Affix value' };
 const SIGIL_SORT_LABELS: Record<SigilSortKey, string> = { tier: 'Tier', ilvl: 'Item level', slots: 'Slots', name: 'Name' };
@@ -516,7 +517,8 @@ function isPersistent(item: SigilItem, classId: ClassId): boolean {
 
 function compiledView(item: SigilItem, classId: ClassId): { text: string; persistent: boolean } {
   if (item.slots.length === 0) return { text: 'Blank: inscribe it at the forge.', persistent: false };
-  const key = `${classId}|${item.uid}|${item.slots.map((r) => `${r.uid}:${r.rune}:${r.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`).join(';')}|${item.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`;
+  // Live tuning can change the sentence (a Split's default copies, a Timer's default wait).
+  const key = `${tunablesVersion()}|${classId}|${item.uid}|${item.slots.map((r) => `${r.uid}:${r.rune}:${r.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`).join(';')}|${item.affixes.map((a) => `${a.id}=${a.value}`).join(',')}`;
   const hit = SENTENCES.get(key);
   if (hit !== undefined) return hit;
   const result = compileFor(item, classId);

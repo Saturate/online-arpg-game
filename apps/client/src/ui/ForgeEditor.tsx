@@ -37,6 +37,7 @@ import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 import './forge.css';
+import { useTunables } from '../game/tunables.js';
 
 /** Drag type for forge slots and pool runes; kept apart from item drags so the two never mix. */
 const FORGE_DRAG = 'application/x-rune-forge';
@@ -239,7 +240,8 @@ export function ForgeEditor() {
   const draftKey = draft.map(refKey).join(' ');
   const pool = useMemo(() => (sigil && stock ? buildPool(sigil, draft, stock) : null), [sigil, stock, draft]);
   const drafted = useMemo(() => (sigil && resolution ? draftSigil(sigil, resolution) : null), [sigil, resolution]);
-  const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId]);
+  const tunables = useTunables((s) => s.version);
+  const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId, tunables]);
 
   if (!open || !inv || !classId) return null;
 

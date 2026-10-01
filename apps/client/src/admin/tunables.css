@@ -1,0 +1,134 @@
+/* Live tuning tab on the admin page: categories, the numbers, and the change history. */
+.tun-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(420px, 1fr) 340px;
+  gap: 12px;
+  height: calc(100vh - 80px);
+  min-height: 520px;
+  text-align: left;
+}
+.tun-cats,
+.tun-edit,
+.tun-history {
+  overflow: auto;
+  min-width: 0;
+  border: 1px solid #3a2f20;
+  border-radius: 6px;
+  background: #110e0b;
+  padding: 10px;
+}
+.tun-cats input[type='search'] {
+  width: 100%;
+  box-sizing: border-box;
+}
+.tun-cats ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.tun-cats li button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+}
+.tun-count {
+  font-size: 11px;
+  color: var(--gold);
+  border: 1px solid #5a4728;
+  border-radius: 8px;
+  padding: 0 6px;
+}
+.tun-edit header,
+.tun-history h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tun-edit h2,
+.tun-history h2 {
+  font-family: Cinzel, Georgia, serif;
+  color: var(--gold);
+  font-size: 15px;
+  margin: 2px 0 6px;
+  flex: 1;
+}
+.tun-actions {
+  display: flex;
+  gap: 6px;
+}
+.tun-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+.tun-table td:nth-child(2) {
+  width: 104px;
+}
+.tun-table td:nth-child(3) {
+  width: 84px;
+}
+.tun-table td:nth-child(4) {
+  width: 132px;
+}
+.tun-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  padding: 3px 6px 3px 0;
+  overflow-wrap: anywhere;
+}
+.tun-table td {
+  padding: 1px 4px;
+  border-bottom: 1px solid #1b1610;
+}
+.tun-table tr.tun-over th {
+  color: var(--gold);
+}
+.tun-path {
+  display: block;
+  font-size: 10px;
+  color: #6f6352;
+}
+.tun-table input[type='number'] {
+  width: 92px;
+  padding: 4px 6px;
+}
+.tun-table input.tun-bad {
+  border-color: var(--bad);
+}
+.tun-mark {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+.tun-history ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.tun-history li {
+  border-bottom: 1px solid #1b1610;
+  padding-bottom: 6px;
+  display: grid;
+  gap: 2px;
+}
+.tun-history li button {
+  justify-self: start;
+}
+/* The game's `.small` centres its text and pushes it down; this tab reads as a compact list. */
+.tun-layout .small {
+  text-align: left;
+  margin-top: 0;
+}

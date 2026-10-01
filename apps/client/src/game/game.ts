@@ -53,6 +53,7 @@ import { InterpolationBuffer } from './interpolation.js';
 import { SpellTable } from './spellTable.js';
 import { Predictor } from './prediction.js';
 import { receiveCastCooldown } from './castTiming.js';
+import { receiveTunables } from './tunables.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
@@ -170,6 +171,8 @@ export class Game {
   private lastWelcome: ServerMessage | null = null;
   private lastInventory: ServerMessage | null = null;
   private lastStaging: ServerMessage | null = null;
+  /** The newest live tuning, from a welcome or a change, so a recording replays with the numbers it ran with. */
+  private lastTunables: ServerMessage | null = null;
   private room: RoomView | null = null;
   private destroyed = false;
   private rafId = 0;
@@ -323,7 +326,7 @@ export class Game {
   /** Starts recording, or stops and downloads the file. */
   private toggleRecording(): void {
     if (!this.recorder) {
-      const seed = [this.lastWelcome, this.lastInventory, this.lastStaging].filter((m): m is ServerMessage => m !== null);
+      const seed = [this.lastWelcome, this.lastTunables, this.lastInventory, this.lastStaging].filter((m): m is ServerMessage => m !== null);
       this.recorder = new Recorder(this.classId, this.name, seed);
       useUi.setState({ recording: true });
       useUi.getState().notify('Recording replay');
@@ -528,7 +531,10 @@ export class Game {
   }
 
   private onMessage(msg: ServerMessage): void {
-    if (msg.t === 'welcome') this.lastWelcome = msg;
+    if (msg.t === 'welcome') {
+      this.lastWelcome = msg;
+      this.lastTunables = { t: 'tunables', values: msg.tunables ?? {} };
+    } else if (msg.t === 'tunables') this.lastTunables = msg;
     else if (msg.t === 'inventory') this.lastInventory = msg;
     else if (msg.t === 'staging') this.lastStaging = msg;
     if (this.recorder) {
@@ -545,6 +551,7 @@ export class Game {
         useUi.getState().connected();
         this.playerId = msg.playerId;
         receiveCastCooldown(msg.castCooldown);
+        receiveTunables(msg.tunables);
         this.townEditorAllowed = msg.townEditor;
         // A role change resends the welcome; an open editor would otherwise linger with saves refused.
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
@@ -636,6 +643,9 @@ export class Game {
         return;
       case 'castCooldown':
         receiveCastCooldown(msg.seconds);
+        return;
+      case 'tunables':
+        receiveTunables(msg.values);
         return;
       case 'models': {
         const models = parseModelOverrides(msg.models);

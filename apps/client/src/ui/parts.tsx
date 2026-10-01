@@ -32,6 +32,7 @@ import { compileFor, useUi } from './store.js';
 import { tip } from './Tip.js';
 import { formatCooldown } from '../game/castTiming.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
+import { useTunables } from '../game/tunables.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
@@ -220,6 +221,8 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
 function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }>; classId: ClassId }) {
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
+  // Subscribed so an open tooltip shows a live tuning change at once.
+  useTunables((s) => s.version);
   const result = compileFor(item, classId);
   const cooldown = useSigilCooldown(item);
   // Still the starter it came from only while it holds the starter's runes.

@@ -10,6 +10,7 @@ import { spiritUses } from './spirit.js';
 import { tip } from './Tip.js';
 import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
+import { useTunables } from '../game/tunables.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
 
@@ -76,7 +77,9 @@ function SkillSlot({ slot }: { slot: number }) {
   const uid = inv?.sigils[slot] ?? null;
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
-  const result = useMemo(() => (sigil && classId ? compileFor(sigil, classId) : null), [sigil, classId]);
+  const tunables = useTunables((s) => s.version);
+  // Live tuning changes Force prices and what a rune does, so a change compiles the slot again.
+  const result = useMemo(() => (sigil && classId ? compileFor(sigil, classId) : null), [sigil, classId, tunables]);
   const persistent = result?.ok === true && result.persistent;
   const cooldown = useSigilCooldown(sigil);
   // Named and described as its starter only while it still holds the starter's runes.
