@@ -1,0 +1,93 @@
+/* The world map: a dim iron frame over the game, centred, letting the mouse through. */
+.worldmap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 8px;
+  pointer-events: none;
+  border: 2px solid #4a3820;
+  border-image: var(--iron-edge) 1;
+  background: var(--grain), linear-gradient(180deg, rgba(20, 15, 11, 0.95), rgba(8, 6, 5, 0.95));
+  box-shadow: 0 0 0 1px #000, 0 18px 50px rgba(0, 0, 0, 0.75), inset 0 0 30px rgba(0, 0, 0, 0.7);
+}
+.worldmap.hidden {
+  display: none;
+}
+.worldmap header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+.worldmap h2 {
+  margin: 0;
+  font: 700 16px Cinzel, serif;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+.worldmap canvas {
+  display: block;
+  /* The canvas is 880 px at most; the frame and the header need about 110 px of the screen's height. */
+  max-width: calc(100vw - 60px);
+  max-height: calc(100vh - 130px);
+  width: auto;
+  height: auto;
+  aspect-ratio: auto;
+  opacity: 0.94;
+}
+.worldmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 12px var(--font-body);
+  color: var(--muted);
+}
+.worldmap-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.worldmap-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #000;
+}
+.worldmap-legend .you {
+  border-radius: 50%;
+  background: #ffd36b;
+}
+.worldmap-legend .ally {
+  border-radius: 50%;
+  background: #7ad69a;
+}
+.worldmap-legend .wp {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  border: 1.5px solid #8fb0d0;
+}
+.worldmap-legend .wp.found {
+  background: #8fb0d0;
+  border-color: #000;
+}
+.worldmap-legend .dungeon {
+  background: #7a2a22;
+  border-color: #d08a5a;
+}
+.worldmap-legend .gate {
+  width: 12px;
+  height: 4px;
+  background: #a08a60;
+}

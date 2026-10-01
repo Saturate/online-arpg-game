@@ -1,6 +1,6 @@
 # World map
 
-Status: Stage 1 built 2026-10-01, not pushed: the world plan, one world room per world copy, levels and density by distance, region names on the HUD and the waypoint menu. The save conversion (stage 3) built 2026-10-01, not pushed. Respawn by inactivity (stage 3) built 2026-10-01, not pushed. Gate bosses (stage 2) and minimap names and fog (stage 4) are planned. Builds on [world-streaming.md](world-streaming.md), steps 1 to 3.
+Status: Stage 1 built 2026-10-01, not pushed: the world plan, one world room per world copy, levels and density by distance, region names on the HUD and the waypoint menu. The save conversion (stage 3) built 2026-10-01, not pushed. Respawn by inactivity (stage 3) built 2026-10-01, not pushed. Minimap names, remembered fog and the world map (stage 4) built 2026-10-01, not pushed. Gate bosses (stage 2) are planned. Builds on [world-streaming.md](world-streaming.md), steps 1 to 3.
 
 ## What it does
 
@@ -121,11 +121,37 @@ Tests:
 - `packages/shared/test/convertWorld.test.ts`: every world on three seeds has exactly `WORLD_WAYPOINT_IDS`; every old zone maps to its region's first waypoint and the gate it lies behind is the plan's; a zone save converts in order without repeats; world ids and the town's handled; idempotent; unknown ids kept with a warning. `apps/server/test/convertWorld.test.ts`: a v1-era save goes through the rune and the world conversion in order, joins in town, is written back marked and loads unchanged again; a v2 pre-world save converts and a marked one is left alone.
 - `apps/server/test/partyTeleport.test.ts`: party teleport across the world within the room, and into another room (an antechamber) with a save on the way; frames name the region and carry a position in the same room; `dungeonExit.test.ts`: the exit leads back beside the entrance.
 
+## Minimap and world map (stage 4)
+
+Built 2026-10-01, not pushed.
+
+- **Region names on both maps:** each region's name sits upright on one of its own roads, as near as possible to the middle of its road network and at least 500 units outside the town. Regions you have not entered are dimmed; the one you stand in wins a clash between names. The corner frame still names the region under it (stage 1), and the world map's title does too. The world map also writes the town's name; the corner map leaves it out, since in town it would sit on the hero.
+- **Fog remembered per character, per browser:** explored ground, the regions entered and the waypoints found are kept in localStorage under `rune.fog.<character id>.<world seed>`, so the explored world survives a relog (the public world keeps its seed; a party world has its own and starts dark). The server keeps no fog, so another browser starts dark. One bit per 80-unit cell: the 13000 unit world is a 163 by 163 grid, 3.3 KB of bits, 4.5 KB stored (measured in the browser check). Written at most every 2 seconds while exploring and on leaving the room; the 16 most recently saved worlds are kept and older ones dropped. Storage that throws or is full only means the map is kept for the session. Party members' vision counts as explored, as before. Dungeons, the Arena and replays keep the session memory they had.
+- **World map on M** (a new bindable action; Tab still hides and shows the corner map, Escape closes the world map first): the whole explored world, its roads, waypoints (filled once found, a hollow diamond when seen but not touched), dungeon entrances, gates (a bar across the road), portals, you and the party; no monsters or loot. It lets the mouse through and pauses nothing, so you can walk with it open.
+- **Turned with the camera, like the corner map.** The camera never turns in play, so a turned world map always matches the screen and the corner map: up on the map is W, and a road that runs down-right on the map runs down-right when you walk it. A north-up map with a camera arrow would make you turn it in your head every time you look; the cost of turning is space, since the square world becomes a diamond and fills half the canvas (0.048 pixels per unit on an 880 pixel canvas instead of 0.068 north-up).
+- **Gates:** drawn in iron until gate bosses land; `Minimap.setOpenGates(ids)` then colours a gate green once this character opened it and red while sealed. Wiring it to the snapshot's `self.gates` is one line in `game.ts` once stage 2 is committed.
+
+How:
+
+- `apps/client/src/render/fog.ts`: `FogGrid` (bitset, `markCircle` by cell middles, `markRect`), base64 encoding, `readFog`/`writeFog` with the index of saved worlds, `browserStorage`.
+- `apps/client/src/render/mapLabels.ts`: `regionLabels` (placement from the plan's edges) and `fitLabels` (which names fit without overlapping).
+- `apps/client/src/render/minimap.ts`: one `MapView` per drawing (the corner map, windowed in the world; the world map, always whole), each with its own scale and layout tiles; the fog is shared, drawn from a canvas of one pixel per cell scaled up with smoothing (so the explored edge is soft) and updated by clearing a pixel per newly seen cell. The region colours are looked up once per 250-unit cell and shared by every tile, and a tile only fills the cells under it (before, every tile filled the whole world). The world map redraws only when the fog, regions, waypoints or gates change or a marker moves a pixel.
+- `apps/client/src/ui/WorldMap.tsx`, `worldmap.css`: the overlay, its own small store (`useWorldMap`) and the legend. `game/game.ts` feeds found waypoints from the waypoint menu message and the activation event, flushes the fog on leaving a room, and passes the store key for world rooms of live sessions.
+- Tests: `apps/client/test/fog.test.ts` (bits, circle and rectangle marking, base64 round trip, per character and seed memory, wrong shape and corrupt records, the cap, storage that throws or is full) and `mapLabels.test.ts` (every region named once, each name in its own region and off the town, names 1200 units apart, deterministic, the nearest road point; overlapping names keep the higher priority, names past the edge are dropped).
+- Browser check on a local server (2026-10-01), screenshots in the session's scratchpad: names on the corner and world maps in town, a walk out the east road through the Mossy Barrens into the Ashen Steppe with the trail and region names lighting up, a relog with the explored trail, regions and the found waypoint still there, a jump past the Ashen Steppe gate with the gate bar and the Sunscorched Dunes waypoint turning filled once touched, Escape closing the map. No console errors.
+
+Limits:
+
+- Found waypoints come from what this browser saw (the waypoint menu and activation events); a waypoint found on another browser shows hollow here until the menu opens once. The server already knows them; sending the list on join would fix it.
+- Fog per browser, not per account: another machine starts dark. Moving it to the server would be a column per character and world seed.
+- A region counts as entered when a reveal's centre lies in it (the HUD's rule), so walking along a border can light up the neighbour's name.
+- The gamepad has no world map button yet.
+
 ## Seams for the stages to come
 
 - **Stage 2, gate bosses:** `WorldPlan.gates` (id `<first region>-gate`, node, road, region, heading) and `WorldMap.gates` (id, spot, heading) mark each pass; every node past a gate has `behind` set to its id, and so does every waypoint past it (`WaypointInfo.behind`). A gate boss spawns at the gate's spot; the movement block is a line across the road at the gate (the sector border ridges already stop a walk round it beyond the home region, but rivers and the open home region do not, so the block wants a band across the whole sector, or a ridge at the gate radius). `useWaypoint` is the one place to refuse a waypoint whose `behind` the character has not passed.
 - **Gate bosses and respawn:** respawn by inactivity is built (above). A boss that comes as a chunk pack with `boss: true` (the plan's packs, `ZoneWorld.planPacks`) follows the boss timer with no further work. A gate boss spawned some other way should take its respawn time from `respawnTicks(sim).bosses`, the admin's boss respawn setting, rather than a constant of its own, so one setting rules every boss.
-- **Stage 4, minimap names and fog:** `WorldPlan.regionAt` gives a spot's region and `regionTable` its level range; the minimap already colours regions (`render/minimap.ts`, `drawBase`). The minimap's 256-pixel tiles cover the whole world at its 0.025 pixels per unit, so drawing them generates every chunk's obstacles at load (the World bench shows all 169 generated); smaller tiles would follow the hero.
+- **Stage 4, minimap names and fog:** built (above). Still open from it: the minimap's 256-pixel tiles cover the whole world at its 0.025 pixels per unit, so drawing them generates every chunk's obstacles at load (the World bench shows all 169 generated); smaller tiles would follow the hero. The world map's tiles do the same at its own scale.
 
 ## Limits and open questions
 

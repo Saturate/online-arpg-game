@@ -96,7 +96,7 @@ export function EscMenu() {
           </button>
         )}
         <p className="muted small">
-          <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>Alt</kbd> show all loot
+          <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>M</kbd> world map <kbd>Alt</kbd> show all loot
         </p>
       </GamePanel>
     </div>

@@ -22,11 +22,13 @@ import { WaypointPanel } from './WaypointPanel.js';
 import { PartyFrames, TeleportBar } from './PartyFrames.js';
 import { GameTooltip } from './Tip.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
+import { useWorldMap, WorldMapView } from './WorldMap.js';
 
 export function GameView({ token, character }: { token: string; character: CharacterSummary }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const fxRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
+  const worldMapRef = useRef<HTMLCanvasElement>(null);
   const minimapVisible = useUi((s) => s.minimapVisible);
   const roomName = useUi((s) => s.roomName);
   const uiScale = useSettings((s) => s.options.uiScale);
@@ -37,9 +39,12 @@ export function GameView({ token, character }: { token: string; character: Chara
     const host = hostRef.current;
     const fx = fxRef.current;
     if (!host || !fx) return;
-    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current }, { kind: 'live', token, character });
+    const game = new Game({ host, fxLayer: fx, minimap: minimapRef.current, worldMap: worldMapRef.current }, { kind: 'live', token, character });
     void game.start();
-    return () => game.destroy();
+    return () => {
+      game.destroy();
+      useWorldMap.setState({ open: false });
+    };
   }, [token, character, reconnectKey]);
 
   useEffect(guardLeaving, []);
@@ -73,6 +78,7 @@ export function GameView({ token, character }: { token: string; character: Chara
           </div>
           <PartyFrames />
         </div>
+        <WorldMapView ref={worldMapRef} />
         <Party />
         <TeleportBar />
         <Notices />

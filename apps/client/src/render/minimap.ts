@@ -1,12 +1,20 @@
-import { ZONES, type EntitySnap, type Obstacle, type WorldMap, type ZoneWorld } from '@rune/shared';
+import { ZONES, type EntitySnap, type Obstacle, type WorldMap, type ZoneId, type ZoneWorld } from '@rune/shared';
 import { cssColor, TIER_COLORS, VIEW } from './config.js';
+import { FogGrid, readFog, writeFog, type FogRecord, type FogStorage } from './fog.js';
+import { fitLabels, regionLabels, type LabelBox, type RegionLabel } from './mapLabels.js';
 
 /**
  * Longest side of the drawn minimap in pixels. The map is turned to match the camera, so a square
  * map becomes a diamond and needs a wider box than the old 200 north-up square to stay readable.
  */
 const FRAME = 220;
-/** Fog cell size in minimap pixels. */
+/**
+ * Longest side of the world map's canvas in pixels. CSS shrinks it to fit the screen; 880 keeps it
+ * sharp at the 1600 by 900 the game is tuned for, and the whole 13000 unit world turned 45 degrees
+ * still gets about 0.048 pixels per unit, twice the corner map's.
+ */
+export const LARGE_FRAME = 880;
+/** Fog cell size in corner minimap pixels; the cell in world units follows from the corner map's scale. */
 const CELL = 2;
 /**
  * The fewest minimap pixels per world unit. Today's zones fit the frame whole above it (the home
@@ -14,15 +22,33 @@ const CELL = 2;
  * of shrinking to a smudge.
  */
 export const MIN_SCALE = 0.025;
-/** Side of one tile of the drawn layout and fog, in minimap pixels. */
+/** Side of one tile of the drawn layout, in minimap pixels. */
 export const TILE = 256;
 /** How far around the hero the map uncovers, in world units: roughly what the camera shows. */
 const REVEAL_RADIUS = 650;
+/** Region colour cells, in world units: fine enough for the blended borders to read, coarse enough to look up once. */
+const REGION_CELL = 250;
+/** How long new exploration waits before it is written to storage; a crash loses at most this much walking. */
+const SAVE_MS = 2000;
+const FOG_COLOUR = { r: 11, g: 10, b: 9 } as const;
 /**
- * Explored cells per map, kept for the session so walking back into a room keeps what you found.
- * Maps are generated per game, so a new game starts dark again, like D2.
+ * Explored ground per map for maps not kept between sessions (dungeons, the Arena, a replay): walking
+ * back into a room this session keeps what you found. Their maps are generated per run, so a new
+ * run starts dark again, like D2.
  */
-const explored = new Map<string, Uint8Array>();
+const explored = new Map<string, FogRecord>();
+
+/** A gate's state for this character: sealed until its boss dies, then open. */
+type GateState = 'sealed' | 'open';
+
+export interface MinimapOptions {
+  /** Camera yaw; the camera never turns during play, so this is fixed per minimap. */
+  yawDegrees?: number;
+  /** The world map's canvas, drawn while `setLargeOpen(true)`. */
+  large?: HTMLCanvasElement | null;
+  /** Where the explored map is remembered between sessions (the world, per character); session memory when absent. */
+  persist?: { storage: FogStorage; key: string } | null;
+}
 
 /**
  * How far to turn the north-up map so up on the minimap is up on screen. The camera looks along
@@ -38,9 +64,14 @@ export function minimapRotation(yawDegrees: number): number {
  * the hero (when the whole map would need fewer than MIN_SCALE pixels per unit).
  */
 export function minimapScale(width: number, height: number, angle: number, frame = FRAME): { scale: number; windowed: boolean } {
-  const turned = rotatedBounds(width, height, angle);
-  const fit = frame / Math.max(turned.w, turned.h);
+  const fit = fitScale(width, height, angle, frame);
   return fit >= MIN_SCALE ? { scale: fit, windowed: false } : { scale: MIN_SCALE, windowed: true };
+}
+
+/** Pixels per world unit that fit the whole turned map in `frame`. */
+export function fitScale(width: number, height: number, angle: number, frame: number): number {
+  const turned = rotatedBounds(width, height, angle);
+  return frame / Math.max(turned.w, turned.h);
 }
 
 /**
@@ -82,152 +113,204 @@ export function rotateAround(x: number, y: number, px: number, py: number, outW:
   return { x: dx * c - dy * s + outW / 2, y: dx * s + dy * c + outH / 2 };
 }
 
-/**
- * Corner map. The static layout is drawn once per room, in tiles of offscreen canvases, so a huge
- * map never needs one giant texture; each update only blits the tiles in the frame and draws dots,
- * so it costs almost nothing per frame. Unexplored ground is covered by fog, tiled the same way,
- * that lifts as the hero walks, and nothing under the fog is shown.
- *
- * The layout and fog stay north-up offscreen and are turned by the camera's yaw with one transform
- * when blitted, so WASD up is up on the map. Markers are placed at their turned positions but drawn
- * upright, so a monster square does not become a diamond. A map that fits the frame at MIN_SCALE or
- * more is shown whole (every zone today, as one tile); a bigger one shows a window around the hero.
- */
-export class Minimap {
-  private readonly scale: number;
-  private readonly windowed: boolean;
-  private readonly w: number;
-  private readonly h: number;
-  private readonly tileCols: number;
-  private readonly tileRows: number;
-  /** Layout and fog tiles, made when first drawn; row-major. */
-  private readonly baseTiles: (HTMLCanvasElement | null)[];
-  private readonly fogTiles: (HTMLCanvasElement | null)[];
-  private readonly cols: number;
-  private readonly seen: Uint8Array;
-  private lastReveal = new Map<string, { x: number; y: number }>();
-  private readonly angle: number;
+/** One drawing of the map: the corner minimap, or the world map. Each has its own scale and layout tiles. */
+class MapView {
+  readonly scale: number;
+  readonly windowed: boolean;
+  /** The north-up map in pixels. */
+  readonly w: number;
+  readonly h: number;
   /** The turned canvas: the whole turned map, or the window. */
-  private readonly outW: number;
-  private readonly outH: number;
+  readonly outW: number;
+  readonly outH: number;
+  readonly tileCols: number;
+  readonly tileRows: number;
+  /** Layout tiles, made when first drawn; row-major. */
+  readonly tiles: (HTMLCanvasElement | null)[];
   /** The north-up map pixel at the canvas centre: the map's centre, or the hero in a window. */
-  private pivotX: number;
-  private pivotY: number;
+  pivotX: number;
+  pivotY: number;
 
   constructor(
-    private readonly canvas: HTMLCanvasElement,
-    private readonly def: WorldMap,
-    /** Identifies this map across room changes, so its explored area is remembered. */
-    memoryKey: string,
-    /** A generated zone, whose chunks' trees and rocks a tile draws (generating them) when it is first drawn. */
-    private readonly zone: ZoneWorld | null = null,
-    /** Camera yaw; the camera never turns during play, so this is fixed per minimap. */
-    yawDegrees: number = VIEW.yawDegrees,
+    readonly canvas: HTMLCanvasElement,
+    def: WorldMap,
+    readonly angle: number,
+    readonly large: boolean,
   ) {
-    this.angle = minimapRotation(yawDegrees);
-    const { scale, windowed } = minimapScale(def.width, def.height, this.angle);
-    this.scale = scale;
-    this.windowed = windowed;
+    const fit = large ? { scale: fitScale(def.width, def.height, angle, LARGE_FRAME), windowed: false } : minimapScale(def.width, def.height, angle);
+    this.scale = fit.scale;
+    this.windowed = fit.windowed;
     this.w = Math.round(def.width * this.scale);
     this.h = Math.round(def.height * this.scale);
-    const turned = rotatedBounds(def.width, def.height, this.angle);
-    this.outW = windowed ? FRAME : Math.ceil(turned.w * this.scale);
-    this.outH = windowed ? FRAME : Math.ceil(turned.h * this.scale);
+    const turned = rotatedBounds(def.width, def.height, angle);
+    this.outW = this.windowed ? FRAME : Math.ceil(turned.w * this.scale);
+    this.outH = this.windowed ? FRAME : Math.ceil(turned.h * this.scale);
     this.pivotX = this.w / 2;
     this.pivotY = this.h / 2;
     canvas.width = this.outW;
     canvas.height = this.outH;
     this.tileCols = Math.max(1, Math.ceil(this.w / TILE));
     this.tileRows = Math.max(1, Math.ceil(this.h / TILE));
-    this.baseTiles = new Array<HTMLCanvasElement | null>(this.tileCols * this.tileRows).fill(null);
-    this.fogTiles = new Array<HTMLCanvasElement | null>(this.tileCols * this.tileRows).fill(null);
+    this.tiles = new Array<HTMLCanvasElement | null>(this.tileCols * this.tileRows).fill(null);
+  }
 
-    this.cols = Math.ceil(this.w / CELL);
-    const rows = Math.ceil(this.h / CELL);
-    const known = explored.get(memoryKey);
-    this.seen = known?.length === this.cols * rows ? known : new Uint8Array(this.cols * rows);
-    explored.set(memoryKey, this.seen);
+  /** A world spot to the turned canvas. */
+  toCanvas(x: number, y: number): { x: number; y: number } {
+    return rotateAround(x * this.scale, y * this.scale, this.pivotX, this.pivotY, this.outW, this.outH, this.angle);
+  }
+}
+
+/**
+ * Corner map and world map. The static layout is drawn once per view, in tiles of offscreen
+ * canvases, so a huge map never needs one giant texture; each update only blits the tiles in the
+ * frame, the fog and the markers, so it costs almost nothing per frame.
+ *
+ * Fog is one bit per cell (`FogGrid`), shared by both views and drawn as a canvas of one pixel per
+ * cell, scaled up with smoothing so the explored edge is soft. Uncovering a cell clears one pixel.
+ * In the world the grid, the regions entered and the waypoints found are kept in localStorage per
+ * character and world seed, so the map is still explored after a relog.
+ *
+ * Both views stay north-up offscreen and are turned by the camera's yaw with one transform when
+ * blitted, so WASD up is up on the map. Markers and names are placed at their turned positions but
+ * drawn upright. A map that fits the corner frame at MIN_SCALE or more is shown whole there (every
+ * zone today); a bigger one (the world) shows a window around the hero. The world map always shows
+ * the whole map.
+ */
+export class Minimap {
+  private readonly corner: MapView;
+  private readonly large: MapView | null;
+  private largeOpen = false;
+  /** What the world map last drew; it redraws only when this changes. */
+  private largeDrawn = '';
+  private readonly fog: FogGrid;
+  private readonly fogCanvas: HTMLCanvasElement;
+  private readonly record: FogRecord;
+  private readonly discovered: Set<string>;
+  private readonly found: Set<string>;
+  private readonly gates = new Map<string, GateState>();
+  private gatesKey = '';
+  private readonly labels: (RegionLabel<ZoneId | 'town'> & { name: string; town: boolean })[] = [];
+  /** Region per REGION_CELL square, row-major, looked up once for every tile of both views. */
+  private regionGrid: ZoneId[] | null = null;
+  private here: string | null = null;
+  private lastReveal = new Map<string, { x: number; y: number }>();
+  private readonly persist: { storage: FogStorage; key: string } | null;
+  private dirty = false;
+  private lastSave = 0;
+  /** Bumped whenever the fog, regions, waypoints or gates change, for the world map's redraw check. */
+  private version = 0;
+  private readonly textWidths = new Map<string, number>();
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    private readonly def: WorldMap,
+    /** Identifies this map across room changes, so its explored area is remembered this session. */
+    memoryKey: string,
+    /** A generated zone, whose chunks' trees and rocks a tile draws (generating them) when it is first drawn. */
+    private readonly zone: ZoneWorld | null = null,
+    options: MinimapOptions = {},
+  ) {
+    const angle = minimapRotation(options.yawDegrees ?? VIEW.yawDegrees);
+    this.corner = new MapView(canvas, def, angle, false);
+    this.large = options.large ? new MapView(options.large, def, angle, true) : null;
+    this.persist = options.persist ?? null;
+
+    const cell = CELL / this.corner.scale;
+    const cols = Math.ceil(def.width / cell);
+    const rows = Math.ceil(def.height / cell);
+    const stored = this.persist ? readFog(this.persist.storage, this.persist.key, cols, rows, cell) : null;
+    const session = explored.get(memoryKey);
+    const known = stored ?? (session?.grid.cols === cols && session.grid.rows === rows ? session : null);
+    this.record = known ?? { grid: new FogGrid(cols, rows, cell), regions: [], waypoints: [] };
+    explored.set(memoryKey, this.record);
+    this.fog = this.record.grid;
+    this.discovered = new Set(this.record.regions);
+    this.found = new Set(this.record.waypoints);
+
     // Small or safe maps have nothing to discover.
-    if (def.theme === 'arena' || def.theme === 'flat' || def.theme === 'town') this.seen.fill(1);
-    for (const z of def.safeZones ?? []) this.revealRect(z.x, z.y, z.w, z.h);
-  }
+    if (def.theme === 'arena' || def.theme === 'flat' || def.theme === 'town') this.fog.fill();
+    for (const z of def.safeZones ?? []) this.fog.markRect(z.x, z.y, z.w, z.h, []);
+    this.fogCanvas = document.createElement('canvas');
+    this.fogCanvas.width = cols;
+    this.fogCanvas.height = rows;
+    this.paintFog();
 
-  private tileSize(col: number, row: number): { w: number; h: number } {
-    return { w: Math.min(TILE, this.w - col * TILE), h: Math.min(TILE, this.h - row * TILE) };
-  }
-
-  private baseTile(col: number, row: number): HTMLCanvasElement {
-    const i = row * this.tileCols + col;
-    const have = this.baseTiles[i];
-    if (have) return have;
-    const c = document.createElement('canvas');
-    const size = this.tileSize(col, row);
-    c.width = Math.max(1, size.w);
-    c.height = Math.max(1, size.h);
-    const g = c.getContext('2d');
-    if (g) {
-      g.translate(-col * TILE, -row * TILE);
-      this.drawBase(g, col, row);
+    const plan = zone?.plan;
+    if (plan) {
+      for (const l of regionLabels(plan.edges, plan.town)) this.labels.push({ ...l, name: ZONES[l.region].name, town: false });
+      const town = def.safeZones?.[0];
+      const townName = def.waypoints?.find((w) => w.id === 'town')?.name;
+      if (town && townName) this.labels.push({ region: 'town', x: town.x + town.w / 2, y: town.y + town.h / 2, name: townName, town: true });
     }
-    this.baseTiles[i] = c;
-    return c;
   }
 
-  /** A fog tile, dark with every cell already seen cleared. */
-  private fogTile(col: number, row: number): HTMLCanvasElement {
-    const i = row * this.tileCols + col;
-    const have = this.fogTiles[i];
-    if (have) return have;
-    const c = document.createElement('canvas');
-    const size = this.tileSize(col, row);
-    c.width = Math.max(1, size.w);
-    c.height = Math.max(1, size.h);
-    this.fogTiles[i] = c;
-    const g = c.getContext('2d');
-    if (!g) return c;
-    g.fillStyle = '#0b0a09';
-    g.fillRect(0, 0, c.width, c.height);
-    // Cells are CELL pixels and TILE is a multiple of CELL, so each cell belongs to one tile.
-    const perTile = TILE / CELL;
-    const rows = this.seen.length / this.cols;
-    for (let cy = row * perTile; cy < Math.min(rows, (row + 1) * perTile); cy++) {
-      for (let cx = col * perTile; cx < Math.min(this.cols, (col + 1) * perTile); cx++) {
-        if (this.seen[cy * this.cols + cx]) g.clearRect(cx * CELL - col * TILE, cy * CELL - row * TILE, CELL, CELL);
-      }
+  /** Waypoints this character has found, from the server's waypoint menu and activation events; the world map fills them in. */
+  addFoundWaypoints(ids: readonly string[]): void {
+    let changed = false;
+    for (const id of ids) {
+      if (this.found.has(id)) continue;
+      this.found.add(id);
+      changed = true;
     }
-    return c;
+    if (!changed) return;
+    this.record.waypoints = [...this.found];
+    this.changed();
   }
 
-  private clearCell(i: number): void {
-    const cx = (i % this.cols) * CELL;
-    const cy = Math.floor(i / this.cols) * CELL;
-    const col = Math.floor(cx / TILE);
-    const row = Math.floor(cy / TILE);
-    // A tile not made yet clears its seen cells when it is.
-    const tile = this.fogTiles[row * this.tileCols + col];
-    tile?.getContext('2d')?.clearRect(cx - col * TILE, cy - row * TILE, CELL, CELL);
+  /**
+   * The gates this character has opened (the snapshot's `self.gates`, once gate bosses land); every
+   * other gate is drawn sealed. Null until then: gates are drawn as plain passes. Cheap to call on
+   * every snapshot, since only a change redraws the world map.
+   */
+  setOpenGates(open: readonly string[] | null): void {
+    const key = open === null ? '' : `|${[...open].sort().join(',')}`;
+    if (key === this.gatesKey) return;
+    this.gatesKey = key;
+    this.gates.clear();
+    if (open !== null) for (const gate of this.def.gates ?? []) this.gates.set(gate.id, open.includes(gate.id) ? 'open' : 'sealed');
+    this.version++;
   }
 
-  private cellAt(x: number, y: number): number {
-    const cx = Math.floor((x * this.scale) / CELL);
-    const cy = Math.floor((y * this.scale) / CELL);
-    return cx < 0 || cy < 0 || cx >= this.cols ? -1 : cy * this.cols + cx;
+  /** Called every update with the world map's state; a fresh open draws at once. */
+  setLargeOpen(open: boolean): void {
+    if (open === this.largeOpen) return;
+    this.largeOpen = open;
+    this.largeDrawn = '';
   }
 
-  private isSeen(x: number, y: number): boolean {
-    const i = this.cellAt(x, y);
-    return i >= 0 && this.seen[i] === 1;
+  /** Writes unsaved exploration now: on leaving the room. */
+  flush(): void {
+    if (!this.dirty || !this.persist) return;
+    this.dirty = false;
+    this.lastSave = Date.now();
+    writeFog(this.persist.storage, this.persist.key, this.record, this.lastSave);
   }
 
-  private revealRect(x: number, y: number, w: number, h: number): void {
-    const step = CELL / this.scale;
-    for (let yy = y; yy <= y + h; yy += step) for (let xx = x; xx <= x + w; xx += step) this.mark(this.cellAt(xx, yy));
+  private changed(): void {
+    this.version++;
+    this.dirty = true;
   }
 
-  private mark(i: number): void {
-    if (i < 0 || i >= this.seen.length || this.seen[i]) return;
-    this.seen[i] = 1;
-    this.clearCell(i);
+  /** The whole fog canvas from the grid: dark where unexplored, clear where seen. */
+  private paintFog(): void {
+    const g = this.fogCanvas.getContext('2d');
+    if (!g) return;
+    const img = g.createImageData(this.fog.cols, this.fog.rows);
+    for (let i = 0; i < this.fog.size; i++) {
+      if (this.fog.has(i)) continue;
+      img.data[i * 4] = FOG_COLOUR.r;
+      img.data[i * 4 + 1] = FOG_COLOUR.g;
+      img.data[i * 4 + 2] = FOG_COLOUR.b;
+      img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  private clearFog(cells: readonly number[]): void {
+    if (cells.length === 0) return;
+    const g = this.fogCanvas.getContext('2d');
+    for (const i of cells) g?.clearRect(i % this.fog.cols, Math.floor(i / this.fog.cols), 1, 1);
+    this.changed();
   }
 
   /** `who` keys the last reveal per viewer, since party members uncover the map too. */
@@ -236,22 +319,57 @@ export class Minimap {
     const last = this.lastReveal.get(who);
     if (last && Math.hypot(last.x - x, last.y - y) < 40) return;
     this.lastReveal.set(who, { x, y });
-    const step = CELL / this.scale;
-    for (let dy = -REVEAL_RADIUS; dy <= REVEAL_RADIUS; dy += step) {
-      for (let dx = -REVEAL_RADIUS; dx <= REVEAL_RADIUS; dx += step) {
-        if (dx * dx + dy * dy <= REVEAL_RADIUS * REVEAL_RADIUS) this.mark(this.cellAt(x + dx, y + dy));
-      }
+    const fresh: number[] = [];
+    this.fog.markCircle(x, y, REVEAL_RADIUS, fresh);
+    this.clearFog(fresh);
+    const plan = this.zone?.plan;
+    if (!plan) return;
+    const region = plan.regionAt(x, y);
+    if (who === 'self') this.here = region;
+    if (!this.discovered.has(region)) {
+      this.discovered.add(region);
+      this.record.regions = [...this.discovered];
+      this.changed();
     }
   }
 
+  private regionAtCell(cx: number, cy: number): ZoneId | null {
+    const plan = this.zone?.plan;
+    if (!plan) return null;
+    const cols = Math.ceil(this.def.width / REGION_CELL);
+    if (!this.regionGrid) {
+      const rows = Math.ceil(this.def.height / REGION_CELL);
+      const grid: ZoneId[] = [];
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) grid.push(plan.regionAt((x + 0.5) * REGION_CELL, (y + 0.5) * REGION_CELL));
+      this.regionGrid = grid;
+    }
+    return this.regionGrid[cy * cols + cx] ?? null;
+  }
+
+  private tile(v: MapView, col: number, row: number): HTMLCanvasElement {
+    const i = row * v.tileCols + col;
+    const have = v.tiles[i];
+    if (have) return have;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.min(TILE, v.w - col * TILE));
+    c.height = Math.max(1, Math.min(TILE, v.h - row * TILE));
+    const g = c.getContext('2d');
+    if (g) {
+      g.translate(-col * TILE, -row * TILE);
+      this.drawBase(g, v, col, row);
+    }
+    v.tiles[i] = c;
+    return c;
+  }
+
   /** A zone's chunk obstacles that can show on a tile: those of every chunk whose square, grown by its spill, meets it. */
-  private chunkObstacles(col: number, row: number): Obstacle[] {
+  private chunkObstacles(v: MapView, col: number, row: number): Obstacle[] {
     const zone = this.zone;
     if (!zone) return [];
-    const x0 = (col * TILE) / this.scale - zone.spill;
-    const x1 = ((col + 1) * TILE) / this.scale + zone.spill;
-    const y0 = (row * TILE) / this.scale - zone.spill;
-    const y1 = ((row + 1) * TILE) / this.scale + zone.spill;
+    const x0 = (col * TILE) / v.scale - zone.spill;
+    const x1 = ((col + 1) * TILE) / v.scale + zone.spill;
+    const y0 = (row * TILE) / v.scale - zone.spill;
+    const y1 = ((row + 1) * TILE) / v.scale + zone.spill;
     const out: Obstacle[] = [];
     for (let cy = Math.max(0, Math.floor(y0 / zone.size)); cy <= Math.min(zone.rows - 1, Math.floor(y1 / zone.size)); cy++) {
       for (let cx = Math.max(0, Math.floor(x0 / zone.size)); cx <= Math.min(zone.cols - 1, Math.floor(x1 / zone.size)); cx++) out.push(...zone.obstacles(cx, cy));
@@ -260,19 +378,23 @@ export class Minimap {
   }
 
   /** Draws the layout in map pixels; a tile translates `g` first and the canvas clips the rest. */
-  private drawBase(g: CanvasRenderingContext2D, col: number, row: number): void {
-    const s = this.scale;
+  private drawBase(g: CanvasRenderingContext2D, v: MapView, col: number, row: number): void {
+    const s = v.scale;
     g.fillStyle = cssColor(this.def.groundTint);
     g.globalAlpha = 0.55;
-    g.fillRect(0, 0, this.w, this.h);
-    // The world colours each region as its ground is drawn, in cells of 250 units.
-    const plan = this.zone?.plan;
-    if (plan) {
-      const cell = 250;
-      for (let y = 0; y < this.def.height; y += cell) {
-        for (let x = 0; x < this.def.width; x += cell) {
-          g.fillStyle = cssColor(ZONES[plan.regionAt(x + cell / 2, y + cell / 2)].groundTint);
-          g.fillRect(x * s, y * s, cell * s + 1, cell * s + 1);
+    g.fillRect(0, 0, v.w, v.h);
+    // The world colours each region as its ground is drawn; only the cells under this tile.
+    if (this.zone?.plan) {
+      const x0 = Math.max(0, Math.floor((col * TILE) / s / REGION_CELL));
+      const x1 = Math.min(Math.ceil(this.def.width / REGION_CELL) - 1, Math.floor(((col + 1) * TILE) / s / REGION_CELL));
+      const y0 = Math.max(0, Math.floor((row * TILE) / s / REGION_CELL));
+      const y1 = Math.min(Math.ceil(this.def.height / REGION_CELL) - 1, Math.floor(((row + 1) * TILE) / s / REGION_CELL));
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          const region = this.regionAtCell(cx, cy);
+          if (!region) continue;
+          g.fillStyle = cssColor(ZONES[region].groundTint);
+          g.fillRect(cx * REGION_CELL * s, cy * REGION_CELL * s, REGION_CELL * s + 1, REGION_CELL * s + 1);
         }
       }
     }
@@ -289,7 +411,8 @@ export class Minimap {
         g.fill();
       } else if (patch.shape.type === 'capsule') {
         g.strokeStyle = '#8a7050';
-        g.lineWidth = patch.shape.r * 2 * s;
+        // The world's roads are 40 to 52 wide, about a pixel on the corner map; kept at 1.5 so they read as the way out.
+        g.lineWidth = Math.max(patch.kind === 'road' ? (v.large ? 2 : 1.5) : 0, patch.shape.r * 2 * s);
         g.lineCap = 'round';
         g.beginPath();
         g.moveTo(patch.shape.ax * s, patch.shape.ay * s);
@@ -298,7 +421,7 @@ export class Minimap {
       }
     }
     for (const river of this.def.rivers) {
-      g.strokeStyle = '#3a7ab0';
+      g.strokeStyle = '#3a6a90';
       g.lineWidth = Math.max(2, river.width * s);
       g.beginPath();
       river.path.forEach((p, i) => (i === 0 ? g.moveTo(p.x * s, p.y * s) : g.lineTo(p.x * s, p.y * s)));
@@ -307,10 +430,10 @@ export class Minimap {
     for (const b of this.def.bridges) {
       g.fillStyle = '#b08a5a';
       g.beginPath();
-      g.arc(b.x * s, b.y * s, 3, 0, Math.PI * 2);
+      g.arc(b.x * s, b.y * s, v.large ? 3.5 : 3, 0, Math.PI * 2);
       g.fill();
     }
-    for (const o of [...this.def.obstacles, ...this.chunkObstacles(col, row)]) {
+    for (const o of [...this.def.obstacles, ...this.chunkObstacles(v, col, row)]) {
       // Rock is the background underground; the carved floor already shows the layout.
       if (o.kind === 'water' || o.kind === 'cavewall') continue;
       g.fillStyle = o.kind === 'tree' ? '#2a4a22' : o.kind === 'house' || o.kind === 'stall' ? '#8a4a3a' : '#5a5650';
@@ -336,35 +459,33 @@ export class Minimap {
     }
   }
 
-  /** A point in north-up map pixels to the turned canvas. */
-  private toCanvas(mx: number, my: number): { x: number; y: number } {
-    return rotateAround(mx, my, this.pivotX, this.pivotY, this.outW, this.outH, this.angle);
-  }
-
   /**
    * A party member's marker: a ringed dot, or an arrow on the edge pointing at them when they stand
    * past the drawn map (spawn and arrival points can sit on or beyond its border).
    */
-  private drawAlly(g: CanvasRenderingContext2D, mx: number, my: number): void {
+  private drawAlly(g: CanvasRenderingContext2D, v: MapView, wx: number, wy: number): void {
     const inset = 5;
+    const mx = wx * v.scale;
+    const my = wy * v.scale;
     g.strokeStyle = '#000';
     g.lineWidth = 1;
-    const { x, y } = this.toCanvas(mx, my);
+    const { x, y } = v.toCanvas(wx, wy);
     let cx: number;
     let cy: number;
-    if (this.windowed) {
+    if (v.windowed) {
       // In a window the edge is the frame's own.
-      cx = Math.min(this.outW - inset, Math.max(inset, x));
-      cy = Math.min(this.outH - inset, Math.max(inset, y));
+      cx = Math.min(v.outW - inset, Math.max(inset, x));
+      cy = Math.min(v.outH - inset, Math.max(inset, y));
     } else {
       // Clamped to the map's own edge before turning, so the arrow sits on the turned map's border.
-      const clamped = this.toCanvas(Math.min(this.w - inset, Math.max(inset, mx)), Math.min(this.h - inset, Math.max(inset, my)));
+      const clamped = v.toCanvas(Math.min(v.w - inset, Math.max(inset, mx)) / v.scale, Math.min(v.h - inset, Math.max(inset, my)) / v.scale);
       cx = clamped.x;
       cy = clamped.y;
     }
+    const r = v.large ? 3.5 : 2.5;
     if (Math.abs(cx - x) < 1e-6 && Math.abs(cy - y) < 1e-6) {
       g.beginPath();
-      g.arc(x, y, 2.5, 0, Math.PI * 2);
+      g.arc(x, y, r, 0, Math.PI * 2);
       g.fill();
       g.stroke();
       return;
@@ -379,68 +500,201 @@ export class Minimap {
     g.stroke();
   }
 
+  private textWidth(g: CanvasRenderingContext2D, font: string, text: string): number {
+    const key = `${font}|${text}`;
+    const have = this.textWidths.get(key);
+    if (have !== undefined) return have;
+    const w = g.measureText(text).width;
+    this.textWidths.set(key, w);
+    return w;
+  }
+
+  /** Region names, upright at their spots; dim until the region has been entered. */
+  private drawLabels(g: CanvasRenderingContext2D, v: MapView): void {
+    if (this.labels.length === 0) return;
+    const size = v.large ? 15 : 10;
+    const font = `700 ${size}px Cinzel, serif`;
+    const townFont = `700 ${size + 2}px Cinzel, serif`;
+    const boxes: LabelBox[] = [];
+    const placed: { x: number; y: number; font: string; text: string; known: boolean }[] = [];
+    for (const l of this.labels) {
+      // The corner frame names the town under the map already, and in town the name would sit on the hero.
+      if (l.town && !v.large) continue;
+      const at = v.toCanvas(l.x, l.y);
+      if (at.x < -200 || at.y < -40 || at.x > v.outW + 200 || at.y > v.outH + 40) continue;
+      const f = l.town ? townFont : font;
+      g.font = f;
+      const known = l.town || this.discovered.has(l.region);
+      const priority = l.town ? 4 : l.region === this.here ? 3 : known ? 2 : 1;
+      boxes.push({ x: at.x, y: at.y, w: this.textWidth(g, f, l.name), h: size + 2, priority });
+      placed.push({ x: at.x, y: at.y, font: f, text: l.name, known });
+    }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    for (const i of fitLabels(boxes, v.outW, v.outH)) {
+      const p = placed[i];
+      if (!p) continue;
+      g.font = p.font;
+      g.globalAlpha = p.known ? 0.95 : 0.4;
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+      g.strokeText(p.text, p.x, p.y);
+      g.fillStyle = p.known ? '#d9c79a' : '#8c826e';
+      g.fillText(p.text, p.x, p.y);
+    }
+    g.globalAlpha = 1;
+  }
+
+  /** Waypoints, dungeon entrances and other portals once explored, and the gates across the roads. */
+  private drawPlaces(g: CanvasRenderingContext2D, v: MapView): void {
+    const big = v.large;
+    for (const p of this.def.portals) {
+      if (!this.fog.seenAt(p.x, p.y)) continue;
+      const at = v.toCanvas(p.x, p.y);
+      g.lineWidth = 1.5;
+      if (p.target === 'waypoint') {
+        // Found ones filled, the rest a hollow ring until touched, as the waypoint menu lists them.
+        const r = big ? 5 : 3.5;
+        const found = p.waypoint !== undefined && (p.waypoint === 'town' || this.found.has(p.waypoint));
+        g.beginPath();
+        g.moveTo(at.x, at.y - r);
+        g.lineTo(at.x + r, at.y);
+        g.lineTo(at.x, at.y + r);
+        g.lineTo(at.x - r, at.y);
+        g.closePath();
+        g.strokeStyle = found ? '#000' : '#8fb0d0';
+        g.fillStyle = '#8fb0d0';
+        if (found) g.fill();
+        g.stroke();
+      } else if (p.target === 'staging') {
+        const r = big ? 4.5 : 3;
+        g.fillStyle = '#7a2a22';
+        g.strokeStyle = '#d08a5a';
+        g.fillRect(at.x - r, at.y - r, r * 2, r * 2);
+        g.strokeRect(at.x - r, at.y - r, r * 2, r * 2);
+      } else {
+        g.fillStyle = '#b49cff';
+        g.beginPath();
+        g.arc(at.x, at.y, big ? 5 : 4, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    for (const gate of this.def.gates ?? []) {
+      if (!this.fog.seenAt(gate.x, gate.y)) continue;
+      const state = this.gates.get(gate.id);
+      const half = (big ? 8 : 5) / v.scale;
+      // Across the road: the gate's heading is along it.
+      const nx = -Math.sin(gate.angle) * half;
+      const ny = Math.cos(gate.angle) * half;
+      const a = v.toCanvas(gate.x + nx, gate.y + ny);
+      const b = v.toCanvas(gate.x - nx, gate.y - ny);
+      g.lineCap = 'butt';
+      g.strokeStyle = '#000';
+      g.lineWidth = big ? 6 : 4.5;
+      g.beginPath();
+      g.moveTo(a.x, a.y);
+      g.lineTo(b.x, b.y);
+      g.stroke();
+      g.strokeStyle = state === 'sealed' ? '#b0402e' : state === 'open' ? '#7f9a5e' : '#a08a60';
+      g.lineWidth = big ? 3.5 : 2.5;
+      g.stroke();
+    }
+  }
+
+  private drawSelf(g: CanvasRenderingContext2D, v: MapView, x: number, y: number): void {
+    const at = v.toCanvas(x, y);
+    g.fillStyle = '#ffd36b';
+    g.strokeStyle = '#000';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.arc(at.x, at.y, v.large ? 4.5 : 3.5, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  }
+
+  /** Layout tiles and fog under the view's turn. */
+  private drawGround(g: CanvasRenderingContext2D, v: MapView): void {
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, v.outW, v.outH);
+    g.translate(v.outW / 2, v.outH / 2);
+    g.rotate(v.angle);
+    g.translate(-v.pivotX, -v.pivotY);
+    const reach = Math.hypot(v.outW, v.outH) / 2;
+    for (const { col, row } of tilesNear(v.pivotX, v.pivotY, reach, v.tileCols, v.tileRows)) g.drawImage(this.tile(v, col, row), col * TILE, row * TILE);
+    // Only the fog cells round the window, so a windowed map does not scale the whole grid every draw.
+    const cellPx = this.fog.cell * v.scale;
+    const sx0 = Math.max(0, Math.floor((v.pivotX - reach) / cellPx) - 1);
+    const sy0 = Math.max(0, Math.floor((v.pivotY - reach) / cellPx) - 1);
+    const sx1 = Math.min(this.fog.cols, Math.ceil((v.pivotX + reach) / cellPx) + 1);
+    const sy1 = Math.min(this.fog.rows, Math.ceil((v.pivotY + reach) / cellPx) + 1);
+    if (sx1 > sx0 && sy1 > sy0) {
+      g.imageSmoothingEnabled = true;
+      g.drawImage(this.fogCanvas, sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * cellPx, sy0 * cellPx, (sx1 - sx0) * cellPx, (sy1 - sy0) * cellPx);
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
   /**
    * `party` names the player's party members; in the same map they share their vision, D2 style.
    * `far` are same-room members from the party status, drawn when the snapshot does not carry them.
    */
   update(selfX: number, selfY: number, entities: Iterable<EntitySnap>, selfId: number, party: ReadonlySet<string> = new Set(), far: readonly { name: string; x: number; y: number }[] = []): void {
-    const g = this.canvas.getContext('2d');
-    if (!g) return;
-    const s = this.scale;
     this.reveal('self', selfX, selfY);
     const list = [...entities];
     for (const e of list) if (e.k === 'player' && e.id !== selfId && party.has(e.name)) this.reveal(`p${e.id}`, e.x, e.y);
-    if (this.windowed) {
-      this.pivotX = selfX * s;
-      this.pivotY = selfY * s;
+    if (this.dirty && Date.now() - this.lastSave > SAVE_MS) this.flush();
+
+    const allies: { name: string; x: number; y: number }[] = list.flatMap((e) => (e.k === 'player' && e.id !== selfId && party.has(e.name) ? [{ name: e.name, x: e.x, y: e.y }] : []));
+    const near = new Set(list.flatMap((e) => (e.k === 'player' ? [e.name] : [])));
+    for (const m of far) if (!near.has(m.name)) allies.push(m);
+
+    this.drawCorner(selfX, selfY, list, selfId, party, allies);
+    if (this.largeOpen && this.large) this.drawLarge(this.large, selfX, selfY, allies);
+  }
+
+  private drawCorner(selfX: number, selfY: number, list: readonly EntitySnap[], selfId: number, party: ReadonlySet<string>, allies: readonly { x: number; y: number }[]): void {
+    const v = this.corner;
+    const g = v.canvas.getContext('2d');
+    if (!g) return;
+    if (v.windowed) {
+      v.pivotX = selfX * v.scale;
+      v.pivotY = selfY * v.scale;
     }
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, this.outW, this.outH);
-    g.translate(this.outW / 2, this.outH / 2);
-    g.rotate(this.angle);
-    g.translate(-this.pivotX, -this.pivotY);
-    const reach = Math.hypot(this.outW, this.outH) / 2;
-    for (const { col, row } of tilesNear(this.pivotX, this.pivotY, reach, this.tileCols, this.tileRows)) {
-      g.drawImage(this.baseTile(col, row), col * TILE, row * TILE);
-      g.drawImage(this.fogTile(col, row), col * TILE, row * TILE);
-    }
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    for (const p of this.def.portals) {
-      if (!this.isSeen(p.x, p.y)) continue;
-      const at = this.toCanvas(p.x * s, p.y * s);
-      g.fillStyle = '#b49cff';
-      g.beginPath();
-      g.arc(at.x, at.y, 4, 0, Math.PI * 2);
-      g.fill();
-    }
+    this.drawGround(g, v);
+    this.drawLabels(g, v);
+    this.drawPlaces(g, v);
     for (const e of list) {
-      const ally = e.k === 'player' && party.has(e.name);
-      // Party members always show, even under fog; everything else only once explored.
-      if (e.id === selfId || (!ally && !this.isSeen(e.x, e.y))) continue;
+      // Party members are drawn below with their arrows; everything else only once explored.
+      if (e.id === selfId || (e.k === 'player' && party.has(e.name)) || !this.fog.seenAt(e.x, e.y)) continue;
       if (e.k === 'enemy') g.fillStyle = e.rare ? '#ffc640' : '#e04040';
-      else if (e.k === 'player') g.fillStyle = ally ? '#7ad69a' : '#6bb6ff';
+      else if (e.k === 'player') g.fillStyle = '#6bb6ff';
       else if (e.k === 'minion') g.fillStyle = '#b49cff';
       else if (e.k === 'loot') g.fillStyle = cssColor(TIER_COLORS[e.tier]);
       else continue;
-      if (ally) {
-        this.drawAlly(g, e.x * s, e.y * s);
-        continue;
-      }
-      const at = this.toCanvas(e.x * s, e.y * s);
-      g.fillRect(at.x - 1.5, at.y - 1.5, e.k === 'enemy' && e.rare ? 4 : 3, e.k === 'enemy' && e.rare ? 4 : 3);
+      const at = v.toCanvas(e.x, e.y);
+      const size = e.k === 'enemy' && e.rare ? 4 : 3;
+      g.fillRect(at.x - 1.5, at.y - 1.5, size, size);
     }
-    const near = new Set(list.flatMap((e) => (e.k === 'player' ? [e.name] : [])));
-    for (const m of far) {
-      if (near.has(m.name)) continue;
-      g.fillStyle = '#7ad69a';
-      this.drawAlly(g, m.x * s, m.y * s);
-    }
-    const self = this.toCanvas(selfX * s, selfY * s);
-    g.fillStyle = '#ffd36b';
-    g.strokeStyle = '#000';
-    g.beginPath();
-    g.arc(self.x, self.y, 3.5, 0, Math.PI * 2);
-    g.fill();
-    g.stroke();
+    g.fillStyle = '#7ad69a';
+    for (const m of allies) this.drawAlly(g, v, m.x, m.y);
+    this.drawSelf(g, v, selfX, selfY);
+  }
+
+  /** The world map: the explored world, places and the party, without monsters or loot. Redrawn only when something on it moved or changed. */
+  private drawLarge(v: MapView, selfX: number, selfY: number, allies: readonly { x: number; y: number }[]): void {
+    // A pixel of movement on the world map is about 20 units; anything less draws the same picture.
+    const px = (n: number) => Math.round(n * v.scale);
+    const key = `${this.version}|${px(selfX)},${px(selfY)}|${allies.map((a) => `${px(a.x)},${px(a.y)}`).join(';')}`;
+    if (key === this.largeDrawn) return;
+    this.largeDrawn = key;
+    const g = v.canvas.getContext('2d');
+    if (!g) return;
+    this.drawGround(g, v);
+    this.drawLabels(g, v);
+    this.drawPlaces(g, v);
+    g.fillStyle = '#7ad69a';
+    for (const m of allies) this.drawAlly(g, v, m.x, m.y);
+    this.drawSelf(g, v, selfX, selfY);
   }
 }

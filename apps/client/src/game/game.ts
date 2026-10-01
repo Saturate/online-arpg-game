@@ -40,6 +40,8 @@ import { ExitPortal } from '../render/exitPortal.js';
 import { Effects } from '../render/fx.js';
 import { playFxEvent } from '../render/fxEvents.js';
 import { Minimap } from '../render/minimap.js';
+import { browserStorage, fogKey, type FogStorage } from '../render/fog.js';
+import { toggleWorldMap, useWorldMap } from '../ui/WorldMap.js';
 import { WorldScene } from '../render/scene.js';
 import { initSkillPicks, pickSkill, useUi } from '../ui/store.js';
 import { ClickMover } from './clickMove.js';
@@ -139,6 +141,8 @@ export interface GameMounts {
   host: HTMLElement;
   fxLayer: HTMLElement;
   minimap: HTMLCanvasElement | null;
+  /** The world map's canvas (M); the replay viewer has none. */
+  worldMap?: HTMLCanvasElement | null;
 }
 
 /** Recorded playback: messages come from a file on a virtual clock, and nothing is sent anywhere. */
@@ -335,7 +339,18 @@ export class Game {
     });
   }
 
+  /**
+   * Where the world's explored map is remembered: per character and world seed, in this browser.
+   * The server keeps no fog, so another browser starts dark; a dungeon is fresh every run anyway.
+   */
+  private fogStore(desc: MapDescriptor): { storage: FogStorage; key: string } | null {
+    if (desc.kind !== 'world' || this.session.kind !== 'live') return null;
+    const storage = browserStorage();
+    return storage ? { storage, key: fogKey(this.session.character.id, desc.seed) } : null;
+  }
+
   private teardownRoom(): void {
+    this.room?.minimap?.flush();
     this.editor?.dispose();
     this.editor = null;
     if (!this.room) return;
@@ -390,7 +405,7 @@ export class Game {
       spells: new SpellTable(),
       mover: new ClickMover(game),
       zone: loaded.zone,
-      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`, loaded.zone) : null,
+      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`, loaded.zone, { large: this.mounts.worldMap ?? null, persist: this.fogStore(desc) }) : null,
       sealed,
       exits: [],
     };
@@ -447,6 +462,7 @@ export class Game {
     else if (code === 'F3') useUi.setState((s) => ({ devOpen: !s.devOpen }));
     else if (code === 'Escape') {
       if (ui.settingsOpen) useUi.setState({ settingsOpen: false });
+      else if (useWorldMap.getState().open) useWorldMap.setState({ open: false });
       else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen || ui.station || ui.waypointMenu) {
         // The station closes for real, or the next I would bring the stash or trader back with the bag.
         ui.closeStation();
@@ -481,6 +497,9 @@ export class Game {
         break;
       case 'minimap':
         useUi.setState((s) => ({ minimapVisible: !s.minimapVisible }));
+        break;
+      case 'worldMap':
+        toggleWorldMap();
         break;
       default:
         break;
@@ -555,6 +574,7 @@ export class Game {
       case 'waypoints':
         // Touching a waypoint still activates it on the server; the menu waits for a click, as in D2.
         this.waypointOffer = { current: msg.current, unlocked: msg.unlocked, at: performance.now() };
+        this.room?.minimap?.addFoundWaypoints(msg.unlocked);
         return;
       case 'staging':
         useUi.setState({ staging: msg });
@@ -991,6 +1011,7 @@ export class Game {
 
     if (room.minimap && now - this.lastMinimap > MINIMAP_MS) {
       this.lastMinimap = now;
+      room.minimap.setLargeOpen(useWorldMap.getState().open);
       const ui = useUi.getState();
       // Members beyond the snapshot's reach still show, from the once-a-second party status.
       const far = ui.partyStatus.flatMap((m) => (m.x !== undefined && m.y !== undefined ? [{ name: m.name, x: m.x, y: m.y }] : []));
@@ -1022,7 +1043,10 @@ export class Game {
           break;
         }
         case 'waypoint':
-          if (ev.id === this.playerId) useUi.getState().notify(`Waypoint activated: ${this.room?.def.waypoints?.find((w) => w.id === ev.waypoint)?.name ?? 'unknown'}`);
+          if (ev.id === this.playerId) {
+            this.room?.minimap?.addFoundWaypoints([ev.waypoint]);
+            useUi.getState().notify(`Waypoint activated: ${this.room?.def.waypoints?.find((w) => w.id === ev.waypoint)?.name ?? 'unknown'}`);
+          }
           break;
         case 'fizzle':
           if (ev.id === this.playerId) this.lastFizzle = ev.why === 'misfire' ? 'misfire' : `dud: ${ev.reason ?? '?'}`;
