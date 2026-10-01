@@ -369,6 +369,14 @@ Measured with the parity harness at base 5 (per Force as a share of the best sta
 
 A Concentrated Nova buys damage at about the plain Nova's rate per Force, and on a Bolt at a worse one, so it is a way to put more damage in one cast for more Force and a slot, not a cheaper way to deal damage. The random search with Concentrated, one per shape (206 of 300 compiled), found nothing above 1.67x (`zone[after 0.7s, +31% duration] nova[+12% size, +55% damage] lightning lightning concentrated(54)`). The harness packs stand close together, so the smaller area costs less there than it will in play.
 
+## Planned: starter damage multipliers in admin (owner, 2026-10-01)
+
+"Bone spear is a bit bad? Can we buff via admin?" Starter numbers live on each player's sigil item, and shape base damage (`SPELL.bolt.damage`) is shared by every spell of that shape, so neither is a live knob for one skill.
+
+- **A live damage multiplier per starter skill** on the admin page (ServerSettings or its own table, like monster tuning), default 1, validated range 0.5 to 3. It applies only while a sigil holds its starter's full recipe (`holdsStarterRecipe`), never to a player-made spell, and changes no items. Running casts pick it up on the next cast; tooltips and the forge show the multiplied numbers.
+- **Balance:** the damage-per-Force tests run at the defaults; the admin page shows each starter's damage per Force against the 2x cap at the chosen value, so a tweak that breaks the cap is visible.
+- **First use:** Bone Spear (`bolt[pierce 4, +50% speed, +40% damage]`).
+
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 
 - **Damage packets:** every hit carries physical, fire, cold and lightning amounts instead of one number plus an element tag.
