@@ -130,6 +130,14 @@ export function decorFootprint(d: TownDecor): Shape | null {
 }
 
 /**
+ * The thinnest a solid piece blocks, as half its thickness: the fence prop's radius. Movement steps
+ * up to 20 units at a time, so a hero (radius 14) touching a thinner piece can cross its middle in
+ * one step and be pushed out the far side: a dash went through the graveyard's split fence (half
+ * thickness 0.9) and the wood fence (2).
+ */
+const MIN_SOLID_HALF = 8;
+
+/**
  * What a solid piece blocks: a little inside its footprint (roofs and branches overhang), a circle
  * for round things, and only the trunk for a tree, so heroes can walk under the canopy's edge.
  */
@@ -138,9 +146,10 @@ export function decorCollision(d: TownDecor): Shape | null {
   if (!spec) return null;
   const at = placed(d, spec.ox, spec.oz);
   const inset = 0.85;
-  if (spec.shape === 'trunk') return { type: 'circle', x: at.x, y: at.y, r: Math.max(8, Math.min(spec.w, spec.d) * 0.2) * d.scale };
-  if (spec.shape === 'round') return { type: 'circle', x: at.x, y: at.y, r: (Math.min(spec.w, spec.d) / 2) * inset * d.scale };
-  return { type: 'box', x: at.x, y: at.y, hw: (spec.w / 2) * inset * d.scale, hh: (spec.d / 2) * inset * d.scale, angle: d.angle };
+  const half = (size: number): number => Math.max(MIN_SOLID_HALF, (size / 2) * inset * d.scale);
+  if (spec.shape === 'trunk') return { type: 'circle', x: at.x, y: at.y, r: Math.max(MIN_SOLID_HALF, Math.max(8, Math.min(spec.w, spec.d) * 0.2) * d.scale) };
+  if (spec.shape === 'round') return { type: 'circle', x: at.x, y: at.y, r: half(Math.min(spec.w, spec.d)) };
+  return { type: 'box', x: at.x, y: at.y, hw: half(spec.w), hh: half(spec.d), angle: d.angle };
 }
 
 /** Oak versus pine is a render choice; the map only knows "tree". This hint rides on the visual size. */

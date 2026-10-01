@@ -73,6 +73,8 @@ export interface Placer {
 
 interface AssetParts {
   size: Vector3;
+  /** Middle of the model's bounds, in the same frame as `size` and each mesh's `local`. */
+  center: Vector3;
   meshes: { geometry: BufferGeometry; material: Material; local: Matrix4 }[];
 }
 
@@ -90,14 +92,16 @@ function assetParts(id: string): Promise<AssetParts | null> {
       ? instantiate(def).then(
           (inst) => {
             inst.root.updateMatrixWorld(true);
-            const size = new Box3().setFromObject(inst.root).getSize(new Vector3());
+            const box = new Box3().setFromObject(inst.root);
+            const size = box.getSize(new Vector3());
+            const center = box.getCenter(new Vector3());
             const meshes: AssetParts['meshes'] = [];
             const baked = BAKED_FLAMES[id];
             inst.root.traverse((o) => {
               if (!(o instanceof Mesh) || !o.visible || Array.isArray(o.material)) return;
               meshes.push({ geometry: baked ? withoutUvRect(o.geometry, baked) : o.geometry, material: o.material, local: o.matrixWorld.clone() });
             });
-            return { size, meshes };
+            return { size, center, meshes };
           },
           () => null,
         )
@@ -148,18 +152,12 @@ export class PropBatch implements Placer {
       [...this.placements].map(async ([id, list]) => {
         const parts = await assetParts(id);
         if (!parts || isCancelled()) return;
-        const { size, meshes } = parts;
-        // Segment assets are not all modelled along x; turn them so their long side follows the line.
-        const alongZ = size.z > size.x;
+        const { size, center, meshes } = parts;
         const fade = list.some((p) => p.fade === true);
         for (const m of meshes) {
           const im = new InstancedMesh(m.geometry, fade ? fadeCopy(m.material) : m.material, list.length);
           list.forEach((p, i) => {
-            const s = fitScale(p.fit, size) * (p.jitter ?? 1);
-            tmpPos.set(p.x, 0, p.y);
-            tmpQuat.setFromAxisAngle(up, -p.angle + ('length' in p.fit && alongZ ? Math.PI / 2 : 0));
-            tmpScale.setScalar(s);
-            im.setMatrixAt(i, tmpMatrix.compose(tmpPos, tmpQuat, tmpScale).multiply(m.local));
+            im.setMatrixAt(i, placementMatrix(p, size, center, tmpMatrix).multiply(m.local));
           });
           im.castShadow = true;
           im.receiveShadow = true;
@@ -169,6 +167,27 @@ export class PropBatch implements Placer {
       }),
     );
   }
+}
+
+const tmpCentre = new Matrix4();
+
+/**
+ * Where a placement puts its model, before the mesh's own transform. A segment (a `length` fit)
+ * is turned so its long side follows the line and centred on it: the KayKit fence is modelled on
+ * the edge of a hex tile, a whole tile's radius from its origin, so placed by its origin every
+ * fence was drawn about 40 units to one side of the line that blocks walking. Everything else is
+ * placed by its origin, which is what the decor footprints (`TOWN_DECOR_ASSETS` ox and oz) assume.
+ */
+export function placementMatrix(p: Placement, size: Vector3, center: Vector3, out: Matrix4): Matrix4 {
+  const segment = 'length' in p.fit;
+  // Segment assets are not all modelled along x.
+  const alongZ = size.z > size.x;
+  tmpPos.set(p.x, 0, p.y);
+  tmpQuat.setFromAxisAngle(up, -p.angle + (segment && alongZ ? Math.PI / 2 : 0));
+  tmpScale.setScalar(fitScale(p.fit, size) * (p.jitter ?? 1));
+  out.compose(tmpPos, tmpQuat, tmpScale);
+  if (segment) out.multiply(tmpCentre.makeTranslation(-center.x, 0, -center.z));
+  return out;
 }
 
 /** How far a placement reaches from its anchor on the ground, roughly, for its chunk's bounds. */
