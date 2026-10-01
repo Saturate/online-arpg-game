@@ -1,7 +1,12 @@
 import {
+  compileRunes,
   compileSigilItem,
   createStarterSigil,
   formatRunes,
+  holdsStarterRecipe,
+  liveStarterRunes,
+  sigilCompileContext,
+  toRuneInstance,
   SIM,
   SKILL_BUTTONS,
   Simulation,
@@ -50,7 +55,7 @@ export interface StudioSkill {
 }
 
 export function studioSkillOf(def: StarterSigilDef): StudioSkill {
-  return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(def.runes) };
+  return { id: def.id, name: def.name, description: def.description, classId: def.classId, text: formatRunes(liveStarterRunes(def)) };
 }
 
 /**
@@ -64,10 +69,16 @@ export function studioSigil(def: StudioSkill): SigilItem | null {
   return createStarterSigil(() => uid++, { id: def.id, name: def.name, description: def.description, classId: def.classId, runes: t.runes }, { bound: true });
 }
 
-/** Compiles the draft exactly as the game compiles an equipped starter sigil. */
+/**
+ * Compiles the draft as the game compiles an equipped starter sigil. A draft holding a starter's
+ * runes casts its own numbers as written: the studio is where a starter's numbers are drafted, and
+ * the game would cast the live recipe in place of an edited roll. Opened from a starter, the draft
+ * is the live recipe, so both agree.
+ */
 export function compileSkill(def: StudioSkill): SigilCompile {
   const sigil = studioSigil(def);
   if (!sigil) return { ok: false, errors: tokenizeSpell(def.text).errors, force: 0 };
+  if (holdsStarterRecipe(sigil)) return compileRunes(sigil.slots.map(toRuneInstance), sigilCompileContext(sigil, def.classId));
   return compileSigilItem(sigil, def.classId);
 }
 

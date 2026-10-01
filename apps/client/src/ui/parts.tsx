@@ -17,6 +17,7 @@ import {
   RUNE_STACK,
   sigilCapacity,
   matchingStarter,
+  shownSlots,
   STAT_IDS,
   STAT_LABELS,
   vesselPackmates,
@@ -246,7 +247,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
         {item.slots.length === 0 ? (
           <span className="muted">{editorAllowed ? 'Blank. Inscribe it with K.' : 'Blank. Inscribe runes into it at the forge in town.'}</span>
         ) : (
-          item.slots.map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)
+          shownSlots(item).map((r) => <RuneChip key={r.uid} id={r.rune} item={r} small />)
         )}
       </div>
       {item.slots.length > 0 && result.ok && <p className="tt-sec tt-sentence">{describeTree(result.tree)}</p>}

@@ -101,6 +101,25 @@ export const STARTER_SIGILS: readonly StarterSigilDef[] = [
   { id: 'frost_mire', name: 'Frost Mire', description: 'A freezing bog that slows enemies.', classId: 'binder', runes: spell('zone[+75% duration] cold') },
 ];
 
+/**
+ * The numbers a whole starter casts with, live-tunable (docs/features/live-tuning.md, phase 2). A
+ * copy of each recipe that the registry overwrites in place; `STARTER_SIGILS` keeps the code
+ * defaults, which new sigils are made with and the stored rolls of every copy are, so a retune
+ * never changes what an item sells for or what comes out of it.
+ */
+const LIVE_RUNES: ReadonlyMap<string, readonly RuneInstance[]> = new Map(STARTER_SIGILS.map((def) => [def.id, def.runes.map(copyRune)]));
+
+/** A copy that shares nothing mutable with the default, with its keys in the same order. */
+function copyRune(r: RuneInstance): RuneInstance {
+  const release = r.affixes.release;
+  return { id: r.id, affixes: { ...r.affixes, ...(release ? { release: { ...release } } : {}) } };
+}
+
+/** The starter's recipe as it casts now: the code default with any live tuning applied. */
+export function liveStarterRunes(def: StarterSigilDef): readonly RuneInstance[] {
+  return LIVE_RUNES.get(def.id) ?? def.runes;
+}
+
 export function starterSigilById(id: string | null | undefined): StarterSigilDef | undefined {
   return id ? STARTER_SIGILS.find((s) => s.id === id) : undefined;
 }

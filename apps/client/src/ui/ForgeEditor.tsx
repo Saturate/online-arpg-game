@@ -5,6 +5,7 @@ import {
   formatAffix,
   HEAT,
   matchingStarter,
+  shownSlots,
   RULES,
   runeColor,
   runeDescription,
@@ -242,6 +243,8 @@ export function ForgeEditor() {
   const drafted = useMemo(() => (sigil && resolution ? draftSigil(sigil, resolution) : null), [sigil, resolution]);
   const tunables = useTunables((s) => s.version);
   const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId, tunables]);
+  // A whole starter shows the live numbers it casts on hover; the weakening warning still reads the stored rolls.
+  const shown = useMemo(() => (drafted ? shownSlots(drafted) : []), [drafted, tunables]);
 
   if (!open || !inv || !classId) return null;
 
@@ -400,8 +403,8 @@ export function ForgeEditor() {
                           unhover();
                           setDraft(removeAt(draft, i));
                         }}
-                        onMouseEnter={(e) => hover(slot.item, e, hint, weakens)}
-                        onMouseMove={(e) => hover(slot.item, e, hint, weakens)}
+                        onMouseEnter={(e) => hover(shown[i] ?? slot.item, e, hint, weakens)}
+                        onMouseMove={(e) => hover(shown[i] ?? slot.item, e, hint, weakens)}
                         onMouseLeave={unhover}
                         data-link-uid={slot.item.uid >= 0 ? slot.item.uid : undefined}
                         aria-label={`Slot ${i + 1}: ${runeName(slot.item.rune)}${rolled ? ', rolled' : ''}${weakens ? `. ${weakens}` : ''}`}

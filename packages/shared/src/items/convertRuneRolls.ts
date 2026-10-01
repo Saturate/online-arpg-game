@@ -30,7 +30,11 @@ export const RETIRED_SIGIL_AFFIXES: ReadonlySet<string> = new Set(['first_rune_f
 /** The name word each retired affix gave a sigil named from its affixes. */
 const RETIRED_NAME_WORDS: readonly string[] = ['Primed'];
 
-/** The recipes the buffed starters had before 2026-10-01, in the Spell Lab's text form. */
+/**
+ * The recipes the buffed starters had before 2026-10-01, in the Spell Lab's text form. A change to
+ * a starter's numbers needs no entry: a sigil holding its starter's runes in order casts the live
+ * recipe whatever its rolls (castingSlots). Only a change to which runes a recipe holds does.
+ */
 export const OLD_STARTER_RUNES: Readonly<Record<string, string>> = {
   multishot: 'bolt[pierce 2, +60% damage] split(3) split(3)',
   flame_cleave: 'bolt[-50% duration, +60% size] fire split(3)',

@@ -3,7 +3,7 @@ import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffix
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
-import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
+import { liveStarterRunes, starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
 import { clampRuneRolls, honestTier } from './runeRolls.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
@@ -300,27 +300,51 @@ export function runeRecipeKey(item: RuneItem): string {
 }
 
 /**
- * Whether the sigil holds its starter's runes exactly: the same runes with the same rolls, in order.
- * Only then do hand-set starter rolls cast as written (castingSlots).
+ * Whether the sigil casts as its starter: its own `starter` names the starter, and its slots hold
+ * that starter's runes in order, whatever their rolls. A sigil without that `starter` never casts a
+ * starter's numbers, even holding the same runes. Bench runes are free and made on the spot, so a
+ * starter refilled from the bench casts what they are, plain.
  */
 export function holdsStarterRecipe(item: SigilItem): boolean {
-  const def = starterSigilById(item.starter);
-  if (!def || def.runes.length !== item.slots.length) return false;
-  return def.runes.every((r, i) => {
-    const slot = item.slots[i];
-    return slot !== undefined && runeRecipeKey(slot) === runeRecipeKey(runeItemFromInstance(0, r, false));
+  return matchingStarter(item) !== undefined && item.slots.every((s) => s.bench !== true);
+}
+
+/** The slot's rune item with the live recipe's rolls instead of its own; the same object when they are equal. */
+function withLiveRolls(slot: RuneItem, inst: RuneInstance): RuneItem {
+  const affixes = runeItemFromInstance(slot.uid, inst, false).affixes;
+  const same = affixes.length === slot.affixes.length && affixes.every((a, i) => {
+    const b = slot.affixes[i];
+    return b !== undefined && a.id === b.id && a.value === b.value && a.tier === b.tier;
+  });
+  return same ? slot : { ...slot, affixes };
+}
+
+/**
+ * The runes as they cast. A whole starter casts its live recipe numbers (the code defaults with any
+ * live tuning), not the rolls stored on its runes, so a retune reaches every copy at once and none
+ * is clamped by it. The stored rolls stay on the items for prices and for what comes out of the sigil.
+ *
+ * Anything else casts its rolls clamped into the loot table, as they would be if they came out: a
+ * starter's hand-set rolls (Multishot's +300% damage, Frozen Orb's 0.18 s pulse) are balanced for
+ * the whole starter, and kept alone, reordered or beside other runes a +300% Bolt dealt 2.85x the
+ * best starter's damage per Force. Putting the starter back together restores it.
+ */
+export function castingSlots(item: SigilItem): RuneItem[] {
+  const def = holdsStarterRecipe(item) ? matchingStarter(item) : undefined;
+  if (!def) return item.slots.map(clampRuneRolls);
+  const live = liveStarterRunes(def);
+  return item.slots.map((slot, i) => {
+    const inst = live[i];
+    return inst ? withLiveRolls(slot, inst) : slot;
   });
 }
 
 /**
- * The runes as they cast. A starter's hand-set rolls (Multishot's +300% damage, Frozen Orb's 0.18 s
- * pulse) are balanced for the whole starter; kept alone, reordered or beside other runes, a +300%
- * Bolt dealt 2.85x the best starter's damage per Force. So unless the sigil holds its starter's
- * recipe exactly, every rune casts with its rolls clamped into the loot table, as it would be if
- * it came out. The items keep their rolls, so putting the starter back together restores it.
+ * The runes to show with their rolls: a whole starter's live numbers, which is what it casts, and
+ * otherwise the stored rolls, which are what come out of the sigil.
  */
-export function castingSlots(item: SigilItem): RuneItem[] {
-  return holdsStarterRecipe(item) ? item.slots : item.slots.map(clampRuneRolls);
+export function shownSlots(item: SigilItem): RuneItem[] {
+  return holdsStarterRecipe(item) ? castingSlots(item) : item.slots;
 }
 
 /**

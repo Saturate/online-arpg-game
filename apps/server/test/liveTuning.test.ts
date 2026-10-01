@@ -284,5 +284,41 @@ describe('live tuning writes', () => {
     expect(socket.sent.some((m) => m.t === 'notice' && m.text === 'Prayer was unequipped: a balance change raised its spirit past your pool')).toBe(true);
     server.close();
   });
+
+  it('retunes a starter in a running room on its next cast, from the stored rolls of the copy the player owns', async () => {
+    const { store, rooms, server, call } = await setup();
+    const acc = await store.register('binder', 'password123');
+    if (acc === 'taken') throw new Error('taken');
+    const ch = store.createCharacter(acc.id, 'Bonecaller', 'binder');
+    if (typeof ch === 'string') throw new Error(ch);
+    const socket = new FakeSocket();
+    rooms.connect(socket);
+    socket.emit({ t: 'join', token: store.createSession(acc.id), characterId: ch.id });
+    rooms.tick();
+    const w = welcome(socket);
+    const room = rooms.roomById(w.roomId);
+    const p = room?.sim.world.player.get(w.playerId);
+    if (!room || !p) throw new Error('no binder');
+    const slot = p.sigils.findIndex((eq) => {
+      const item = eq ? p.items.get(eq.uid) : undefined;
+      return item?.kind === 'sigil' && item.starter === 'bone_spear';
+    });
+    expect(slot).toBeGreaterThanOrEqual(0);
+    let seq = 0;
+    const spear = (): number => {
+      while (p.castCooldown > 0) rooms.tick();
+      p.heat = 0;
+      const before = new Set(room.sim.world.projectile.keys());
+      socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: SKILL_BUTTONS[slot] ?? 0 });
+      rooms.tick();
+      socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0 });
+      for (const [id, proj] of room.sim.world.projectile) if (proj.ownerId === w.playerId && !before.has(id)) return proj.damage;
+      throw new Error('no spear');
+    };
+    const plain = spear();
+    expect((await call('PATCH', '/api/admin/tuning', { 'starter.bone_spear.0.damage': 140 })).status).toBe(200);
+    expect(spear()).toBeCloseTo((plain * 2.4) / 1.4, 5);
+    server.close();
+  });
 });
 

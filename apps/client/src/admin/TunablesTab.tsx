@@ -11,7 +11,7 @@ import {
   type TunablesState,
   type TuningCategory,
 } from '@rune/shared';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { call, type ApiResult } from '../net/api.js';
 import './tunables.css';
 
@@ -225,8 +225,17 @@ export function TunablesTab({ token, role, notify }: { token: string; role: Role
         ) : (
           <table className="tun-table">
             <tbody>
-              {shown.map((s) => (
-                <Row key={s.path} spec={s} saved={values[s.path]} edit={edits[s.path]} editable={editable} onEdit={(t) => setEdit(s.path, t)} />
+              {shown.map((s, i) => (
+                <Fragment key={s.path}>
+                  {s.group !== undefined && s.group !== shown[i - 1]?.group && (
+                    <tr className="tun-group">
+                      <th colSpan={4} scope="rowgroup">
+                        {s.group}
+                      </th>
+                    </tr>
+                  )}
+                  <Row spec={s} saved={values[s.path]} edit={edits[s.path]} editable={editable} onEdit={(t) => setEdit(s.path, t)} />
+                </Fragment>
               ))}
             </tbody>
           </table>

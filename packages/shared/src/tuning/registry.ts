@@ -1,7 +1,8 @@
 import { AILMENTS, AURA, HEAT, LINK, SPELL } from '../config/sim.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
-import { SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
+import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
+import { liveStarterRunes, STARTER_SIGILS } from '../data/starterSigils.js';
 import type { TunableValues } from './values.js';
 
 /**
@@ -11,7 +12,7 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['shapes', 'spell', 'aura', 'bond', 'ailments', 'force', 'spirit', 'runes'] as const;
+export const TUNING_CATEGORIES = ['shapes', 'spell', 'aura', 'bond', 'ailments', 'force', 'spirit', 'runes', 'starters'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
@@ -23,6 +24,7 @@ export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
   force: 'Force prices',
   spirit: 'Spirit prices',
   runes: 'Rune effects',
+  starters: 'Starters',
 };
 
 export interface TunableSpec {
@@ -37,6 +39,8 @@ export interface TunableSpec {
   /** Whole numbers only (tick counts, caps, copy counts). */
   int: boolean;
   note?: string;
+  /** A heading inside the category, for example the starter a number belongs to. */
+  group?: string;
 }
 
 export { isTunableValues, type TunableValues } from './values.js';
@@ -126,10 +130,10 @@ function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function add(path: string, category: TuningCategory, label: string, target: object, key: string): void {
+function add(path: string, category: TuningCategory, label: string, target: object, key: string, opts: { range?: Range; group?: string } = {}): void {
   const v: unknown = Reflect.get(target, key);
   if (typeof v !== 'number') throw new Error(`tunable ${path} is not a number`);
-  const special = SPECIAL[path] ?? {};
+  const special = opts.range ?? SPECIAL[path] ?? {};
   const range = defaultRange(v);
   const spec: TunableSpec = {
     path,
@@ -140,6 +144,7 @@ function add(path: string, category: TuningCategory, label: string, target: obje
     max: special.max ?? range.max,
     int: special.int ?? false,
     ...(special.note === undefined ? {} : { note: special.note }),
+    ...(opts.group === undefined ? {} : { group: opts.group }),
   };
   if (spec.default < spec.min || spec.default > spec.max) throw new Error(`tunable ${path} default ${v} is outside ${spec.min} to ${spec.max}`);
   const slot = { spec, target, key };
@@ -204,6 +209,58 @@ SPECIAL['rune.concentrated.defaultMore'] = { min: CONCENTRATED.minMore, max: CON
 add('rune.concentrated.defaultMore', 'runes', 'Concentrated: % more damage without a roll', CONCENTRATED, 'defaultMore');
 SPECIAL['rune.split.defaultCount'] = { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
 add('rune.split.defaultCount', 'runes', 'Split: copies without a count', DEFAULTS, 'splitCount');
+
+/**
+ * Each starter's own rune numbers (phase 2): every roll in its recipe, under one group per starter.
+ * They overwrite the live copy of the recipe (`liveStarterRunes`), which a whole starter casts.
+ * Percentages go down to -90, where the engine's own floor (a tenth) sits; counts stay whole and
+ * inside the grammar's limits, so a tuned starter still compiles.
+ */
+const STARTER_KEYS = {
+  speed: '% speed',
+  size: '% size',
+  duration: '% duration',
+  damage: '% damage',
+  concentration: '% more damage',
+  pierce: 'enemies pierced',
+  count: 'Split copies',
+} as const;
+const PERCENT_FLOOR = -90;
+
+function isStarterKey(k: string): k is keyof typeof STARTER_KEYS {
+  return Object.hasOwn(STARTER_KEYS, k);
+}
+
+function starterRange(key: keyof typeof STARTER_KEYS, d: number): Range {
+  switch (key) {
+    case 'count':
+      return { min: SPLIT_COUNT_RANGE.min, max: SPLIT_COUNT_RANGE.max, int: true };
+    case 'pierce':
+      return { min: 0, max: Math.max(10 * d, 1), int: true };
+    case 'concentration':
+      return { min: CONCENTRATED.minMore, max: CONCENTRATED.maxMore };
+    default:
+      return { min: PERCENT_FLOOR, max: tidy(Math.max(10 * Math.abs(d), 100)) };
+  }
+}
+
+for (const def of STARTER_SIGILS) {
+  liveStarterRunes(def).forEach((rune, i) => {
+    const where = `${runeName(rune.id)} (rune ${i + 1})`;
+    const opts = (range: Range) => ({ range, group: def.name });
+    const r = rune.affixes.release;
+    if (r && (r.kind === 'after' || r.kind === 'every')) {
+      const range = { min: MIN_RELEASE_SECONDS, max: tidy(Math.max(10 * r.seconds, 1)) };
+      add(`starter.${def.id}.${i}.${r.kind}`, 'starters', `${where}: releases ${r.kind} (seconds)`, r, 'seconds', opts(range));
+    }
+    for (const key of Object.keys(rune.affixes)) {
+      if (!isStarterKey(key)) continue;
+      const v = rune.affixes[key];
+      if (v === undefined) continue;
+      add(`starter.${def.id}.${i}.${key}`, 'starters', `${where}: ${STARTER_KEYS[key]}`, rune.affixes, key, opts(starterRange(key, v)));
+    }
+  });
+}
 
 /** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
 export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));

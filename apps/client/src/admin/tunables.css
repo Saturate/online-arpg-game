@@ -91,6 +91,14 @@
 .tun-table tr.tun-over th {
   color: var(--gold);
 }
+.tun-table tr.tun-group th {
+  padding: 12px 0 4px;
+  color: var(--gold);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #2a2218;
+}
 .tun-path {
   display: block;
   font-size: 10px;
