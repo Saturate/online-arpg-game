@@ -41,16 +41,8 @@ import { computeStats } from './stats.js';
 export const FORGE_REACH = 170;
 
 
-export function compileSigil(sim: Simulation, p: PlayerComp, item: SigilItem): EquippedSigil {
-  return { uid: item.uid, compiled: compileSigilItem(item, p.classId, sim.rates.starterDamage), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
-}
-
-/** After an admin starter tuning change; damage changes neither spirit nor links, so nothing else moves. */
-export function recompileSigils(sim: Simulation, p: PlayerComp): void {
-  p.sigils = p.sigils.map((eq) => {
-    const item = eq ? p.items.get(eq.uid) : undefined;
-    return eq && item?.kind === 'sigil' ? compileSigil(sim, p, item) : eq;
-  });
+export function compileSigil(p: PlayerComp, item: SigilItem): EquippedSigil {
+  return { uid: item.uid, compiled: compileSigilItem(item, p.classId), misfireMultiplier: sigilMisfireMultiplier(item), castDelayShare: sigilCastDelayShare(item) };
 }
 
 function spiritMax(p: PlayerComp): number {
@@ -224,7 +216,7 @@ export function giveStarterKit(sim: Simulation, pid: EntityId): void {
     .forEach((def, slot) => {
       const item = createStarterSigil(() => sim.newItemUid(), def, { bound: true });
       p.items.set(item.uid, item);
-      p.sigils[slot] = compileSigil(sim, p, item);
+      p.sigils[slot] = compileSigil(p, item);
       // Starter persistent skills only go in if they fit, so a class can never start over its spirit.
       if (spiritReservedFor(p) > spiritMax(p)) {
         p.sigils[slot] = null;
@@ -270,7 +262,7 @@ export function restoreSave(sim: Simulation, pid: EntityId, stored: PlayerSave):
   p.gold = save.gold;
   save.sigils.forEach((u, slot) => {
     const item = p.items.get(re(u) ?? -1);
-    p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(sim, p, item) : null;
+    p.sigils[slot] = item?.kind === 'sigil' ? compileSigil(p, item) : null;
   });
   // Last, once every slot is filled: what did not fit (an old 20-slot bag of big items), plus
   // anything left over from before, is retried in the stash. What still does not fit stays
@@ -419,7 +411,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
 
   if (slot >= 0) {
     const previous = p.sigils[slot] ?? null;
-    p.sigils[slot] = compileSigil(sim, p, { ...item, slots });
+    p.sigils[slot] = compileSigil(p, { ...item, slots });
     if (spiritReservedFor(p) > spiritMax(p)) {
       p.sigils[slot] = previous;
       return 'Not enough spirit for that persistent skill';
@@ -461,7 +453,7 @@ export function equipSigil(sim: Simulation, pid: EntityId, uid: ItemUid, slot: n
   if (levelRequirement(item) > p.level) return `Requires level ${levelRequirement(item)}`;
 
   const previous = p.sigils[slot] ?? null;
-  p.sigils[slot] = compileSigil(sim, p, item);
+  p.sigils[slot] = compileSigil(p, item);
   if (spiritReservedFor(p) > spiritMax(p)) {
     p.sigils[slot] = previous;
     return 'Not enough spirit to equip that';

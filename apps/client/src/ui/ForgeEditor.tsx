@@ -5,7 +5,6 @@ import {
   formatAffix,
   HEAT,
   matchingStarter,
-  starterDamageFor,
   RULES,
   runeColor,
   runeDescription,
@@ -28,7 +27,6 @@ import {
 } from '@rune/shared';
 import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
 import { formatCooldown } from '../game/castTiming.js';
-import { useStarterTuning } from '../game/starterTuning.js';
 import { cssColor } from '../render/config.js';
 import { buildPool, draftSigil, insertAt, keepAll, moveSlot, plainRef, refKey, refundOverflow, removeAt, resolveDraft, runeStock, sameDraft, type PlainEntry, type RolledEntry, type RuneOrigin } from './forge/draft.js';
 import { ForgePreviewCanvas } from './forge/PreviewCanvas.js';
@@ -241,8 +239,7 @@ export function ForgeEditor() {
   const draftKey = draft.map(refKey).join(' ');
   const pool = useMemo(() => (sigil && stock ? buildPool(sigil, draft, stock) : null), [sigil, stock, draft]);
   const drafted = useMemo(() => (sigil && resolution ? draftSigil(sigil, resolution) : null), [sigil, resolution]);
-  const starterDamage = useStarterTuning((s) => s.damage);
-  const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId, starterDamage) : null), [drafted, classId, starterDamage]);
+  const result = useMemo(() => (drafted && classId ? compileFor(drafted, classId) : null), [drafted, classId]);
 
   if (!open || !inv || !classId) return null;
 
@@ -428,7 +425,7 @@ export function ForgeEditor() {
               </div>
 
               <div className="forge-foot">
-                <ForgePreviewCanvas classId={classId} spellKey={`${sigil.uid}:${draftKey}:${drafted ? starterDamageFor(drafted, starterDamage) : 1}`} compiled={draft.length > 0 ? result : null} castDelayShare={sigilCastDelayShare(sigil)} />
+                <ForgePreviewCanvas classId={classId} spellKey={`${sigil.uid}:${draftKey}`} compiled={draft.length > 0 ? result : null} castDelayShare={sigilCastDelayShare(sigil)} />
                 <div className="forge-save">
                   {resolution.refunds.length > 0 && <p className="muted">Comes back out: {resolution.refunds.map((r) => runeName(r.rune)).join(', ')}</p>}
                   {resolution.refundWeakened.length > 0 && (

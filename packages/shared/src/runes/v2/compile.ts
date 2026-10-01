@@ -1,8 +1,6 @@
 import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
-import { affixValue, castingSlots, holdsStarterRecipe, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
-import { starterSigilById } from '../../data/starterSigils.js';
-import { NO_STARTER_DAMAGE, starterDamageOf, type StarterDamage } from '../../data/starterTuning.js';
+import { affixValue, castingSlots, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
 import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
 import { engineForm, lifetime } from './budget.js';
 import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
@@ -424,30 +422,10 @@ export function sigilCompileContext(item: SigilItem, classId: ClassId): SigilCom
   };
 }
 
-/**
- * The admin's multiplier for this sigil's starter (ServerSettings.starterDamage): 1 unless the sigil
- * holds its starter's whole recipe, so a player-made spell or a starter with any rune changed never
- * gets it.
- */
-export function starterDamageFor(item: SigilItem, table: StarterDamage): number {
-  return item.starter !== undefined && holdsStarterRecipe(item) ? starterDamageOf(table, item.starter) : 1;
-}
-
-/** Damage tuning only, like Concentrated: heals, shields and the strength of Ward and Restore auras keep theirs. */
-function scaleDamage(node: EngineNode, m: number): EngineNode {
-  return { ...node, tuning: { ...node.tuning, damage: node.tuning.damage * m }, payload: node.payload.map((c) => scaleDamage(c, m)) };
-}
-
-export function compileSigilItem(item: SigilItem, classId: ClassId, starterDamage: StarterDamage = NO_STARTER_DAMAGE): SigilCompile {
+export function compileSigilItem(item: SigilItem, classId: ClassId): SigilCompile {
   const slots = castingSlots(item);
   const compiled = compileRunes(slots.map(toRuneInstance), sigilCompileContext(item, classId));
-  if (!compiled.ok) return compiled;
-  const notes = [...compiled.notes];
   const held = slots.flatMap((r, i) => (r === item.slots[i] ? [] : [`${runeName(r.rune)} (rune ${i + 1})`]));
-  if (held.length > 0) notes.push(`Starter rolls only hold in the whole starter: ${held.join(', ')} cast${held.length === 1 ? 's' : ''} at the loot table's best.`);
-  const m = starterDamageFor(item, starterDamage);
-  if (m === 1) return held.length === 0 ? compiled : { ...compiled, notes };
-  notes.push(`${starterSigilById(item.starter)?.name ?? 'This starter'} is tuned to deal ${Math.round(m * 100)}% damage while the sigil holds its whole starter.`);
-  const roots = compiled.program.roots.map((r) => scaleDamage(r, m));
-  return { ...compiled, program: { ...compiled.program, roots }, notes };
+  if (!compiled.ok || held.length === 0) return compiled;
+  return { ...compiled, notes: [...compiled.notes, `Starter rolls only hold in the whole starter: ${held.join(', ')} cast${held.length === 1 ? 's' : ''} at the loot table's best.`] };
 }

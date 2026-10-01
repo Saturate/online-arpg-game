@@ -762,12 +762,6 @@ kbd {
   font-size: 12px;
   margin: 4px 0;
 }
-.tt-tuned {
-  color: var(--muted);
-  font-size: 11px;
-  font-style: italic;
-  margin: 2px 0;
-}
 .affixes .tier {
   color: var(--muted);
   font-size: 10px;

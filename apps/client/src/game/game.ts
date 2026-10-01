@@ -53,7 +53,6 @@ import { InterpolationBuffer } from './interpolation.js';
 import { SpellTable } from './spellTable.js';
 import { Predictor } from './prediction.js';
 import { receiveCastCooldown } from './castTiming.js';
-import { receiveStarterDamage } from './starterTuning.js';
 import { TownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
@@ -546,7 +545,6 @@ export class Game {
         useUi.getState().connected();
         this.playerId = msg.playerId;
         receiveCastCooldown(msg.castCooldown);
-        receiveStarterDamage(msg.starterDamage);
         this.townEditorAllowed = msg.townEditor;
         // A role change resends the welcome; an open editor would otherwise linger with saves refused.
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
@@ -638,9 +636,6 @@ export class Game {
         return;
       case 'castCooldown':
         receiveCastCooldown(msg.seconds);
-        return;
-      case 'starterDamage':
-        receiveStarterDamage(msg.damage);
         return;
       case 'models': {
         const models = parseModelOverrides(msg.models);

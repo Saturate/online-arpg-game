@@ -1,5 +1,4 @@
 import {
-  sameStarterDamage,
   ARENA,
   can,
   resolveChatLinks,
@@ -198,7 +197,6 @@ export class RoomManager implements AdminHooks {
       bossLife: s.bossLifeMultiplier,
       bossDamage: s.bossDamageMultiplier,
       castCooldown: s.castCooldownSeconds,
-      starterDamage: s.starterDamage,
     };
   }
 
@@ -215,7 +213,6 @@ export class RoomManager implements AdminHooks {
 
   updateSettings(patch: Partial<ServerSettings>): ServerSettings {
     const cooldownChanged = patch.castCooldownSeconds !== undefined && patch.castCooldownSeconds !== this.current.castCooldownSeconds;
-    const starterChanged = patch.starterDamage !== undefined && !sameStarterDamage(patch.starterDamage, this.current.starterDamage);
     this.current = { ...this.current, ...patch };
     this.store.saveSettings(this.current);
     for (const room of this.rooms.values()) this.applySettings(room);
@@ -226,7 +223,6 @@ export class RoomManager implements AdminHooks {
       c.send({ t: 'lighting', lighting });
       c.send({ t: 'zoom', zoom });
       if (cooldownChanged) c.send({ t: 'castCooldown', seconds: this.current.castCooldownSeconds });
-      if (starterChanged) c.send({ t: 'starterDamage', damage: this.current.starterDamage });
     }
     return this.settings();
   }

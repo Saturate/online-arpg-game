@@ -1,6 +1,5 @@
 import { ENEMY_LEVEL, HEAT, STREAMING } from '../config/sim.js';
 import { isClassId, type ClassId } from '../data/classes.js';
-import { NO_STARTER_DAMAGE, parseStarterDamage, type StarterDamage } from '../data/starterTuning.js';
 import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
 
@@ -140,11 +139,6 @@ export interface ServerSettings {
   bossDamageMultiplier: number;
   /** Seconds between any two sigil casts, before the cast delay affix and cast speed shorten it. */
   castCooldownSeconds: number;
-  /**
-   * Damage multiplier per starter skill (id to multiplier, only those off 1), applied while a sigil
-   * holds its starter's whole recipe. A PUT replaces the whole table.
-   */
-  starterDamage: StarterDamage;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -175,7 +169,6 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   bossLifeMultiplier: ENEMY_LEVEL.bossLifeMultiplier,
   bossDamageMultiplier: ENEMY_LEVEL.bossDamageMultiplier,
   castCooldownSeconds: HEAT.castCooldownSeconds,
-  starterDamage: NO_STARTER_DAMAGE,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
@@ -327,11 +320,6 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     const [min, max] = ranges[key];
     if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) return `${key} must be between ${min} and ${max}`;
     out[key] = v;
-  }
-  if (value.starterDamage !== undefined) {
-    const table = parseStarterDamage(value.starterDamage);
-    if (typeof table === 'string') return table;
-    out.starterDamage = table;
   }
   for (const key of ['registrationOpen'] as const) {
     const v = value[key];

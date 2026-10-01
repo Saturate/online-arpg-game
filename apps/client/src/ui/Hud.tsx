@@ -5,7 +5,6 @@ import { SkillIcon } from './icons.js';
 import { keyLabel, useSettings } from './settings.js';
 
 import { formatCooldown } from '../game/castTiming.js';
-import { useStarterTuning } from '../game/starterTuning.js';
 import { usePanelLayout } from './GamePanel.js';
 import { spiritUses } from './spirit.js';
 import { tip } from './Tip.js';
@@ -77,8 +76,7 @@ function SkillSlot({ slot }: { slot: number }) {
   const uid = inv?.sigils[slot] ?? null;
   const item = itemByUid(inv, uid);
   const sigil: SigilItem | null = item?.kind === 'sigil' ? item : null;
-  const starterDamage = useStarterTuning((s) => s.damage);
-  const result = useMemo(() => (sigil && classId ? compileFor(sigil, classId, starterDamage) : null), [sigil, classId, starterDamage]);
+  const result = useMemo(() => (sigil && classId ? compileFor(sigil, classId) : null), [sigil, classId]);
   const persistent = result?.ok === true && result.persistent;
   const cooldown = useSigilCooldown(sigil);
   // Named and described as its starter only while it still holds the starter's runes.

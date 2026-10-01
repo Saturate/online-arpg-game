@@ -241,15 +241,3 @@ body {
 .adm-secret p {
   margin: 0;
 }
-.adm-starters td {
-  padding: 3px 8px;
-}
-.adm-starters input {
-  width: 64px;
-}
-.adm-starters input[aria-invalid='true'] {
-  border-color: var(--bad);
-}
-.adm-starters button.small {
-  margin-left: 6px;
-}

@@ -17,7 +17,6 @@ import {
   RUNE_STACK,
   sigilCapacity,
   matchingStarter,
-  starterDamageFor,
   STAT_IDS,
   STAT_LABELS,
   vesselPackmates,
@@ -32,7 +31,6 @@ import { cssColor, TIER_COLORS, UNIQUE_COLOR } from '../render/config.js';
 import { compileFor, useUi } from './store.js';
 import { tip } from './Tip.js';
 import { formatCooldown } from '../game/castTiming.js';
-import { useStarterTuning } from '../game/starterTuning.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
@@ -222,12 +220,10 @@ function VesselDetails({ item }: { item: Extract<Item, { kind: 'vessel' }> }) {
 function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }>; classId: ClassId }) {
   const debug = useUi((s) => s.debugVisible);
   const editorAllowed = useUi((s) => s.station === 'forge' || (s.editorAllowed && s.devTools));
-  const starterDamage = useStarterTuning((s) => s.damage);
-  const result = compileFor(item, classId, starterDamage);
+  const result = compileFor(item, classId);
   const cooldown = useSigilCooldown(item);
   // Still the starter it came from only while it holds the starter's runes.
   const skill = matchingStarter(item);
-  const tuned = starterDamageFor(item, starterDamage);
   const sub = item.corrupted ? 'Corrupted Sigil' : skill ? 'Starter Sigil' : 'Sigil';
   return (
     <div className="item-details">
@@ -237,7 +233,6 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
           <strong>{skill.name}</strong>: {skill.description}
         </p>
       )}
-      {tuned !== 1 && <p className="tt-sec tt-tuned">Tuned to deal {Math.round(tuned * 100)}% damage while it holds the whole starter</p>}
       <p className="tt-sec tt-wand">
         {sigilCapacity(item)} rune slots
         {!(result.ok && result.persistent) && <> · Cooldown {formatCooldown(cooldown)}</>}

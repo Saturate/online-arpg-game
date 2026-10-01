@@ -1,4 +1,4 @@
-import { isClassId, isItemShape, isLeaderboardResponse, isRole, isStarterDamage, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
+import { isClassId, isItemShape, isLeaderboardResponse, isRole, isTokenScope, type AdminTokenInfo, type CreatedAdminToken, type NewAdminToken, type GrantRequest, type Item, type AdminAccount, type AdminCharacter, type AdminOnlinePlayer, type AdminOverview, type AssignableRole, type CharacterSummary, type CharactersResponse, type ClassId, type ServerSettings, type SessionResponse } from '@rune/shared';
 
 /**
  * Account and character calls. Paths are same-origin: Vite proxies /api to the game server in dev,
@@ -90,33 +90,8 @@ function isAccounts(v: unknown): v is AdminAccount[] {
   return Array.isArray(v) && v.every((a) => isRecord(a) && typeof a.id === 'number' && typeof a.username === 'string' && typeof a.createdAt === 'number' && typeof a.banned === 'boolean' && typeof a.guest === 'boolean' && isRole(a.role) && Array.isArray(a.characters) && a.characters.every(isAdminCharacter));
 }
 
-const SETTINGS_NUMBERS = [
-  'xpRate', 'lootRate', 'worldSeed', 'dayMinutes', 'nightBrightness', 'clockOffset', 'heldPhase', 'heroLight', 'heroLightRadius', 'lampLight',
-  'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', 'zoomDefault', 'zoomDungeon', 'zoomMin', 'zoomMax',
-  'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds',
-] as const;
-
-type SettingsReply = Omit<ServerSettings, 'starterDamage'> & { starterDamage?: unknown };
-
-function isSettingsReply(v: unknown): v is SettingsReply {
-  return isRecord(v) && SETTINGS_NUMBERS.every((k) => typeof v[k] === 'number') && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold');
-}
-
-/**
- * The admin page's settings. A server from before starter tuning sends no `starterDamage`; during a
- * rollout the new page still works against it, reading every starter at 1.
- */
-export function settingsFromReply(v: unknown): ServerSettings | null {
-  if (!isSettingsReply(v)) return null;
-  const { starterDamage, ...rest } = v;
-  if (starterDamage === undefined) return { ...rest, starterDamage: {} };
-  return isStarterDamage(starterDamage) ? { ...rest, starterDamage } : null;
-}
-
-function asSettings(r: ApiResult<unknown>): ApiResult<ServerSettings> {
-  if (!r.ok) return r;
-  const s = settingsFromReply(r.data);
-  return s ? { ok: true, data: s } : { ok: false, status: 502, error: 'Unexpected server response' };
+function isSettings(v: unknown): v is ServerSettings {
+  return isRecord(v) && typeof v.xpRate === 'number' && typeof v.lootRate === 'number' && typeof v.motd === 'string' && typeof v.registrationOpen === 'boolean' && typeof v.worldSeed === 'number' && typeof v.dayMinutes === 'number' && typeof v.nightBrightness === 'number' && (v.timeOfDay === 'cycle' || v.timeOfDay === 'hold') && typeof v.clockOffset === 'number' && typeof v.heldPhase === 'number' && typeof v.heroLight === 'number' && typeof v.heroLightRadius === 'number' && typeof v.lampLight === 'number' && typeof v.respawnMinutes === 'number' && typeof v.bossRespawnMinutes === 'number' && typeof v.gateRespawnMinutes === 'number' && typeof v.bossLifeMultiplier === 'number' && typeof v.bossDamageMultiplier === 'number';
 }
 
 function isClaimed(v: unknown): v is { username: string } {
@@ -187,8 +162,8 @@ export const api = {
 export const adminApi = {
   overview: async (token: string) => narrow(await call('GET', '/api/admin/overview', token), isOverview),
   accounts: async (token: string) => narrow(await call('GET', '/api/admin/accounts', token), isAccounts),
-  settings: async (token: string) => asSettings(await call('GET', '/api/admin/settings', token)),
-  saveSettings: async (token: string, patch: Partial<ServerSettings>) => asSettings(await call('PUT', '/api/admin/settings', token, patch)),
+  settings: async (token: string) => narrow(await call('GET', '/api/admin/settings', token), isSettings),
+  saveSettings: async (token: string, patch: Partial<ServerSettings>) => narrow(await call('PUT', '/api/admin/settings', token, patch), isSettings),
   setRole: async (token: string, accountId: number, role: AssignableRole) => narrow(await call('POST', `/api/admin/accounts/${accountId}/role`, token, { role }), isOk),
   ban: async (token: string, accountId: number, banned: boolean) => narrow(await call('POST', `/api/admin/accounts/${accountId}/ban`, token, { banned }), isOk),
   goto: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/goto', token, { characterId }), isOk),
