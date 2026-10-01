@@ -139,7 +139,7 @@ export function tryOnEntries(tryOns: readonly { key: string; fileName: string }[
 export function accountEntries(accounts: readonly SearchAccount[]): SearchEntry[] {
   return accounts.flatMap((a) => {
     const badges = [a.role !== 'player' ? ROLE_INFO[a.role].name : '', a.guest ? 'guest' : '', a.banned ? 'banned' : ''].filter((b) => b !== '');
-    const account: SearchEntry = { id: `player:${a.id}`, kind: 'player', tab: 'players', target: String(a.id), title: a.username, detail: [`${a.characters.length} characters`, ...badges].join(' · '), terms: a.characters.map((c) => c.name) };
+    const account: SearchEntry = { id: `player:${a.id}`, kind: 'player', tab: 'players', target: String(a.id), title: a.username, detail: [`${a.characters.length} character${a.characters.length === 1 ? '' : 's'}`, ...badges].join(' · '), terms: a.characters.map((c) => c.name) };
     const chars = a.characters.map((c): SearchEntry => ({ id: `character:${c.id}`, kind: 'character', tab: 'players', target: String(a.id), title: c.name, detail: `${CLASSES[c.classId].name} ${c.level} · ${a.username}`, terms: [a.username] }));
     return [account, ...chars];
   });

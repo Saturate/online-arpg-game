@@ -20,8 +20,8 @@ import { searchId, TAB_NAMES, visibleTabs, type Jump, type Tab } from './tabs.js
  * cannot use, reusing the game's login from this browser.
  */
 
-/** Every staff role is a builder or above, so all of them get the monster tabs; editing is checked per action. */
-const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'tuning', 'monsters', 'minions', 'modelCheck']);
+/** Tabs with wide tables or editors use the whole window; forms keep the narrow column. */
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'players', 'log', 'tuning', 'monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';

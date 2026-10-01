@@ -85,7 +85,7 @@ export function HealthPanel({ health }: { health: LiveHealth }) {
       <figure className="live-spark-box">
         <Sparkline mean={health.tickHistory.mean} max={health.tickHistory.max} />
         <figcaption className="muted">
-          Tick time, last {minutes} min: line is the mean per second, shade the worst, dashes the {TICK_BUDGET_MS} ms budget
+          Tick, {minutes} min · line mean, shade worst, dashes {TICK_BUDGET_MS} ms budget
         </figcaption>
       </figure>
     </section>
@@ -226,7 +226,8 @@ const REGION_TINTS = ['#353222', '#352c26', '#243024', '#36281c', '#2a2b34', '#3
 
 export function WorldMinimap({ world }: { world: LiveWorld }) {
   const { width, height, regions } = world;
-  const dot = Math.max(width, height) / 90;
+  // About 4 px on the side panel's 300 px map, whatever the world's size.
+  const dot = Math.max(width, height) / 75;
   const runs: { key: string; x: number; y: number; w: number; h: number; tint: string; name: string }[] = [];
   if (regions) {
     const cw = width / regions.cols;

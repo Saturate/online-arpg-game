@@ -7,7 +7,12 @@
   gap: 14px;
 }
 .live h2 {
-  margin: 4px 0 6px;
+  margin: 18px 0 6px;
+}
+.live-main > h2:first-child,
+.live-side > h2:first-child,
+.live-tails h2 {
+  margin-top: 4px;
 }
 .live h2 .muted {
   font-family: var(--font-body);
@@ -21,7 +26,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 10px;
-  align-items: start;
+  align-items: stretch;
 }
 .live-stats {
   display: grid;
@@ -73,7 +78,7 @@
 }
 .live-spark {
   width: 100%;
-  height: 64px;
+  height: 40px;
   display: block;
 }
 .live-spark-mean {
@@ -125,11 +130,22 @@
 }
 .live-bar {
   display: block;
-  height: 3px;
+  position: relative;
+  height: 4px;
   margin-top: 3px;
   background: #221c14;
   border-radius: 2px;
   overflow: hidden;
+}
+/* Half the budget, where the colour turns to a warning. */
+.live-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #4a3b24;
 }
 .live-bar span {
   display: block;
@@ -179,15 +195,15 @@
   fill: #0d0b09;
 }
 .live-map-town {
-  fill: rgba(217, 181, 106, 0.08);
-  stroke: #6b5634;
+  fill: rgba(217, 181, 106, 0.06);
+  stroke: #4a3b24;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 .live-dot {
   fill: #cfc6b4;
-  stroke: #000;
-  stroke-width: 1;
+  stroke: #0a0907;
+  stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 .live-dot.party {
@@ -258,4 +274,14 @@
 .log-note {
   text-align: left;
   margin: 8px 0 0;
+}
+/* Four red Kick buttons would be the loudest thing on the page; the red comes back on hover and focus. */
+.live-table button.danger {
+  border-color: #3a2f20;
+  color: var(--muted);
+}
+.live-table button.danger:hover,
+.live-table button.danger:focus-visible {
+  border-color: #7a2a20;
+  color: var(--bad);
 }

@@ -281,3 +281,14 @@ body {
 .adm input[type='range'] {
   accent-color: var(--gold);
 }
+/* The game's gold focus rules are scoped to the game, so without these the browser's blue ring shows. */
+.adm :focus {
+  outline: none;
+}
+.adm :focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.adm :is(input, textarea, select):focus {
+  border-color: #a8834a;
+}

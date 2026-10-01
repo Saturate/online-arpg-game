@@ -34,7 +34,8 @@
   font-size: 13px;
 }
 .srch-results li.on {
-  background: rgba(217, 181, 106, 0.1);
+  background: rgba(217, 181, 106, 0.16);
+  box-shadow: inset 2px 0 var(--gold);
 }
 .srch-results li.srch-empty {
   display: block;
@@ -47,7 +48,7 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--muted);
-  padding-top: 2px;
+  align-self: center;
 }
 .srch-kind.player,
 .srch-kind.character {
