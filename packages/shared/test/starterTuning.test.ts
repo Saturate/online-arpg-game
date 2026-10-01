@@ -131,11 +131,31 @@ describe('a whole starter casts the live recipe', () => {
     expect(casts(old)).toBe(casts(s));
   });
 
-  it('gives a starter refilled with a plain rune of the same id the recipe numbers', () => {
+  it('casts a starter emptied and refilled with plain runes clamped, so the refill is not free', () => {
+    for (const def of STARTER_SIGILS) {
+      const s = made(def.id);
+      if (s.slots.every((r) => r.affixes.length === 0)) continue;
+      let uid = 900;
+      const refilled: SigilItem = { ...s, slots: s.slots.map((r) => createRune(uid++, r.rune)) };
+      expect(holdsStarterRecipe(refilled), def.id).toBe(false);
+      expect(castingSlots(refilled)).toEqual(refilled.slots);
+    }
+    applyTunables({ 'starter.bone_spear.0.damage': 400 });
+    const spear = made('bone_spear');
+    const plain: SigilItem = { ...spear, slots: [createRune(950, 'bolt')] };
+    expect(casts(plain)).not.toContain('400');
+  });
+
+  it('casts the recipe for a starter refilled with a found rune carrying the same affix kinds', () => {
     const s = made('bone_spear');
-    const refilled: SigilItem = { ...s, slots: [createRune(900, 'bolt')] };
+    // A drop-table Bolt: pierce, speed and damage rolls, at values a drop can have.
+    const found = runeItemFromInstance(960, { id: 'bolt', affixes: { pierce: 1, speed: 15, damage: 12 } }, false);
+    const refilled: SigilItem = { ...s, slots: [found] };
     expect(holdsStarterRecipe(refilled)).toBe(true);
     expect(casts(refilled)).toBe(casts(s));
+    // One affix kind short (no speed roll) is not the recipe.
+    const short = runeItemFromInstance(961, { id: 'bolt', affixes: { pierce: 1, damage: 12 } }, false);
+    expect(holdsStarterRecipe({ ...s, slots: [short] })).toBe(false);
   });
 
   it('casts bench runes as what they are, even in their starter', () => {

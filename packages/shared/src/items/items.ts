@@ -299,14 +299,27 @@ export function runeRecipeKey(item: RuneItem): string {
   return `${item.rune}|${item.affixes.map((a) => `${a.id}:${a.value}`).sort().join(',')}`;
 }
 
+/** A rune's affix kinds, sorted, without their values or tiers. */
+function affixKinds(affixes: readonly AffixRoll[]): string {
+  return affixes.map((a) => a.id).sort().join(',');
+}
+
 /**
  * Whether the sigil casts as its starter: its own `starter` names the starter, and its slots hold
- * that starter's runes in order, whatever their rolls. A sigil without that `starter` never casts a
- * starter's numbers, even holding the same runes. Bench runes are free and made on the spot, so a
- * starter refilled from the bench casts what they are, plain.
+ * that starter's runes in order, each carrying the recipe's affix kinds for that rune, whatever
+ * their values. A sigil without that `starter` never casts a starter's numbers, even holding the
+ * same runes. The affix kinds stop a free refill: a starter's runes taken out (clamped) and replaced
+ * with plain ones would otherwise keep casting the whole starter, a spare top-tier rune set per
+ * sigil. Bench runes are free and made on the spot, so a starter refilled from the bench casts
+ * what they are.
  */
 export function holdsStarterRecipe(item: SigilItem): boolean {
-  return matchingStarter(item) !== undefined && item.slots.every((s) => s.bench !== true);
+  const def = matchingStarter(item);
+  if (!def) return false;
+  return def.runes.every((r, i) => {
+    const slot = item.slots[i];
+    return slot !== undefined && slot.bench !== true && affixKinds(slot.affixes) === affixKinds(runeItemFromInstance(0, r, false).affixes);
+  });
 }
 
 /** The slot's rune item with the live recipe's rolls instead of its own; the same object when they are equal. */
