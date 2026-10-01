@@ -33,6 +33,15 @@ Every gameplay number that matters for balance can be changed through the admin 
 - **Applied the same everywhere:** the server and every client apply the same overrides (sent with the welcome and on every change), so tooltips, the forge and prediction match the server. Replays record the overrides they ran with.
 - **Monster tuning stays** as it is and is linked from the same admin page; it may move into the registry later.
 
+## Planned: the balance bench (owner, 2026-10-01)
+
+"We need an overview of prebuilt sigils and how changes affect them, Spell Studio like."
+
+- **Rows:** every class's kit skills, the hand-picked spells the balance tests measure, the 20 most-equipped sigils on live (read from saves), and admin picks (rune text typed in, saved server-side and shared between admins).
+- **Columns:** Force, spirit, damage per Force single and pack, against the 2x line.
+- **Preview:** while numbers are edited in the Tuning tab and not yet saved, every row shows before, after and the change in percent.
+- **Watch one:** a row opens a Spell Studio view that casts the sigil at a dummy and a pack at the proposed numbers.
+
 ## How (plan)
 
 1. **Framework and shapes and runes** (built, below): the registry, storage (an overrides table and a history table in SQLite), the API (`GET /api/admin/tuning` for schema plus current values, `PATCH` for changes, `GET .../history`, `POST .../revert`), delivery to clients, the admin page (a dark table by category, search, the code default beside each value, reset to default per field, the history list with revert), and the first category: shapes and runes.
