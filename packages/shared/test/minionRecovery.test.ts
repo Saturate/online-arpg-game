@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createVessel, loadMap, SIM, Simulation, type EntityId, type VesselItem } from '../src/index.js';
+import { createVessel, loadMap, MINIONS, SIM, Simulation, spiritReservedFor, startArena, type EntityId, type VesselItem } from '../src/index.js';
 import { dealDamage, isTargetable } from '../src/sim/combat.js';
 import { findNavPath } from '../src/sim/minionPath.js';
 import { pathBudgetStats } from '../src/sim/minions.js';
@@ -78,6 +78,111 @@ describe('minions while their master is dead', () => {
     dealDamage(sim, id, 1_000_000, enemy, []);
     for (let i = 0; i < 20; i++) sim.step();
     expect(sim.world.isAlive(m)).toBe(true);
+  });
+});
+
+function minionsOf(sim: Simulation, owner: EntityId): EntityId[] {
+  const out: EntityId[] = [];
+  for (const [mid, m] of sim.world.minion) if (m.ownerId === owner && sim.world.isAlive(mid)) out.push(mid);
+  return out;
+}
+
+/** A Binder with the starter Brute and a relic Hound pack of three in slot 1. */
+function packBinder(sim: Simulation, client: string) {
+  const id = sim.addPlayer(client, 'binder');
+  const p = sim.world.player.get(id);
+  if (!p) throw new Error('setup');
+  p.stats.spiritMax = 1000;
+  const v: VesselItem = { ...createVessel(sim.newItemUid(), sim.rng, 'relic', 'hound', 1), affixes: [], pack: 3 };
+  p.items.set(v.uid, v);
+  p.inventory[p.inventory.indexOf(null)] = v.uid;
+  expect(sim.equipVessel(id, v.uid, 1)).toBeNull();
+  sim.step();
+  return { id, p };
+}
+
+describe('minions of a fallen Arena member', () => {
+  it('are desummoned at the death, without loot, XP, score or a death of their own, and stay away for the run', () => {
+    const sim = new Simulation(9, { kind: 'testground' });
+    startArena(sim, 1);
+    const a = packBinder(sim, 'a');
+    const b = packBinder(sim, 'b');
+    const apos = sim.world.position.get(a.id);
+    if (!apos) throw new Error('setup');
+    // 1 Brute, 1 Leader and 3 packmates each.
+    expect(minionsOf(sim, a.id)).toHaveLength(5);
+    expect(minionsOf(sim, b.id)).toHaveLength(5);
+    const enemy = sim.spawnEnemy('chaser', apos.x + 60, apos.y);
+    const eh = sim.world.health.get(enemy);
+    if (!eh) throw new Error('setup');
+    eh.life = eh.maxLife = 100_000;
+    const warband = [...a.p.warband];
+    const spirit = spiritReservedFor(a.p);
+    const xp = a.p.xp;
+    sim.takeEvents();
+
+    dealDamage(sim, a.id, 1_000_000, enemy, []);
+    expect(a.p.respawnIn).not.toBeNull();
+    sim.step();
+    expect(minionsOf(sim, a.id)).toEqual([]);
+    expect(a.p.minions.every((m) => m === null)).toBe(true);
+    expect(a.p.packs[1]?.mates).toEqual([]);
+    expect(a.p.packs[1]?.down).toEqual([]);
+    const events = sim.takeEvents().map((e) => e.ev);
+    expect(events.filter((e) => e.e === 'death' && e.k === 'minion')).toEqual([]);
+    expect(events.filter((e) => e.e === 'explode')).toEqual([]);
+    expect(sim.world.loot.size).toBe(0);
+    expect(sim.arena?.score).toBe(0);
+    expect(sim.arena?.kills).toBe(0);
+    expect(a.p.xp).toBe(xp);
+    // The vessels stay bound and keep their spirit.
+    expect(a.p.warband).toEqual(warband);
+    expect(spiritReservedFor(a.p)).toBe(spirit);
+    // The living member's warband is untouched.
+    expect(minionsOf(sim, b.id)).toHaveLength(5);
+
+    // Well past the minion and player respawn times: still dead, still no warband.
+    for (let i = 0; i < (SIM.playerRespawnSeconds + MINIONS.respawnSeconds + 2) * SIM.tickRate; i++) sim.step();
+    expect(a.p.respawnIn).not.toBeNull();
+    expect(minionsOf(sim, a.id)).toEqual([]);
+    // A vessel bound while down does not bring one back either.
+    expect(sim.unequipVessel(a.id, 0)).toBeNull();
+    const brute = a.p.inventory.find((uid) => uid !== null && a.p.items.get(uid)?.kind === 'vessel' && uid !== warband[1]);
+    if (brute === undefined || brute === null) throw new Error('no brute in the bag');
+    expect(sim.equipVessel(a.id, brute, 0)).toBeNull();
+    for (let i = 0; i < 5; i++) sim.step();
+    expect(minionsOf(sim, a.id)).toEqual([]);
+  });
+
+  it('come back with the warband when the run ends and the member goes back to the gate', () => {
+    const run = new Simulation(10, { kind: 'testground' });
+    startArena(run, 1);
+    const a = packBinder(run, 'a');
+    dealDamage(run, a.id, 1_000_000, a.id, []);
+    run.step();
+    expect(minionsOf(run, a.id)).toEqual([]);
+    // The whole party is down: the run is over, and the score screen keeps the warband away.
+    for (let i = 0; i < 10 * SIM.tickRate; i++) run.step();
+    expect(minionsOf(run, a.id)).toEqual([]);
+    // The server moves the character out the way it moves any room change.
+    const save = run.exportPlayer(a.id);
+    if (!save) throw new Error('no save');
+    run.removePlayer(a.id);
+    expect(run.world.minion.size).toBe(0);
+    const gate = new Simulation(11, { kind: 'testground' });
+    const back = gate.addPlayer('a', 'binder', 'A', save);
+    gate.step();
+    expect(minionsOf(gate, back)).toHaveLength(5);
+  });
+
+  it('outside the Arena the warband still stands down instead', () => {
+    const sim = new Simulation(12, { kind: 'testground' });
+    const a = packBinder(sim, 'a');
+    dealDamage(sim, a.id, 1_000_000, a.id, []);
+    sim.step();
+    const left = minionsOf(sim, a.id);
+    expect(left).toHaveLength(5);
+    expect(left.every((m) => sim.world.minion.get(m)?.standingDown === true)).toBe(true);
   });
 });
 

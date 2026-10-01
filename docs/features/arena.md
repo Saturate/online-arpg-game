@@ -22,7 +22,7 @@ Status: Live since 2026-09-29 (plan approved and built that day); the undergroun
 - **A wave still alive after 90 s is joined by the next one,** without its clear bonus, so a party cannot stall a wave to farm a summoner's adds and a stuck monster cannot freeze a run.
 - **Score uses the monster's XP value before the level-gap penalty,** so outlevelling the waves does not shrink it. Monsters that pay no rewards (raised corpses) score nothing. Admin XP overrides do not change score, so a season stays comparable ([monsters.md](monsters.md)).
 - **Reduced rewards:** Arena kills come fast and in bulk, so full XP would outpace the world; no loot or gold for the same reason.
-- **One life:** the fallen see what lies within the interest radius (1100 units) from where they fell. After 10 s on the score screen, everyone still there goes back to the gate on their feet.
+- **One life:** the fallen see what lies within the interest radius (1100 units) from where they fell. A fallen Binder's minions are desummoned at the death and come back at the gate ([minions.md](minions.md)), so a dead member's warband neither fights on for the living nor idles in the pit. After 10 s on the score screen, everyone still there goes back to the gate on their feet.
 - **Runs never pause and refuse dev commands.**
 - **Arena runs are saved like any room:** XP earned in a run is kept, and characters move in and out through the same save-on-move path as every other room change.
 - **Seasons are calendar months in UTC** (`YYYY-MM`). Solo is a party of one at the start, party is two or more. Ties go to whoever finished first.
@@ -64,7 +64,7 @@ Biomes cycle by wave; the pool is Chasers, Shooters from wave 2, and the biome's
 Tests:
 
 - `packages/shared/test/arena.test.ts`: waves never get easier; more living players bring more monsters and the start is at the party average; kill score is before the level penalty and 0 for rewardless monsters; UTC seasons; the first-wave delay, no loot, half XP and one life; normal rooms still respawn; the 90 s stall limit; the pit is round, underground, dry and torch-lit, and spawn points stay on its floor with 4 players.
-- `apps/server/test/arena.test.ts`: town to gate to ready check to a fresh run; no latecomers and no staff `/goto`; no loot or gold, half XP, kills and waves scored; one life, then the run is recorded and everyone returns to the gate; a party run ends when one is dead and one has left, and goes on the party board; dev commands refused; the builders' sandbox; staff runs marked; public season boards and winners.
+- `apps/server/test/arena.test.ts`: town to gate to ready check to a fresh run; a fallen Binder's warband gone for the run and back at the gate; no latecomers and no staff `/goto`; no loot or gold, half XP, kills and waves scored; one life, then the run is recorded and everyone returns to the gate; a party run ends when one is dead and one has left, and goes on the party board; dev commands refused; the builders' sandbox; staff runs marked; public season boards and winners.
 
 ## Limits and open questions
 
