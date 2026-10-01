@@ -1,4 +1,4 @@
-import { Rng, ZONES, type Decor, type Obstacle, type Shape, type WorldMap, type WorldPlan, type ZoneWorld } from '@rune/shared';
+import { lookHash as hash, pickHouseModel, pickPillarModel, Rng, ZONES, type Decor, type Obstacle, type Shape, type WorldMap, type WorldPlan, type ZoneWorld } from '@rune/shared';
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -366,10 +366,6 @@ function rockGeometry(seed: number): BufferGeometry {
   return geo;
 }
 
-function hash(x: number, y: number): number {
-  return Math.abs(Math.floor(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453)) % 1000;
-}
-
 function instanced(geo: BufferGeometry, material: MeshStandardMaterial, transforms: Matrix4[], colors?: Color[]): InstancedMesh | null {
   if (transforms.length === 0) return null;
   const m = new InstancedMesh(geo, material, transforms.length);
@@ -590,6 +586,35 @@ function addDecorPiece(chunks: WorldChunks, d: Decor): void {
   chunks.add(d.asset, { x: d.x, y: d.y, angle: d.angle, fit: { scale: d.scale }, fade: fadesDecor(d.asset) });
 }
 
+/**
+ * The model a house obstacle is drawn with: a town prop's own (`look`, fixed by the layout in town
+ * coordinates, so the town looks the same in the world and in the editor), else the pick by world
+ * position. Null for other kinds.
+ */
+export function houseModel(o: Obstacle): string | null {
+  if (o.kind !== 'house' || o.shape.type !== 'box') return null;
+  return o.look?.model ?? pickHouseModel(lookSeed(o), o.shape.hw, o.shape.hh);
+}
+
+/** A pillar's model, chosen like a house's (`houseModel`). */
+export function pillarModel(o: Obstacle): string | null {
+  if (o.kind !== 'pillar' || o.shape.type !== 'circle') return null;
+  return o.look?.model ?? pickPillarModel(lookSeed(o));
+}
+
+/** The hash an obstacle's look varies by: a town prop's own, in town coordinates, else its world position's. */
+export function lookSeed(o: Obstacle): number {
+  if (o.look) return o.look.seed;
+  const s = o.shape;
+  return s.type === 'capsule' ? hash(s.ax, s.ay) : hash(s.x, s.y);
+}
+
+const STALL_CLOTHS = [0xc0392b, 0x2e86c1, 0xd4ac0d, 0x7d3c98];
+
+export function stallCloth(o: Obstacle): number {
+  return STALL_CLOTHS[lookSeed(o) % STALL_CLOTHS.length] ?? 0xc0392b;
+}
+
 /** Registers obstacles, grouped by kind so the common ones can be instanced. */
 function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: WorldMap, placed = true): void {
   const byKind = new Map<string, Obstacle[]>();
@@ -602,19 +627,15 @@ function addObstacles(chunks: WorldChunks, obstacles: readonly Obstacle[], def: 
   addTrees(chunks, byKind.get('tree') ?? [], def, placed);
   for (const o of byKind.get('pillar') ?? []) {
     if (o.shape.type !== 'circle') continue;
-    const h = hash(o.shape.x, o.shape.y);
-    chunks.add(h % 3 === 0 ? 'dungeon_column' : h % 3 === 1 ? 'dungeon_pillar' : 'dungeon_pillar_decorated', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
+    const h = lookSeed(o);
+    chunks.add(pillarModel(o) ?? 'dungeon_column', { x: o.shape.x, y: o.shape.y, angle: h, fit: { height: o.visual + 12 }, fade: true });
     if (o.visual < 90) chunks.add('dungeon_rubble_half', { x: o.shape.x + o.shape.r * 1.6, y: o.shape.y + o.shape.r * 0.5, angle: h, fit: { radius: 16 } });
   }
   for (const w of byKind.get('wall') ?? []) tileAlong(chunks, w, 'dungeon_wall_broken', 70, true);
   for (const f of byKind.get('fence') ?? []) tileAlong(chunks, f, 'fence_wood_straight', 44);
-  const BUILDINGS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'];
   for (const h of byKind.get('house') ?? []) {
     if (h.shape.type !== 'box') continue;
-    const k = hash(h.shape.x, h.shape.y);
-    const small = Math.max(h.shape.hw, h.shape.hh) < 100;
-    const id = small ? (k % 2 === 0 ? 'building_home_B_red' : 'building_home_B_yellow') : (BUILDINGS[k % BUILDINGS.length] ?? 'building_home_A_red');
-    chunks.add(id, { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
+    chunks.add(houseModel(h) ?? 'building_home_A_red', { x: h.shape.x, y: h.shape.y, angle: h.shape.angle, fit: { box: { w: h.shape.hw * 2.3, d: h.shape.hh * 2.3 } }, fade: true });
   }
   for (const s of byKind.get('stall') ?? []) if (s.shape.type === 'box') chunks.build(s.shape.x, s.shape.y, Math.hypot(s.shape.hw, s.shape.hh) + 10, (g) => g.add(stall(s)));
   for (const w of byKind.get('well') ?? []) if (w.shape.type === 'circle') chunks.add('building_well_blue', { x: w.shape.x, y: w.shape.y, angle: 0, fit: { radius: w.shape.r * 1.5 } });
@@ -707,7 +728,7 @@ const ROCKS = ['rock_single_A', 'rock_single_B', 'rock_single_C', 'rock_single_D
 function addRocks(batch: Placer, rocks: readonly Obstacle[]): void {
   for (const o of rocks) {
     if (o.shape.type !== 'circle') continue;
-    const h = hash(o.shape.x, o.shape.y);
+    const h = lookSeed(o);
     batch.add(ROCKS[h % ROCKS.length] ?? 'rock_single_A', { x: o.shape.x, y: o.shape.y, angle: h / 160, fit: { radius: o.shape.r * 1.15 } });
   }
 }
@@ -749,7 +770,7 @@ function addTrees(chunks: WorldChunks, trees: readonly Obstacle[], def: WorldMap
   for (const o of trees) {
     if (o.shape.type !== 'circle') continue;
     const { x, y } = o.shape;
-    const h = hash(x, y);
+    const h = lookSeed(o);
     const listed = placed && def.oaks !== undefined;
     const isOak = listed ? (def.oaks ?? []).some((p) => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5) : h % 3 === 0;
     const kind: TreeKind = !listed && h % 100 < (bleakAt(def, x, y) ? 35 : 7) ? 'dead' : isOak ? 'oak' : 'pine';
@@ -945,8 +966,7 @@ function stall(o: Obstacle): Group {
   counter.position.y = 9;
   counter.castShadow = true;
   g.add(counter);
-  const colors = [0xc0392b, 0x2e86c1, 0xd4ac0d, 0x7d3c98];
-  const cloth = new Mesh(new BoxGeometry(hw * 2 + 10, 4, hh * 2 + 10), mat(colors[hash(x, y) % colors.length] ?? 0xc0392b));
+  const cloth = new Mesh(new BoxGeometry(hw * 2 + 10, 4, hh * 2 + 10), mat(stallCloth(o)));
   cloth.position.y = 46;
   cloth.rotation.z = 0.12;
   cloth.castShadow = true;

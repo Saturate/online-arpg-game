@@ -59,6 +59,24 @@ export function TownEditorPanel() {
             <input type="checkbox" checked={s.selectionSolid} onChange={() => ed?.toggleSolid()} /> Blocks walking <kbd>B</kbd>
           </label>
         )}
+        {s.selectionModel && (
+          <div className="town-model-row">
+            <span className="muted">Model</span>
+            <button type="button" onClick={() => ed?.cycleModel(-1)} aria-label="Previous model" {...tip('Shift+M')}>
+              ‹
+            </button>
+            <select value={s.selectionModel.model} onChange={(e) => ed?.setModel(e.target.value)} aria-label="Model">
+              {s.selectionModel.options.map((m) => (
+                <option key={m} value={m}>
+                  {modelLabel(m)}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={() => ed?.cycleModel(1)} aria-label="Next model" {...tip('M')}>
+              ›
+            </button>
+          </div>
+        )}
         <LayerList />
         <label className="snap">
           <input type="checkbox" checked={s.snap} onChange={(e) => useTownEditor.setState({ snap: e.target.checked })} /> Snap to grid <kbd>G</kbd>
@@ -78,12 +96,21 @@ export function TownEditorPanel() {
           </button>
         </div>
         <p className="muted small">
-          WASD pan, wheel zoom, drag to move, <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>[</kbd>/<kbd>]</kbd> scale or length, <kbd>B</kbd> blocks walking, <kbd>Del</kbd> delete, <kbd>Ctrl Z</kbd> undo, <kbd>F2</kbd> exit. Click
+          WASD pan, wheel zoom, drag to move, <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>[</kbd>/<kbd>]</kbd> scale or length, <kbd>B</kbd> blocks walking, <kbd>M</kbd> next model, <kbd>Del</kbd> delete, <kbd>Ctrl Z</kbd> undo, <kbd>F2</kbd> exit. Click
           again to pick the next object underneath, <kbd>Alt</kbd>+click to list them. Double click a layer to centre on it. Paths make walking 10% faster.
         </p>
       </section>
     </>
   );
+}
+
+/** `building_home_A_red` reads as "Home A, red"; `dungeon_pillar_decorated` as "Pillar decorated". */
+function modelLabel(id: string): string {
+  const words = id.replace(/^(building|dungeon)_/, '').split('_');
+  const colour = ['red', 'blue', 'yellow', 'green'].includes(words[words.length - 1] ?? '') ? words.pop() : undefined;
+  const name = words.join(' ');
+  const cap = name.charAt(0).toUpperCase() + name.slice(1);
+  return colour ? `${cap}, ${colour}` : cap;
 }
 
 /** Client pixels to CSS pixels inside the zoomed UI layer. */

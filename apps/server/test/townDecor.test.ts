@@ -30,11 +30,25 @@ describe('town decor from the palette', () => {
     expect(JSON.stringify(l)).toBe(JSON.stringify(liveRaw));
     expect(layoutHash(l)).toBe('oz7hq8');
     const map = layoutToMap(l);
-    expect(fnv(JSON.stringify(map))).toBe('1yv56t2');
+    // `look` (each house's and pillar's model) came later, and is the only addition to the map.
+    expect(fnv(JSON.stringify(map, (k, v: unknown) => (k === 'look' ? undefined : v)))).toBe('1yv56t2');
     expect(map.obstacles).toHaveLength(73);
     expect(map.obstacles.some((o) => o.kind === 'decor')).toBe(false);
     // The server's lenient load changes nothing either.
     expect(validateLayout(liveRaw, { unknownDecor: 'drop' })).toEqual(l);
+  });
+
+  it('a save giving a prop an unknown model is rejected; a town loaded from disk drops just the model', () => {
+    const l = live();
+    const i = l.props.findIndex((p) => p.kind === 'house');
+    const withModel = (model: unknown): unknown => ({ ...structuredClone(l), props: l.props.map((p, j) => (j === i ? { ...p, model } : p)) });
+    expect(parseClientMessage({ t: 'saveTown', layout: withModel('building_castle_red') })).toBeNull();
+    expect(parseClientMessage({ t: 'saveTown', layout: withModel(7) })).toBeNull();
+    // A pillar's model on a house is as unknown as a made-up one.
+    expect(parseClientMessage({ t: 'saveTown', layout: withModel('dungeon_column') })).toBeNull();
+    const ok = parseClientMessage({ t: 'saveTown', layout: withModel('building_tavern_red') });
+    expect(ok?.t === 'saveTown' ? ok.layout.props[i]?.model : null).toBe('building_tavern_red');
+    expect(validateLayout(withModel('building_castle_red'), { unknownDecor: 'drop' })).toEqual(l);
   });
 
   it('every asset in the live town is placeable', () => {

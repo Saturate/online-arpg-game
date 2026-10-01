@@ -1,4 +1,4 @@
-import { decorFootprint, layoutHash, layoutToMap, PROP_DEFS, TOWN_DECOR_ASSETS, type Shape, type TownDecor, type TownLayout, type TownProp, type Vec2 } from '@rune/shared';
+import { decorFootprint, layoutHash, layoutToMap, PROP_DEFS, propModels, TOWN_DECOR_ASSETS, townPropModel, type Shape, type TownDecor, type TownLayout, type TownProp, type Vec2 } from '@rune/shared';
 import { BufferGeometry, Line, LineBasicMaterial, LineLoop, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Object3D } from 'three';
 import { isLitDecor } from '../render/props.js';
 import type { WorldScene } from '../render/scene.js';
@@ -39,6 +39,8 @@ interface EditorUiState {
   selectionSolid: boolean | null;
   /** Key of the selected object, so the layer list can mark its row. */
   selectedKey: string | null;
+  /** The selected prop's model and the ones it can be given; null when it has one look. */
+  selectionModel: { model: string; options: readonly string[] } | null;
   canUndo: boolean;
   /** Bumped when objects are added or removed, so the layer list rebuilds its rows. */
   layerVersion: number;
@@ -74,6 +76,7 @@ export const useTownEditor = create<EditorUiState>(() => ({
   selection: null,
   selectionSolid: null,
   selectedKey: null,
+  selectionModel: null,
   canUndo: false,
   layerVersion: 0,
   hidden: new Set(),
@@ -106,6 +109,16 @@ const ROTATE_STEP = Math.PI / 12;
 const PAN_SPEED = 900;
 const REBUILD_MS = 90;
 const UNDO_LIMIT = 80;
+
+/**
+ * Writes a prop's current model into it before it moves or grows, since an unstored model is
+ * picked by position and size: a dragged house would otherwise turn into another building.
+ */
+export function keepModel(p: TownProp): void {
+  if (p.model !== undefined) return;
+  const model = townPropModel(p);
+  if (model !== null) p.model = model;
+}
 
 function clone(layout: TownLayout): TownLayout {
   return structuredClone(layout);
@@ -261,6 +274,26 @@ export class TownEditor {
     this.changed();
   }
 
+  /** Gives the selected house, cottage or pillar another model. */
+  setModel(model: string): void {
+    const sel = this.selection;
+    const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
+    if (!p || !propModels(p.kind).includes(model) || townPropModel(p) === model) return;
+    this.pushUndo();
+    p.model = model;
+    this.changed();
+  }
+
+  cycleModel(step: 1 | -1): void {
+    const sel = this.selection;
+    const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
+    const now = p ? townPropModel(p) : null;
+    if (!p || now === null) return;
+    const options = propModels(p.kind);
+    const next = options[(options.indexOf(now) + step + options.length) % options.length];
+    if (next !== undefined) this.setModel(next);
+  }
+
   undoLast(): void {
     const prev = this.undo.pop();
     if (!prev) return;
@@ -390,7 +423,10 @@ export class TownEditor {
     const sel = this.selection;
     const d = sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
     const solid = d && TOWN_DECOR_ASSETS[d.asset] ? d.solid === true : null;
-    useTownEditor.setState({ selection: this.selectionLabel(), selectionSolid: solid, selectedKey: sel ? refKey(sel) : null });
+    const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
+    const model = p ? townPropModel(p) : null;
+    const selectionModel = p && model !== null ? { model, options: propModels(p.kind) } : null;
+    useTownEditor.setState({ selection: this.selectionLabel(), selectionSolid: solid, selectedKey: sel ? refKey(sel) : null, selectionModel });
   }
 
   private selectionLabel(): string | null {
@@ -461,6 +497,10 @@ export class TownEditor {
       }
       return;
     }
+    if (sel.type === 'prop') {
+      const p = L.props[sel.index];
+      if (p) keepModel(p);
+    }
     const a = this.anchor(sel);
     if (!a) return;
     a.x = Math.max(0, Math.min(L.width, x));
@@ -506,6 +546,7 @@ export class TownEditor {
           this.selection = { type: 'decor', index: this.layout.decor.length - 1 };
         } else {
           const prop: TownProp = { kind: item.kind, x, y, angle: this.pendingAngle, scale: 1, length: PROP_DEFS[item.kind].line ? 200 : 0 };
+          keepModel(prop);
           this.layout.props.push(prop);
           this.selection = { type: 'prop', index: this.layout.props.length - 1 };
         }
@@ -578,7 +619,7 @@ export class TownEditor {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (e.target instanceof HTMLInputElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     this.keys.add(e.code);
     const sel = this.selection;
     const p = sel?.type === 'prop' ? this.layout.props[sel.index] : sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
@@ -608,6 +649,7 @@ export class TownEditor {
         const up = e.code === 'BracketRight';
         if (p) {
           this.pushUndo();
+          if ('kind' in p) keepModel(p);
           if (line && 'length' in p) p.length = Math.max(40, p.length + (up ? 40 : -40));
           else p.scale = Math.max(0.4, Math.min(2.5, p.scale * (up ? 1.1 : 0.9)));
           this.changed();
@@ -630,6 +672,9 @@ export class TownEditor {
         return;
       case 'KeyB':
         this.toggleSolid();
+        return;
+      case 'KeyM':
+        this.cycleModel(e.shiftKey ? -1 : 1);
         return;
       case 'Digit1':
         this.setTool('select');
