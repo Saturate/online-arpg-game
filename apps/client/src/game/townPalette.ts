@@ -50,7 +50,7 @@ function capital(s: string): string {
 
 /** A decor asset's name and palette group, for the palette, the layer list and the selection line. */
 export function decorInfo(asset: string): { label: string; group: PaletteGroup; height: number } {
-  const proc = PROCEDURAL_DECOR[asset];
+  const proc = Object.hasOwn(PROCEDURAL_DECOR, asset) ? PROCEDURAL_DECOR[asset] : undefined;
   if (proc) return { label: proc.label, group: 'Lights and fires', height: proc.height };
   const def = ASSETS.find((a) => a.id === asset);
   return { label: capital(def?.label ?? asset.replace(/_/g, ' ')), group: (def && CATEGORY_GROUP[def.category]) ?? 'Props', height: def?.height ?? 30 };

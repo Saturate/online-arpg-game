@@ -1,5 +1,6 @@
 import {
   can,
+  checkLayout,
   cleanChat,
   createGrantItem,
   parseGrantRequest,
@@ -14,6 +15,7 @@ import {
   parseNewCharacter,
   parseSettingsPatch,
   settingsConflict,
+  layoutHash,
   rank,
   seasonOf,
   type AdminAccount,
@@ -37,6 +39,14 @@ import { TUNABLES_BODY_BYTES, tunablesRoute, type TunablesHooks } from './tunabl
 
 /** Credentials and a character name fit many times over; anything bigger is not a real request. */
 const MAX_BODY_BYTES = 4096;
+
+/**
+ * `PUT /api/admin/town` takes a whole layout. The largest valid one (every limit in TOWN_LIMITS
+ * filled, full-precision coordinates, pretty-printed like `pnpm town:pull` writes it) is 1.73 MB;
+ * the rest is room for wider indentation. adminTown.test.ts builds it and checks it fits. Only a
+ * caller with `townEdit` gets this far, so nobody else can make the server buffer that much.
+ */
+export const TOWN_BODY_BYTES = 3 * 1024 * 1024;
 
 /** Sliding one-minute window per IP. Auth is tight because every attempt costs a 32 MiB scrypt hash. */
 /**
@@ -108,6 +118,9 @@ function clientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? 'unknown';
 }
 
+/** A town save from the editor or the admin API: what was rebuilt, or why nothing was saved. */
+export type TownSaveResult = { ok: true; rooms: number; players: number } | { ok: false; reason: 'wait' | 'failed' };
+
 /** What the admin API needs from the running game; the room manager provides it. */
 export interface AdminHooks extends TuningHooks, TunablesHooks {
   overview(): AdminOverview;
@@ -118,6 +131,8 @@ export interface AdminHooks extends TuningHooks, TunablesHooks {
   kickAccount(accountId: number): void;
   /** The live town, for `pnpm town:pull`. Every player is sent it on entering town, so it is public. */
   currentTown(): TownLayout;
+  /** Writes a validated layout and rebuilds the world rooms, under the editor's cooldown for this account. */
+  saveTown(accountId: number, layout: TownLayout): TownSaveResult;
   /** Moves the staff member's live character next to the target; returns why not, or null. */
   gotoCharacter(staffAccountId: number, characterId: number): string | null;
   /** Applies a new role to the account's live session, if it has one. */
@@ -166,7 +181,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(json);
 }
 
-async function readJson(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   // Requiring JSON also rules out cross-site form posts, which can only send form or text bodies.
   if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, 'Expected application/json');
   const chunks: Buffer[] = [];
@@ -508,6 +523,17 @@ export class AccountApi {
         log(`settings ${JSON.stringify(patch)}`);
         return [200, this.admin.updateSettings(patch)];
       }
+    }
+    if (method === 'PUT' && path === '/api/admin/town') {
+      need('townEdit');
+      // The same check as a save from the editor, unknown decor and models refused, not dropped.
+      const layout = checkLayout(await readJson(req, TOWN_BODY_BYTES));
+      if (typeof layout === 'string') throw new HttpError(400, layout);
+      const saved = this.admin.saveTown(account.id, layout);
+      if (!saved.ok) throw saved.reason === 'wait' ? new HttpError(429, 'Wait a few seconds between town saves') : new HttpError(500, 'Could not save the town on the server');
+      const hash = layoutHash(layout);
+      log(`town saved "${layout.name}" (${layout.props.length} props, ${layout.paths.length} paths, ${layout.decor.length} decor, hash ${hash}); ${saved.rooms} world rooms rebuilt, ${saved.players} players carried over`);
+      return [200, { name: layout.name, hash, props: layout.props.length, paths: layout.paths.length, decor: layout.decor.length, rooms: saved.rooms, players: saved.players }];
     }
     const tuning = await tuningRoute({ method, path, body: () => readJson(req), canEdit: allowed('settings'), log }, this.admin);
     if (tuning) return tuning;

@@ -1,4 +1,4 @@
-import { decorFootprint, layoutHash, layoutToMap, PROP_DEFS, propModels, TOWN_DECOR_ASSETS, townPropModel, type Shape, type TownDecor, type TownLayout, type TownProp, type Vec2 } from '@rune/shared';
+import { decorFootprint, layoutHash, layoutToMap, PROP_DEFS, propModels, decorSpec, townPropModel, type Shape, type TownDecor, type TownLayout, type TownProp, type Vec2 } from '@rune/shared';
 import { BufferGeometry, Line, LineBasicMaterial, LineLoop, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Object3D } from 'three';
 import { isLitDecor } from '../render/props.js';
 import type { WorldScene } from '../render/scene.js';
@@ -101,7 +101,7 @@ function decorLook(asset: string): DecorLook {
 
 /** A new decor piece blocks walking when its asset usually does (buildings, walls, big clutter). */
 function newDecor(asset: string, x: number, y: number, angle: number): TownDecor {
-  return TOWN_DECOR_ASSETS[asset]?.solid ? { asset, x, y, angle, scale: 1, solid: true } : { asset, x, y, angle, scale: 1 };
+  return decorSpec(asset)?.solid ? { asset, x, y, angle, scale: 1, solid: true } : { asset, x, y, angle, scale: 1 };
 }
 
 const SNAP = 20;
@@ -266,7 +266,7 @@ export class TownEditor {
   toggleSolid(): void {
     const sel = this.selection;
     const d = sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
-    if (!d || !TOWN_DECOR_ASSETS[d.asset]) return;
+    if (!d || !decorSpec(d.asset)) return;
     this.pushUndo();
     // The key is left out rather than set false, so the saved layout only grows for solid pieces.
     if (d.solid) delete d.solid;
@@ -422,7 +422,7 @@ export class TownEditor {
   private publishSelection(): void {
     const sel = this.selection;
     const d = sel?.type === 'decor' ? this.layout.decor[sel.index] : undefined;
-    const solid = d && TOWN_DECOR_ASSETS[d.asset] ? d.solid === true : null;
+    const solid = d && decorSpec(d.asset) ? d.solid === true : null;
     const p = sel?.type === 'prop' ? this.layout.props[sel.index] : undefined;
     const model = p ? townPropModel(p) : null;
     const selectionModel = p && model !== null ? { model, options: propModels(p.kind) } : null;

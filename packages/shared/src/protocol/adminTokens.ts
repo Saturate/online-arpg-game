@@ -5,10 +5,11 @@ import type { Permission } from './roles.js';
  * `Authorization: Bearer <token>`. What a token may do is its scopes, and never more than its
  * creator's role allows at the time of the call.
  *
- * `townEdit` and `devTools` are left out because they gate the game socket, which a token cannot
- * open. `apiTokens` is left out so a leaked token can never mint more tokens.
+ * `townEdit` is a scope since `PUT /api/admin/town` saves the layout the editor saves. `devTools` is
+ * left out because it gates the game socket only, which a token cannot open. `apiTokens` is left
+ * out so a leaked token can never mint more tokens.
  */
-export const TOKEN_SCOPES = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'manageRoles', 'grantItems', 'serverLog', 'backup', 'tuning'] as const satisfies readonly Permission[];
+export const TOKEN_SCOPES = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'manageRoles', 'grantItems', 'serverLog', 'backup', 'tuning'] as const satisfies readonly Permission[];
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 export const TOKEN_SCOPE_INFO: Record<TokenScope, string> = {
@@ -18,6 +19,7 @@ export const TOKEN_SCOPE_INFO: Record<TokenScope, string> = {
   ban: 'Ban and unban accounts',
   teleport: "Move the creator's live character to a player",
   settings: 'Change server settings and monster and minion tuning',
+  townEdit: 'Save the town layout, like the town editor (pnpm town:push)',
   manageRoles: 'Hand out roles',
   grantItems: 'Grant items to offline characters',
   serverLog: 'Read the recent server log',

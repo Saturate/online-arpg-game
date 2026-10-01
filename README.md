@@ -10,6 +10,7 @@ pnpm dev          # server (API + websocket) on :8080, client on http://localhos
 pnpm test
 pnpm typecheck
 pnpm town:pull    # copy the live town into apps/server/data/town-layout.json
+pnpm town:push <file>   # save a town layout on the server through the admin API (token with townEdit)
 pnpm runes:convert-check <db>   # dry-run the v1 to v2 conversion and the rune roll pass on a copy of a rune.db
 pnpm world:convert-check <db>   # dry-run the seamless world's waypoint conversion on a copy of a rune.db
 ```
@@ -86,7 +87,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - A town save applies without rebuilding the world room (the full fix; [world-map.md](docs/features/world-map.md)).
 - The fence corner gets fixed (the trader write duplication is fixed, merged locally 2026-10-01).
 
-**After the next deploy (owner decision 2026-10-01):** fences are now drawn on their collision line, so the live pen west of the square draws as a broken T. Right after the deploy, save the live layout through the town editor API with fence 7 moved to x about 696.1 and fence 8 to y about 1141.3 (props in `packages/shared/test/fixtures/town-layout-live.json`; read the live layout first, it may have changed). The save rebuilds the world for anyone in it.
+**After the next deploy (owner decision 2026-10-01):** fences are now drawn on their collision line, so the live pen west of the square draws as a broken T. Right after the deploy, `pnpm town:pull`, edit the file, then `pnpm town:push apps/server/data/town-layout.json` (a token with the `townEdit` scope; `PUT /api/admin/town` ships in the same deploy) with fence 7 moved to x about 696.1 and fence 8 to y about 1141.3 (props in `packages/shared/test/fixtures/town-layout-live.json`; read the live layout first, it may have changed). The save rebuilds the world for anyone in it.
 
 **Open items.**
 
@@ -100,6 +101,6 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **Manifests:** in the server repo under `k3s/apps/arpg/` (namespace, PVC `arpg-data` mounted at `/data`, deployment, service, httproute, network policy, image policy). The deployment uses the Recreate strategy, since one pod owns the SQLite file.
 - **Images:** built by `.github/workflows/image.yml` as `ghcr.io/saturate/online-arpg-game:main-<sha>-<ts>`. Flux image automation commits the new tag to the server repo and rolls it out. Pulls use the `ghcr-pull` secret.
 - **Data:** `/data/rune.db` holds accounts, characters, stashes, the trader shelf, settings and monster tuning overrides. `/data/town-layout.json` only exists once a builder saves the town. Secrets in the server repo are SOPS/age encrypted.
-- **Checking live state:** use the admin API (`pnpm admin`, token in `~/.config/arpg/admin-token`): `GET /api/admin/overview`, `GET /api/admin/log`, `pnpm admin backup <file>`. Live tuning (spell shapes and rune prices, [live-tuning.md](docs/features/live-tuning.md)): `pnpm admin GET tuning`, `pnpm admin PATCH tuning '{"spell.bolt.damage":20,"force.rune.nova":null}'` (null is the code default), `pnpm admin GET tuning/history`, `pnpm admin POST tuning/revert '{"id":12}'`; the token needs the `tuning` scope. SSH and `kubectl -n arpg` over `ssh akj@svr.akj.io` are a last resort and need 1Password approval.
+- **Checking live state:** use the admin API (`pnpm admin`, token in `~/.config/arpg/admin-token`): `GET /api/admin/overview`, `GET /api/admin/log`, `pnpm admin backup <file>`, and `pnpm town:push <file>` to save a town layout without the editor. Live tuning (spell shapes and rune prices, [live-tuning.md](docs/features/live-tuning.md)): `pnpm admin GET tuning`, `pnpm admin PATCH tuning '{"spell.bolt.damage":20,"force.rune.nova":null}'` (null is the code default), `pnpm admin GET tuning/history`, `pnpm admin POST tuning/revert '{"id":12}'`; the token needs the `tuning` scope. SSH and `kubectl -n arpg` over `ssh akj@svr.akj.io` are a last resort and need 1Password approval.
 
 **Where to look.** Tuning numbers live in `packages/shared/src/config/sim.ts` and `config/forge.ts`, and item rules (grid, stash, trader, forge) in `packages/shared/src/sim/inventory.ts`. The rune grammar and compiler are in `packages/shared/src/runes/v2/`. Admin and roles are in `apps/server/src/http.ts` and `packages/shared/src/protocol/roles.ts`. Worlds, parties and trades are in `apps/server/src/manager.ts`. The reasons behind each choice are in the feature docs ([`docs/features/index.md`](docs/features/index.md)) and, for cross-cutting ones, `DECISIONS.md`.
