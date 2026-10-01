@@ -1,6 +1,6 @@
 import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
-import { affixValue, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
+import { affixValue, castingSlots, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
 import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
 import { engineForm, lifetime } from './budget.js';
 import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
@@ -390,5 +390,9 @@ export function sigilCompileContext(item: SigilItem, classId: ClassId): SigilCom
 }
 
 export function compileSigilItem(item: SigilItem, classId: ClassId): SigilCompile {
-  return compileRunes(item.slots.map(toRuneInstance), sigilCompileContext(item, classId));
+  const slots = castingSlots(item);
+  const compiled = compileRunes(slots.map(toRuneInstance), sigilCompileContext(item, classId));
+  const held = slots.flatMap((r, i) => (r === item.slots[i] ? [] : [`${runeName(r.rune)} (rune ${i + 1})`]));
+  if (!compiled.ok || held.length === 0) return compiled;
+  return { ...compiled, notes: [...compiled.notes, `Starter rolls only hold in the whole starter: ${held.join(', ')} cast${held.length === 1 ? 's' : ''} at the loot table's best.`] };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileRunes, DEFAULT_SIGIL_CONTEXT, HEAT, STARTER_SIGILS, tokenizeSpell, type ClassId, type SigilCompile } from '../src/index.js';
+import { compileRunes, compileSigilItem, createRune, createStarterSigil, DEFAULT_SIGIL_CONTEXT, HEAT, STARTER_SIGILS, tokenizeSpell, type ClassId, type RuneId, type SigilCompile, type SigilItem } from '../src/index.js';
 import { measureStarter } from './harness/parity.js';
 import { measureSkill, type SkillDpsResult } from './harness/skillDps.js';
 
@@ -174,6 +174,35 @@ function cheapest(text: string, multicast: number): { classId: ClassId; compiled
   return best;
 }
 
+/**
+ * Starter runes kept in their sigil but not as the whole starter: every prefix left in place, every
+ * single rune moved to the front, each alone and with an infusion or a Split appended. A starter's
+ * hand-set rolls are balanced only for the whole starter (Multishot's Bolt alone at +300% damage
+ * dealt 2.85x), so these must cast like any in-table spell.
+ */
+const APPENDED: readonly (readonly RuneId[])[] = [[], ['lightning'], ['fire'], ['cold'], ['lightning', 'lightning']];
+
+function starterPieces(): { label: string; sigil: SigilItem }[] {
+  let uid = 1;
+  const out: { label: string; sigil: SigilItem }[] = [];
+  for (const def of STARTER_SIGILS) {
+    const whole = createStarterSigil(() => uid++, def, { bound: false });
+    const kept: { what: string; slots: SigilItem['slots'] }[] = [];
+    for (let k = 1; k <= whole.slots.length; k++) kept.push({ what: `first ${k}`, slots: whole.slots.slice(0, k) });
+    whole.slots.forEach((r, i) => {
+      if (i > 0) kept.push({ what: `rune ${i + 1} alone`, slots: [r] });
+    });
+    for (const { what, slots } of kept) {
+      for (const extra of APPENDED) {
+        if (slots.length === whole.slots.length && extra.length === 0) continue;
+        const added = extra.map((id) => createRune(uid++, id));
+        out.push({ label: `${def.id} ${what}${extra.length > 0 ? ` + ${extra.join(' ')}` : ''}`, sigil: { ...whole, slots: [...slots, ...added] } });
+      }
+    }
+  }
+  return out;
+}
+
 const RANDOM_SPELLS = 300;
 const RANDOM_SEED = 20260930;
 
@@ -206,6 +235,33 @@ describe('damage per Force', () => {
       expect(pf.pack, `${text} pack`).toBeLessThanOrEqual(best.pack * BOUND);
     }
   });
+
+  it(`starter runes kept without the rest of their starter stay within ${BOUND}x on their cheapest class`, () => {
+    let measured = 0;
+    let worst = { label: '', ratio: 0 };
+    for (const { label, sigil } of starterPieces()) {
+      let best1: { classId: ClassId; compiled: SigilCompile } | null = null;
+      for (const classId of CLASS_IDS) {
+        const compiled = compileSigilItem(sigil, classId);
+        if (compiled.ok && (!best1 || compiled.force < best1.compiled.force)) best1 = { classId, compiled };
+      }
+      if (!best1 || !best1.compiled.ok || best1.compiled.persistent) continue;
+      const r = measureSkill({
+        classId: best1.classId,
+        equip: () => ({ uid: -1, compiled: best1.compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds }),
+        ...(SELF_CENTRED.has(sigil.slots[0]?.rune ?? 'bolt') ? { distance: 40 } : {}),
+      });
+      if (r.kind !== 'damage') continue;
+      measured++;
+      const pf = perForce(r);
+      const ratio = Math.max(pf.single / best.single, pf.pack / best.pack);
+      if (ratio > worst.ratio) worst = { label: `${best1.classId}: ${label}`, ratio };
+      expect(pf.single, `${label} single on ${best1.classId}`).toBeLessThanOrEqual(best.single * BOUND);
+      expect(pf.pack, `${label} pack on ${best1.classId}`).toBeLessThanOrEqual(best.pack * BOUND);
+    }
+    console.log(`\nstarter pieces: ${measured} measured; worst ${worst.ratio.toFixed(2)}x, ${worst.label}\n`);
+    expect(measured).toBeGreaterThan(50);
+  }, 60_000);
 
   it(`${RANDOM_SPELLS} random spells with in-table affixes stay within ${BOUND}x on their cheapest class`, () => {
     const rnd = seeded(RANDOM_SEED);

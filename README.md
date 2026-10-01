@@ -10,7 +10,7 @@ pnpm dev          # server (API + websocket) on :8080, client on http://localhos
 pnpm test
 pnpm typecheck
 pnpm town:pull    # copy the live town into apps/server/data/town-layout.json
-pnpm runes:convert-check <db>   # dry-run the v1 to v2 save conversion on a copy of a rune.db
+pnpm runes:convert-check <db>   # dry-run the v1 to v2 conversion and the rune roll pass on a copy of a rune.db
 pnpm world:convert-check <db>   # dry-run the seamless world's waypoint conversion on a copy of a rune.db
 ```
 
@@ -67,8 +67,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - Arena: a dead member's minions are desummoned at the death and come back when the run ends ([minions.md](docs/features/minions.md)).
 - Gate bosses get their own respawn setting, apart from the region bosses' 20 minutes ([world-map.md](docs/features/world-map.md)).
 - Chests stay shared per world copy.
-- "First rune is free" is dropped from the rolls; live rolls need a save conversion ([runes.md](docs/features/runes.md)).
-- Multishot and Flame Cleave get the measured buffs ([runes.md](docs/features/runes.md)).
+- "First rune is free" is dropped from the rolls, and Multishot and Flame Cleave get the measured buffs; owned sigils convert on load (built on `fix/rune-rolls`; [runes.md](docs/features/runes.md), [items.md](docs/features/items.md) "Rune roll pass").
 - Starter sigils get one open slot, with the forge redesign ([forge.md](docs/features/forge.md)).
 - Bosses: half the life, double the damage, both admin settings, every boss ([monsters.md](docs/features/monsters.md)).
 - A town save applies without rebuilding the world room (the full fix; [world-map.md](docs/features/world-map.md)).

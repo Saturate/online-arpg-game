@@ -31,11 +31,12 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 
 ### Rolls clamp on the way out
 
-Starter runes hold rolls no drop can have (Fireball's Orb has +100% damage, Frozen Orb pulses every 0.18 s). They keep them inside a sigil. Any rune leaving a sigil has each affix clamped into the range its affix can roll, and the forge warns first. Otherwise a dropped or unbound starter sigil would hand out runes better than any roll.
+Starter runes hold rolls no drop can have (Fireball's Orb has +100% damage, Frozen Orb pulses every 0.18 s). They keep them inside a sigil, but they only cast as written while the sigil holds its starter's whole recipe: the same runes with the same rolls, in order (`holdsStarterRecipe`, `castingSlots` in `items/items.ts`). Kept alone, reordered or beside other runes, every rune casts with its rolls clamped as below, and the readout says which runes do; putting the starter back together restores it, since the items keep their rolls. Multishot's Bolt alone at +300% damage dealt 2.85x the best starter's damage per Force. Any rune leaving a sigil has each affix clamped into the range its affix can roll, and the forge warns first. Otherwise a dropped or unbound starter sigil would hand out runes better than any roll.
 
 - The range is the lowest to highest value over the affix's tiers that can drop.
 - Most affixes clamp down to the best value. "Every X s" clamps to the shortest rollable interval (lower is better), and "after X s" moves to the nearest end of its table.
-- The tier only ever goes down (`Math.min(a.tier, range.max.tier)`). Sell value and forge price count tiers, and a hand-set tier 0 starter roll re-tiered to the top would come out worth more than it went in.
+- Starter rolls carry the tier their value falls in (`honestTier` in `items/runeRolls.ts`): the lowest tier whose range holds it, the top tier when it is above every drop, the bottom one for a drawback. So Multishot's split(5) is a tier 3 roll inside the sigil and out of it, and sells and prices as one. Before 2026-10-01 every starter roll was tier 0; the load pass re-tiers any roll stronger than its own tier ([items.md](items.md), "Rune roll pass").
+- The tier only ever goes down on the way out (`Math.min(a.tier, range.max.tier)`), so a rune never comes out worth more than it counted for inside.
 - Values inside the table, or weaker than it (the negative speeds of slow orbs), are left alone.
 - Example: Fireball's `orb[+100% damage]` comes out as +55%, the top of the T3 `rune_damage` range (35 to 55).
 

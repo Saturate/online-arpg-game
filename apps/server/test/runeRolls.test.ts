@@ -19,7 +19,9 @@ function oldStarter(id: string, bound: boolean): SigilItem {
   const def = starterSigilById(id);
   const runes = oldStarterRunes(id);
   if (!def || !runes) throw new Error(id);
-  return createStarterSigil(next, { ...def, runes }, { bound });
+  // Saves from before 2026-10-01 hold starter rolls at tier 0.
+  const s = createStarterSigil(next, { ...def, runes }, { bound });
+  return { ...s, slots: s.slots.map((r) => ({ ...r, affixes: r.affixes.map((a) => ({ ...a, tier: 0 })) })) };
 }
 
 /** JSON for a rare sigil that rolled "first rune is free" before the affix was retired. */
@@ -115,16 +117,23 @@ describe('rune roll decisions on the server', () => {
     const { store, raw, accountId, characterId } = await database();
     const loaded = store.loadCharacter(accountId, characterId)?.save;
     if (!loaded) throw new Error('no save');
-    expect(loaded.items).toHaveLength(3);
+    // The bound Multishot's extra Split goes; the unbound Flame Cleave's comes back into the bag.
+    expect(loaded.items).toHaveLength(4);
+    const back = loaded.items.find((i) => i.kind === 'rune');
+    expect(back?.kind === 'rune' && back.rune === 'split' && back.bound !== true).toBe(true);
+    expect(back && loaded.inventory.includes(back.uid)).toBe(true);
     allConverted(loaded.items);
     const multishot = loaded.items.find((i) => i.kind === 'sigil' && i.starter === 'multishot');
     expect(multishot?.uid).toBe(loaded.sigils[0]);
     const stash = store.loadStash(accountId);
     if (!stash || stash === 'unreadable') throw new Error('no stash');
-    expect(stash.stash.items).toHaveLength(2);
+    expect(stash.stash.items).toHaveLength(3);
+    const stashed0 = stash.stash.items.find((i) => i.kind === 'rune');
+    expect(stashed0 && stash.stash.runes.list.includes(stashed0.uid)).toBe(true);
     allConverted(stash.stash.items);
     const shelf = store.loadMarket();
-    expect(shelf.stock.map((e) => e.id)).toEqual([1, 2]);
+    expect(shelf.stock.map((e) => e.id)).toEqual([1, 2, 3]);
+    expect(shelf.stock[2]?.item).toMatchObject({ kind: 'rune', rune: 'split', uid: 0 });
     allConverted(shelf.stock.map((e) => e.item));
 
     const rooms = new RoomManager(1, store);
@@ -133,17 +142,18 @@ describe('rune roll decisions on the server', () => {
     socket.emit({ t: 'join', token: store.createSession(accountId), characterId });
     expect(socket.sent.some((m) => m.t === 'sessionEnded')).toBe(false);
     rooms.saveAll();
-    // The pending sigil moves to the stash on join, so the five items are counted across both rows.
+    // The pending sigil moves to the stash on join, so the seven items are counted across both rows.
     const character = storedItems(raw, 'SELECT save_json FROM characters WHERE id = ?', characterId);
     const stashed = storedItems(raw, 'SELECT stash_json FROM accounts WHERE id = ?', accountId);
-    expect(character.length + stashed.length).toBe(5);
+    expect(character.length + stashed.length).toBe(7);
+    expect([...character, ...stashed].filter((i) => i.kind === 'rune')).toHaveLength(2);
     expect(sigils([...character, ...stashed]).map((s) => s.starter ?? 'none').sort()).toEqual(['flame_cleave', 'multishot', 'multishot', 'none', 'none']);
     allConverted([...character, ...stashed]);
 
     // A second load finds nothing left to change.
     const again = store.loadCharacter(accountId, characterId)?.save;
     if (!again) throw new Error('no save');
-    expect(convertRuneRolls(again.items).report).toEqual({ affixesRemoved: [], startersRebuilt: [] });
+    expect(convertRuneRolls(again.items).report).toEqual({ affixesRemoved: [], renamed: [], startersRebuilt: [], runesRetiered: [] });
     raw.close();
   });
 });
