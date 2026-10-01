@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { TOWN_DECOR_ASSETS, TOWN_PROP_KINDS, validateLayout, DEFAULT_TOWN_LAYOUT, layoutToMap } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
-import { filterPalette, groupPalette, paletteEntries } from '../src/game/townPalette.js';
+import { decorInfo, filterPalette, groupPalette, paletteEntries } from '../src/game/townPalette.js';
 import { hideInMap, pickAll, stationsOf } from '../src/game/townEditorPick.js';
 import { ASSETS } from '../src/render/assets.js';
 import { isLitDecor, PROCEDURAL_DECOR } from '../src/render/props.js';
@@ -9,6 +9,13 @@ import { isLitDecor, PROCEDURAL_DECOR } from '../src/render/props.js';
 const PUBLIC = new URL('../public', import.meta.url).pathname;
 
 describe('town editor palette', () => {
+  it('never takes an Object.prototype member for a lit or procedural asset', () => {
+    for (const asset of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
+      expect(isLitDecor(asset)).toBe(false);
+      expect(decorInfo(asset).group).not.toBe('Lights and fires');
+    }
+  });
+
   it('asset ids are unique', () => {
     const ids = ASSETS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);

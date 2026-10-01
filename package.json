@@ -7,6 +7,7 @@
     "test": "vitest run",
     "typecheck": "pnpm -r typecheck",
     "town:pull": "pnpm --filter @rune/server town:pull",
+    "town:push": "apps/server/node_modules/.bin/tsx scripts/town-push.ts",
     "runes:convert-check": "apps/server/node_modules/.bin/tsx scripts/runes-convert-check.ts",
     "world:convert-check": "apps/server/node_modules/.bin/tsx scripts/world-convert-check.ts",
     "model:check": "apps/server/node_modules/.bin/tsx scripts/model-check.ts",

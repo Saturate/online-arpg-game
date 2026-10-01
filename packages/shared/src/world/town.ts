@@ -166,6 +166,14 @@ export function isTownDecorAsset(asset: string): boolean {
   return Object.hasOwn(TOWN_DECOR_ASSETS, asset);
 }
 
+/**
+ * The spec of a placeable asset. Own keys only: a plain index would find `constructor`,
+ * `toString` and the rest on Object.prototype, and a layout naming them would pass validation.
+ */
+export function decorSpec(asset: string): TownDecorSpec | undefined {
+  return Object.hasOwn(TOWN_DECOR_ASSETS, asset) ? TOWN_DECOR_ASSETS[asset] : undefined;
+}
+
 /** A point `(ox, oz)` of a placed piece's model, turned and scaled like the model is (PropBatch turns by -angle in three's frame, +angle on the map). */
 function placed(d: TownDecor, ox: number, oz: number): { x: number; y: number } {
   const c = Math.cos(d.angle);
@@ -175,7 +183,7 @@ function placed(d: TownDecor, ox: number, oz: number): { x: number; y: number } 
 
 /** The ground a placed piece covers: its model's footprint box. Null for an asset with no spec. */
 export function decorFootprint(d: TownDecor): Shape | null {
-  const spec = TOWN_DECOR_ASSETS[d.asset];
+  const spec = decorSpec(d.asset);
   if (!spec) return null;
   const at = placed(d, spec.ox, spec.oz);
   return { type: 'box', x: at.x, y: at.y, hw: (spec.w / 2) * d.scale, hh: (spec.d / 2) * d.scale, angle: d.angle };
@@ -194,7 +202,7 @@ const MIN_SOLID_HALF = 8;
  * for round things, and only the trunk for a tree, so heroes can walk under the canopy's edge.
  */
 export function decorCollision(d: TownDecor): Shape | null {
-  const spec = TOWN_DECOR_ASSETS[d.asset];
+  const spec = decorSpec(d.asset);
   if (!spec) return null;
   const at = placed(d, spec.ox, spec.oz);
   const inset = 0.85;
@@ -254,7 +262,7 @@ export function layoutToMap(layout: TownLayout): WorldMap {
   }
   for (const d of layout.decor) {
     const shape = d.solid ? decorCollision(d) : null;
-    const spec = TOWN_DECOR_ASSETS[d.asset];
+    const spec = decorSpec(d.asset);
     if (shape && spec) map.obstacles.push({ kind: 'decor', shape, blocksMove: true, blocksShots: spec.h * d.scale >= 45, visual: spec.h * d.scale });
   }
   map.decor = layout.decor.map((d) => ({ asset: d.asset, x: d.x, y: d.y, angle: d.angle, scale: d.scale }));
@@ -418,68 +426,90 @@ function isPortalTarget(v: unknown): v is TownPortalTarget {
 
 /** Returns a clean layout, or null if anything is out of bounds or malformed. */
 export function validateLayout(v: unknown, opts: ValidateOptions = {}): TownLayout | null {
-  if (!isRecord(v) || v.version !== 1) return null;
+  const result = checkLayout(v, opts);
+  return typeof result === 'string' ? null : result;
+}
+
+/**
+ * The same check as `validateLayout`, but a refusal says what is wrong, for the admin API: a staff
+ * script sending a whole layout needs to know which piece to fix.
+ */
+export function checkLayout(v: unknown, opts: ValidateOptions = {}): TownLayout | string {
+  if (!isRecord(v)) return 'The layout must be a JSON object';
+  if (v.version !== 1) return 'version must be 1';
   const width = num(v.width, LIMITS.minSize, LIMITS.maxSize);
   const height = num(v.height, LIMITS.minSize, LIMITS.maxSize);
-  if (width === null || height === null) return null;
+  if (width === null || height === null) return `width and height must be numbers from ${LIMITS.minSize} to ${LIMITS.maxSize}`;
   const spawn = point(v.spawn, width, height);
-  if (!spawn || !Array.isArray(v.props) || !Array.isArray(v.paths) || !Array.isArray(v.plazas) || !Array.isArray(v.portals)) return null;
-  if (v.props.length > LIMITS.props || v.paths.length > LIMITS.paths || v.plazas.length > LIMITS.plazas || v.portals.length > LIMITS.portals) return null;
+  if (!spawn) return 'spawn must be a point inside the town';
+  if (!Array.isArray(v.props) || !Array.isArray(v.paths) || !Array.isArray(v.plazas) || !Array.isArray(v.portals)) return 'props, paths, plazas and portals must be lists';
+  if (v.props.length > LIMITS.props) return `At most ${LIMITS.props} props`;
+  if (v.paths.length > LIMITS.paths) return `At most ${LIMITS.paths} paths`;
+  if (v.plazas.length > LIMITS.plazas) return `At most ${LIMITS.plazas} plazas`;
+  if (v.portals.length > LIMITS.portals) return `At most ${LIMITS.portals} portals`;
 
   const props: TownProp[] = [];
-  for (const p of v.props) {
-    if (!isRecord(p) || !isPropKind(p.kind)) return null;
+  for (const [i, p] of v.props.entries()) {
+    if (!isRecord(p) || !isPropKind(p.kind)) return `props[${i}]: unknown kind`;
     const pos = point(p, width, height);
+    if (!pos) return `props[${i}]: x and y must lie inside the town`;
     const angle = num(p.angle, -100, 100);
     const scale = num(p.scale, 0.3, 3);
     const length = num(p.length, 0, Math.max(width, height));
-    if (!pos || angle === null || scale === null || length === null) return null;
+    if (angle === null) return `props[${i}]: angle must be a number from -100 to 100`;
+    if (scale === null) return `props[${i}]: scale must be a number from 0.3 to 3`;
+    if (length === null) return `props[${i}]: length must be a number from 0 to ${Math.max(width, height)}`;
     const clean: TownProp = { kind: p.kind, x: pos.x, y: pos.y, angle, scale, length };
     if (p.model !== undefined) {
       if (typeof p.model === 'string' && propModels(p.kind).includes(p.model)) clean.model = p.model;
-      else if (opts.unknownDecor !== 'drop') return null;
+      else if (opts.unknownDecor !== 'drop') return `props[${i}]: model is not one the game has for a ${p.kind}`;
     }
     props.push(clean);
   }
   const paths: TownPath[] = [];
-  for (const p of v.paths) {
-    if (!isRecord(p) || !Array.isArray(p.points) || p.points.length < 2 || p.points.length > LIMITS.pathPoints) return null;
+  for (const [i, p] of v.paths.entries()) {
+    if (!isRecord(p) || !Array.isArray(p.points) || p.points.length < 2 || p.points.length > LIMITS.pathPoints) return `paths[${i}]: needs 2 to ${LIMITS.pathPoints} points`;
     const w = num(p.width, 20, 400);
+    if (w === null) return `paths[${i}]: width must be a number from 20 to 400`;
     const pts = p.points.map((q) => point(q, width, height));
-    if (w === null || pts.some((q) => q === null)) return null;
+    if (pts.some((q) => q === null)) return `paths[${i}]: every point must lie inside the town`;
     paths.push({ width: w, points: pts.filter((q): q is Vec2 => q !== null) });
   }
   const plazas: TownPlaza[] = [];
-  for (const p of v.plazas) {
+  for (const [i, p] of v.plazas.entries()) {
     const pos = point(p, width, height);
+    if (!pos) return `plazas[${i}]: x and y must lie inside the town`;
     const r = isRecord(p) ? num(p.r, 20, 1500) : null;
-    if (!pos || r === null) return null;
+    if (r === null) return `plazas[${i}]: r must be a number from 20 to 1500`;
     plazas.push({ x: pos.x, y: pos.y, r });
   }
   const portals: TownPortal[] = [];
-  for (const p of v.portals) {
+  for (const [i, p] of v.portals.entries()) {
     const pos = point(p, width, height);
-    if (!pos || !isRecord(p) || !isPortalTarget(p.target)) return null;
+    if (!pos) return `portals[${i}]: x and y must lie inside the town`;
+    if (!isRecord(p) || !isPortalTarget(p.target)) return `portals[${i}]: target must be town, wilds or arena`;
     portals.push({ target: p.target, x: pos.x, y: pos.y });
   }
   // The town must keep its way out, or players would be stuck in it.
-  if (!portals.some((p) => p.target === 'wilds')) return null;
+  if (!portals.some((p) => p.target === 'wilds')) return 'The town needs a portal to the wilds';
   const decorIn = Array.isArray(v.decor) ? v.decor : [];
-  if (decorIn.length > LIMITS.decor) return null;
+  if (decorIn.length > LIMITS.decor) return `At most ${LIMITS.decor} decor pieces`;
   const decor: TownDecor[] = [];
   let solid = 0;
   let lit = 0;
-  for (const d of decorIn) {
+  for (const [i, d] of decorIn.entries()) {
     const pos = point(d, width, height);
-    if (!pos || !isRecord(d) || typeof d.asset !== 'string' || !/^[A-Za-z0-9_]{1,48}$/.test(d.asset)) return null;
+    if (!pos) return `decor[${i}]: x and y must lie inside the town`;
+    if (!isRecord(d) || typeof d.asset !== 'string' || !/^[A-Za-z0-9_]{1,48}$/.test(d.asset)) return `decor[${i}]: asset must be 1 to 48 letters, digits or _`;
     const angle = num(d.angle, -100, 100);
     const scale = num(d.scale, 0.2, 4);
-    if (angle === null || scale === null) return null;
-    if (d.solid !== undefined && typeof d.solid !== 'boolean') return null;
-    const spec: TownDecorSpec | undefined = TOWN_DECOR_ASSETS[d.asset];
+    if (angle === null) return `decor[${i}]: angle must be a number from -100 to 100`;
+    if (scale === null) return `decor[${i}]: scale must be a number from 0.2 to 4`;
+    if (d.solid !== undefined && typeof d.solid !== 'boolean') return `decor[${i}]: solid must be true or false`;
+    const spec = decorSpec(d.asset);
     if (!spec) {
       if (opts.unknownDecor === 'drop') continue;
-      return null;
+      return `decor[${i}]: unknown asset ${d.asset}`;
     }
     if (spec.lit) lit++;
     // Only `true` is kept, so a layout without solid pieces serialises exactly as before.
@@ -488,7 +518,8 @@ export function validateLayout(v: unknown, opts: ValidateOptions = {}): TownLayo
       decor.push({ asset: d.asset, x: pos.x, y: pos.y, angle, scale, solid: true });
     } else decor.push({ asset: d.asset, x: pos.x, y: pos.y, angle, scale });
   }
-  if (solid > LIMITS.solidDecor || lit > LIMITS.litDecor) return null;
+  if (solid > LIMITS.solidDecor) return `At most ${LIMITS.solidDecor} solid decor pieces`;
+  if (lit > LIMITS.litDecor) return `At most ${LIMITS.litDecor} lit decor pieces`;
   const name = typeof v.name === 'string' ? v.name.replace(/[^\p{L}\p{N} '-]/gu, '').slice(0, 32) || 'Town' : 'Town';
   return { version: 1, name, width, height, spawn, props, paths, plazas, portals, decor };
 }

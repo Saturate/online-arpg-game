@@ -33,7 +33,6 @@ export class Client {
   /** Staff role, set on join and updated live when an owner changes it. */
   role: Role = 'player';
   characterId: number | null = null;
-  lastTownSave = 0;
   messageCount = 0;
   /** Recent chat send times, for the chat rate limit (separate from the general message limit). */
   chatTimes: number[] = [];

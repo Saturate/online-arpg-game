@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TOWN_LAYOUT, GROUND, layoutToMap, loadMap, mapKey, Rng, SIM, stepPlayer, validateLayout, type MoveState } from '../src/index.js';
+import { checkLayout, decorCollision, decorFootprint, decorSpec, DEFAULT_TOWN_LAYOUT, GROUND, layoutToMap, loadMap, mapKey, Rng, SIM, stepPlayer, validateLayout, type MoveState } from '../src/index.js';
 
 describe('town layouts', () => {
   it('the default layout survives a JSON round trip through validation', () => {
     const back = validateLayout(JSON.parse(JSON.stringify(DEFAULT_TOWN_LAYOUT)));
     expect(back).toEqual(DEFAULT_TOWN_LAYOUT);
+  });
+
+  it('never takes an Object.prototype member for a decor asset', () => {
+    const base = JSON.parse(JSON.stringify(DEFAULT_TOWN_LAYOUT));
+    for (const asset of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const piece = { asset, x: 300, y: 300, angle: 0, scale: 1 };
+      expect(decorSpec(asset)).toBeUndefined();
+      expect(checkLayout({ ...base, decor: [piece] })).toBe(`decor[0]: unknown asset ${asset}`);
+      expect(validateLayout({ ...base, decor: [{ ...piece, solid: true }] })).toBeNull();
+      // A town loaded from disk drops it like any unknown asset.
+      expect(validateLayout({ ...base, decor: [piece] }, { unknownDecor: 'drop' })?.decor).toEqual([]);
+      expect(decorFootprint({ ...piece, solid: true })).toBeNull();
+      expect(decorCollision({ ...piece, solid: true })).toBeNull();
+      expect(layoutToMap({ ...DEFAULT_TOWN_LAYOUT, decor: [{ ...piece, solid: true }] }).obstacles.some((o) => o.kind === 'decor')).toBe(false);
+    }
   });
 
   it('rejects hostile or broken layouts', () => {
