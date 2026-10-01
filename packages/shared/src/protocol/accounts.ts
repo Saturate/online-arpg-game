@@ -137,6 +137,8 @@ export interface ServerSettings {
   bossLifeMultiplier: number;
   /** Every boss's damage (contact, abilities, projectiles, pools); applies to bosses that spawn after a change. */
   bossDamageMultiplier: number;
+  /** Seconds between any two sigil casts, before the cast delay affix and cast speed shorten it. */
+  castCooldownSeconds: number;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -166,6 +168,7 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   gateRespawnMinutes: STREAMING.gateRespawnMinutes,
   bossLifeMultiplier: ENEMY_LEVEL.bossLifeMultiplier,
   bossDamageMultiplier: ENEMY_LEVEL.bossDamageMultiplier,
+  castCooldownSeconds: HEAT.castCooldownSeconds,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
@@ -184,6 +187,11 @@ export function isZoomSettings(v: unknown): v is ZoomSettings {
     if (typeof z !== 'number' || !Number.isFinite(z) || z < SETTINGS_LIMITS.zoomMin || z > SETTINGS_LIMITS.zoomMax) return false;
   }
   return true;
+}
+
+/** The client shows this in tooltips, so a value outside the admin limits is ignored rather than shown. */
+export function isCastCooldown(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= SETTINGS_LIMITS.castCooldownMin && v <= SETTINGS_LIMITS.castCooldownMax;
 }
 
 /**
@@ -244,6 +252,9 @@ export const SETTINGS_LIMITS = {
    */
   bossMultiplierMin: 0.5,
   bossMultiplierMax: 10,
+  /** Under 0.1 s a held key casts nearly every 0.05 s tick; over 3 s spells feel broken. */
+  castCooldownMin: 0.1,
+  castCooldownMax: 3,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -301,8 +312,9 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     gateRespawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
     bossLifeMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
     bossDamageMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
+    castCooldownSeconds: [SETTINGS_LIMITS.castCooldownMin, SETTINGS_LIMITS.castCooldownMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

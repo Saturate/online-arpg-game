@@ -353,6 +353,7 @@ export class Room {
       townEditor: this.hostsTown && can(m.client.role, 'townEdit'),
       devTools: can(m.client.role, 'devTools') && this.sim.arena === null,
       build: SERVER_BUILD,
+      castCooldown: this.sim.rates.castCooldown,
       ...(this.planHash === undefined ? {} : { planHash: this.planHash }),
     });
     m.sentInventoryVersion = -1;

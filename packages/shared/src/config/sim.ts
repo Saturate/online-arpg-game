@@ -90,11 +90,11 @@ export const HEAT = {
   /** A negative roll gives back this share of what the same positive roll would cost. */
   affixRefundShare: 0.5,
   /**
-   * Minimum time between any two sigil casts, so holding a key at 20 Hz input is not 20 casts per
-   * second. 0.35 s is what the old 0.3 s actually waited (a float remainder cost a seventh tick),
-   * so every skill kept the cadence it was balanced at when the remainder was fixed.
+   * Default for the admin's global cast cooldown (`ServerSettings.castCooldownSeconds`); the live
+   * value is `sim.rates.castCooldown`. Force is the magazine and this is the fire rate; 0.5 s keeps
+   * casting from feeling spammy.
    */
-  castCooldownSeconds: 0.35,
+  castCooldownSeconds: 0.5,
 } as const;
 
 export const SPELL = {

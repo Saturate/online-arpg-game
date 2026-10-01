@@ -58,12 +58,19 @@ export class ForgePreview {
     this.dummy = { id, x: at?.x ?? pos.x + DUMMY_DISTANCE, y: at?.y ?? pos.y };
   }
 
+  /** The server's global cooldown and the character's cast speed, so the dummy sees the real cadence. */
+  setTiming(globalSeconds: number, castSpeedMult: number): void {
+    this.sim.setRates({ ...this.sim.rates, castCooldown: globalSeconds });
+    const p = this.sim.world.player.get(this.playerId);
+    if (p) p.stats = { ...p.stats, castSpeedMult };
+  }
+
   /** Swaps the spell; the next cast comes right away so a change shows at once. */
-  setSpell(compiled: SigilCompile | null, castDelay: number): void {
+  setSpell(compiled: SigilCompile | null, castDelayShare: number): void {
     this.compiled = compiled;
     const p = this.sim.world.player.get(this.playerId);
     if (!p) return;
-    p.sigils[0] = compiled ? { uid: -1, compiled, misfireMultiplier: 1, castDelay } : null;
+    p.sigils[0] = compiled ? { uid: -1, compiled, misfireMultiplier: 1, castDelayShare } : null;
     this.sinceCast = Infinity;
     this.hits = [];
   }

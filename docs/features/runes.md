@@ -66,7 +66,7 @@ A sigil holds whole rune items in its slots. Slots: common 3, magic 4, rare 5, r
 | multicast | +1 (T3 only: rare or relic from item level 5) | shapes cast together |
 | first rune is free | T3 only: rare or relic from item level 5 | waives the first rune's base cost, within limits |
 
-Four sigils sit on keys 1 to 4; left and right mouse cast the picked skill slots.
+Four sigils sit on keys 1 to 4; left and right mouse cast the picked skill slots. While the shared cast cooldown runs, a dark sweep covers the skill slots and recedes as it recharges (Aura and Bond slots stay clear). The skill slot popup, the sigil tooltip, the stash's sigil list and the forge show "Cooldown N s" for that sigil and character.
 
 ### Starter sigils
 
@@ -141,7 +141,7 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
 - **Multicast and payloads of several shapes work.** Split copies of a bolt or orb fan out 0.26 rad (15 degrees) apart; copies of other shapes sit in a ring 70 units out. Copies inherit the parent's hit list, so they do not re-hit the same target at once. Split conserves damage: each copy gets `1.2 / n` of it (plus the sigil's split efficiency).
 - **Pulse and "every X":** each release gets a fresh hit list; a split payload released on an interval sprays a full ring, rotating 0.7 rad each time.
 - **On hit** fires once per enemy a piercing projectile hits; on a Dash it fires on the first enemy only. **On expire** fires when the shape ends, hits a wall or is spent.
-- **The cast cooldown is 0.35 s** (shortened by the cast delay affix and cast speed). That is what the old 0.3 s actually waited because of a float remainder; the remainder is fixed and every skill kept its cadence.
+- **The cast cooldown is a live admin setting,** default 0.5 s (see "Cast cooldown" below). The cast delay affix and cast speed shorten it. It was 0.35 s from v2 until 2026-10-01, which is what the old 0.3 s actually waited because of a float remainder; the remainder is fixed, so the cooldown waits exactly its seconds in 0.05 s ticks.
 - **Live spell cap:** a projectile or nova counts 1 and a zone 0.35 (they cost the server about 6 and 0.8 microseconds per tick), 40 per player and 320 per room. Past it, the caster's oldest spent piece ends first and pieces still carrying a payload last; past the room cap, the heaviest caster gives way first. Spells of a player who leaves the room are removed. The grammar's entity budget counts unweighted. When the cap came in (before v2, with a nova weighted 0.35), Frozen Orb lost about 3% of its damage.
 - **Zones do not stack per caster:** a target takes at most one tick per caster, per kind (elements and effects), per tick interval, however many of that caster's zones it stands in. Different casters still stack, so party play pays. Zone damage rose from 6 to 14 per tick to match, and Fireball was retuned.
 - **Offensive or support:** a node is offensive if it has an element or Impact, or has neither Restore nor Ward. So `nova restore` only heals, and `nova ward fire` damages enemies and shields allies. Heals and shields hit allies, including the caster for areas.
@@ -196,15 +196,17 @@ interface SpellProgram { roots: SpellNode[]; form: FormId }
 
 Rule ids: `empty`, `unknown-rune`, `unknown-affix`, `bad-count`, `first-rune-shape`, `affix-not-allowed`, `trailing-release`, `one-release`, `release-not-for-shape`, `onrelease-needs-hold`, `release-interval`, `multicast`, `shaper-not-for-shape`, `link-needs-split`, `split-once` (Splits multiply up to 12), `split-count`, `duplicate-shaper`, `persistent-alone`, `persistent-no-release`, `persistent-no-split`, `persistent-no-charge`, `dash-root-only`, `charge-root-only`, `max-depth`, `entity-cap`, `plain-modifier-off`, and from the compiler `over-capacity`, `rune-not-castable`, `engine-not-ready` (homing, bounce, or releasing on a held button).
 
-Admin tunables (Settings tab, [accounts-admin.md](accounts-admin.md)): the level-1 Force bar (50 to 5000), a cost multiplier and a cooling multiplier (0.1 to 10), and the cooling ramp cap (1 to 20). They apply to everyone at once; the cost multiplier applies at cast time, not in the compiler.
+Admin tunables (Settings tab, [accounts-admin.md](accounts-admin.md)): the level-1 Force bar (50 to 5000), a cost multiplier and a cooling multiplier (0.1 to 10), the cooling ramp cap (1 to 20) and the global cast cooldown (0.1 to 3 s). They apply to everyone at once; the cost multiplier and the cooldown apply at cast time, not in the compiler.
 
 Tests:
 
-- `packages/shared/test/skillParity.test.ts`: all 20 starters within 15% Force, 10% damage (single and pack) and 5% dash distance of v1, exact spirit and cast count.
+- `packages/shared/test/skillParity.test.ts`: all 20 starters within 15% Force, 10% damage (single and pack) and 5% dash distance of v1, exact spirit and cast count. The harness (`test/harness/skillDps.ts`) casts at the v1 cadence of 0.35 s (`HARNESS_DEFAULTS.castCooldown`), not the live setting, so it compares strength per cast against the fixed baseline.
+- `apps/server/test/castCooldown.test.ts`: the setting's default and range, storage, the welcome and `castCooldown` message, and the server enforcing a changed value live.
+- `apps/client/test/castTiming.test.ts`: the client takes the server's value, ignores bad ones, and shows the same cooldown the server counts.
 - `packages/shared/test/forcePerDamage.test.ts`: 44 hand-picked spells and 300 seeded random spells (seed 20260930) stay under 2x the best starter's damage per Force, single and pack.
 - `packages/shared/test/grammarV2.test.ts`: the plan's examples, every rule, ambiguous cases, the tokenizer.
 - `packages/shared/test/compile.test.ts`: castability, named engine gaps, multicast, multi-shape payloads, affixes, capacity, Force by depth, affinity and affixes, spirit, starters compile for their class.
-- `packages/shared/test/spellEngine.test.ts`: the exact 0.35 s cooldown, multicast, `after` outlasting its shape, per-node speed and size, orb phasing.
+- `packages/shared/test/spellEngine.test.ts`: the cooldown waits exactly the setting's seconds (0.3, 0.35 and the default), the cast delay share and cast speed shorten it, a changed setting applies from the next cast, multicast, `after` outlasting its shape, per-node speed and size, orb phasing.
 - `packages/shared/test/payloadInfusion.test.ts`: inherited infusions reach the snapshot and the damage element.
 - `packages/shared/test/entityBudget.test.ts`: the budget's peak equals the engine's for 12 interval spells.
 - `packages/shared/test/liveCap.test.ts`, `zoneStacking.test.ts`: the weighted cap, room cap, departed players; one caster's zones do not stack.
@@ -218,7 +220,7 @@ Dev tools ([dev-tools.md](dev-tools.md)): the **Spell Lab** reads any rune list 
 Replaced by v2; kept so old saves, tests and numbers make sense.
 
 - **v1 grammar (SPEC, M2):** Form, Element, Effect, Modifier (Swift, Large, Linger, Pierce), Trigger and Action (Split) runes. Orphan forms (`bolt nova`) and Split on Dash were duds. Timer fired once, after 0.5 s or when the form ended, whichever came first. Heat was charged by depth (`1 + 0.5 * depth`). v2 replaced the depth surcharge with the payload share, made two shapes in a row a multicast, and made `after X` fire at X even after its shape ended.
-- **v1 misfire** ran from 0% at 100 heat to 50% at 130, with a 0.3 s global cast cooldown; the same shape now scales with the bar (1000 to 1300) and the cooldown is 0.35 s.
+- **v1 misfire** ran from 0% at 100 heat to 50% at 130, with a 0.3 s global cast cooldown; the same shape now scales with the bar (1000 to 1300) and the cooldown is an admin setting (default 0.5 s).
 - **Prebaked skills (after M6):** each class had four fixed skills in `data/skills.ts`, compiled by the rune engine. Hand tuning (speed, range, damage, radius, pass-through) applied to the root node only, and a skill could set its heat cost by hand because the depth formula made deep programs expensive (Fireball was 96). Sigil drops carried a random skill; hand-inscribing a sigil cleared it. These became the starter sigils.
 - **Pulse** was added then as a trigger for Bolt and Zone, firing every 0.18 s; Pulse plus Split sprayed a rotating ring, which is Frozen Orb. Prebaked skills could raise the entity cap (Frozen Orb allowed 48). The Pulse rune's default interval in v2 is 0.25 s; Frozen Orb carries its 0.18 s as a roll.
 - **The v1 editor** said "Unstable" without a reason, and only the debug overlay showed it. v2 names every rule in the forge.
@@ -304,15 +306,18 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 - The rune trader, zone merging, the Stack rune and endgame tiers are not built.
 - `SPELL.timerSeconds` duplicates `DEFAULT_TIMER_SECONDS` and only a test reads it. `runes/v2/examples.ts` still carries the plan's older Fireball text (`+30% damage`, `zone[long]`).
 
-## Planned: a longer cast cooldown (owner, 2026-10-01)
+## Cast cooldown (owner, 2026-10-01; built 2026-10-01, not yet deployed)
 
 "My brother has a spell like an orb that does some novas, pretty cool, but needs more cooldown; base cooldown needs to be higher."
 
-- **The model (owner):** Force is the magazine, the cooldown is the fire rate. Force decides how much a player can cast before running dry; the cooldown decides how fast, and casting should not feel spammy.
-- **The global cast cooldown goes up** from 0.35 s and becomes a live admin setting (ServerSettings), default 0.5 s, so it can be tuned in play without a deploy. It stays one number for every spell: the owner chose this over a cast delay per rune and over a cooldown by Force cost. The cast delay affix and cast speed keep shortening it.
-- **Shown on the skill bar and in tooltips:** a dark sweep over the skill slot while it recharges, and "Cooldown N s" in the sigil tooltip and at the forge, both from the same setting the server uses.
-- **Trade-off accepted:** starters and basic attacks slow down by the same share as payload spells. The parity and spell engine tests that pin 0.35 s need new expectations.
-- **Order:** after the boss tuning branch merges (it adds ServerSettings fields) and alongside the rune roll branch.
+- **Force is the magazine, the cooldown is the fire rate** (owner). Casting should not feel spammy: Force says how much you can cast before you run hot, the cooldown says how fast.
+- **One global cast cooldown, a live admin setting:** `castCooldownSeconds` in ServerSettings, default 0.5 s (up from 0.35 s), 0.1 to 3 s, on the admin Settings tab. It applies to every room on save, without a restart. It stays one number for every spell: the owner chose this over a cast delay per rune and over a cooldown by Force cost.
+- **Cast delay and cast speed still shorten it:** a cast waits `setting x (1 - cast delay %) / cast speed`, rounded up to whole 0.05 s ticks because the server only casts on a tick (0.43 s waits and reads 0.45 s). `castCooldownSeconds` in `items/items.ts` does both and is used by the sim and every tooltip. An equipped sigil carries its cast delay as a share of the setting (`EquippedSigil.castDelayShare`), so a change reaches sigils already equipped.
+- **A change mid-session:** a cooldown already running keeps its length; the next cast uses the new value. The server is the only one that enforces it (casts are not predicted on the client; the client sends held buttons and the server ignores them during the cooldown), so a client cannot cast faster than the server allows. The skill bar sweep runs on the snapshot's `castCooldown` and `castCooldownFull`, so it always shows the server's cooldown.
+- **The client's copy, for tooltips:** the welcome carries `castCooldown` and every settings change sends `{ t: 'castCooldown', seconds }`. The client checks it against the limits (`isCastCooldown`; a bad value is ignored and the last good one kept) and keeps it in `useCastTiming` (`apps/client/src/game/castTiming.ts`). Tooltips read it with the character's cast speed (`useSigilCooldown`), so they follow a change at once. Aura and Bond sigils show no cooldown, since they never wait for it. The forge preview follows the client's copy and the character's cast speed live; the Spell Studio and the VFX bench use the default.
+- **Skill bar:** a dark sweep (near-black with a faint inset shadow, no colour) over the slot while it recharges, eased between the 20 Hz snapshot steps with a registered `--cd` property (`.skill-cd` in `styles.css`). Only the sweep (`CooldownSweep` in `Hud.tsx`) re-renders on each tick; the slot's compile is memoised.
+- **Trade-off accepted:** starters and basic attacks slow down by the same share as payload spells (about 30% fewer casts a second at 0.5 s).
+- **Balance tests stay on the v1 cadence.** The parity and damage-per-Force harness casts every 0.35 s, as the v1 baseline was recorded and Force pricing was balanced. Measured at 0.5 s, the parity test fails by design (Fireball 20 casts in 10 s instead of 29) and the damage-per-Force search finds one spell above the 2x cap: `nova[onexpire] zone[after 0.3s, +55% damage] fire cold nova[+55% damage, +50% size] lightning` reaches about 2.15x in the pack, because a slower cadence wastes less of its lingering zone to the no-stacking rule. Open question: retune that spell class, or measure the cap at the live cooldown.
 
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 

@@ -5,7 +5,7 @@ import {
   Simulation,
   STARTER_SIGILS,
   serializeEntities,
-  sigilCastDelay,
+  sigilCastDelayShare,
   type ClassId,
   type EnemyTypeId,
   type EntityId,
@@ -269,11 +269,11 @@ export class VfxBench {
       p.warband = [null, null, null, null];
       p.sigils = [null, null, null, null];
       const sigil = studioSigil(skill);
-      if (sigil) p.sigils[0] = { uid: -1 - i * 2, compiled: compileSigilItem(sigil, skill.classId), misfireMultiplier: 1, castDelay: sigilCastDelay(sigil) };
+      if (sigil) p.sigils[0] = { uid: -1 - i * 2, compiled: compileSigilItem(sigil, skill.classId), misfireMultiplier: 1, castDelayShare: sigilCastDelayShare(sigil) };
       if (c.persistent) {
         const ps = skillOf(c.persistent);
         const psigil = studioSigil(ps);
-        if (psigil) p.sigils[1] = { uid: -2 - i * 2, compiled: compileSigilItem(psigil, ps.classId), misfireMultiplier: 1, castDelay: sigilCastDelay(psigil) };
+        if (psigil) p.sigils[1] = { uid: -2 - i * 2, compiled: compileSigilItem(psigil, ps.classId), misfireMultiplier: 1, castDelayShare: sigilCastDelayShare(psigil) };
       }
       casters.push({ id, x: pos.x, y: pos.y, hasPersistent: c.persistent !== undefined });
     });

@@ -12,7 +12,7 @@ function isGearSlot(v: unknown): v is GearSlot {
 }
 import { parseDevCommand } from '../sim/dev.js';
 import { validateLayout } from '../world/town.js';
-import { isSessionToken, isZoomSettings } from './accounts.js';
+import { isCastCooldown, isSessionToken, isZoomSettings } from './accounts.js';
 import { CHAT_LINKS, isLinkedItem, parseChatLinkUids } from './chatLinks.js';
 import { INSTANCE_CAPACITY } from '../data/zones.js';
 import { isWaypointId } from '../world/worldPlan.js';
@@ -264,7 +264,7 @@ function isPlanHash(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -276,6 +276,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   if (value.t === 'teleportChannel') return isTeleportChannel(value);
   if (value.t === 'chat') return isChatMessage(value);
   if (value.t === 'zoom') return isZoomSettings(value.zoom);
+  if (value.t === 'castCooldown') return isCastCooldown(value.seconds);
   return value.t !== 'inscribed' || isInscribeReply(value);
 }
 

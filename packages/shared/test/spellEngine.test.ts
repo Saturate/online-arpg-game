@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   compileRunes,
   DEFAULT_SIGIL_CONTEXT,
+  castCooldownSeconds,
+  DEFAULT_SERVER_SETTINGS,
   HEAT,
+  SIM,
   SKILL_BUTTONS,
   SPELL,
   Simulation,
@@ -29,7 +32,7 @@ interface Bench {
 }
 
 /** A mage with only `text` in slot 0 and pinned, unkillable dummies at `spots` (relative to the mage). */
-function bench(text: string, opts: { multicast?: number; castDelay?: number; spots?: { x: number; y: number }[] } = {}): Bench {
+function bench(text: string, opts: { multicast?: number; castDelayShare?: number; spots?: { x: number; y: number }[] } = {}): Bench {
   const sim = new Simulation(5, { kind: 'flat' });
   sim.waveTimer = Infinity;
   const pid = sim.addPlayer('engine', 'mage');
@@ -38,7 +41,7 @@ function bench(text: string, opts: { multicast?: number; castDelay?: number; spo
   if (!p || !pos) throw new Error('setup');
   p.god = true;
   p.warband = p.warband.map(() => null);
-  p.sigils = [{ uid: -1, compiled: compile(text, opts.multicast), misfireMultiplier: 1, castDelay: opts.castDelay ?? HEAT.castCooldownSeconds }, null, null, null];
+  p.sigils = [{ uid: -1, compiled: compile(text, opts.multicast), misfireMultiplier: 1, castDelayShare: opts.castDelayShare ?? 1 }, null, null, null];
   const home = { x: pos.x, y: pos.y };
   const dummies = (opts.spots ?? []).map((s) => {
     const id = sim.spawnEnemy('chaser', home.x + s.x, home.y + s.y);
@@ -89,18 +92,53 @@ function ticksUntil(b: Bench, done: () => boolean, limit = 200): number {
   return -1;
 }
 
+/** Ticks between the casts of a held key over `ticks` ticks. */
+function castGaps(b: Bench, ticks: number): number[] {
+  const castTicks: number[] = [];
+  for (let t = 0; t < ticks; t++) if (b.tick(true).casts > 0) castTicks.push(t);
+  return castTicks.slice(1).map((t, i) => t - (castTicks[i] ?? 0));
+}
+
 describe('cast cooldown', () => {
   it('waits exactly its seconds, not a tick more for a float remainder', () => {
-    for (const [delay, every] of [
+    for (const [seconds, every] of [
       [0.3, 6],
-      [HEAT.castCooldownSeconds, 7],
+      [0.35, 7],
+      [HEAT.castCooldownSeconds, HEAT.castCooldownSeconds / SIM.dt],
     ] as const) {
-      const b = bench('bolt', { castDelay: delay });
-      const castTicks: number[] = [];
-      for (let t = 0; t < 43; t++) if (b.tick(true).casts > 0) castTicks.push(t);
-      const gaps = castTicks.slice(1).map((t, i) => t - (castTicks[i] ?? 0));
-      expect(new Set(gaps), `delay ${delay}`).toEqual(new Set([every]));
+      const b = bench('bolt');
+      b.sim.setRates({ ...b.sim.rates, castCooldown: seconds });
+      expect(new Set(castGaps(b, 61)), `cooldown ${seconds}`).toEqual(new Set([Math.round(every)]));
     }
+  });
+
+  it('defaults to the admin default and is shortened by the cast delay share and cast speed', () => {
+    const b = bench('bolt', { castDelayShare: 0.8 });
+    expect(b.sim.rates.castCooldown).toBe(DEFAULT_SERVER_SETTINGS.castCooldownSeconds);
+    const p = b.sim.world.player.get(b.pid);
+    if (!p) throw new Error('setup');
+    p.stats = { ...p.stats, castSpeedMult: 2 };
+    // 0.5 x 0.8 / 2 = 0.2 s, four ticks.
+    expect(new Set(castGaps(b, 41))).toEqual(new Set([Math.round((HEAT.castCooldownSeconds * 0.8) / 2 / SIM.dt)]));
+  });
+
+  it('waits whole ticks: a cooldown between two ticks rounds up', () => {
+    const b = bench('bolt', { castDelayShare: 0.86 });
+    // 0.5 x 0.86 = 0.43 s, which the server can only honour as nine ticks (0.45 s).
+    expect(new Set(castGaps(b, 41))).toEqual(new Set([9]));
+    expect(castCooldownSeconds(0.5, 0.86, 1)).toBeCloseTo(0.45, 10);
+  });
+
+  it('follows a changed setting on the next cast, without touching the running cooldown', () => {
+    const b = bench('bolt');
+    expect(b.tick(true).casts).toBe(1);
+    const p = b.sim.world.player.get(b.pid);
+    if (!p) throw new Error('setup');
+    const running = p.castCooldown;
+    b.sim.setRates({ ...b.sim.rates, castCooldown: 1 });
+    expect(p.castCooldown).toBe(running);
+    castGaps(b, 20);
+    expect(new Set(castGaps(b, 81))).toEqual(new Set([20]));
   });
 });
 

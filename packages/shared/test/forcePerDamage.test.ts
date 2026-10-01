@@ -78,7 +78,7 @@ function measureCompiled(text: string, classId: ClassId, compiled: SigilCompile)
   const shape = tokenizeSpell(text).runes[0]?.id ?? 'bolt';
   return measureSkill({
     classId,
-    equip: () => ({ uid: -1, compiled, misfireMultiplier: 1, castDelay: HEAT.castCooldownSeconds }),
+    equip: () => ({ uid: -1, compiled, misfireMultiplier: 1, castDelayShare: 1 }),
     ...(SELF_CENTRED.has(shape) ? { distance: 40 } : {}),
   });
 }

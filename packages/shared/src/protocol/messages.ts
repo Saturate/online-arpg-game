@@ -418,6 +418,8 @@ export type ServerMessage =
       build: string;
       /** In a world room, the server's `planChecksum`; a client whose own plan hashes otherwise reports it. */
       planHash?: string;
+      /** The admin's global cast cooldown in seconds, so tooltips show what the server enforces. */
+      castCooldown?: number;
     }
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
@@ -427,6 +429,8 @@ export type ServerMessage =
   | { t: 'lighting'; lighting: Lighting }
   /** The admin's camera zoom limits; sent on join and whenever an admin changes them. */
   | { t: 'zoom'; zoom: ZoomSettings }
+  /** The admin's global cast cooldown in seconds; sent whenever an admin changes it (the welcome carries it too). */
+  | { t: 'castCooldown'; seconds: number }
   /** Admin model and height overrides; sent on entering the game and again whenever they change. */
   | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */

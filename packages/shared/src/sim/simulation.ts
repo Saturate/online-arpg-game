@@ -86,6 +86,8 @@ export interface SimRates {
   bossLife: number;
   /** Every boss's damage, all of it; read when a boss spawns, like `bossLife`. */
   bossDamage: number;
+  /** Seconds between any two sigil casts, before the cast delay affix and cast speed. */
+  castCooldown: number;
 }
 
 /**
@@ -108,6 +110,7 @@ export const DEFAULT_RATES: SimRates = {
   forceRampMax: HEAT.coolRampMax,
   bossLife: ENEMY_LEVEL.bossLifeMultiplier,
   bossDamage: ENEMY_LEVEL.bossDamageMultiplier,
+  castCooldown: HEAT.castCooldownSeconds,
 };
 
 export class Simulation {

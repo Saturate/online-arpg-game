@@ -16,8 +16,10 @@
  * - The target point is `distance` units east of the player (250 by default; callers pass a short
  *   distance for spells that go off on the caster). One dummy sits on it for `single`, a sunflower
  *   pack of 6 around it for `pack` (same layout as the Spell Studio, dummies within 64 units of the target).
- * - Casts go off every 7 ticks (0.35 s). The v1 baseline was recorded with a 0.3 s cooldown that
- *   waited seven ticks through a float remainder; the cooldown is 0.35 s now and exact.
+ * - Casts go off every 7 ticks (0.35 s, `castCooldown`), not at the game's admin setting. The v1
+ *   baseline was recorded at that cadence (a 0.3 s cooldown that waited seven ticks through a float
+ *   remainder) and Force pricing was balanced against it, so the harness compares strength per cast
+ *   at a fixed cadence whatever the live server's cooldown is.
  * - The skill button is held every tick while Force is at or below the bar, and released above it.
  *   That honours the sim's cast cooldown, Force cost and overheat cap, and never risks a misfire,
  *   which would spend a cast on self damage and make the numbers depend on the misfire roll.
@@ -46,6 +48,8 @@ export interface SkillDpsOptions {
   distance?: number;
   seconds?: number;
   packSize?: number;
+  /** Global cast cooldown in seconds; the v1 cadence unless a test asks for another. */
+  castCooldown?: number;
 }
 
 export interface SkillDpsResult {
@@ -67,7 +71,7 @@ export interface SkillDpsResult {
   peakEntities: number | null;
 }
 
-export const HARNESS_DEFAULTS = { seed: 1337, distance: 250, seconds: 10, packSize: 6 } as const;
+export const HARNESS_DEFAULTS = { seed: 1337, distance: 250, seconds: 10, packSize: 6, castCooldown: 0.35 } as const;
 
 /** Matches the Spell Studio's pack spacing, so harness and studio numbers line up. */
 const DUMMY_SPACING = 46;
@@ -97,6 +101,7 @@ const NO_GEAR: Record<GearSlot, null> = {
 
 function setup(opts: Required<SkillDpsOptions>, dummyCount: number): Bench {
   const sim = new Simulation(opts.seed, { kind: 'flat' });
+  sim.setRates({ ...sim.rates, castCooldown: opts.castCooldown });
   sim.waveTimer = Infinity;
   const pid = sim.addPlayer('baseline', opts.classId, 'Baseline');
   const w = sim.world;
