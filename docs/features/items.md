@@ -62,6 +62,7 @@ A client setting, Esc, Settings, Items, "Ask before dropping rares and relics, o
 - The rules are `asksBeforeDrop` and `asksBeforeSelling` in `ui/itemActions.ts`. Bound items never reach either prompt: they cannot be dropped or sold.
 - Turning the setting off while a prompt is open leaves that prompt up until it is answered.
 - **One transaction per trade:** the shelf, the character and the stash are saved together, and the new shelf goes to everyone in a room with a trader.
+- **A trade that cannot be saved does not happen.** The shelf in memory changes only after that transaction commits. If the write throws, the player's bag, item stacks, stash layout and gold go back to exactly what they were before the click (`apps/server/src/tradeRollback.ts`), the shelf keeps the item, and the player sees "The trade could not be saved, so nothing changed". Memory and the database agree again, so a later autosave cannot store one side of the trade alone: after a restart every item is in one place and no gold is made or lost.
 
 ### Conversion from v1
 
@@ -83,7 +84,7 @@ Code:
 - Items: `packages/shared/src/items/items.ts` (the `Item` union, `TIER_ROLLS`, `rollAffixes`, `createGear`, `createVessel`, `vesselPackmates`, `createRune`, `createRolledRune`, `sigilCapacity`, `isBound`, `holdsBoundRunes`, `reissueUids`, `STARTER_VESSELS`). Gear bases in `data/gear.ts`, affixes in `data/affixes.ts`. Prices in `items/prices.ts`.
 - Grid: `packages/shared/src/items/grid.ts` (`BAG`, `STASH`, footprints, `findSpot`).
 - Inventory rules: `packages/shared/src/sim/inventory.ts` (`addItem`, `takeFromGround`, `addOrPend`, `layOut`, `placePending`, `settlePending`, `sortInventory`, `discard`, `moveItem`, `sellItem`, `buyItem`, equip functions, the starter kit).
-- Trader shelf: `Market` in `apps/server/src/accounts.ts`, trades in `apps/server/src/manager.ts` (`saveTrade`).
+- Trader shelf: `Market` in `apps/server/src/accounts.ts`, trades in `apps/server/src/manager.ts` (`sell`, `buy`, `saveTrade`), the rollback of a failed trade in `apps/server/src/tradeRollback.ts`.
 - Conversion: `packages/shared/src/items/convertV2.ts`, `scripts/runes-convert-check.ts`.
 - Client: `apps/client/src/ui/Inventory.tsx` (bag, stash window, `PendingStrip`, drop and sell prompts), `ui/itemActions.ts`, `ui/parts.tsx` (tooltips), 3D item icons in `ui/itemIconRenderer.ts`.
 
@@ -104,6 +105,7 @@ Invariants:
 - A refused command changes nothing.
 - No bound item, and no sigil holding a bound rune, ever reaches the stash or the shelf.
 - A character, its stash and (for trades) the shelf are written in one transaction.
+- A trade whose write fails changes nothing, in memory or on disk.
 
 Admin tunables: the loot rate ([loot.md](loot.md)). Prices, stack size and grid sizes are code constants.
 
@@ -116,10 +118,10 @@ Tests:
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
 - `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.
 - `apps/client/test/stations.test.ts`: one station window at a time, the editor and the character sheet with them, which station takes the bag's clicks.
+- `apps/server/test/tradeAtomic.test.ts`: a buy, a rune buy that topped up a stack, and a sale whose shelf write fails inside the transaction (an injected SQLite trigger) change nothing; after a later autosave and a restart each item is in exactly one place and the gold is unchanged; a trade after a failed one saves normally; successful trades conserve every item and coin across a restart.
 - `apps/server/test/grants.test.ts`: a grant adds exactly one item with a uid above every uid in the save, unbound, and it reaches the character on the next login once, with every other item unchanged; nothing is written on a refusal.
 
 ## Limits and open questions
 
-- If the SQLite write in a trade throws after a buy and a later save succeeds, the item can exist twice after a restart (older than the rune rework).
 - `fixedName` and `lore` exist on vessels only; other kinds get them with the first unique of their kind. Uniques that bend the rules (fixed, hand-made affixes with special effects) are planned; see [runes.md](runes.md), "Planned".
 - `LOOT.inventorySize` (20) is left over from the old 20-slot bag and unused.

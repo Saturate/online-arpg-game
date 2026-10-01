@@ -36,6 +36,7 @@ import {
   type ServerMessage,
   type DungeonRef,
   type MapDescriptor,
+  type PlayerComp,
   type PlayerSave,
   type Lighting,
   type Item,
@@ -61,6 +62,7 @@ import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { events } from './eventLog.js';
 import { channelBreak, PARTY_STATUS_TICKS, TELEPORT_CHANNEL_SECONDS, type ChannelWatch, type TeleportChannel } from './partyTravel.js';
 import { Room } from './room.js';
+import { rollBackTrade, snapshotForTrade, type TradeSnapshot } from './tradeRollback.js';
 import { Staging, type StagingTarget } from './staging.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
 
@@ -758,38 +760,59 @@ export class RoomManager implements AdminHooks {
 
   private sell(client: Client, uid: number): void {
     const room = client.room;
-    if (!room) return;
+    const p = room ? this.playerIn(room, client) : undefined;
+    if (!room || !p) return;
+    const before = snapshotForTrade(p);
     const sold = room.sell(client, uid);
     if (typeof sold === 'string') return client.send({ t: 'notice', text: sold });
     const next = [...this.market.stock, { id: this.market.nextId, item: { ...sold, uid: 0 }, price: buyPrice(sold) }];
     // Past capacity the oldest item is destroyed for good, which keeps the shelf fresh.
-    this.market = { nextId: this.market.nextId + 1, stock: next.slice(Math.max(0, next.length - TRADER.capacity)), runeFormat: 2 };
-    this.saveTrade(client, room);
+    const market: Market = { nextId: this.market.nextId + 1, stock: next.slice(Math.max(0, next.length - TRADER.capacity)), runeFormat: 2 };
+    if (!this.saveTrade(client, room, market, p, before)) return;
     this.system(client, `Sold ${sold.name} for ${sellPrice(sold)} gold`);
   }
 
   private buy(client: Client, id: number): void {
     const room = client.room;
+    const p = room ? this.playerIn(room, client) : undefined;
+    if (!room || !p) return;
     const entry = this.market.stock.find((e) => e.id === id);
-    if (!room) return;
     if (!entry) return client.send({ t: 'notice', text: 'Someone else bought that' });
     // Priced now, not when it was sold, so a shelf saved under older prices cannot be bought cheap.
     const price = buyPrice(entry.item);
+    const before = snapshotForTrade(p);
     const error = room.buy(client, entry.item, price);
     if (error) return client.send({ t: 'notice', text: error });
-    this.market = { ...this.market, stock: this.market.stock.filter((e) => e.id !== id) };
-    this.saveTrade(client, room);
+    if (!this.saveTrade(client, room, { ...this.market, stock: this.market.stock.filter((e) => e.id !== id) }, p, before)) return;
     this.system(client, `Bought ${entry.item.name} for ${price} gold`);
   }
 
-  /** The character and the shelf are written together, then everyone at a trader sees the new shelf. */
-  private saveTrade(client: Client, room: Room): void {
-    const save = room.exportMember(client);
-    if (save && client.characterId !== null && client.accountId !== null) {
+  /**
+   * The character, the stash and the new shelf are written in one transaction, and only then does
+   * the shelf in memory change. A failed write rolls the player back to `before` and keeps the old
+   * shelf, so memory matches the database again: otherwise the next autosave would store the
+   * player's side alone, and after a restart a bought item would exist twice, a sold one not at all.
+   */
+  private saveTrade(client: Client, room: Room, market: Market, p: PlayerComp, before: TradeSnapshot): boolean {
+    try {
+      const save = room.exportMember(client);
+      if (!save || client.characterId === null || client.accountId === null) throw new Error('no character to save');
       const { character, stash } = splitStash(save);
-      this.store.saveCharacterAndStash(client.characterId, character, client.accountId, stash, this.market);
+      this.store.saveCharacterAndStash(client.characterId, character, client.accountId, stash, market);
+    } catch (err) {
+      rollBackTrade(p, before);
+      events.error('save', `[trader] trade by ${client.accountName ?? client.id} not saved; rolled back`, err);
+      client.send({ t: 'notice', text: 'The trade could not be saved, so nothing changed' });
+      return false;
     }
+    this.market = market;
     for (const c of this.clients.values()) if (c.room?.sim.mapDef.trader) c.send({ t: 'trader', stock: this.market.stock });
+    return true;
+  }
+
+  private playerIn(room: Room, client: Client): PlayerComp | undefined {
+    const m = room.members.get(client.id);
+    return m ? room.sim.world.player.get(m.playerId) : undefined;
   }
 
   // Worlds and parties ------------------------------------------------------------------------
