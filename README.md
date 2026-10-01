@@ -44,6 +44,19 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 
 **Where things stand (2026-10-01, end of session 3).** Live at arpg.akj.io is `f82ead6`: the seamless world (one map per world copy, Emberwatch in the middle, three roads branching into six regions, levels 1 to 25 by distance, ten waypoints, three gate bosses, respawn by inactivity, the world map on M), world streaming (sleeping far monsters, chunked rendering, generation by chunk), stash tabs, the game-feel UI, night lighting, spell and world fire effects, the Hound pack and poison, the Grant item tool, admin API tokens, party frames and teleport, party-only XP, chat item links, admin camera zoom, the town editor palette. Characters convert on their first login after the deploy (waypoints to world waypoints, gate unlocks kept for those who had reached gated zones). The pre-deploy database copy is `apps/server/data/rune.db.live-pre-world-20261001` on the owner's laptop (gitignored).
 
+**Waiting on local `main` (2026-10-01, not pushed).** All reviewed and merged; gates pass (1133 tests, typecheck, build). Converts saves (the rune roll pass), so follow the deploy steps below.
+
+- Boss tuning (half life, double damage) and a gate boss respawn setting, all live admin settings ([monsters.md](docs/features/monsters.md)).
+- Global cast cooldown 0.5 s as a live admin setting, with a sweep on the skill bar ([runes.md](docs/features/runes.md), "Cast cooldown").
+- "First rune is free" removed; Multishot and Flame Cleave buffed; starters cast their hand-set rolls only while whole; the rune roll pass on load ([items.md](docs/features/items.md), "Rune roll pass").
+- The Concentrated rune ([runes.md](docs/features/runes.md)).
+- Arena: a dead member's warband is desummoned until the run ends ([minions.md](docs/features/minions.md)).
+- The trader write is atomic (no duplication on a failed save; [items.md](docs/features/items.md)).
+- Fences drawn on their collision line, minion and knockback sub-steps, leader leap checks walls ([town.md](docs/features/town.md)).
+- Town looks restored from before the world deploy, house models stored per house with an editor picker ([town.md](docs/features/town.md)).
+- Gate walls: arch across the road, a continuous ridge, rivers kept off gates ([world-map.md](docs/features/world-map.md), "Gate walls").
+- After the deploy: the pen corner layout fix (below).
+
 **How to deploy (any change that converts saves).**
 
 1. `pnpm admin GET /api/admin/overview` (who is online), then `pnpm admin backup apps/server/data/rune.db.live-<label>`: the only rollback.
