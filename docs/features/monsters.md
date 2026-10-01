@@ -195,6 +195,14 @@ Tests:
 - `apps/server/test/tuning.test.ts`: permissions, validation, reset, live rooms pick up new spawns, `models` before `welcome`, overrides survive a restart.
 - `apps/client/test/modelChecks.test.ts`, `modelOverrides.test.ts`: the checks flag a bad export; feet in their own material are not a stray part; a textured file checks in Node; head parts match whole words (no horn in thorn_beast); a glowing body or sparks are not eyes; the static and floats flags; every KayKit hero and skeleton in `public/assets/kaykit/` faces +Z; a height-only override keeps the model swap.
 
+## Planned: the Charger (owner's brother, 2026-10-01)
+
+A new monster on a model the owner's brother made (`Charger.blend` and `Charger.glb`, delivered 2026-10-01; originals kept outside the repo, untouched). Like the Grave Hound, it is made for this game only and not licensed for reuse.
+
+- **Role:** a monster in the charger family: it winds up a telegraphed charge in a line (the circle or line fills while it stands still), then rams; dodgeable like every big attack.
+- **Where:** mid regions, from about level 6, in the regions past the first gate (the biome pools by level, `monsterPool`).
+- **Model:** fixed by the model-artist agent from the `.blend` without changing the look: face +Z, lift the near-black base colours to dark grey or lighter so it reads at night, make the Idle and Walk loops seamless, give the stray `Cube.001` a material or remove it, add Hit and Death clips. `pnpm model:check` must pass; then a visual review by day and night.
+
 ## Limits and open questions
 
 - The browser tuner cannot edit traits (enrage, burrow, curse) or non-number ability fields.
