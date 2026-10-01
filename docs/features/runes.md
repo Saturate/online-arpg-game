@@ -308,6 +308,7 @@ Not decided. Sigils could need a weapon family (arrows a bow, strikes an axe, sp
 
 "My brother has a spell like an orb that does some novas, pretty cool, but needs more cooldown; base cooldown needs to be higher."
 
+- **The model (owner):** Force is the magazine, the cooldown is the fire rate. Force decides how much a player can cast before running dry; the cooldown decides how fast, and casting should not feel spammy.
 - **The global cast cooldown goes up** from 0.35 s and becomes a live admin setting (ServerSettings), default 0.5 s, so it can be tuned in play without a deploy. It stays one number for every spell: the owner chose this over a cast delay per rune and over a cooldown by Force cost. The cast delay affix and cast speed keep shortening it.
 - **Shown on the skill bar and in tooltips:** a dark sweep over the skill slot while it recharges, and "Cooldown N s" in the sigil tooltip and at the forge, both from the same setting the server uses.
 - **Trade-off accepted:** starters and basic attacks slow down by the same share as payload spells. The parity and spell engine tests that pin 0.35 s need new expectations.
