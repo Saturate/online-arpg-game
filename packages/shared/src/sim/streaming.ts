@@ -77,7 +77,7 @@ interface StreamState {
   near: number[];
   chunkSpawns: Map<number, ChunkSpawn>;
   queues: Record<RefillKind, RefillQueue>;
-  respawnTicks: Record<RefillKind, number>;
+  respawnTicks: RespawnTicks;
   /** Chest keys by chunk, built on first use. */
   chestsByChunk: Map<number, string[]> | null;
   /** Chunks not woken yet whose region boss an earlier room of this world copy left dead (`markBossesDown`). */
@@ -91,17 +91,26 @@ function minutesToTicks(minutes: number): number {
   return Math.round(minutes * 60 * SIM.tickRate);
 }
 
-/** The admin's respawn times, in minutes of game time (ticks run only while someone is in the room). */
-export function setRespawnTimes(sim: Simulation, times: { respawnMinutes: number; bossRespawnMinutes: number }): void {
-  const s = state(sim);
-  s.respawnTicks = { packs: minutesToTicks(times.respawnMinutes), bosses: minutesToTicks(times.bossRespawnMinutes) };
+/** Chunk refills by kind, and `gates` for gate bosses, which spawn outside the chunk packs (`gates.ts`). */
+export type RespawnTicks = Record<RefillKind | 'gates', number>;
+
+export interface RespawnTimes {
+  respawnMinutes: number;
+  bossRespawnMinutes: number;
+  gateRespawnMinutes: number;
 }
 
-/**
- * The respawn times now in force, in ticks. Gate bosses, which spawn outside the chunk packs, read
- * `bosses` here so one admin setting rules every boss.
- */
-export function respawnTicks(sim: Simulation): Readonly<Record<RefillKind, number>> {
+function respawnTicksOf(times: RespawnTimes): RespawnTicks {
+  return { packs: minutesToTicks(times.respawnMinutes), bosses: minutesToTicks(times.bossRespawnMinutes), gates: minutesToTicks(times.gateRespawnMinutes) };
+}
+
+/** The admin's respawn times, in minutes of game time (ticks run only while someone is in the room). */
+export function setRespawnTimes(sim: Simulation, times: RespawnTimes): void {
+  state(sim).respawnTicks = respawnTicksOf(times);
+}
+
+/** The respawn times now in force, in ticks. */
+export function respawnTicks(sim: Simulation): Readonly<RespawnTicks> {
   return state(sim).respawnTicks;
 }
 
@@ -132,7 +141,7 @@ function state(sim: Simulation): StreamState {
       near: [],
       chunkSpawns: new Map(),
       queues: { packs: queue(), bosses: queue() },
-      respawnTicks: { packs: minutesToTicks(STREAMING.respawnMinutes), bosses: minutesToTicks(STREAMING.bossRespawnMinutes) },
+      respawnTicks: respawnTicksOf(STREAMING),
       chestsByChunk: null,
       downBosses: new Set(),
     };

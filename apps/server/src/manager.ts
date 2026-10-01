@@ -33,6 +33,7 @@ import {
   type MinionTypeId,
   type TuningOverrides,
   type ServerSettings,
+  type SimRates,
   type ServerMessage,
   type DungeonRef,
   type MapDescriptor,
@@ -173,7 +174,7 @@ export class RoomManager implements AdminHooks {
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */
   private createRoom(id: string, desc: MapDescriptor, instance: Instance | null, rules: Partial<RoomRules> = {}): Room {
-    const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules }, this.tuning.current);
+    const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules }, this.tuning.current, this.rates());
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
     if (desc.kind === 'world') room.hostsTown = true;
@@ -182,10 +183,23 @@ export class RoomManager implements AdminHooks {
     return room;
   }
 
-  private applySettings(room: Room): void {
+  private rates(): SimRates {
     const s = this.current;
-    room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax });
-    setRespawnTimes(room.sim, s);
+    return {
+      xp: s.xpRate,
+      loot: s.lootRate,
+      forceMax: s.forceMax,
+      forceCost: s.forceCostRate,
+      forceCool: s.forceCoolRate,
+      forceRampMax: s.forceRampMax,
+      bossLife: s.bossLifeMultiplier,
+      bossDamage: s.bossDamageMultiplier,
+    };
+  }
+
+  private applySettings(room: Room): void {
+    room.sim.setRates(this.rates());
+    setRespawnTimes(room.sim, this.current);
   }
 
   // Admin hooks -------------------------------------------------------------------------------

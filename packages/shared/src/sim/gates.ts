@@ -14,9 +14,9 @@ import { respawnTicks } from './streaming.js';
  * gate is a pass held by a boss; the land behind it is sealed to every character until that
  * character's party kills the boss, and stays open for that character from then on (`PlayerComp.gates`,
  * saved with the character). The boss itself comes back on a timer for the next character and for
- * farming, after the admin's boss respawn time (`respawnTicks(sim).bosses`, the region bosses' too,
- * so one setting rules every boss) counted from its death. Monsters and other players are never held
- * back by a seal.
+ * farming, after the admin's gate boss respawn time (`respawnTicks(sim).gates`, apart from the region
+ * bosses' so gates can be paced on their own) counted from its death. Monsters and other players are
+ * never held back by a seal.
  *
  * The seal is a rule of movement (`sealBlocks` in movement.ts), not a collider, so the client's
  * prediction applies the same rule from the same plan and its own gate list.
@@ -122,7 +122,7 @@ export function updateGates(sim: Simulation): void {
   const gates = sim.mapDef.gates;
   if (!gates || gates.length === 0 || sim.arena || sim.tick % EVERY_TICKS !== 0) return;
   // Read each time, so a changed admin setting reaches a boss already waiting, counted from its death.
-  const wait = respawnTicks(sim).bosses;
+  const wait = respawnTicks(sim).gates;
   for (const g of gates) {
     const b = slot(sim, g.id);
     if (b.entity !== null) {
