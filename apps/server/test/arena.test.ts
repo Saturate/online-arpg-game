@@ -1,4 +1,4 @@
-import { ARENA, DUNGEON, killScore, loadMap, monsterXp, seasonOf, SIM, type EnemyComp, type ServerMessage } from '@rune/shared';
+import { ARENA, DUNGEON, killScore, loadMap, monsterXp, seasonOf, SIM, type ClassId, type EnemyComp, type ServerMessage } from '@rune/shared';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import { FakeSocket } from './fakeSocket.js';
 type Welcome = Extract<ServerMessage, { t: 'welcome' }>;
 
 /** Players join the public world. Owners (by account name) get the dev tools, used here to teleport onto portals. */
-async function setup(players: number, owners: ReadonlySet<string> = new Set()) {
+async function setup(players: number, owners: ReadonlySet<string> = new Set(), classes: readonly ClassId[] = []) {
   const store = new AccountStore(':memory:');
   const rooms = new RoomManager(1, store, owners);
   const sockets: FakeSocket[] = [];
@@ -20,7 +20,7 @@ async function setup(players: number, owners: ReadonlySet<string> = new Set()) {
   for (let i = 0; i < players; i++) {
     const acc = await store.register(`player${i}`, 'password123');
     if (acc === 'taken') throw new Error('taken');
-    const ch = store.createCharacter(acc.id, `Hero${i}`, 'warrior');
+    const ch = store.createCharacter(acc.id, `Hero${i}`, classes[i] ?? 'warrior');
     if (typeof ch === 'string') throw new Error(ch);
     const socket = new FakeSocket();
     rooms.connect(socket);
@@ -187,6 +187,34 @@ describe('Arena runs', () => {
     rooms.tick();
     expect(a.last('arenaResult')).toMatchObject({ board: 'party', wave: 1 });
     expect(store.leaderboard(seasonOf(Date.now())).party).toEqual([expect.objectContaining({ names: ['Hero0', 'Hero1'], partySize: 2 })]);
+  });
+
+  it('desummons a fallen Binder\'s warband for the rest of the run and brings it back at the gate', async () => {
+    const { rooms, sockets } = await setup(2, allOwners(2), ['binder', 'warrior']);
+    const [a, b] = sockets;
+    if (!a || !b) throw new Error('no sockets');
+    startRun(rooms, [a, b]);
+    const room = roomOf(rooms, a);
+    const pid = welcome(a).playerId;
+    const warband = (): number => [...room.sim.world.minion.values()].filter((m) => m.ownerId === pid).length;
+    untilWave(rooms, room, 1);
+    expect(warband()).toBeGreaterThan(0);
+    dealDamage(room.sim, pid, 1e9, pid, []);
+    rooms.tick();
+    expect(warband()).toBe(0);
+    ticks(rooms, SIM.playerRespawnSeconds + 1);
+    expect(room.sim.world.player.get(pid)?.respawnIn).not.toBeNull();
+    expect(warband()).toBe(0);
+    // The other member leaves, which ends the run; after the score screen the Binder is at the gate with the warband.
+    b.emit({ t: 'townPortal' });
+    rooms.tick();
+    expect(a.last('arenaResult')).toBeDefined();
+    ticks(rooms, ARENA.resultSeconds);
+    expect(welcome(a).map.kind).toBe('arenaGate');
+    const gate = roomOf(rooms, a);
+    const back = welcome(a).playerId;
+    rooms.tick();
+    expect([...gate.sim.world.minion.values()].filter((m) => m.ownerId === back).length).toBeGreaterThan(0);
   });
 
   it('refuses dev commands inside a run', async () => {

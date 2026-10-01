@@ -232,8 +232,25 @@ export function despawnMinion(sim: Simulation, ownerId: EntityId, slot: number):
   owner.minions[slot] = null;
 }
 
+/**
+ * Arena deaths last until the run ends, so there the warband leaves with its master rather than
+ * standing down for the rest of the run. Only the live minions go; the vessels stay bound, and the
+ * timers are cleared so the warband would be back at once if the master stood up in this room.
+ * Removed, not killed: no death event, no explosion, nothing for the pack's dead list.
+ */
+export function desummonWarband(sim: Simulation, ownerId: EntityId): void {
+  const owner = sim.world.player.get(ownerId);
+  if (!owner) return;
+  for (let slot = 0; slot < owner.minions.length; slot++) {
+    despawnMinion(sim, ownerId, slot);
+    owner.minionRespawn[slot] = 0;
+  }
+}
+
 export function updateMinionRespawns(sim: Simulation, dt: number): void {
   for (const [pid, p] of sim.world.player) {
+    // A fallen Arena member's warband stays away until the run ends (see desummonWarband).
+    if (sim.arena && p.respawnIn !== null) continue;
     let counts: number[] | null = null;
     for (let slot = 0; slot < p.warband.length; slot++) {
       const pack = p.packs[slot];

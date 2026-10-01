@@ -11,7 +11,7 @@ import { onGateBossKilled } from './gates.js';
 import { creditDamage, grantKillXp } from './progression.js';
 import { scoreKill } from './arena.js';
 import { dropLoot } from './inventory.js';
-import { onPackLeaderDeath, onPackmateDeath } from './minions.js';
+import { desummonWarband, onPackLeaderDeath, onPackmateDeath } from './minions.js';
 import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
 
@@ -207,6 +207,7 @@ function kill(sim: Simulation, id: EntityId, sourceId: EntityId | null = null): 
     p.dash = null;
     p.dashSpell = null;
     sim.emit({ e: 'death', id, x: pos.x, y: pos.y, k: 'player', color: CLASSES[p.classId].color, big: false }, pos.x, pos.y);
+    if (sim.arena) desummonWarband(sim, id);
     return;
   }
 
