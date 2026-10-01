@@ -5,10 +5,11 @@ import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type Ge
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
+import { clampRuneRolls, honestTier } from './runeRolls.js';
 import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
-export { clampRoll, clampRuneRolls, isNoStronger, rollLosses } from './runeRolls.js';
+export { clampRoll, clampRuneRolls, honestTier, isNoStronger, retierRoll, rollLosses } from './runeRolls.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
@@ -231,7 +232,7 @@ const AFFIX_FOR_RELEASE = { onhit: 'release_onhit', onexpire: 'release_onexpire'
 
 /**
  * The inverse of toRuneInstance, for hand-written rune lists (starter sigils): each number the
- * grammar reads becomes the affix that sets it, at tier 0. Throws on a number no rune affix sets,
+ * grammar reads becomes the affix that sets it, at the tier its value falls in (honestTier). Throws on a number no rune affix sets,
  * since that is a mistake in the data, not something a player can cause.
  */
 export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: boolean): RuneItem {
@@ -242,14 +243,16 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
       const r = a.release;
       if (!r) continue;
       if (r.kind === 'onrelease') throw new Error(`${rune.id}: no rune affix releases on release`);
-      item.affixes.push({ id: AFFIX_FOR_RELEASE[r.kind], tier: 0, value: r.kind === 'after' || r.kind === 'every' ? r.seconds : 1 });
+      const id = AFFIX_FOR_RELEASE[r.kind];
+      const value = r.kind === 'after' || r.kind === 'every' ? r.seconds : 1;
+      item.affixes.push({ id, tier: honestTier(id, value), value });
       continue;
     }
     if (key !== 'speed' && key !== 'size' && key !== 'duration' && key !== 'damage' && key !== 'pierce' && key !== 'count') {
       throw new Error(`${rune.id}: no rune affix sets ${key}`);
     }
     const v = a[key];
-    if (v !== undefined) item.affixes.push({ id: AFFIX_FOR_KEY[key], tier: 0, value: v });
+    if (v !== undefined) item.affixes.push({ id: AFFIX_FOR_KEY[key], tier: honestTier(AFFIX_FOR_KEY[key], v), value: v });
   }
   if (bound) item.bound = true;
   return item;
@@ -265,6 +268,35 @@ export function matchingStarter(item: SigilItem): StarterSigilDef | undefined {
   const def = starterSigilById(item.starter);
   if (!def || def.runes.length !== item.slots.length) return undefined;
   return def.runes.every((r, i) => item.slots[i]?.rune === r.id) ? def : undefined;
+}
+
+/** A rune by what it casts: its id and each roll's value, not the tier, uid or binding. */
+export function runeRecipeKey(item: RuneItem): string {
+  return `${item.rune}|${item.affixes.map((a) => `${a.id}:${a.value}`).sort().join(',')}`;
+}
+
+/**
+ * Whether the sigil holds its starter's runes exactly: the same runes with the same rolls, in order.
+ * Only then do hand-set starter rolls cast as written (castingSlots).
+ */
+export function holdsStarterRecipe(item: SigilItem): boolean {
+  const def = starterSigilById(item.starter);
+  if (!def || def.runes.length !== item.slots.length) return false;
+  return def.runes.every((r, i) => {
+    const slot = item.slots[i];
+    return slot !== undefined && runeRecipeKey(slot) === runeRecipeKey(runeItemFromInstance(0, r, false));
+  });
+}
+
+/**
+ * The runes as they cast. A starter's hand-set rolls (Multishot's +300% damage, Frozen Orb's 0.18 s
+ * pulse) are balanced for the whole starter; kept alone, reordered or beside other runes, a +300%
+ * Bolt dealt 2.85x the best starter's damage per Force. So unless the sigil holds its starter's
+ * recipe exactly, every rune casts with its rolls clamped into the loot table, as it would be if
+ * it came out. The items keep their rolls, so putting the starter back together restores it.
+ */
+export function castingSlots(item: SigilItem): RuneItem[] {
+  return holdsStarterRecipe(item) ? item.slots : item.slots.map(clampRuneRolls);
 }
 
 /**
@@ -427,12 +459,17 @@ export interface SigilOptions {
 }
 
 /** A blank sigil with rolled wand stats. Sigils that come with a spell are made in data/starterSigils.ts. */
+/** The name a common or magic sigil gets from its affixes ("Quick Magic Sigil of Echoes"); rares and relics get rolled names. */
+export function affixSigilName(tier: ItemTier, affixes: readonly AffixRoll[]): string {
+  return nameFromAffixes(`${tierLabel(tier)} Sigil`, affixes);
+}
+
 export function createSigil(uid: ItemUid, rng: Rng, tier: ItemTier, opts: SigilOptions = {}): SigilItem {
   const ilvl = opts.ilvl ?? 1;
   const rolls = TIER_ROLLS[tier];
   const affixes = rollAffixes(rng, 'sigil', rng.int(rolls.min, rolls.max), Math.min(rolls.maxAffixTier, ilvlAffixTier(ilvl)));
   const corrupted = (opts.allowCorrupt ?? false) && tier !== 'common' && rng.next() < LOOT.corruptChance;
-  const name = tier === 'rare' || tier === 'relic' ? rareName(rng) : nameFromAffixes(`${tierLabel(tier)} Sigil`, affixes);
+  const name = tier === 'rare' || tier === 'relic' ? rareName(rng) : affixSigilName(tier, affixes);
   return { uid, kind: 'sigil', tier, name: (corrupted ? 'Corrupted ' : '') + name, ilvl, affixes, slots: [], corrupted };
 }
 

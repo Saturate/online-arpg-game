@@ -1,4 +1,4 @@
-import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
+import { ACCOUNT_RULES, buyPrice, convertCharacterSave, convertItemRolls, convertRuneRolls, emptyRuneRollsReport, placeReturned, runeRollsChanged, STASH_TABS, type RuneRollsReport, convertWorldWaypoints, isWorldFormat1, type WorldConversionReport, convertStash, convertStashTabs, convertTraderShelf, saveStashLayout, isStashFormat2, type StashTabsReport, DEFAULT_SERVER_SETTINGS, isRuneFormat2, isAssignableRole, isClassId, isGateId, isWaypointId, parseSettingsPatch, settingsConflict, PROGRESSION, ARENA, type AdminCharacter, type ArenaBoard, type LeaderboardEntry, type LeaderboardResponse, type SeasonWinners, type AssignableRole, type ServerSettings, type CharacterSummary, type ClassId, type ConversionReport, type Item, type ItemUid, type PlayerSave, type StashSave, type TraderShelfSave } from '@rune/shared';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -124,6 +124,14 @@ function logConversion(what: string, r: ConversionReport): void {
   for (const w of r.warnings) events.log('conversion', `  v1 ${what}: ${w}`);
 }
 
+/** Sigils changed by the 2026-10-01 rune decisions on load; logged so the server log shows each one. */
+function logRuneRolls(what: string, r: RuneRollsReport): void {
+  if (!runeRollsChanged(r)) return;
+  const rebuilt = r.startersRebuilt.map((s) => `${s.starter} sigil ${s.sigil} (bound runes ${s.runesRemoved.join(', ') || 'none'} removed, unbound ${s.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none';
+  const names = r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none';
+  events.log('conversion', `rune rolls of ${what}: "first rune is free" removed from sigils ${r.affixesRemoved.join(', ') || 'none'}; renamed ${names}; starters rebuilt: ${rebuilt}; runes retiered ${r.runesRetiered.length}`);
+}
+
 function parseSave(json: string, classId: ClassId): PlayerSave | null {
   try {
     const raw: unknown = JSON.parse(json);
@@ -148,8 +156,12 @@ function parseSave(json: string, classId: ClassId): PlayerSave | null {
     // Saves from before the stash have none, and saves from before tabs hold a grid; the account's
     // stash is loaded separately anyway. A layout that cannot be read throws, so the save is kept.
     const stash = saveStashLayout(Reflect.get(v, 'stash'));
+    const rolls = convertRuneRolls(v.items);
+    logRuneRolls(`character ${v.name}`, rolls.report);
     return {
       ...v,
+      items: [...rolls.items, ...rolls.returned],
+      inventory: placeReturned(v.inventory, rolls.returned),
       stash,
       // Saves from before gold have none.
       gold: typeof Reflect.get(v, 'gold') === 'number' && Number.isFinite(Reflect.get(v, 'gold')) ? Math.max(0, Math.floor(Number(Reflect.get(v, 'gold')))) : 0,
@@ -574,7 +586,13 @@ export class AccountStore {
       const tabs = convertStashTabs(runes);
       if (!isStashFormat2(runes)) logTabsConversion(accountId, tabs.report);
       if (!tabs.stash.items.every(isStoredItem)) return 'unreadable';
-      return { stash: tabs.stash, refundGold: conversion?.report.gold ?? 0 };
+      const rolls = convertRuneRolls(tabs.stash.items);
+      logRuneRolls(`account ${accountId} stash`, rolls.report);
+      // Returned runes are unbound, so the rune tab takes them; past its cap they have no place and
+      // go to the joining character as pending, like any account item that lost its place.
+      const list = [...tabs.stash.runes.list];
+      for (const r of rolls.returned) if (list.length < STASH_TABS.runeCap) list.push(r.uid);
+      return { stash: { ...tabs.stash, runes: { kind: 'runes', list }, items: [...rolls.items, ...rolls.returned] }, refundGold: conversion?.report.gold ?? 0 };
     } catch (err) {
       events.error('save', `account ${accountId} stash could not be read`, err);
       return 'unreadable';
@@ -690,10 +708,23 @@ export class AccountStore {
     if (conversion) logConversion('trader shelf', conversion.report);
     const v: unknown = conversion ? conversion.shelf : stored;
     if (!isRecord(v) || !Array.isArray(v.stock) || typeof v.nextId !== 'number') return fresh('bad shape');
-    const stock = v.stock.flatMap((e: unknown) => (isRecord(e) && typeof e.id === 'number' && typeof e.price === 'number' && isStoredItem(e.item) ? [{ id: e.id, price: buyPrice(e.item), item: e.item }] : []));
+    const rolls = emptyRuneRollsReport();
+    const returned: Item[] = [];
+    const stock = v.stock.flatMap((e: unknown) => {
+      if (!isRecord(e) || typeof e.id !== 'number' || typeof e.price !== 'number' || !isStoredItem(e.item)) return [];
+      const r = convertItemRolls(e.item, rolls);
+      returned.push(...r.returned);
+      return [{ id: e.id, price: buyPrice(r.item), item: r.item }];
+    });
+    logRuneRolls('the trader shelf', rolls);
     if (stock.length !== v.stock.length) events.error('save', `trader shelf: dropped ${v.stock.length - stock.length} unreadable entries`);
     // Never hand out an id already on the shelf, whatever the stored counter says.
-    const nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
+    let nextId = Math.max(v.nextId, ...stock.map((e) => e.id + 1), 1);
+    // Shelf items belong to nobody, so runes a shelf sigil hands back become entries of their own.
+    for (const r of returned) {
+      const item = { ...r, uid: 0 };
+      stock.push({ id: nextId++, price: buyPrice(item), item });
+    }
     return { nextId, stock, runeFormat: 2 };
   }
 

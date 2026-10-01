@@ -1,4 +1,4 @@
-import { AFFIXES, type AffixId } from '../data/affixes.js';
+import { AFFIXES, isAffixId, type AffixId } from '../data/affixes.js';
 import type { AffixRoll, RuneItem } from './items.js';
 
 /**
@@ -31,6 +31,8 @@ interface Range {
 
 /** The lowest and highest value any tier of the affix can roll, and the tier each comes from. */
 function rollRange(id: AffixId): Range | null {
+  // Saves can hold an affix id the game no longer has (a retired affix); it has no table to clamp to.
+  if (!isAffixId(id)) return null;
   const tiers = AFFIXES[id].tiers;
   // Tiers that never roll (weight 0) are not something a drop can have.
   const live = tiers.some((t) => t.weight > 0) ? tiers.map((t, tier) => ({ t, tier })).filter(({ t }) => t.weight > 0) : tiers.map((t, tier) => ({ t, tier }));
@@ -51,8 +53,8 @@ export function clampRoll(a: AffixRoll): AffixRoll {
   const range = rollRange(a.id);
   if (!range) return a;
   const better = betterOf(a.id);
-  // The tier only ever goes down: sell value and forge price count tiers, and a hand-set tier 0
-  // starter roll re-tiered to the top would come out worth more than it went in.
+  // The tier only ever goes down: sell value and forge price count tiers, so a rune never comes out
+  // worth more than it was inside (starter rolls already carry their honest tier, honestTier).
   if ((better === 'higher' || better === 'either') && a.value > range.max.value) return { id: a.id, tier: Math.min(a.tier, range.max.tier), value: range.max.value };
   if ((better === 'lower' || better === 'either') && a.value < range.min.value) return { id: a.id, tier: Math.min(a.tier, range.min.tier), value: range.min.value };
   return a;
@@ -81,4 +83,39 @@ export function rollLosses(item: RuneItem): { before: AffixRoll; after: AffixRol
     if (after !== before) out.push({ before, after });
   }
   return out;
+}
+
+/**
+ * The tier a hand-set value honestly belongs to: the lowest live tier whose range holds it, the top
+ * one when it is stronger than any drop, and the bottom one when it is weaker (a drawback). Sell
+ * value and forge price count tiers, so a starter's split(5) prices as the tier 3 roll it is.
+ */
+export function honestTier(id: AffixId, value: number): number {
+  if (!isAffixId(id)) return 0;
+  const tiers = AFFIXES[id].tiers.map((t, tier) => ({ t, tier }));
+  const live = tiers.some(({ t }) => t.weight > 0) ? tiers.filter(({ t }) => t.weight > 0) : tiers;
+  const holding = live.find(({ t }) => value >= t.min && value <= t.max);
+  if (holding) return holding.tier;
+  const range = rollRange(id);
+  if (!range) return 0;
+  const better = betterOf(id);
+  if (better !== 'lower' && value > range.max.value) return range.max.tier;
+  if (better === 'lower' && value < range.min.value) return range.min.tier;
+  return live[0]?.tier ?? 0;
+}
+
+/**
+ * A roll stronger than its own tier allows (only hand-set starter rolls are) moves to its honest
+ * tier; any roll inside or below its tier's range, which every drop is, is left alone.
+ */
+export function retierRoll(a: AffixRoll): AffixRoll {
+  // An affix id the game no longer has is left as it is, so loading a save or the shelf never throws on it.
+  if (!isAffixId(a.id)) return a;
+  const t = AFFIXES[a.id].tiers[a.tier];
+  if (!t) return a;
+  const better = betterOf(a.id);
+  const stronger = better === 'lower' ? a.value < t.min : better === 'higher' ? a.value > t.max : a.value < t.min || a.value > t.max;
+  if (!stronger) return a;
+  const tier = honestTier(a.id, a.value);
+  return tier === a.tier ? a : { ...a, tier };
 }

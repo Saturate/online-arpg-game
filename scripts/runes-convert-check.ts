@@ -5,15 +5,32 @@
  *
  * Converts every character, every account stash and the trader shelf in memory, prints what each
  * one gets, and checks nothing is lost or doubled. Account stashes then go through the second
- * one-time conversion, from one grid to tabs (convertStashTabs), which is checked the same way. It never writes: the file is copied to a temp
- * directory first and that copy is opened read-only. Exits non-zero when any check fails.
+ * one-time conversion, from one grid to tabs (convertStashTabs), which is checked the same way.
+ * Then every character, stash and shelf goes through the rune roll pass that runs on every load
+ * (convertRuneRolls: "first rune is free" removed, old Multishot and Flame Cleave rebuilt), which is
+ * checked for lost or doubled items and against what the server's own load path gives. It never
+ * writes the given file: it is copied to a temp directory first and only the copy is opened.
+ * Exits non-zero when any check fails.
  */
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { AccountStore } from '../apps/server/src/accounts.js';
 import {
   compileSigilItem,
+  convertRuneRolls,
+  createStarterSigil,
+  OLD_STARTER_RUNES,
+  RETIRED_SIGIL_AFFIXES,
+  castingSlots,
+  holdsStarterRecipe,
+  matchingStarter,
+  retierRoll,
+  runeRollsChanged,
+  type RuneItem,
+  type SigilItem,
+  toRuneInstance,
   convertCharacterSave,
   convertStash,
   convertStashTabs,
@@ -302,6 +319,136 @@ function reportTabs(title: string, before: StashSaveV1): void {
   } else console.log('  tab checks: ok');
 }
 
+const rollTotals = { containers: 0, sigils: 0, affixesRemoved: 0, renamed: 0, rebuilt: new Map<string, number>(), runesRemoved: 0, runesReturned: 0, retiered: 0, unchanged: 0, edited: 0, castClamped: 0 };
+
+const recipeText = (s: SigilItem): string => stable(s.slots.map(toRuneInstance));
+/** A rune with its roll tiers left out: the pass may only move tiers of rolls stronger than their tier. */
+const withoutTiers = (r: RuneItem): string => stable({ ...r, affixes: r.affixes.map((a) => ({ id: a.id, value: a.value })) });
+
+/** Every uid with how often it appears, runes inside sigils included. Shelf items all carry uid 0, so only their runes count. */
+function uidCounts(items: readonly Item[], shelf: boolean): Counts {
+  const m: Counts = new Map();
+  for (const it of items) {
+    if (!shelf || it.kind !== 'sigil') add(m, shelf ? `shelf ${it.kind}` : String(it.uid), 1);
+    if (it.kind === 'sigil') for (const r of it.slots) add(m, String(r.uid), 1);
+  }
+  return m;
+}
+
+/** Each tier change raises a roll that was stronger than its tier to its honest tier, and nothing else. */
+function tiersHonest(before: RuneItem, after: RuneItem): boolean {
+  return withoutTiers(before) === withoutTiers(after) && after.affixes.every((a, i) => {
+    const b = before.affixes[i];
+    return b !== undefined && (a.tier === b.tier || stable(retierRoll(b)) === stable(a));
+  });
+}
+
+/**
+ * Checks the rune roll pass on one container's items as the earlier conversions left them, and that
+ * the server's load path (`loaded`) gives the same result. Only sigils (name, affixes, slots) and
+ * rune roll tiers may change; rebuilt old starters hand back their unbound extra runes.
+ */
+function reportRolls(title: string, before: readonly Item[], loaded: readonly Item[] | null, classId: ClassId, opts: { shelf?: boolean } = {}): void {
+  rollTotals.containers++;
+  const problems: string[] = [];
+  const { items: after, returned, report: r } = convertRuneRolls(before);
+  const removed = r.startersRebuilt.flatMap((x) => x.runesRemoved);
+  const back = r.startersRebuilt.flatMap((x) => x.runesReturned);
+  rollTotals.sigils += before.filter((i) => i.kind === 'sigil').length;
+  rollTotals.affixesRemoved += r.affixesRemoved.length;
+  rollTotals.renamed += r.renamed.length;
+  rollTotals.runesRemoved += removed.length;
+  rollTotals.runesReturned += back.length;
+  rollTotals.retiered += r.runesRetiered.length;
+  for (const x of r.startersRebuilt) add(rollTotals.rebuilt, x.starter, 1);
+  const changed = after.filter((it, i) => it !== before[i]).length;
+  rollTotals.unchanged += before.length - changed;
+  // Buffed starters that hold neither recipe were changed at the forge and are left as they are.
+  const edited = after.filter((it): it is SigilItem => {
+    if (it.kind !== 'sigil' || !it.starter || OLD_STARTER_RUNES[it.starter] === undefined) return false;
+    const def = starterSigilById(it.starter);
+    return def !== undefined && recipeText(it) !== recipeText(createStarterSigil(() => 0, def, { bound: false }));
+  });
+  rollTotals.edited += edited.length;
+  // Starter sigils that no longer hold their whole recipe cast with clamped rolls from now on.
+  const clamped = after.filter((it): it is SigilItem => it.kind === 'sigil' && it.starter !== undefined && !holdsStarterRecipe(it) && castingSlots(it).some((s, i) => s !== it.slots[i]));
+  rollTotals.castClamped += clamped.length;
+  console.log(`  rune rolls: ${changed} of ${before.length} items changed; "first rune is free" removed from ${r.affixesRemoved.length} sigils${r.affixesRemoved.length > 0 ? ` (${r.affixesRemoved.join(', ')})` : ''}; renamed ${r.renamed.map((n) => `${n.from} -> ${n.to}`).join(', ') || 'none'}; starters rebuilt: ${r.startersRebuilt.map((x) => `${x.starter} ${x.sigil} (bound ${x.runesRemoved.join(', ') || 'none'} removed, unbound ${x.runesReturned.join(', ') || 'none'} returned)`).join(', ') || 'none'}; ${r.runesRetiered.length} runes re-tiered`);
+  if (edited.length > 0) console.log(`  buffed starters changed at the forge, left alone: ${edited.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
+  if (clamped.length > 0) console.log(`  starter sigils not holding their whole recipe, now cast with clamped rolls: ${clamped.map((e) => `${e.starter} ${e.uid}`).join(', ')}`);
+  // One that still holds its starter's runes in order but not its current rolls is a retune that
+  // forgot OLD_STARTER_RUNES: every copy out there would quietly lose its numbers.
+  for (const it of clamped) {
+    if (matchingStarter(it)) problems.push(`${it.starter} sigil ${it.uid} holds its starter's runes in order but not the current rolls, so it would cast clamped; add the old recipe to OLD_STARTER_RUNES`);
+  }
+
+  check(problems, after.length === before.length, `item count ${before.length} -> ${after.length}`);
+  before.forEach((b, i) => {
+    const a = after[i];
+    if (!a) return;
+    if (b.kind === 'rune' && a.kind === 'rune') {
+      check(problems, tiersHonest(b, a), `rune ${b.uid} changed beyond its roll tiers`);
+      return;
+    }
+    if (b.kind !== 'sigil' || a.kind !== 'sigil') {
+      check(problems, stable(a) === stable(b), `item ${b.uid} (${b.kind}) changed`);
+      return;
+    }
+    const { affixes: _a1, slots: _s1, name: _n1, ...restA } = a;
+    const { affixes: _a2, slots: _s2, name: _n2, ...restB } = b;
+    check(problems, stable(restA) === stable(restB), `sigil ${b.uid} changed beyond its name, affixes and slots`);
+    check(problems, a.name === b.name || r.renamed.some((n) => n.uid === b.uid && n.to === a.name), `sigil ${b.uid} renamed without a report`);
+    check(problems, stable(a.affixes) === stable(b.affixes.filter((x) => !RETIRED_SIGIL_AFFIXES.has(x.id))), `sigil ${b.uid} affixes are not its old ones less the retired`);
+    const rebuilt = r.startersRebuilt.find((x) => x.sigil === b.uid);
+    if (!rebuilt) {
+      check(problems, a.slots.length === b.slots.length && a.slots.every((s, j) => {
+        const was = b.slots[j];
+        return was !== undefined && tiersHonest(was, s);
+      }), `sigil ${b.uid} slots changed beyond roll tiers without a rebuild`);
+      return;
+    }
+    const def = starterSigilById(rebuilt.starter);
+    check(problems, def !== undefined && recipeText(a) === recipeText(createStarterSigil(() => 0, def, { bound: false })), `rebuilt ${rebuilt.starter} sigil ${b.uid} does not hold the new recipe`);
+    check(problems, holdsStarterRecipe(a), `rebuilt sigil ${b.uid} does not cast as its starter`);
+    check(problems, stable(a.slots.map((x) => x.uid)) === stable(b.slots.slice(0, a.slots.length).map((x) => x.uid)), `rebuilt sigil ${b.uid} did not keep its leading rune uids`);
+    check(problems, stable(a.slots.map((x) => x.bound === true)) === stable(b.slots.slice(0, a.slots.length).map((x) => x.bound === true)), `rebuilt sigil ${b.uid} changed a rune's binding`);
+    const out = b.slots.slice(a.slots.length);
+    check(problems, stable(rebuilt.runesRemoved) === stable(out.filter((x) => x.bound === true).map((x) => x.uid)) && stable(rebuilt.runesReturned) === stable(out.filter((x) => x.bound !== true).map((x) => x.uid)), `rebuilt sigil ${b.uid} reports the wrong runes removed or returned`);
+    const c = compileSigilItem(a, def?.classId ?? classId);
+    check(problems, c.ok, `rebuilt sigil ${b.uid} does not compile`);
+  });
+  check(problems, stable(returned.map((x) => x.uid)) === stable(back), 'returned runes are not the reported ones');
+  check(problems, returned.every((x) => x.bound !== true && x.count === 1), 'a returned rune is bound or stacked');
+
+  // The uid multiset: what was there, less the bound runes the shorter recipes have no room for, each once.
+  const want = uidCounts(before, opts.shelf === true);
+  for (const u of removed) add(want, String(u), -1);
+  const got = uidCounts([...after, ...returned], opts.shelf === true);
+  if (opts.shelf) add(want, 'shelf rune', returned.length);
+  check(problems, same(want, got), 'uids do not add up after the pass');
+  check(problems, [...got.entries()].every(([k, n]) => k.startsWith('shelf ') || n === 1), 'a uid is in two places after the pass');
+  const units = (items: readonly Item[]): { loose: number; inSigils: number } => ({
+    loose: items.reduce((n, i) => n + (i.kind === 'rune' ? i.count : 0), 0),
+    inSigils: items.reduce((n, i) => n + (i.kind === 'sigil' ? i.slots.length : 0), 0),
+  });
+  const ub = units(before);
+  const ua = units([...after, ...returned]);
+  check(problems, ua.loose === ub.loose + back.length, `loose runes ${ub.loose} -> ${ua.loose}, expected ${back.length} more`);
+  check(problems, ua.inSigils === ub.inSigils - removed.length - back.length, `runes in sigils ${ub.inSigils} -> ${ua.inSigils}, expected ${removed.length + back.length} fewer`);
+
+  const twice = convertRuneRolls([...after, ...returned]);
+  check(problems, !runeRollsChanged(twice.report) && twice.returned.length === 0 && stable(twice.items) === stable([...after, ...returned]), 'a second pass changes something');
+  if (loaded !== null) {
+    const expected = opts.shelf ? [...after, ...returned.map((x) => ({ ...x, uid: 0 }))] : [...after, ...returned];
+    check(problems, stable(loaded) === stable(expected), 'the server load path gives other items than the pass');
+  }
+
+  if (problems.length > 0) {
+    failures += problems.length;
+    for (const p of problems) console.log(`  FAIL rolls: ${p}`);
+  } else console.log('  roll checks: ok');
+}
+
 function rows(db: DatabaseSync, sql: string): Record<string, unknown>[] {
   return db.prepare(sql).all().filter(isRecord);
 }
@@ -319,6 +466,8 @@ function main(): void {
   copyFileSync(src, copy);
   if (existsSync(`${src}-wal`)) copyFileSync(`${src}-wal`, `${copy}-wal`);
   const db = new DatabaseSync(copy, { readOnly: true });
+  // The server's own load path, on the same private copy, to hold the roll pass to what a join gets.
+  const store = new AccountStore(copy);
   try {
     console.log(`v1 to v2 conversion check of ${src} (read-only copy)`);
     const classByAccount = new Map<number, ClassId>();
@@ -342,6 +491,12 @@ function main(): void {
         const rawItems = isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
         const goldBefore = isRecord(raw) && typeof raw.gold === 'number' ? raw.gold : 0;
         report(title, rawItems, goldBefore, save.gold, save.items, r, classId, { alreadyV2: isRuneFormat2(raw) });
+        const loaded = store.loadCharacter(accountId, Number(row.id))?.save;
+        if (!loaded) {
+          failures++;
+          console.log('  FAIL rolls: the server cannot load this save');
+        }
+        reportRolls(title, save.items, loaded?.items ?? null, classId);
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -352,14 +507,23 @@ function main(): void {
       const title = `stash of account ${String(row.id)} "${String(row.username)}"`;
       try {
         const raw: unknown = JSON.parse(row.stash_json);
-        if (isStashFormat2(raw)) {
-          console.log(`\n${title}\n  already in tabs; left as it is`);
-          continue;
+        const classId = classByAccount.get(Number(row.id)) ?? 'mage';
+        // As loadStash does: a stash already in tabs goes straight to the tab check, which leaves it as it is.
+        let tabbed: unknown = raw;
+        if (isStashFormat2(raw)) console.log(`\n${title}\n  already in tabs`);
+        else {
+          const { stash, report: r } = convertStash(raw);
+          const rawItems = isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
+          report(title, rawItems, 0, null, stash.items, r, classId, { alreadyV2: isRuneFormat2(raw) });
+          reportTabs(title, stash);
+          tabbed = stash;
         }
-        const { stash, report: r } = convertStash(raw);
-        const rawItems = isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
-        report(title, rawItems, 0, null, stash.items, r, classByAccount.get(Number(row.id)) ?? 'mage', { alreadyV2: isRuneFormat2(raw) });
-        reportTabs(title, stash);
+        const loaded = store.loadStash(Number(row.id));
+        if (loaded === null || loaded === 'unreadable') {
+          failures++;
+          console.log('  FAIL rolls: the server cannot load this stash');
+        }
+        reportRolls(title, convertStashTabs(tabbed).stash.items, loaded === null || loaded === 'unreadable' ? null : loaded.stash.items, classId);
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -372,6 +536,7 @@ function main(): void {
         const { shelf, report: r } = convertTraderShelf(raw);
         const rawItems = isRecord(raw) && Array.isArray(raw.stock) ? raw.stock.map((e: unknown) => (isRecord(e) ? e.item : undefined)) : [];
         report(`trader shelf (${shelf.stock.length} entries)`, rawItems, 0, null, shelf.stock.map((e) => e.item), r, 'mage', { shelf: true, alreadyV2: isRuneFormat2(raw) });
+        reportRolls('trader shelf', shelf.stock.map((e) => e.item), store.loadMarket().stock.map((e) => e.item), 'mage', { shelf: true });
       } catch (err) {
         failures++;
         console.log(`\ntrader shelf\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -382,7 +547,10 @@ function main(): void {
     rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `\nsummary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,
+    `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.castClamped} starter sigils now cast with clamped rolls; ${rollTotals.unchanged} items untouched`,
+  );
+  console.log(
+    `summary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,
   );
   console.log(`tabs: ${tabTotals.stashes} stashes to tabs, ${tabTotals.runeItems} rune items (${tabTotals.runeUnits} runes) to rune tabs, ${tabTotals.sigils} sigils to sigil tabs, ${tabTotals.stayed} runes or sigils left in tab 1`);
   process.exit(failures === 0 ? 0 : 1);

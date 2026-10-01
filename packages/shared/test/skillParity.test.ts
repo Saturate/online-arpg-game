@@ -12,6 +12,16 @@ const FORCE_TOLERANCE = 0.15;
 const DAMAGE_TOLERANCE = 0.1;
 const DASH_TOLERANCE = 0.05;
 
+/**
+ * Starters the owner buffed on purpose (2026-10-01, docs/features/runes.md): their damage is held to
+ * the numbers measured when the buff went in instead of v1's, which was far below every other
+ * starter. Their Force, cast rate and kind still answer to v1.
+ */
+const RETUNED: Readonly<Record<string, { single: number; pack: number }>> = {
+  flame_cleave: { single: 650.4, pack: 3230.6 },
+  multishot: { single: 430.1, pack: 1290.2 },
+};
+
 describe('v2 starter sigils against the v1 baseline', () => {
   const rows = parityRows();
 
@@ -35,10 +45,10 @@ describe('v2 starter sigils against the v1 baseline', () => {
     for (const r of rows) if (r.v1.spiritReserved !== null) expect(r.v2.spiritReserved, r.id).toBe(r.v1.spiritReserved);
   });
 
-  it('deal their v1 damage to one target and to a pack, within 10%', () => {
+  it('deal their v1 damage (or their retuned damage) to one target and to a pack, within 10%', () => {
     for (const r of rows) {
       for (const key of ['single', 'pack'] as const) {
-        const before = r.v1[key];
+        const before = RETUNED[r.id]?.[key] ?? r.v1[key];
         if (before === null) continue;
         const d = deviation(before, r.v2[key]);
         expect(Math.abs(d ?? Infinity), `${r.id} ${key} ${before} -> ${r.v2[key]}`).toBeLessThanOrEqual(DAMAGE_TOLERANCE);

@@ -212,9 +212,10 @@ describe('items and loot', () => {
     const pos = sim.world.position.get(id)!;
     const rare = sim.spawnEnemy('chaser', pos.x + 60, pos.y, true);
     sim.world.health.get(rare)!.life = 1;
-    // Flame Cleave, the warrior's third starter skill, swings in front.
+    // Flame Cleave, the warrior's third starter skill, burns in a ring close around him; the ring
+    // takes a few ticks to grow out to the enemy.
     sim.applyInput(id, frame(0, { buttons: SKILL_BUTTONS[2] }));
-    sim.step();
+    for (let i = 0; i < 10 && sim.world.loot.size === 0; i++) sim.step();
     const bags = [...sim.world.loot.entries()];
     const itemBag = bags.find(([, b]) => b.items.length > 0);
     const goldPile = bags.find(([, b]) => b.gold > 0);

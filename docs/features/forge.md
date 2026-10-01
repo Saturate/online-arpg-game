@@ -31,11 +31,12 @@ The forge is where sigils are inscribed: you put rune items into a sigil's slots
 
 ### Rolls clamp on the way out
 
-Starter runes hold rolls no drop can have (Fireball's Orb has +100% damage, Frozen Orb pulses every 0.18 s). They keep them inside a sigil. Any rune leaving a sigil has each affix clamped into the range its affix can roll, and the forge warns first. Otherwise a dropped or unbound starter sigil would hand out runes better than any roll.
+Starter runes hold rolls no drop can have (Fireball's Orb has +100% damage, Frozen Orb pulses every 0.18 s). They keep them inside a sigil, but they only cast as written while the sigil holds its starter's whole recipe: the same runes with the same rolls, in order (`holdsStarterRecipe`, `castingSlots` in `items/items.ts`). Kept alone, reordered or beside other runes, every rune casts with its rolls clamped as below, and the readout says which runes do; putting the starter back together restores it, since the items keep their rolls. Multishot's Bolt alone at +300% damage dealt 2.85x the best starter's damage per Force. Any rune leaving a sigil has each affix clamped into the range its affix can roll, and the forge warns first. Otherwise a dropped or unbound starter sigil would hand out runes better than any roll.
 
 - The range is the lowest to highest value over the affix's tiers that can drop.
 - Most affixes clamp down to the best value. "Every X s" clamps to the shortest rollable interval (lower is better), and "after X s" moves to the nearest end of its table.
-- The tier only ever goes down (`Math.min(a.tier, range.max.tier)`). Sell value and forge price count tiers, and a hand-set tier 0 starter roll re-tiered to the top would come out worth more than it went in.
+- Starter rolls carry the tier their value falls in (`honestTier` in `items/runeRolls.ts`): the lowest tier whose range holds it, the top tier when it is above every drop, the bottom one for a drawback. So Multishot's split(5) is a tier 3 roll inside the sigil and out of it, and sells and prices as one. Before 2026-10-01 every starter roll was tier 0; the load pass re-tiers any roll stronger than its own tier ([items.md](items.md), "Rune roll pass").
+- The tier only ever goes down on the way out (`Math.min(a.tier, range.max.tier)`), so a rune never comes out worth more than it counted for inside.
 - Values inside the table, or weaker than it (the negative speeds of slow orbs), are left alone.
 - Example: Fireball's `orb[+100% damage]` comes out as +55%, the top of the T3 `rune_damage` range (35 to 55).
 
@@ -114,4 +115,5 @@ Tests:
 - **Applies to starter sigils too;** existing sigils with runes on live count as inscribed.
 - **Drops:** a sigil can drop blank, partly inscribed (some fused runes and open slots, for example 1 taken and 5 open; the fused part starts with a readable prefix such as a shape, maybe an infusion or a release) or full (the starter spells). Shares in config.
 - **Starter sigils get one open slot** beyond their runes so a new character can append at the forge from level 1 (owner confirmed 2026-10-01).
+- **Appending keeps a starter's numbers (owner, 2026-10-01):** a starter keeps its hand-set rolls while it holds its full recipe in order, and runes appended after the recipe are allowed, so the open slot works. Today any sigil that is not exactly the recipe casts clamped (`holdsStarterRecipe`, "Rolls clamp on the way out"), appended runes included; the redesign changes that test to "the recipe, then anything". Before it ships, the appended cases must be measured against the 2x damage-per-Force cap in `forcePerDamage.test.ts`: every starter's full recipe with appended infusions, effects, Split, a trigger or release and a payload, on its cheapest class. Fused runes cannot be reordered, so the in-place prefix and reorder cases that clamp today stay closed.
 - **Server rules to change:** inscribe only appends to open slots (the existing `base` check covers the fused part); refuse non-compiling spells; a smash message; conservation tests for smash (survivors plus destroyed equals what the sigil held, chance seeded in tests). Item review before it ships.
