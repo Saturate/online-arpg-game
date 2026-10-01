@@ -155,10 +155,11 @@ export class Simulation {
   private nextItemUid = 1;
 
   /** Without explicit rules the flat test map keeps the bench, so tests and the spell studio can inscribe freely. */
-  /** `tuning` comes in here rather than later because the map's packs spawn in the constructor. */
-  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }, rules: Partial<RoomRules> = {}, tuning: MonsterTuning = BASE_TUNING) {
+  /** `tuning` and `rates` come in here rather than later because a built map's packs (a dungeon's boss) spawn in the constructor. */
+  constructor(seed: number, mapDesc: MapDescriptor = { kind: 'flat' }, rules: Partial<RoomRules> = {}, tuning: MonsterTuning = BASE_TUNING, rates: SimRates = DEFAULT_RATES) {
     this.seed = seed;
     this.tuning = tuning;
+    this.rates = { ...rates };
     this.rules = { bench: mapDesc.kind === 'flat', waves: true, ...rules };
     this.rng = new Rng(seed);
     this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world') };

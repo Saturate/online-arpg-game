@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, gateBoss, loadMap, respawnTicks, SIM, type GateInfo, type ServerMessage } from '@rune/shared';
+import { DEFAULT_SERVER_SETTINGS, DUNGEON, ENEMIES, gateBoss, loadMap, respawnTicks, SIM, type GateInfo, type ServerMessage } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
@@ -163,5 +163,28 @@ describe('boss settings', () => {
     expect(respawnTicks(sim).gates).toBe(45 * 60 * SIM.tickRate);
     expect(respawnTicks(sim).bosses).toBe(DEFAULT_SERVER_SETTINGS.bossRespawnMinutes * 60 * SIM.tickRate);
     expect(store.loadSettings()).toMatchObject({ bossLifeMultiplier: 2.5, bossDamageMultiplier: 4, gateRespawnMinutes: 45 });
+  });
+
+  it('reach the boss of a dungeon opened after the change, which spawns as its room is built', async () => {
+    const { rooms, sockets } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('no socket');
+    rooms.updateSettings({ bossLifeMultiplier: 4, bossDamageMultiplier: 3 });
+    const entrance = loadMap(welcome(a).map).def.portals.find((p) => p.target === 'staging');
+    if (!entrance) throw new Error('no dungeon entrance');
+    teleport(rooms, a, entrance.x, entrance.y);
+    ticks(rooms, 2);
+    a.emit({ t: 'ready', ready: true });
+    ticks(rooms, DUNGEON.countdownSeconds + 0.2);
+    expect(welcome(a).map.kind).toBe('dungeon');
+    const sim = roomOf(rooms, a).sim;
+    const bosses = [...sim.world.enemy].filter(([, e]) => e.boss);
+    expect(bosses).toHaveLength(1);
+    const [id, e] = bosses[0] ?? [];
+    if (id === undefined || !e) throw new Error('no dungeon boss');
+    const armored = e.affixes.filter((x) => x.id === 'armored').reduce((sum, x) => sum + x.value, 0);
+    const levelLife = 1 + 0.28 * (e.level - 1);
+    expect((sim.world.health.get(id)?.maxLife ?? 0) / (1 + armored / 100)).toBeCloseTo(ENEMIES[e.typeId].life * 3 * 4 * levelLife, -1);
+    expect(e.damageMult).toBeCloseTo(3 * (1 + 0.14 * (e.level - 1)));
   });
 });

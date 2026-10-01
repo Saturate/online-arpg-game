@@ -206,10 +206,14 @@ describe('gate bosses', () => {
     setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 0.05, gateRespawnMinutes: 30 });
     expect(respawnTicks(sim).gates).toBe(30 * 60 * SIM.tickRate);
     const a = hero(sim, 'a', beforeGate(g, 1500));
+    // Out of view of the boss's spot and holding the gate after the kill, so nothing but the timer holds a respawn back.
+    expect(Math.hypot((sim.world.position.get(a)?.x ?? 0) - g.bossX, (sim.world.position.get(a)?.y ?? 0) - g.bossY)).toBeGreaterThan(NET.interestRadius);
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
     if (first === null) throw new Error('no gate boss');
     dealDamage(sim, first, 1e9, a, []);
+    expect(player(sim, a).gates).toEqual([g.id]);
+    // Well past the region bosses' three seconds (60 ticks).
     for (let i = 0; i < 200; i++) sim.step();
     expect(gateBoss(sim, g.id)).toBeNull();
     // A shorter gate time reaches the boss already waiting, counted from its death.

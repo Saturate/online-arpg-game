@@ -23,6 +23,7 @@ import {
   type GateInfo,
   type MapDescriptor,
   type MonsterTuning,
+  type SimRates,
   type PlayerSave,
   type PortalRequest,
   type RoomRules,
@@ -77,8 +78,9 @@ export class Room {
     seed: number,
     rules: Partial<RoomRules> = {},
     tuning?: MonsterTuning,
+    rates?: SimRates,
   ) {
-    this.sim = new Simulation(seed, desc, rules, tuning);
+    this.sim = new Simulation(seed, desc, rules, tuning, rates);
     this.sim.startItemUidsAt(++roomSerial * ITEM_UIDS_PER_ROOM);
     const plan = this.sim.zone?.plan;
     if (plan) this.planHash = planChecksum(plan);

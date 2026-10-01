@@ -784,7 +784,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
     }
     case 'explode': {
       hitCircle(sim, id, pos.x, pos.y, a.radius, a.damage * dmg, a.element);
-      if (a.hazard) addHazard(sim, id, pos.x, pos.y, a.radius * 0.7, 12, 3, a.hazard);
+      if (a.hazard) addHazard(sim, id, pos.x, pos.y, a.radius * 0.7, 12 * dmg, 3, a.hazard);
       sim.emit({ e: 'explode', x: pos.x, y: pos.y, r: a.radius }, pos.x, pos.y);
       e.detonated = true;
       const h = w.health.get(id);
