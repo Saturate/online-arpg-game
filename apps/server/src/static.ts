@@ -40,6 +40,12 @@ const CSP = [
   "form-action 'self'",
 ].join('; ');
 
+const UNHASHED = ['/assets/kaykit/', '/assets/monsters/'];
+
+export function hashedAsset(path: string): boolean {
+  return path.startsWith('/assets/') && !UNHASHED.some((p) => path.startsWith(p));
+}
+
 export function staticHandler(root: string): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
   const base = resolve(root);
   return async (req, res) => {
@@ -71,8 +77,10 @@ export function staticHandler(root: string): (req: IncomingMessage, res: ServerR
     res.writeHead(200, {
       'content-type': type,
       'content-length': info.size,
-      // Vite puts a content hash in every file under /assets, so those can be cached forever.
-      'cache-control': path.startsWith('/assets/') && !path.startsWith('/assets/kaykit/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+      // Vite puts a content hash in every file it builds under /assets, so those can be cached
+      // forever. The model folders are copied from public/ under fixed names, so a fixed model
+      // would never reach a browser that has the old one.
+      'cache-control': hashedAsset(path) ? 'public, max-age=31536000, immutable' : 'no-cache',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'same-origin',
       ...(type.startsWith('text/html') ? { 'content-security-policy': CSP } : {}),

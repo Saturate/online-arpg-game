@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { staticHandler } from '../src/static.js';
+import { hashedAsset, staticHandler } from '../src/static.js';
 
 describe('static pages', () => {
   let server: Server;
@@ -12,11 +12,12 @@ describe('static pages', () => {
   beforeAll(async () => {
     const root = mkdtempSync(join(tmpdir(), 'rune-static-'));
     mkdirSync(join(root, 'admin', 'dev'), { recursive: true });
-    mkdirSync(join(root, 'assets'));
+    mkdirSync(join(root, 'assets', 'monsters'), { recursive: true });
     writeFileSync(join(root, 'index.html'), 'game');
     writeFileSync(join(root, 'admin', 'index.html'), 'admin');
     writeFileSync(join(root, 'admin', 'dev', 'index.html'), 'dev');
     writeFileSync(join(root, 'assets', 'a.js'), 'js');
+    writeFileSync(join(root, 'assets', 'monsters', 'charger.glb'), 'glb');
     const handle = staticHandler(root);
     server = createServer((req, res) => {
       void handle(req, res).then((served) => {
@@ -50,6 +51,14 @@ describe('static pages', () => {
     expect((await get('/assets')).status).toBe(404);
     expect((await get('/assets/')).status).toBe(404);
     expect((await get('/admin.html')).status).toBe(404);
+  });
+
+  it('caches hashed bundles forever but revalidates models kept under fixed names', async () => {
+    expect((await get('/assets/a.js')).headers.get('cache-control')).toContain('immutable');
+    expect((await get('/assets/monsters/charger.glb')).headers.get('cache-control')).toBe('no-cache');
+    expect(hashedAsset('/assets/index-3f2a.js')).toBe(true);
+    expect(hashedAsset('/assets/kaykit/adventurers/Barbarian.glb')).toBe(false);
+    expect(hashedAsset('/assets/monsters/grave_hound.glb')).toBe(false);
   });
 
   it('never redirects to another host', async () => {
