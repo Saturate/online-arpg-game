@@ -166,6 +166,14 @@ export function isTownDecorAsset(asset: string): boolean {
   return Object.hasOwn(TOWN_DECOR_ASSETS, asset);
 }
 
+/**
+ * The spec of a placeable asset. Own keys only: a plain index would find `constructor`,
+ * `toString` and the rest on Object.prototype, and a layout naming them would pass validation.
+ */
+export function decorSpec(asset: string): TownDecorSpec | undefined {
+  return Object.hasOwn(TOWN_DECOR_ASSETS, asset) ? TOWN_DECOR_ASSETS[asset] : undefined;
+}
+
 /** A point `(ox, oz)` of a placed piece's model, turned and scaled like the model is (PropBatch turns by -angle in three's frame, +angle on the map). */
 function placed(d: TownDecor, ox: number, oz: number): { x: number; y: number } {
   const c = Math.cos(d.angle);
@@ -175,7 +183,7 @@ function placed(d: TownDecor, ox: number, oz: number): { x: number; y: number } 
 
 /** The ground a placed piece covers: its model's footprint box. Null for an asset with no spec. */
 export function decorFootprint(d: TownDecor): Shape | null {
-  const spec = TOWN_DECOR_ASSETS[d.asset];
+  const spec = decorSpec(d.asset);
   if (!spec) return null;
   const at = placed(d, spec.ox, spec.oz);
   return { type: 'box', x: at.x, y: at.y, hw: (spec.w / 2) * d.scale, hh: (spec.d / 2) * d.scale, angle: d.angle };
@@ -194,7 +202,7 @@ const MIN_SOLID_HALF = 8;
  * for round things, and only the trunk for a tree, so heroes can walk under the canopy's edge.
  */
 export function decorCollision(d: TownDecor): Shape | null {
-  const spec = TOWN_DECOR_ASSETS[d.asset];
+  const spec = decorSpec(d.asset);
   if (!spec) return null;
   const at = placed(d, spec.ox, spec.oz);
   const inset = 0.85;
@@ -254,7 +262,7 @@ export function layoutToMap(layout: TownLayout): WorldMap {
   }
   for (const d of layout.decor) {
     const shape = d.solid ? decorCollision(d) : null;
-    const spec = TOWN_DECOR_ASSETS[d.asset];
+    const spec = decorSpec(d.asset);
     if (shape && spec) map.obstacles.push({ kind: 'decor', shape, blocksMove: true, blocksShots: spec.h * d.scale >= 45, visual: spec.h * d.scale });
   }
   map.decor = layout.decor.map((d) => ({ asset: d.asset, x: d.x, y: d.y, angle: d.angle, scale: d.scale }));
@@ -498,7 +506,7 @@ export function checkLayout(v: unknown, opts: ValidateOptions = {}): TownLayout 
     if (angle === null) return `decor[${i}]: angle must be a number from -100 to 100`;
     if (scale === null) return `decor[${i}]: scale must be a number from 0.2 to 4`;
     if (d.solid !== undefined && typeof d.solid !== 'boolean') return `decor[${i}]: solid must be true or false`;
-    const spec: TownDecorSpec | undefined = TOWN_DECOR_ASSETS[d.asset];
+    const spec = decorSpec(d.asset);
     if (!spec) {
       if (opts.unknownDecor === 'drop') continue;
       return `decor[${i}]: unknown asset ${d.asset}`;

@@ -88,6 +88,11 @@ const LIT_DECOR: Record<string, LightLook> = {
   brazier: { ...FIRE, height: 44, intensity: 2.6, radius: 440 },
 };
 
+/** Own keys only: asset names come from the layout, and `constructor` or `toString` would find Object.prototype. */
+function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
 /** Whether a decor asset is a lamp or flame, for the town editor's layer groups. */
 export function isLitDecor(asset: string): boolean {
   return Object.hasOwn(LIT_DECOR, asset);
@@ -157,7 +162,7 @@ const FLAMES: Record<string, readonly FlameAt[]> = {
 
 /** The flames of one placed lit asset, turned and scaled like the model; `light` is the lamp's light, for a shared flicker. */
 function flamesOf(asset: string, x: number, y: number, angle: number, scale: number, light: StaticLight | null, out: FireSpot[]): void {
-  const list = FLAMES[asset];
+  const list = ownEntry(FLAMES, asset);
   if (!list) return;
   // PropBatch turns models by -angle about the vertical.
   const c = Math.cos(-angle);
@@ -518,7 +523,7 @@ export function buildWorld(def: WorldMap, zone: ZoneWorld | null = null): BuiltW
       continue;
     }
     addDecorPiece(chunks, d);
-    const look = LIT_DECOR[d.asset];
+    const look = ownEntry(LIT_DECOR, d.asset);
     const light = look ? lightAt(look, d.x, d.y, d.scale) : null;
     if (light) lights.push(light);
     flamesOf(d.asset, d.x, d.y, d.angle, d.scale, light, fires);

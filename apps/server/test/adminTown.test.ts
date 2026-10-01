@@ -8,6 +8,7 @@ import { AccountStore } from '../src/accounts.js';
 import { events } from '../src/eventLog.js';
 import { AccountApi, TOWN_BODY_BYTES } from '../src/http.js';
 import { RoomManager } from '../src/manager.js';
+import { saveTownLayout, TOWN_BACKUPS, townBackups } from '../src/townStore.js';
 import { FakeSocket } from './fakeSocket.js';
 
 // townStore reads TOWN_LAYOUT when it is first imported, so the temp file is set before any import
@@ -170,6 +171,7 @@ describe('PUT /api/admin/town', () => {
     const town = rooms.currentTown();
     const file = readFileSync(layoutFile, 'utf8');
     const room = worldRoom().room;
+    const backups = townBackups(layoutFile);
     const from = cursor();
 
     const noWayOut = { ...town, portals: town.portals.filter((p) => p.target !== 'wilds') };
@@ -187,6 +189,7 @@ describe('PUT /api/admin/town', () => {
 
     expect(rooms.currentTown()).toBe(town);
     expect(readFileSync(layoutFile, 'utf8')).toBe(file);
+    expect(townBackups(layoutFile)).toEqual(backups);
     expect(worldRoom().room).toBe(room);
     expect(staffLines(from).filter((l) => l.includes('town saved'))).toEqual([]);
     expect(staffLines(from).at(-1)).toBe('[admin] boss (owner) token "bad town": PUT /api/admin/town -> 413');
@@ -229,6 +232,38 @@ describe('PUT /api/admin/town', () => {
     vi.setSystemTime(Date.now() + 3_000);
     expect((await call('PUT', '/api/admin/town', token, renamed('Third'))).status).toBe(200);
     expect(rooms.currentTown().name).toBe('Third');
+  });
+
+  it('keeps the layout each save replaced, the last ten', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60_000);
+    const before = readFileSync(layoutFile, 'utf8');
+    const token = await makeToken('boss', 'backup town', ['townEdit']);
+    expect((await call('PUT', '/api/admin/town', token, renamed('After'))).status).toBe(200);
+    // The newest copy is the town the push replaced, so a bad push can be undone with it.
+    const newest = townBackups(layoutFile).at(-1);
+    if (!newest) throw new Error('no backup');
+    expect(readFileSync(newest, 'utf8')).toBe(before);
+
+    for (let i = 0; i < TOWN_BACKUPS + 2; i++) {
+      vi.setSystemTime(Date.now() + 1);
+      saveTownLayout(renamed(`Town ${i}`));
+    }
+    const kept = townBackups(layoutFile);
+    expect(kept).toHaveLength(TOWN_BACKUPS);
+    const names = kept.map((f): unknown => {
+      const v: unknown = JSON.parse(readFileSync(f, 'utf8'));
+      return isRecord(v) ? v.name : null;
+    });
+    expect(names).toEqual(Array.from({ length: TOWN_BACKUPS }, (_, i) => `Town ${i + 1}`));
+    // Two saves in the same millisecond keep both copies.
+    saveTownLayout(renamed('Same ms A'));
+    saveTownLayout(renamed('Same ms B'));
+    const last = townBackups(layoutFile).slice(-2).map((f): unknown => {
+      const v: unknown = JSON.parse(readFileSync(f, 'utf8'));
+      return isRecord(v) ? v.name : null;
+    });
+    expect(last).toEqual([`Town ${TOWN_BACKUPS + 1}`, 'Same ms A']);
   });
 
   it('takes the largest valid layout', () => {

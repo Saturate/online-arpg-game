@@ -725,7 +725,11 @@ export class RoomManager implements AdminHooks {
         return;
       }
       case 'saveTown': {
-        if (!can(client.role, 'townEdit') || client.accountId === null) {
+        if (client.accountId === null) {
+          client.send({ t: 'notice', text: 'Log in before saving the town' });
+          return;
+        }
+        if (!can(client.role, 'townEdit')) {
           client.send({ t: 'notice', text: 'The town editor needs the builder role' });
           return;
         }

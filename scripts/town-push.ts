@@ -16,6 +16,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Server text goes to a terminal: escape sequences in a proxy page or a reply could rewrite it. Tabs and newlines stay. */
+function printable(v: unknown): string {
+  return String(v).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+}
+
 const file = process.argv[2];
 if (!file) fail('Usage: pnpm town:push <layout.json>');
 let text: string;
@@ -51,7 +56,7 @@ try {
 } catch {
   // Not JSON (a proxy error page); printed as it came below.
 }
-if (!res.ok) fail(`${res.status}: ${isRecord(parsed) && typeof parsed.error === 'string' ? parsed.error : reply}`);
-if (!isRecord(parsed)) fail(`Unexpected reply: ${reply}`);
+if (!res.ok) fail(`${res.status}: ${printable(isRecord(parsed) && typeof parsed.error === 'string' ? parsed.error : reply)}`);
+if (!isRecord(parsed)) fail(`Unexpected reply: ${printable(reply)}`);
 const { name, props, paths, decor, hash, rooms, players } = parsed;
-console.log(`Saved ${String(name)} on ${base.origin} (${String(props)} props, ${String(paths)} paths, ${String(decor)} decor, hash ${String(hash)}): ${String(rooms)} world rooms rebuilt, ${String(players)} players carried over.`);
+console.log(printable(`Saved ${String(name)} on ${base.origin} (${String(props)} props, ${String(paths)} paths, ${String(decor)} decor, hash ${String(hash)}): ${String(rooms)} world rooms rebuilt, ${String(players)} players carried over.`));
