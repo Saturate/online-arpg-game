@@ -19,13 +19,13 @@
 }
 .live-health {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 10px;
-  align-items: stretch;
+  align-items: start;
 }
 .live-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: 8px;
 }
 .live-stat {
@@ -102,6 +102,7 @@
 .live-table th {
   padding: 5px 7px;
   white-space: nowrap;
+  vertical-align: middle;
 }
 .live-table .num {
   text-align: right;
@@ -180,7 +181,7 @@
 .live-map-town {
   fill: rgba(217, 181, 106, 0.08);
   stroke: #6b5634;
-  stroke-width: 0.4%;
+  stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 .live-dot {
@@ -253,4 +254,8 @@
 .live-log.log-full {
   max-height: none;
   margin-top: 8px;
+}
+.log-note {
+  text-align: left;
+  margin: 8px 0 0;
 }

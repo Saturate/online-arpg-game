@@ -9,9 +9,10 @@ body {
 }
 .adm-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 10px 20px;
+  gap: 8px 16px;
+  padding: 8px 20px 0;
   border-bottom: 1px solid #3a2f20;
   background: #0d0b09;
   position: sticky;
@@ -21,13 +22,40 @@ body {
 .adm-header h1 {
   font-family: Cinzel, Georgia, serif;
   color: var(--gold);
-  font-size: 20px;
+  font-size: 18px;
   margin: 0;
+  white-space: nowrap;
 }
+/* Eleven tabs do not fit beside the title and search, so they get a row of their own. */
 .adm-header nav {
   display: flex;
-  gap: 6px;
-  flex: 1;
+  gap: 2px;
+  order: 10;
+  flex-basis: 100%;
+  margin: 0 -4px;
+}
+.adm-header nav button {
+  padding: 6px 12px 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.adm-header nav button:hover {
+  color: var(--text);
+}
+.adm-header nav button.on {
+  border-bottom-color: var(--gold);
+  color: var(--gold);
+}
+.adm-header .srch {
+  margin-left: auto;
+}
+.adm-header > a,
+.adm-header > span {
+  white-space: nowrap;
 }
 .adm-header a,
 .adm button {
@@ -222,11 +250,18 @@ body {
   margin: 0;
   display: contents;
 }
+/* A flex table cell drops out of the row's layout and loses its border, so the cell stays a cell. */
 .adm-row-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  align-items: center;
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.adm-row-actions > * {
+  /* The game's stylesheet gives buttons a top margin, which pushes them below the row's text. */
+  margin: 0;
+}
+.adm-row-actions > * + * {
+  margin-left: 8px;
 }
 .adm select {
   padding: 3px 6px;
@@ -240,4 +275,9 @@ body {
 }
 .adm-secret p {
   margin: 0;
+}
+/* Browser-blue checkboxes and sliders would be the brightest thing on the page. */
+.adm input[type='checkbox'],
+.adm input[type='range'] {
+  accent-color: var(--gold);
 }

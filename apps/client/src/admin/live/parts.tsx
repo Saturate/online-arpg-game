@@ -222,7 +222,7 @@ export function LogTail({ entries, empty, label }: { entries: readonly ServerEve
 }
 
 /** Dark, desaturated tints, one per region; the grid only says which region a cell is in. */
-const REGION_TINTS = ['#2b2a1d', '#2a2522', '#1f2620', '#2a2018', '#22232a', '#28221c', '#1d2424', '#2a1f22'];
+const REGION_TINTS = ['#353222', '#352c26', '#243024', '#36281c', '#2a2b34', '#33291f', '#22302f', '#352529'];
 
 export function WorldMinimap({ world }: { world: LiveWorld }) {
   const { width, height, regions } = world;

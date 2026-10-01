@@ -91,7 +91,7 @@ export function LogTab({ token, notify, focus }: { token: string; notify: (t: st
           </label>
         ))}
       </div>
-      <p className="muted small">
+      <p className="muted small log-note">
         {entries.length} lines since the server started, newest first; a restart empties it (the pod log keeps everything).
       </p>
       {!loaded ? (
