@@ -3,7 +3,7 @@ import type { Biome } from '../data/monsterPools.js';
 import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { addRuin, worldZone } from './worldMap.js';
-import type { WorldPlan } from './worldPlan.js';
+import { TOWN_WAYPOINT, type WorldPlan } from './worldPlan.js';
 import { ZONES } from '../data/zones.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { GameMap } from './gamemap.js';
@@ -202,9 +202,11 @@ export function freshWorld(seed: number, layout?: TownLayout, size?: { width: nu
   return { def: zone.def, game: new GameMap(zone.def, zone), zone, plan };
 }
 
-/** Where a waypoint traveller lands: just off the waypoint, toward the town, on open ground. */
-export function waypointArrival(desc: Extract<MapDescriptor, { kind: 'world' }>, id: string): Vec2 | null {
-  const { def, game } = loadMap(desc);
+/**
+ * Where a waypoint traveller lands: just off the waypoint, toward the town, on open ground. Takes
+ * the room's own map, so a lookup never goes through (or rebuilds) the map cache.
+ */
+export function waypointArrival(def: WorldMap, game: GameMap, id: string): Vec2 | null {
   const portal = def.portals.find((p) => p.target === 'waypoint' && p.waypoint === id);
   if (!portal) return null;
   // Stepping off toward the middle of the map, so arriving does not stand on it.
@@ -215,8 +217,7 @@ export function waypointArrival(desc: Extract<MapDescriptor, { kind: 'world' }>,
 }
 
 /** Where someone coming out of a dungeon lands: beside the entrance to it in the world, or null when there is none. */
-export function entranceArrival(desc: Extract<MapDescriptor, { kind: 'world' }>, dungeonSeed: number): Vec2 | null {
-  const { def, game } = loadMap(desc);
+export function entranceArrival(def: WorldMap, game: GameMap, dungeonSeed: number): Vec2 | null {
   const portal = def.portals.find((p) => p.target === 'staging' && p.dungeon?.seed === dungeonSeed);
   if (!portal) return null;
   const dx = def.width / 2 - portal.x;
@@ -226,13 +227,12 @@ export function entranceArrival(desc: Extract<MapDescriptor, { kind: 'world' }>,
 }
 
 /** The region name for a spot of a world map (the town's name inside the town), or null for any other map. */
-export function placeName(desc: MapDescriptor, x: number, y: number): string | null {
-  if (desc.kind !== 'world') return null;
-  const { def, zone } = loadMap(desc);
-  const town = def.safeZones?.[0];
-  if (town && x >= town.x && y >= town.y && x <= town.x + town.w && y <= town.y + town.h) return desc.layout?.name || 'Emberwatch';
+export function placeName(def: WorldMap, zone: ZoneWorld | null, x: number, y: number): string | null {
   const plan = zone?.plan;
-  return plan ? ZONES[plan.regionAt(x, y)].name : def.name;
+  if (!plan) return null;
+  const town = def.safeZones?.[0];
+  if (town && x >= town.x && y >= town.y && x <= town.x + town.w && y <= town.y + town.h) return def.waypoints?.find((w) => w.id === TOWN_WAYPOINT)?.name ?? 'Emberwatch';
+  return ZONES[plan.regionAt(x, y)].name;
 }
 
 function flatMap(): WorldMap {
@@ -300,7 +300,12 @@ export function mapKey(desc: MapDescriptor): string {
 export function loadMap(desc: MapDescriptor): LoadedMap {
   const key = mapKey(desc);
   const hit = cache.get(key);
-  if (hit) return hit;
+  if (hit) {
+    // Kept most recently used last, so a world in use is never the one dropped for a dungeon run's map.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
   const zone = zoneWorld(desc);
   const def = zone ? zone.def : buildMap(desc);
   const entry: LoadedMap = { def, game: new GameMap(def, zone), zone };

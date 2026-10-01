@@ -15,7 +15,10 @@ import {
   SIM,
   splitStash,
   WILDS,
+  carryGroundLoot,
   entranceArrival,
+  markChestsOpened,
+  openedChests,
   TOWN_WAYPOINT,
   waypointArrival,
   type AdminOverview,
@@ -707,7 +710,12 @@ export class RoomManager implements AdminHooks {
   private enterInstance(client: Client, inst: Instance): void {
     const before = this.instanceOf(client);
     client.instanceId = inst.id;
-    this.move(client, this.worldRoom(inst));
+    const world = this.worldRoom(inst);
+    // The town is inside the world room, so going home from out in the world is a move within it.
+    if (client.room === world) {
+      const spawn = world.sim.playerSpawnPoint();
+      world.placeMember(client, spawn.x, spawn.y);
+    } else this.move(client, world);
     if (before && before !== inst) this.sendWorldToAll(before);
     this.sendWorldToAll(inst);
   }
@@ -869,8 +877,9 @@ export class RoomManager implements AdminHooks {
 
   /**
    * Rebuilds every world with the new town and carries everyone inside over, each to where they
-   * stood (on open ground nearby). The world's roads start at the town's gates, so a town whose
-   * gates moved gets a new world around it, with fresh monsters.
+   * stood (on open ground nearby), with the loot on the ground and the opened chests. The world's
+   * roads start at the town's gates, so a town whose gates moved gets a new world around it, with
+   * fresh monsters.
    */
   private replaceTown(layout: TownLayout): void {
     this.townLayout = layout;
@@ -879,6 +888,9 @@ export class RoomManager implements AdminHooks {
       if (!old) continue;
       this.close(old);
       const next = this.worldRoom(inst);
+      // What lies on the ground and which chests were opened stay as they were; only the town changed.
+      carryGroundLoot(old.sim, next.sim);
+      markChestsOpened(next.sim, openedChests(old.sim));
       for (const m of [...old.members.values()]) {
         const at = old.playerState(m.client);
         const save = old.remove(m.client);
@@ -919,12 +931,11 @@ export class RoomManager implements AdminHooks {
         return;
       }
       case 'wilds': {
-        // Out of a dungeon or its antechamber: back beside its entrance in the world it was entered from.
-        const last = client.lastWorldRoomId === null ? undefined : this.rooms.get(client.lastWorldRoomId);
-        const world = last ?? (inst ? this.worldRoom(inst) : undefined);
-        if (!world || world.desc.kind !== 'world') return this.goHome(client);
+        // Out of a dungeon or its antechamber: back beside its entrance in this world copy's world.
+        if (!inst) return this.goHome(client);
+        const world = this.worldRoom(inst);
         const seed = from.desc.kind === 'staging' || from.desc.kind === 'dungeon' ? from.desc.seed : null;
-        this.move(client, world, (seed === null ? null : entranceArrival(world.desc, seed)) ?? undefined);
+        this.move(client, world, (seed === null ? null : entranceArrival(world.sim.mapDef, world.sim.map, seed)) ?? undefined);
       }
     }
   }
@@ -1082,7 +1093,7 @@ export class RoomManager implements AdminHooks {
       return;
     }
     const world = this.worldRoom(inst);
-    const at = world.desc.kind === 'world' ? waypointArrival(world.desc, id) : null;
+    const at = waypointArrival(world.sim.mapDef, world.sim.map, id);
     if (!at) {
       client.send({ t: 'notice', text: 'That waypoint is not in this world' });
       return;
@@ -1098,7 +1109,6 @@ export class RoomManager implements AdminHooks {
     const carried = from.remove(client);
     if (!carried) return false;
     this.persist(client, carried);
-    if (to.desc.kind === 'world') client.lastWorldRoomId = to.id;
     to.add(client, carried.classId, carried.name, carried, at);
     return true;
   }

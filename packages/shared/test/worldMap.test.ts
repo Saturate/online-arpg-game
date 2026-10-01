@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
 import { dealDamage, inSafeZone, isTargetable } from '../src/sim/combat.js';
-import { openedChests } from '../src/sim/chests.js';
+import { chestKey, openedChests } from '../src/sim/chests.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { placeTown, townExits } from '../src/world/worldMap.js';
 import { HOME_REGION, isWaypointId, WorldPlan, type WorldNode } from '../src/world/worldPlan.js';
@@ -140,6 +140,9 @@ describe('world map', () => {
       for (const e of plan.edges) expect(open((e.ax + e.bx) / 2, (e.ay + e.by) / 2), `${seed} road ${e.a}-${e.b}`).toBe(true);
       const regions = new Set(def.packs.map((p) => plan.regionAt(p.x, p.y)));
       expect(regions.size, `${seed} packs in every region`).toBe(6);
+      // On the built map, not only in the plan: placing one can fail where its dead end has no room.
+      const dungeons = new Set(def.portals.filter((p) => p.target === 'staging').map((p) => plan.regionAt(p.x, p.y)));
+      expect(dungeons.size, `${seed} a dungeon in every region`).toBe(6);
       expect(def.waypoints?.length).toBe(1 + plan.waypoints.length);
     }
   });
@@ -197,20 +200,20 @@ describe('world map', () => {
     if (!p) throw new Error('no player');
     // A save from before the world, as stage 3's conversion will find it.
     p.waypoints = ['barrens', 'steppe'];
-    const wp = sim.mapDef.portals.find((x) => x.target === 'waypoint' && x.waypoint === 'east-1');
+    const wp = sim.mapDef.portals.find((x) => x.target === 'waypoint' && x.waypoint === 'steppe-1');
     if (!wp) throw new Error('no waypoint');
     for (let i = 0; i < 40; i++) sim.step();
     sim.world.position.set(pid, { x: wp.x, y: wp.y });
     sim.step();
-    expect(sim.exportPlayer(pid)?.waypoints).toEqual(['barrens', 'steppe', 'east-1']);
-    expect(sim.portalRequests.some((r) => r.target === 'waypoint' && r.portal.waypoint === 'east-1')).toBe(true);
+    expect(sim.exportPlayer(pid)?.waypoints).toEqual(['barrens', 'steppe', 'steppe-1']);
+    expect(sim.portalRequests.some((r) => r.target === 'waypoint' && r.portal.waypoint === 'steppe-1')).toBe(true);
     // The town's is everyone's and never listed.
     const town = sim.mapDef.portals.find((x) => x.waypoint === TOWN_WAYPOINT);
     if (!town) throw new Error('no town waypoint');
     if (p) p.portalCooldown = 0;
     sim.world.position.set(pid, { x: town.x, y: town.y });
     sim.step();
-    expect(sim.exportPlayer(pid)?.waypoints).toEqual(['barrens', 'steppe', 'east-1']);
+    expect(sim.exportPlayer(pid)?.waypoints).toEqual(['barrens', 'steppe', 'steppe-1']);
   });
 
   it('a waypoint traveller lands on open ground, off every portal', () => {
@@ -218,34 +221,40 @@ describe('world map', () => {
       const desc = world(seed);
       const { def, game } = loadMap(desc);
       for (const w of def.waypoints ?? []) {
-        const at = waypointArrival(desc, w.id);
+        const at = waypointArrival(def, game, w.id);
         if (!at) throw new Error(`no arrival at ${w.id}`);
         expect(Math.hypot(at.x - w.x, at.y - w.y)).toBeLessThan(250);
         expect(game.pointBlocked(at.x, at.y, SIM.playerRadius, 'move'), `${seed} ${w.id}`).toBe(false);
         for (const p of def.portals) expect(Math.hypot(p.x - at.x, p.y - at.y), `${seed} ${w.id} lands on ${p.label}`).toBeGreaterThan(p.r);
       }
-      expect(waypointArrival(desc, 'nowhere')).toBeNull();
+      expect(waypointArrival(def, game, 'nowhere')).toBeNull();
     }
   });
 
-  it('a chest drops its loot once, for the first to reach it', () => {
+  it('a chest drops its loot once, for the first to reach it, even with two arriving on one tick', () => {
     const sim = new Simulation(6, world(6));
-    const pid = sim.addPlayer('c', 'warrior');
+    const a = sim.addPlayer('a', 'warrior');
+    const b = sim.addPlayer('b', 'mage');
     const chest = sim.mapDef.chests?.[0];
     if (!chest) throw new Error('no chest');
-    const p = sim.world.player.get(pid);
-    if (p) p.god = true;
-    const bags = (): number => [...sim.world.loot.values()].filter((l) => l.items.length > 0).length;
+    for (const id of [a, b]) {
+      const p = sim.world.player.get(id);
+      if (p) p.god = true;
+    }
+    const bags = () => [...sim.world.loot.values()].filter((l) => l.items.length > 0);
     sim.step();
-    const before = bags();
-    sim.world.position.set(pid, { x: chest.x + 30, y: chest.y });
+    const before = bags().length;
+    sim.world.position.set(a, { x: chest.x + 30, y: chest.y });
+    sim.world.position.set(b, { x: chest.x - 30, y: chest.y });
     sim.step();
-    expect(openedChests(sim).has(0)).toBe(true);
-    expect(bags()).toBe(before + 1);
-    sim.world.position.set(pid, { x: chest.x + 600, y: chest.y });
+    expect(openedChests(sim).has(chestKey(chest))).toBe(true);
+    expect(bags().length).toBe(before + 1);
+    const uids = bags().flatMap((l) => l.items.map((i) => i.uid));
+    expect(new Set(uids).size).toBe(uids.length);
+    for (const id of [a, b]) sim.world.position.set(id, { x: chest.x + 600, y: chest.y });
     sim.step();
-    sim.world.position.set(pid, { x: chest.x + 30, y: chest.y });
+    sim.world.position.set(a, { x: chest.x + 30, y: chest.y });
     sim.step();
-    expect(bags()).toBe(before + 1);
+    expect(bags().length).toBe(before + 1);
   });
 });

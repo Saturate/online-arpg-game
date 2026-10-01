@@ -709,6 +709,27 @@ export function spawnGold(sim: Simulation, x: number, y: number, amount: number)
   w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, dropper: null });
 }
 
+/**
+ * Moves every bag and gold pile on the ground of `from` to the same spot in `to`, for a room rebuilt
+ * in place (a town save rebuilds the world). `from` is left with none, so nothing exists twice.
+ */
+export function carryGroundLoot(from: Simulation, to: Simulation): void {
+  const src = from.world;
+  const dst = to.world;
+  for (const [id, l] of [...src.loot]) {
+    const pos = src.position.get(id);
+    if (pos) {
+      const copy = dst.create('loot');
+      dst.position.set(copy, { x: pos.x, y: pos.y });
+      dst.radius.set(copy, src.radius.get(id) ?? LOOT.bagRadius);
+      // The dropper was an entity of the old room; a bag nobody claims is free to all, as it soon is anyway.
+      dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, dropper: null });
+    }
+    src.destroy(id);
+  }
+  src.flushDestroyed();
+}
+
 /** A click on a ground bag: takes what fits if the player is close enough. Returns why not, or null. */
 export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): string | null {
   const w = sim.world;

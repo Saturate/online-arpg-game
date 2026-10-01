@@ -400,7 +400,7 @@ export class Game {
     // Dev-only handle for inspecting the scene from the browser console.
     if (import.meta.env.DEV) Object.assign(window, { __rune: { world, entities } });
     this.inDungeon = desc.kind === 'dungeon' || desc.kind === 'staging';
-    const spawnName = placeName(desc, def.spawn.x, def.spawn.y) ?? def.name;
+    const spawnName = placeName(def, loaded.zone, def.spawn.x, def.spawn.y) ?? def.name;
     useUi.setState({ roomName: spawnName, spawnName, roomTheme: def.theme, roomSeed: desc.kind === 'wilds' || desc.kind === 'world' ? desc.seed : null, waypointMenu: null, godMode: false });
     // The town editor works on the town inside the world, in the layout's own coordinates (`def.townAt` in the map).
     this.townLayout = desc.kind === 'town' || desc.kind === 'world' ? (desc.layout ?? DEFAULT_TOWN_LAYOUT) : null;
@@ -856,7 +856,7 @@ export class Game {
     if (room.desc.kind !== 'world' || !this.latest) return;
     if (room.placeAt && Math.hypot(room.placeAt.x - at.x, room.placeAt.y - at.y) < 120) return;
     room.placeAt = { x: at.x, y: at.y };
-    const name = placeName(room.desc, at.x, at.y);
+    const name = placeName(room.def, room.zone, at.x, at.y);
     if (name && name !== useUi.getState().roomName) useUi.setState({ roomName: name });
   }
 

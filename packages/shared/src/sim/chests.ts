@@ -10,11 +10,25 @@ export const CHEST_REACH = 70;
 /** A dead end's chest: two items, magic or better, a level above the ground around it. */
 const CHEST = { items: 2, tiers: { common: 0, magic: 60, rare: 34, relic: 6 } } as const;
 
-/** Chests opened in this room, by index into `mapDef.chests`; every world copy gets its own. */
-const opened = new WeakMap<Simulation, Set<number>>();
+/**
+ * Chests opened in this room, by spot (`chestKey`), so a room rebuilt round a new town can be told
+ * which were opened in the old one even if the list's order changed.
+ */
+const opened = new WeakMap<Simulation, Set<string>>();
 
-export function openedChests(sim: Simulation): ReadonlySet<number> {
+export function chestKey(c: { x: number; y: number }): string {
+  return `${Math.round(c.x)},${Math.round(c.y)}`;
+}
+
+export function openedChests(sim: Simulation): ReadonlySet<string> {
   return opened.get(sim) ?? new Set();
+}
+
+/** Carries opened chests over to a rebuilt room, so a town save does not fill them again. */
+export function markChestsOpened(sim: Simulation, keys: Iterable<string>): void {
+  const set = opened.get(sim) ?? new Set<string>();
+  for (const k of keys) set.add(k);
+  opened.set(sim, set);
 }
 
 /**
@@ -31,13 +45,14 @@ export function updateChests(sim: Simulation): void {
     if (p.respawnIn !== null) continue;
     const pos = w.position.get(id);
     if (!pos) continue;
-    for (const [i, c] of chests.entries()) {
-      if (done?.has(i) || (pos.x - c.x) ** 2 + (pos.y - c.y) ** 2 > CHEST_REACH * CHEST_REACH) continue;
+    for (const c of chests) {
+      const key = chestKey(c);
+      if (done?.has(key) || (pos.x - c.x) ** 2 + (pos.y - c.y) ** 2 > CHEST_REACH * CHEST_REACH) continue;
       if (!done) {
         done = new Set();
         opened.set(sim, done);
       }
-      done.add(i);
+      done.add(key);
       const rng = sim.rand.loot;
       const items: Item[] = [];
       for (let k = 0; k < CHEST.items; k++) {

@@ -97,7 +97,7 @@ function ended(s: FakeSocket) {
 /** Out of town along the east road, beside its first waypoint: the same world room, far from the town. */
 function goOut(rooms: RoomManager, sockets: FakeSocket[]): void {
   for (const [i, s] of sockets.entries()) {
-    const wp = loadMap(welcome(s).map).def.portals.find((p) => p.waypoint === 'east-1');
+    const wp = loadMap(welcome(s).map).def.portals.find((p) => p.waypoint === 'steppe-1');
     if (!wp) throw new Error('no east waypoint');
     s.emit({ t: 'dev', cmd: { c: 'teleport', x: wp.x + 160 + i * 30, y: wp.y } });
   }

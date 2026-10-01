@@ -47,6 +47,7 @@ export * from './data/gear.js';
 export * from './sim/stats.js';
 export * from './sim/dev.js';
 export { portalOpen } from './sim/dungeon.js';
-export { buyItem, compareForSort, FORGE_REACH, nearForge, nearTrader, ownedRunes, sellItem, pendingItems, restoreStash, splitStash } from './sim/inventory.js';
+export { chestKey, markChestsOpened, openedChests } from './sim/chests.js';
+export { buyItem, carryGroundLoot, compareForSort, FORGE_REACH, nearForge, nearTrader, ownedRunes, sellItem, pendingItems, restoreStash, splitStash } from './sim/inventory.js';
 export { nearStash, STASH_REACH } from './sim/stash.js';
 export * from './items/stash.js';

@@ -84,7 +84,7 @@ export class Room {
 
   /** Where a member is, for the party frames: the world's region (or the town), otherwise the room's name. */
   placeName(x: number, y: number): string {
-    return placeName(this.desc, x, y) ?? this.name;
+    return placeName(this.sim.mapDef, this.sim.zone, x, y) ?? this.name;
   }
 
   /** Whether a spot is inside a safe area of the map: the town in the world. */

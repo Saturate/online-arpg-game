@@ -297,7 +297,8 @@ export class WorldPlan {
     const gate = Math.min(last - 1, Math.max(hub + 2, mark(0.5, hub)));
     const inner = road.regions[0] ?? 'thornwood';
     const outer = road.regions[1] ?? inner;
-    const gateId = `${road.side}-gate`;
+    // Ids by region, not by gate side: a town edit that moves a gate keeps the waypoints saves hold.
+    const gateId = `${inner}-gate`;
 
     const ids: number[] = [];
     let prev: MutableNode = root;
@@ -312,9 +313,9 @@ export class WorldPlan {
     const fork = Math.min(gate - 1, Math.max(hub + 1, mark(0.22, hub)));
     const innerName = ZONES[inner].name;
     const outerName = outer === inner ? `Deep ${innerName}` : ZONES[outer].name;
-    waypoints.push({ id: `${road.side}-1`, name: innerName, node: idAt(hub), region: inner });
-    waypoints.push({ id: `${road.side}-2`, name: `${innerName} Crossroads`, node: idAt(fork), region: inner });
-    waypoints.push({ id: `${road.side}-3`, name: outerName, node: idAt(gate + 1), region: outer });
+    waypoints.push({ id: `${inner}-1`, name: innerName, node: idAt(hub), region: inner });
+    waypoints.push({ id: `${inner}-2`, name: `${innerName} Crossroads`, node: idAt(fork), region: inner });
+    waypoints.push({ id: outer === inner ? `${inner}-3` : `${outer}-1`, name: outerName, node: idAt(gate + 1), region: outer });
     const g = at(gate);
     const after = at(gate + 1);
     gates.push({ id: gateId, node: idAt(gate), road: k, region: outer, angle: Math.atan2(after.y - g.y, after.x - g.x) });
@@ -591,7 +592,7 @@ export class WorldPlan {
 
 const FOREST_BY_BIOME: Record<Biome, number> = { forest: 2.2, marsh: 1.1, meadow: 1, ruins: 0.6, crypt: 0.6, cave: 0.5, desert: 0.25 };
 
-/** Waypoint ids are short words, with a number after a dash for the world's: today's zone ids and `east-2` alike. */
+/** Waypoint ids are short words, with a number after a dash for the world's: the old zone ids and `steppe-2` alike. */
 export function isWaypointId(v: unknown): v is string {
   return typeof v === 'string' && v.length <= 24 && /^[a-z]+(-[0-9a-z]+)?$/.test(v);
 }
