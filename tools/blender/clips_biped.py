@@ -182,6 +182,46 @@ def linear_keys(act):
             k.interpolation = 'LINEAR'
 
 
+FOOT_VERTS = set()
+for _, _, ft in LEGS.values():
+    g = obj.vertex_groups[ft].index
+    FOOT_VERTS |= {v.index for v in obj.data.vertices if any(x.group == g and x.weight > 0.4 for x in v.groups)}
+GUARD = {'chest': 0, 'tail_1': 0}
+
+
+def lowest_body():
+    """Lowest point of everything but the feet, and whether it is ahead of the hips."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg)
+    me = ev.to_mesh()
+    best = None
+    for v in me.vertices:
+        if v.index in FOOT_VERTS:
+            continue
+        co = ev.matrix_world @ v.co
+        if best is None or co.z < best.z:
+            best = co.copy()
+    ev.to_mesh_clear()
+    # Forward is Blender -Y.
+    return best.z, best.y < pbs['pelvis'].bone.head_local.y
+
+
+def clear_ground():
+    """Keeps the jaw and tail off the ground: the snout sits far ahead of the hips, so body pitch
+    and an open jaw push it down. Tips the front up or lifts the tail a degree at a time."""
+    for _ in range(25):
+        bpy.context.view_layer.update()
+        z, ahead = lowest_body()
+        if z > -0.002:
+            return
+        bone = 'chest' if ahead else 'tail_1'
+        pb = pbs[bone]
+        M = pb.bone.matrix_local.to_3x3()
+        step = arm_quat(pitch=-1.0 if ahead else 1.0).to_matrix()
+        pb.rotation_quaternion = (M.inverted() @ step @ M @ pb.rotation_quaternion.to_matrix()).to_quaternion()
+        GUARD[bone] += 1
+
+
 rig.animation_data_create()
 for t in list(rig.animation_data.nla_tracks):
     rig.animation_data.nla_tracks.remove(t)
@@ -197,11 +237,14 @@ def make_action(name, frames, pose_at, loop, grounded=False):
     rig.animation_data.action = act
     first = prev = None
     CLAMPED.clear()
+    GUARD.update(chest=0, tail_1=0)
     for f in range(frames + 1):
         if loop and f == frames:
             restore(first)
         else:
             apply_pose(pose_at(f / frames, f / FPS))
+            if not grounded:
+                clear_ground()
             if grounded:
                 # Something always rests on the ground while it falls: no sinking in, no floating.
                 for _ in range(4):
@@ -229,7 +272,8 @@ def make_action(name, frames, pose_at, loop, grounded=False):
     rig.animation_data.action = None
     CLIPS.append((name, frames))
     over = f', the legs stretched {100 * (max(CLAMPED) - 1):.1f}% past straight on {len(CLAMPED)} foot frames' if CLAMPED else ''
-    print(f'ACTION {name}: {frames} frames, {frames / FPS:.3f} s, loop={loop}{over}')
+    lifted = ''.join(f', {bone} lifted {deg} degree-frames to clear the ground' for bone, deg in GUARD.items() if deg)
+    print(f'ACTION {name}: {frames} frames, {frames / FPS:.3f} s, loop={loop}{over}{lifted}')
 
 
 def smooth(x):
@@ -321,14 +365,14 @@ def stride_pose(p, duty, stride, crouch, sway, pitch, bob, lift, tail_amp, tail_
 
 
 def walk(p, t):
-    return stride_pose(p, WALK_DUTY, WALK_STRIDE, WALK_CROUCH, SWAY, 7.0, 0.04, 0.1, 6.0, 0.13, 3.0)
+    return stride_pose(p, WALK_DUTY, WALK_STRIDE, WALK_CROUCH, SWAY, 8.0, 0.055, 0.1, 9.0, 0.18, 3.0)
 
 
 def run(p, t):
     # The charge: lower, pitched hard into the ram, longer strides and a lashing tail.
     # The snout sits about 1.9 m ahead of the hips, so every degree of pitch drops it 3 cm: the
     # charge leans in by thrusting forward, not by tipping further.
-    pose = stride_pose(p, RUN_DUTY, RUN_STRIDE, RUN_CROUCH, SWAY * 1.25, 6.5, 0.045, 0.2, 10.0, 0.2, 4.0)
+    pose = stride_pose(p, RUN_DUTY, RUN_STRIDE, RUN_CROUCH, SWAY * 1.25, 10.0, 0.045, 0.2, 16.0, 0.2, 4.0)
     pose['bones']['pelvis']['fwd'] = 0.1
     # A gape lifts the head as the jaw drops, or the low-slung jaw would plough the ground.
     pose['bones']['jaw'] = {'pitch': 6 + 3 * math.sin(TAU * 2 * p)}
@@ -353,21 +397,24 @@ def idle(p, t):
     return split(pose)
 
 
-# Windup, authored at 24 frames: settles back onto its haunches with the head dropped, scrapes the
-# right foot twice, the tail lashing harder and harder; it ends coiled.
+# Windup, authored at 24 frames, in two beats so the body telegraphs and not only the ground: it
+# rears up with the maw wide, then drops back onto its haunches, coiled, scraping the right foot,
+# with the tail raised and lashing harder and harder. It ends coiled.
 def windup(p, t):
-    k = smooth(min(1.0, p / 0.35))
-    scrape = max(0.0, math.sin(TAU * 2 * (p - 0.3))) if 0.3 < p < 0.8 else 0.0
+    rear = smooth(min(1.0, p / 0.25)) * (1 - smooth((p - 0.25) / 0.2))
+    k = smooth((p - 0.3) / 0.3)
+    scrape = max(0.0, math.sin(TAU * 2 * (p - 0.45))) if 0.45 < p < 0.95 else 0.0
     pose = {
-        'pelvis': {'fwd': -0.16 * k, 'up': -0.12 * k, 'pitch': 8 * k, 'roll': -2.5 * k},
-        'chest': {'pitch': 3 * k},
-        'head': {'pitch': -7 * k, 'yaw': 2.0 * math.sin(TAU * 3 * p) * k},
-        'jaw': {'pitch': 4 + 9 * k},
-        'arm_L': {'pitch': -20 * k},
-        'arm_R': {'pitch': -20 * k},
-        'ik_R': {'fwd': -0.1 * k - 0.18 * scrape, 'up': 0.07 * scrape, 'pitch': 12 * scrape},
+        'pelvis': {'fwd': -0.06 * rear - 0.17 * k, 'up': -0.04 * rear - 0.13 * k, 'pitch': -9 * rear + 7 * k},
+        'chest': {'pitch': -4 * rear + 4 * k},
+        'head': {'pitch': -10 * rear + 2 * k, 'yaw': 2.0 * math.sin(TAU * 3 * p) * k},
+        'jaw': {'pitch': 4 + 18 * rear + 12 * k},
+        'arm_L': {'pitch': -35 * rear - 20 * k},
+        'arm_R': {'pitch': -35 * rear - 20 * k},
+        'ik_R': {'fwd': -0.08 * k - 0.2 * scrape, 'up': 0.1 * scrape, 'pitch': 12 * scrape},
     }
-    tail_wave(pose, p, 4 + 9 * k, 0.15, cycles=3, pitch=(6 * k, 2 * k))
+    # Positive pitch lifts a bone that points back, so this raises the tail.
+    tail_wave(pose, p, 5 + 14 * k, 0.18, cycles=3, pitch=(6 * rear + 12 * k, 4 * k, 2 * k))
     return split(pose)
 
 
@@ -403,9 +450,9 @@ def death_keys(drop):
     legs_folded = {'upper_L': {'pitch': -35}, 'lower_L': {'pitch': 50}, 'upper_R': {'pitch': -55}, 'lower_R': {'pitch': 70}}
     down = lambda extra, curl: {
         'pelvis': {'up': drop + extra, 'pitch': 4, 'roll': -88, 'side': -0.25},
-        'chest': {'pitch': 3, 'yaw': -6}, 'head': {'pitch': 6, 'yaw': -10, 'roll': -4}, 'jaw': {'pitch': 24},
+        'chest': {'pitch': 3, 'yaw': -6}, 'head': {'pitch': 6, 'yaw': -10, 'roll': -4}, 'jaw': {'pitch': 16},
         'arm_L': {'pitch': 30}, 'arm_R': {'pitch': 10},
-        'tail_1': {'yaw': -6 * curl}, 'tail_2': {'yaw': -9 * curl}, 'tail_3': {'yaw': -12 * curl}, 'tail_4': {'yaw': -12 * curl}, 'tail_5': {'yaw': -10 * curl},
+        'tail_1': {'yaw': -2 * curl}, 'tail_2': {'yaw': -3 * curl}, 'tail_3': {'yaw': -5 * curl}, 'tail_4': {'yaw': -6 * curl}, 'tail_5': {'yaw': -6 * curl},
         **legs_folded,
     }
     return [
