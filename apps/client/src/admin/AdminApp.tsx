@@ -443,6 +443,26 @@ function Settings({ token, role, notify }: TabProps) {
       <small className="muted">{hint}</small>
     </label>
   );
+  const respawn = (key: 'respawnMinutes' | 'bossRespawnMinutes', label: string, hint: string) => (
+    <label className="adm-field">
+      <span>
+        {label} <b>{draft[key]} min</b>
+      </span>
+      <input
+        type="number"
+        min={SETTINGS_LIMITS.respawnMinutesMin}
+        max={SETTINGS_LIMITS.respawnMinutesMax}
+        step={1}
+        value={draft[key]}
+        aria-label={label}
+        onChange={(e) => {
+          // An emptied field reads as 0, which the server would reject; keep the last value instead.
+          if (e.target.value !== '') setDraft({ ...draft, [key]: Number(e.target.value) });
+        }}
+      />
+      <small className="muted">{hint}</small>
+    </label>
+  );
   const zoom = (key: 'zoomDefault' | 'zoomDungeon' | 'zoomMin' | 'zoomMax', label: string, hint: string) => (
     <label className="adm-field">
       <span>
@@ -464,6 +484,8 @@ function Settings({ token, role, notify }: TabProps) {
         {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceRampMax', 'Cooling ramp', `How much faster cooling gets after a pause in casting, at most. Default x${DEFAULT_SERVER_SETTINGS.forceRampMax}.`, SETTINGS_LIMITS.forceRampMin, SETTINGS_LIMITS.forceRampMax, 0.5)}
+        {respawn('respawnMinutes', 'Monster respawn', `Minutes a stretch of the world must go with no player or minion within about 2000 units before its killed packs and opened chests come back. Default ${DEFAULT_SERVER_SETTINGS.respawnMinutes}.`)}
+        {respawn('bossRespawnMinutes', 'Boss respawn', `The same for region bosses and their escorts. Default ${DEFAULT_SERVER_SETTINGS.bossRespawnMinutes}.`)}
         <label className="adm-field wide">
           <span>Message of the day</span>
           <textarea value={draft.motd} maxLength={SETTINGS_LIMITS.motdMax} rows={3} onChange={(e) => setDraft({ ...draft, motd: e.target.value })} placeholder="Shown in chat as players enter the world" />

@@ -245,6 +245,14 @@ Tests: `packages/shared/test/zoneChunks.test.ts`
 - Admin monster tuning is read when a monster spawns; a chunk that wakes after a tuning change spawns with the new numbers, where before every pack spawned at room creation with the numbers of that moment.
 - The border scenery outside a zone (step 2's band of forest and peaks) is still generated whole at load on the client; its work grows with the zone's perimeter times 1500.
 
+## Respawn by inactivity
+
+Built 2026-10-01, not pushed; what it does and why are in [world-map.md](world-map.md) ("Cleared ground fills again", "Respawn by inactivity"). It rides on the recompute: the loop that marks awake chunks also stamps each with the recompute's tick (`lastNear`) and lists them, so the chunks someone just left are the previous list less the new one. Those go into one min-heap per kind (`packs`, `bosses`) keyed on the tick they were last near, at most one entry per chunk, and each recompute pops only the due entries. The cost per recompute is the length of the near list plus the due entries, never the chunk count. Wake range is the awake distance (`awakeChunks * chunkSize`, 2000 units), so a refill spawns as far from everyone as a first wake does, and it spawns idle monsters that the same recompute puts to sleep.
+
+A refill is a chunk spawning again, from `packs:<cx>,<cy>:<n>` or `bosses:<cx>,<cy>:<n>` with n its count of refills of that kind, so it is the same on every run. The first wake keeps its one stream (`packs:<cx>,<cy>`) and the same monsters as before.
+
+Measured 2026-10-01 on a development Mac: `NODE_OPTIONS=--expose-gc pnpm bench:streaming walk spread` before and after, with other agents' work in the tree both times. Walk, step median and p95 in ms: 1 player 0.322 and 1.58 before, 0.367 and 1.63 after; 4 players 1.42 and 4.67, 1.41 and 4.30; 8 players 1.59 and 5.68, 1.58 and 5.50. Spread: 1 player 0.140 and 1.47, 0.150 and 1.42; 4 players 0.923 and 4.27, 0.946 and 4.11; 8 players 1.92 and 6.34, 1.95 and 6.21. The differences are within run to run noise. The benches run 40 seconds, shorter than any respawn time, so they measure the bookkeeping only; a scratch run that cleared 1149 monsters over 109 chunks of the world and refilled them in one go took 0.78 ms for its worst recompute, and 0.005 ms median.
+
 ## Limits and open questions (step 1)
 
 - A player who follows a leashed monster home and stays within 460 units of it turns it round after 3 s, so it can be pulled out and sent home again every few seconds. It stays awake while they do, which is right: they are next to it.

@@ -167,7 +167,8 @@ export function spawnPacks(sim: Simulation): void {
  * chunk's packs with a stream of the chunk's own, so a pack comes out the same whenever its chunk
  * first wakes.
  */
-export function spawnPackList(sim: Simulation, packs: readonly MonsterPack[], rng: Rng): void {
+export function spawnPackList(sim: Simulation, packs: readonly MonsterPack[], rng: Rng): EntityId[] {
+  const ids: EntityId[] = [];
   for (const pack of packs) {
     for (let i = 0; i < pack.count; i++) {
       const a = rng.range(0, Math.PI * 2);
@@ -175,12 +176,13 @@ export function spawnPackList(sim: Simulation, packs: readonly MonsterPack[], rn
       // A boss pack's first type is the boss itself; only the rest make up its escort.
       const members = pack.boss && pack.types.length > 1 ? pack.types.slice(1) : pack.types;
       const type = members[i % members.length] ?? 'chaser';
-      spawnEnemy(sim, type, pack.x + Math.cos(a) * d, pack.y + Math.sin(a) * d, { rare: false, level: pack.level, aggro: false, rng });
+      ids.push(spawnEnemy(sim, type, pack.x + Math.cos(a) * d, pack.y + Math.sin(a) * d, { rare: false, level: pack.level, aggro: false, rng }));
     }
     if (pack.rareLeader || pack.boss) {
-      spawnEnemy(sim, pack.types[0] ?? 'chaser', pack.x, pack.y, { rare: true, level: pack.level, aggro: false, boss: pack.boss, rng });
+      ids.push(spawnEnemy(sim, pack.types[0] ?? 'chaser', pack.x, pack.y, { rare: true, level: pack.level, aggro: false, boss: pack.boss, rng }));
     }
   }
+  return ids;
 }
 
 /** Wakes an enemy and the idle pack members around it. */

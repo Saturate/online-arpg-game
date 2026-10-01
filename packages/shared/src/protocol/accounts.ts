@@ -1,4 +1,4 @@
-import { HEAT } from '../config/sim.js';
+import { HEAT, STREAMING } from '../config/sim.js';
 import { isClassId, type ClassId } from '../data/classes.js';
 import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
@@ -127,6 +127,10 @@ export interface ServerSettings {
   zoomMin: number;
   /** How far players may zoom in. */
   zoomMax: number;
+  /** Minutes a world chunk must go without a player or minion in its wake range before its killed packs and opened chests refill. */
+  respawnMinutes: number;
+  /** The same for bosses (region bosses and their escorts), on their own, longer timer. */
+  bossRespawnMinutes: number;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -151,6 +155,8 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   zoomDungeon: 1,
   zoomMin: 0.8,
   zoomMax: 1.4,
+  respawnMinutes: STREAMING.respawnMinutes,
+  bossRespawnMinutes: STREAMING.bossRespawnMinutes,
 };
 
 /** What clients need to light the world; sent on join and whenever an admin changes it. */
@@ -220,6 +226,9 @@ export const SETTINGS_LIMITS = {
    */
   zoomMin: 0.6,
   zoomMax: 2,
+  /** Under a minute, stepping out of a chunk's wake range and back would farm it. */
+  respawnMinutesMin: 1,
+  respawnMinutesMax: 240,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -272,8 +281,10 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     zoomDungeon: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
     zoomMin: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
     zoomMax: [SETTINGS_LIMITS.zoomMin, SETTINGS_LIMITS.zoomMax],
+    respawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
+    bossRespawnMinutes: [SETTINGS_LIMITS.respawnMinutesMin, SETTINGS_LIMITS.respawnMinutesMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

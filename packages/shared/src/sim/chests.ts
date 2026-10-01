@@ -31,10 +31,17 @@ export function markChestsOpened(sim: Simulation, keys: Iterable<string>): void 
   opened.set(sim, set);
 }
 
+/** Fills chests again: streaming's respawn by inactivity calls it for a chunk nobody has been near for the respawn time. */
+export function reopenChests(sim: Simulation, keys: Iterable<string>): void {
+  const set = opened.get(sim);
+  if (!set) return;
+  for (const k of keys) set.delete(k);
+}
+
 /**
  * Opens a world chest the first time a living player walks up to it: its items drop on the ground
- * like a monster's, for whoever picks them up. Each chest opens once per room, so a world copy's
- * chests are found once until the room closes and the world regenerates.
+ * like a monster's, for whoever picks them up. A chest opens once per world copy until its chunk
+ * refills (nobody near it for the respawn time, `streaming.ts`) or the room closes and regenerates.
  */
 export function updateChests(sim: Simulation): void {
   const chests = sim.mapDef.chests;

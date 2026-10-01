@@ -19,6 +19,7 @@ import {
   entranceArrival,
   markChestsOpened,
   openedChests,
+  setRespawnTimes,
   TOWN_WAYPOINT,
   waypointArrival,
   type AdminOverview,
@@ -173,6 +174,7 @@ export class RoomManager implements AdminHooks {
   private applySettings(room: Room): void {
     const s = this.current;
     room.sim.setRates({ xp: s.xpRate, loot: s.lootRate, forceMax: s.forceMax, forceCost: s.forceCostRate, forceCool: s.forceCoolRate, forceRampMax: s.forceRampMax });
+    setRespawnTimes(room.sim, s);
   }
 
   // Admin hooks -------------------------------------------------------------------------------

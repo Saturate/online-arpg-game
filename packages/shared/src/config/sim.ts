@@ -347,6 +347,14 @@ export const STREAMING = {
   recomputeEveryTicks: 5,
   /** A player or minion that moved this far since the last recompute (a portal, a teleport) forces one at once. */
   jumpDistance: 250,
+  /**
+   * Defaults of the admin settings for respawn by inactivity: a chunk's packs (and chests) refill once
+   * nobody has been in its wake range this long, its bosses after the longer time.
+   */
+  respawnMinutes: 10,
+  bossRespawnMinutes: 20,
+  /** A refill held up by a monster of the chunk standing near someone tries again this often. */
+  respawnRetryTicks: 200,
 } as const;
 
 export const NAV = {
