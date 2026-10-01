@@ -119,7 +119,12 @@ function create(): void {
 }
 
 function walk(): void {
-  const modes: Mode[] = lazyChunks ? ['whole', 'chunks'] : ['whole'];
+  // By chunk first: both runs share the cached map, which the whole run then finishes building.
+  const modes: Mode[] = lazyChunks ? ['chunks', 'whole'] : ['whole'];
+  // Warm the JIT first, so the first row is not paying for it.
+  const warm = newRoom('steppe', 'chunks');
+  warm.addPlayer('warm', 'mage', 'Warm');
+  for (let t = 0; t < 300; t++) warm.step();
   console.log('\nWalking west to east across a zone at 220 units a second (god mode, no casting)');
   console.log('zone              players mode    ticks  step med   p95    max | room med   p95    max | monsters at end  built  generated');
   for (const [zone, scale] of [
@@ -128,9 +133,10 @@ function walk(): void {
     ['thornwood', 3],
   ] as const) {
     for (const players of [1, 4]) {
+      const seed = nextSeed++;
       for (const mode of modes) {
         setScale(scale);
-        const sim = newRoom(zone, mode);
+        const sim = newRoom(zone, mode, seed);
         const ids: number[] = [];
         for (let i = 0; i < players; i++) {
           // Lanes spread over the height, starting at the west edge.
@@ -145,11 +151,11 @@ function walk(): void {
         const perTick = 220 / SIM.tickRate;
         const ticks = Math.floor((sim.map.width - 600) / perTick);
         for (let t = 0; t < ticks; t++) {
-          // Moved along the lane rather than steered, so a river or ridge never stops the walk.
+          // Moved along the lane rather than steered, and without input (whose movement would push
+          // them back out of a river every tick), so nothing stops the walk.
           for (const id of ids) {
             const pos = sim.world.position.get(id);
             if (pos) pos.x = Math.min(sim.map.width - 300, pos.x + perTick);
-            sim.applyInput(id, { seq: t + 1, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0 });
           }
           const t0 = performance.now();
           sim.step();
