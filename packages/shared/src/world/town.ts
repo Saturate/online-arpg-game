@@ -22,6 +22,12 @@ export interface TownProp {
   scale: number;
   /** Length for line props (fence, wall); ignored otherwise. */
   length: number;
+  /**
+   * The model a house, cottage or pillar wears, one of `propModels(kind)`. Absent means the pick by
+   * position in the town (`townPropModel`); the editor writes it down before a prop moves, so a
+   * house keeps its look wherever it is dragged.
+   */
+  model?: string;
 }
 
 export interface TownPath {
@@ -110,6 +116,52 @@ export const PROP_DEFS: Record<TownPropKind, PropDef> = {
   wall: { label: 'Stone wall', obstacle: 'wall', blocksShots: true, shape: (p) => line(p, 16), visual: (p) => 50 * p.scale, line: true },
 };
 
+/** Every building model a house or cottage can wear; the default pick for a big house runs over all six. */
+export const HOUSE_MODELS = ['building_home_A_red', 'building_home_B_red', 'building_home_A_blue', 'building_home_B_yellow', 'building_tavern_red', 'building_blacksmith_blue'] as const;
+/** A small house picks between the two narrow homes only, which fill a cottage's footprint without squashing. */
+const SMALL_HOUSE_MODELS = ['building_home_B_red', 'building_home_B_yellow'] as const;
+export const PILLAR_MODELS = ['dungeon_column', 'dungeon_pillar', 'dungeon_pillar_decorated'] as const;
+
+/** The models a prop kind can be given; empty for kinds with one look. */
+export function propModels(kind: TownPropKind): readonly string[] {
+  if (kind === 'house' || kind === 'cottage') return HOUSE_MODELS;
+  if (kind === 'pillar') return PILLAR_MODELS;
+  return [];
+}
+
+/**
+ * The renderer's per-position variation (0 to 999). It lives here so the town's default model
+ * picks, which the editor writes into layouts, are the same numbers the renderer would use.
+ */
+export function lookHash(x: number, y: number): number {
+  return Math.abs(Math.floor(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453)) % 1000;
+}
+
+/** A house's model by its look hash and footprint, as the renderer has always picked it. */
+export function pickHouseModel(h: number, hw: number, hh: number): string {
+  const list = Math.max(hw, hh) < 100 ? SMALL_HOUSE_MODELS : HOUSE_MODELS;
+  return list[h % list.length] ?? 'building_home_A_red';
+}
+
+export function pickPillarModel(h: number): string {
+  return PILLAR_MODELS[h % PILLAR_MODELS.length] ?? 'dungeon_column';
+}
+
+/**
+ * The model a town prop is drawn with: its stored one, else the pick by its position in the town
+ * (not in the world, so the town looks the same wherever the world places it; before the world it
+ * stood at the origin). Null for kinds with one look.
+ */
+export function townPropModel(p: TownProp): string | null {
+  const models = propModels(p.kind);
+  if (models.length === 0) return null;
+  if (p.model !== undefined && models.includes(p.model)) return p.model;
+  const h = lookHash(p.x, p.y);
+  if (p.kind === 'pillar') return pickPillarModel(h);
+  const s = PROP_DEFS[p.kind].shape(p);
+  return s.type === 'box' ? pickHouseModel(h, s.hw, s.hh) : pickHouseModel(h, 0, 0);
+}
+
 export function isTownDecorAsset(asset: string): boolean {
   return Object.hasOwn(TOWN_DECOR_ASSETS, asset);
 }
@@ -193,6 +245,9 @@ export function layoutToMap(layout: TownLayout): WorldMap {
     }
     if (!def.obstacle) continue;
     const o: Obstacle = { kind: def.obstacle, shape: def.shape(p), blocksMove: true, blocksShots: def.blocksShots, visual: def.visual(p) };
+    const model = townPropModel(p);
+    // The seed is the town-local hash too, so a pillar's turn and rubble survive `placeTown` as well.
+    if (model !== null) o.look = { model, seed: lookHash(p.x, p.y) };
     map.obstacles.push(o);
     if (p.kind === 'oak') map.oaks.push({ x: p.x, y: p.y });
   }
@@ -330,7 +385,9 @@ export interface ValidateOptions {
   /**
    * What to do with decor whose asset the game does not know. A save from the editor is rejected
    * (`reject`, the default); a town loaded from disk drops the piece instead (`drop`), so an asset
-   * removed from the game later cannot throw the whole live town away for the default one.
+   * removed from the game later cannot throw the whole live town away for the default one. A prop
+   * model the game does not know is treated alike: rejected on a save, dropped (back to the pick by
+   * position) on a load.
    */
   unknownDecor?: 'reject' | 'drop';
 }
@@ -376,7 +433,12 @@ export function validateLayout(v: unknown, opts: ValidateOptions = {}): TownLayo
     const scale = num(p.scale, 0.3, 3);
     const length = num(p.length, 0, Math.max(width, height));
     if (!pos || angle === null || scale === null || length === null) return null;
-    props.push({ kind: p.kind, x: pos.x, y: pos.y, angle, scale, length });
+    const clean: TownProp = { kind: p.kind, x: pos.x, y: pos.y, angle, scale, length };
+    if (p.model !== undefined) {
+      if (typeof p.model === 'string' && propModels(p.kind).includes(p.model)) clean.model = p.model;
+      else if (opts.unknownDecor !== 'drop') return null;
+    }
+    props.push(clean);
   }
   const paths: TownPath[] = [];
   for (const p of v.paths) {

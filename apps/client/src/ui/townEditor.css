@@ -225,3 +225,22 @@
   gap: 6px;
   margin: 2px 0 6px;
 }
+.town-model-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+.town-model-row select {
+  flex: 1;
+  min-width: 0;
+  background: #1f1a13;
+  color: var(--text);
+  border: 1px solid #4a3b24;
+  border-radius: 4px;
+  padding: 3px 4px;
+  font-size: 12px;
+}
+.town-model-row button {
+  padding: 2px 8px;
+}
