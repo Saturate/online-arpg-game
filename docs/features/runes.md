@@ -189,7 +189,7 @@ Code:
 - Grammar: `packages/shared/src/runes/v2/` (`runes.ts` rune data, `rules.ts` every rule by id and `DEFAULT_CONTEXT`, `tokenize.ts` the text form, `parse.ts` the tree, `budget.ts` the entity budget, `compile.ts` the program and its Force or spirit, `sentence.ts` the sentence and bracket views, `descriptions.ts` tooltips and glyphs, `examples.ts` shared examples).
 - Engine contract: `packages/shared/src/sim/program.ts`. Engine: `sim/spells.ts` (casting, releases, live cap, zone lockout), `sim/auras.ts` (Aura and Bond), `sim/players.ts` (Force cooling).
 - Starters: `packages/shared/src/data/starterSigils.ts`; the pass that brings owned sigils up to date: `items/convertRuneRolls.ts`. Affixes: `data/affixes.ts`. Sigil items and capacity: `items/items.ts` (`sigilCapacity`, `matchingStarter`, `misfireChance`). Class affinities: `data/classes.ts`.
-- Numbers: `HEAT`, `SPELL`, `AURA`, `LINK`, `AILMENTS` in `packages/shared/src/config/sim.ts`; `FORGE` in `config/forge.ts`.
+- Numbers: `HEAT`, `SPELL`, `AURA`, `LINK`, `AILMENTS` in `packages/shared/src/config/sim.ts`; `FORGE` in `config/forge.ts`. Shape, rune Force, spirit and effect numbers are live-tunable from the admin Tuning tab, which overwrites them in place ([live-tuning.md](live-tuning.md)); read them where they are used, never copy one into a module constant.
 
 ```ts
 interface SpellNode {            // sim/program.ts

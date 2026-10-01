@@ -7,11 +7,12 @@ Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests 
 - **Accounts:** register with a username and password, or "Play as guest". Up to 12 characters per account. One character online per account at a time.
 - **Guests** get a generated name (`Guest` plus 6 hex characters) and a one-year session. The character screen offers to claim the account with a real name and password; the characters stay. Unclaimed guests are deleted after 90 days without play.
 - **Roles:** player, builder, moderator, admin and owner. Staff pages live under `/admin/`; the dev tools at `/admin/dev/` need builder or higher ([dev-tools.md](dev-tools.md)).
-- **The admin page** (`/admin/`) has seven tabs, nine for an admin and ten for the owner:
+- **The admin page** (`/admin/`) has eight tabs, ten for an admin and eleven for the owner:
   - **Overview:** online count, games, rooms, memory, uptime and build; the announce form; the online players with Go to and Kick; games and rooms. Refreshes every 3 s.
   - **Players:** account search, with role, guest and banned badges, the role picker (owner only), ban and unban, and each account's characters.
   - **Arena:** the season leaderboards with a month picker ([arena.md](arena.md)).
   - **Settings:** live server settings (below). Everyone who can open the page can view them; only the `settings` permission can edit.
+  - **Tuning:** live tuning of every spell shape and rune number, with the code default beside each, the change history and revert ([live-tuning.md](live-tuning.md)). Every staff role can look; editing takes the `tuning` permission (owner and admin).
   - **Monsters, Minions, Model check:** tuning overrides and the model checker ([monsters.md](monsters.md)).
   - **API tokens** (owner and admin): make, list and revoke tokens for scripts and agents. See "Admin API tokens" below.
   - **Grant item** (owner only): pick an account by name and one of its characters, then an item: Brothers Creation, or a rolled vessel (any type or random), sigil or rolled rune by tier and item level, the rolls the dev tools make. The item goes onto the character as pending and lands on their next login. See "Item grants" below.
@@ -45,10 +46,10 @@ Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests 
 
 Code:
 
-- HTTP routes: `apps/server/src/http.ts`; tuning routes in `apps/server/src/tuningRoutes.ts`.
+- HTTP routes: `apps/server/src/http.ts`; monster tuning routes in `apps/server/src/tuningRoutes.ts`, live tuning routes in `apps/server/src/tunablesRoutes.ts`.
 - Admin tokens: `apps/server/src/adminTokens.ts` (table `admin_tokens`); shared rules and types in `packages/shared/src/protocol/adminTokens.ts`; the page in `apps/client/src/admin/TokensTab.tsx`; the command-line helper `scripts/admin.ts`.
 - Server log buffer: `apps/server/src/eventLog.ts`.
-- Storage: `apps/server/src/accounts.ts` (tables `accounts`, `sessions`, `characters`, `settings`, `arena_runs`) and `apps/server/src/tuningStore.ts` (`tuning_overrides`). The file is `DB_PATH`, default `data/rune.db` relative to the server's working directory (`apps/server/data/rune.db` in dev, `/data/rune.db` in the pod). The `settings` table holds the server settings under key `server` and the trader shelf under `trader`.
+- Storage: `apps/server/src/accounts.ts` (tables `accounts`, `sessions`, `characters`, `settings`, `arena_runs`) `apps/server/src/tuningStore.ts` (`tuning_overrides`) and `apps/server/src/tunablesStore.ts` (`tunable_values`, `tunable_history`). The file is `DB_PATH`, default `data/rune.db` relative to the server's working directory (`apps/server/data/rune.db` in dev, `/data/rune.db` in the pod). The `settings` table holds the server settings under key `server` and the trader shelf under `trader`.
 - Live sessions, kicks, announcements and `/goto`: `apps/server/src/manager.ts`.
 - Guest cleanup: `apps/server/src/index.ts`, once at startup and then every 6 hours; accounts online at the time are skipped. Characters, sessions and the stash go with the account.
 - Shared types and limits: `packages/shared/src/protocol/accounts.ts` (`ServerSettings`, `SETTINGS_LIMITS`, name and password rules), `packages/shared/src/protocol/roles.ts` (`ROLES`, `GRANTS`, `can`).
@@ -63,8 +64,10 @@ Routes:
 | POST | `/api/logout`, `/api/claim` | session |
 | GET, POST | `/api/characters` | session |
 | DELETE | `/api/characters/:id` | session (ends the live session first) |
-| GET | `/api/admin/overview`, `/api/admin/accounts`, `/api/admin/settings`, `/api/admin/monsters`, `/api/admin/minions` | `viewAdmin` |
+| GET | `/api/admin/overview`, `/api/admin/accounts`, `/api/admin/settings`, `/api/admin/monsters`, `/api/admin/minions`, `/api/admin/tuning`, `/api/admin/tuning/history?limit=` | `viewAdmin` |
 | PUT | `/api/admin/settings`; PUT and DELETE `/api/admin/{monsters,minions}/:type` | `settings` |
+| PATCH | `/api/admin/tuning` (path to number, or null for the code default; all or nothing; body up to 64 KiB) | `tuning` |
+| POST | `/api/admin/tuning/revert` (`{ "id": <history id> }`) | `tuning` |
 | POST | `/api/admin/announce` | `announce` |
 | POST | `/api/admin/kick` | `kick` |
 | POST | `/api/admin/accounts/:id/ban` | `ban` (a ban also kicks and deletes the account's sessions) |
@@ -132,12 +135,12 @@ Staff actions:
 - **Grants are never bound**, unlike dev tool items, since they are meant to be traded (the brothers' vessels).
 - **Logged** as `[admin] <owner> (owner): grant "<name>" (<template>, <tier>, item level <n>, uid <uid>) to <account> / <character> (character <id>), pending until next login`.
 
-**Staff log:** every staff action (settings, announce, kick, ban and unban, goto, role, monster and minion edits, item grants, token changes, backups) is written to stdout as `[admin] <user> (<role>): <what>`, and a token call as `[admin] <user> (<role>) token "<name>": <what>`. It is kept in the pod log and in the server log buffer below; nothing is stored in the database.
+**Staff log:** every staff action (settings, announce, kick, ban and unban, goto, role, monster and minion edits, live tuning changes and reverts (`tuning spell.bolt.damage 16 -> 20`; the history table keeps them too), item grants, token changes, backups) is written to stdout as `[admin] <user> (<role>): <what>`, and a token call as `[admin] <user> (<role>) token "<name>": <what>`. It is kept in the pod log and in the server log buffer below; nothing is stored in the database.
 
 **Admin API tokens:**
 
 - **Made on the admin page** (API tokens tab) by an owner or admin, from a login session only: a token can never list, make or revoke tokens, so a leaked one cannot mint more. Each has a name (1 to 32 letters, digits, spaces, `_ . -`), scopes and an expiry of 1, 7, 30 or 90 days (the API takes 1 to 90). At most 20 live tokens per account.
-- **Scopes** are role permissions: `viewAdmin` (always included), `announce`, `kick`, `ban`, `teleport`, `settings`, `manageRoles`, `grantItems`, `serverLog`, `backup`. `townEdit` and `devTools` are left out because they gate the game socket, which a token cannot open; `apiTokens` is left out as above. The creator can only pick scopes their role has, so `manageRoles`, `grantItems` and `backup` tokens come only from the owner.
+- **Scopes** are role permissions: `viewAdmin` (always included), `announce`, `kick`, `ban`, `teleport`, `settings`, `manageRoles`, `grantItems`, `serverLog`, `backup`, `tuning`. `townEdit` and `devTools` are left out because they gate the game socket, which a token cannot open; `apiTokens` is left out as above. The creator can only pick scopes their role has, so `manageRoles`, `grantItems` and `backup` tokens come only from the owner.
 - **Checked on every call:** the token's scopes and the creator's role at that moment, both. Any role change, up or down, deletes the account's tokens, so a demotion ends them at once and a later re-promotion does not bring them back; setting the role an account already has keeps them. The per-call role check still covers an owner whose name is taken off `ADMIN_USERS` (no role change is stored for that): their tokens fall back to the stored role, 404 for a player. A ban deletes the creator's tokens (an unban does not bring them back), and a deleted account takes its tokens with it.
 - **Format and storage:** `arpg_<16 hex id>_<43 base64url>`. The server stores the id and a SHA-256 hash of the secret part, never the token; the id finds the row and the hashes are compared in constant time. The full token is shown once, when it is made. The list shows id, name, scopes, creator, created, expiry and last used time; the owner sees everyone's tokens and can revoke any, an admin only their own. Revoke deletes the row, so the next call gets 401.
 - **Bearer header only:** `Authorization: Bearer <token>`, on `/api/admin/*` only. Cookies and query strings are never read, and on any other route (characters, logout, the game socket) a token is not a login.
@@ -151,7 +154,7 @@ Staff actions:
 
 **The command-line helper** (`pnpm admin`):
 
-- `pnpm admin GET overview`, `pnpm admin GET 'log?since=120'`, `pnpm admin PUT settings '{"xpRate":2}'`, `pnpm admin backup ./rune-copy.db`. A path without a leading `/` is under `/api/admin/`. It prints the JSON reply and exits non-zero on an error.
+- `pnpm admin GET overview`, `pnpm admin GET 'log?since=120'`, `pnpm admin PUT settings '{"xpRate":2}'`, `pnpm admin GET tuning`, `pnpm admin PATCH tuning '{"spell.bolt.damage":20,"force.rune.nova":null}'`, `pnpm admin GET tuning/history`, `pnpm admin POST tuning/revert '{"id":12}'`, `pnpm admin backup ./rune-copy.db`. A path without a leading `/` is under `/api/admin/`. It prints the JSON reply and exits non-zero on an error.
 - **The token only goes to the admin API on `ARPG_URL`** (`scripts/adminClient.ts`, `adminUrl`). A path must end up under `/api/admin/` after `..` and `%2e` segments are resolved. Refused before parsing: `//` anywhere in the path, backslashes (`/\host` is protocol-relative to the URL parser), spaces and control characters (the parser drops tabs and newlines, so `/\t/host` would become `//host`) and anything with a scheme. After parsing, the URL's origin must equal `ARPG_URL`'s. Redirects are refused (`redirect: 'error'`), since the admin API never sends one.
 - The token lives in `~/.config/arpg/admin-token` (one line, the full token). The helper refuses to run if the file is readable by group or others: `mkdir -p ~/.config/arpg && (umask 077; pbpaste > ~/.config/arpg/admin-token)`. Never put a token in the repo or in a command line.
 - The server is `ARPG_URL`, default `https://arpg.akj.io`. Plain `http` is refused except for localhost (`ARPG_URL=http://localhost:8080` in dev), so the token never crosses the network in the clear.
@@ -163,6 +166,7 @@ Tests:
 - `apps/server/test/adminTokens.test.ts`: the full token is shown once and only a hash is in the database (the WAL included); a wrong secret, a token outside the admin routes, and tokens in a cookie or query string get 401; the overview reports players, rooms, build and uptime; each scope opens only its own routes (every admin route checked per scope), an owner token with all scopes opens all, sessions keep working by role; only owner and admin sessions make tokens, never past their role and never with a token; any role change deletes the creator's tokens (demotion and promotion, through the route and the store) and re-promotion does not revive them, while setting the same role keeps them; an owner taken off `ADMIN_USERS` falls back to the stored role on the next call; expiry; revoke (an admin only their own, the owner anyone); last used; a banned creator's tokens stop for good and a deleted creator's too; every token call is logged with name and route, and no secret, session token or password reaches the log; refused (403) and unknown (404) token calls stay out of the staff log and go to stdout, a 400 is logged with its status; a rejected token is logged once by id and address, never its secret, and the throttle counts repeats and sums ids past the cap; backup is owner only, is a real SQLite copy, leaves no temp file, refuses a second at the same time and never shows the path; a stalled download is dropped, deleting the copy and freeing the lock; the per-token rate limit; the ring buffer's cursor, overflow and redaction.
 - `apps/server/test/adminClient.test.ts`: `pnpm admin` builds URLs only under `/api/admin/` on `ARPG_URL`, and refuses `//host`, `/\host`, tab and newline tricks, schemes, `..` and `%2e%2e` out of the admin API; a finished download is written with mode 600, a failed one leaves no file, and an existing file is never touched.
 - `apps/server/test/grants.test.ts`: only the owner can grant (admin and moderator 403, players 404) and a refusal writes nothing; every field is validated; an online account is refused and keeps its items; a grant adds exactly one unbound item with a fresh uid, is logged once, and reaches the character on login with every other item unchanged, once; rolled vessel, sigil and rune grants.
+- `apps/server/test/liveTuning.test.ts`: live tuning permissions (staff look, owner, admin and `tuning` tokens change), all-or-nothing validation, history and revert ([live-tuning.md](live-tuning.md)).
 - `apps/server/test/worlds.test.ts`: staff teleport; an unreadable stash refuses the join and keeps the row.
 - `apps/server/test/convertV2.test.ts`: an unreadable v1 row is kept and the join refused.
 
