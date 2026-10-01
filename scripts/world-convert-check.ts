@@ -112,7 +112,9 @@ function main(): void {
         const keys = new Set([...Object.keys(expected), ...Object.keys(loaded)]);
         const changed = [...keys].filter((k) => k !== 'waypoints' && k !== 'worldFormat' && k !== 'gates' && stable(expected[k]) !== stable(Reflect.get(loaded, k)));
         if (changed.length > 0) console.log(`  normalised by the existing load path (not this conversion): ${changed.join(', ')}`);
-        check(problems, changed.every((k) => k === 'stash' || k === 'gold' || k === 'level' || k === 'xp'), `fields changed: ${changed.join(', ')}`);
+        // The rune roll pass rewrites items and bag cells on the same load; runes:convert-check owns
+        // those changes and checks their conservation, so this check leaves them to it.
+        check(problems, changed.every((k) => k === 'stash' || k === 'gold' || k === 'level' || k === 'xp' || k === 'items' || k === 'inventory'), `fields changed: ${changed.join(', ')}`);
       }
 
       // Written back and loaded again, a converted save is read as it is.
