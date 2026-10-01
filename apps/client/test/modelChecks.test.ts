@@ -322,6 +322,24 @@ describe('model checks', () => {
       hit: 'Hit_A',
       death: 'Death_A',
     });
+    expect(guessRoles(['Idle', 'Walk', 'Attack', 'Windup']).windup).toBe('Windup');
+  });
+});
+
+describe('hand-made monster files', () => {
+  // The brothers' models, rebuilt with tools/blender: every check passes, and every clip the registry maps is in the file.
+  const files = readdirSync(new URL('../public/assets/monsters/', import.meta.url)).filter((f) => f.endsWith('.glb'));
+  it.each(files)('%s passes the Model check', async (file) => {
+    const { report: r, clips } = await checkGlb(readFileSync(new URL(`../public/assets/monsters/${file}`, import.meta.url)));
+    expect(r.checks.filter((c) => c.status !== 'pass').map((c) => `${c.id}: ${c.detail}`)).toEqual([]);
+    const def = ASSETS.find((a) => a.url === `/assets/monsters/${file}`);
+    if (!def) throw new Error(`${file} has no ASSETS entry`);
+    const names = clips.map((c) => c.name);
+    expect(Object.keys(def.clips ?? {}).length, file).toBeGreaterThan(0);
+    for (const clip of Object.values(def.clips ?? {})) expect(names, file).toContain(clip);
+  });
+  it('finds the Grave Hound and the Charger', () => {
+    expect(files).toEqual(expect.arrayContaining(['grave_hound.glb', 'charger.glb']));
   });
 });
 

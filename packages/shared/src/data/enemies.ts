@@ -104,6 +104,13 @@ export interface MonsterTraits {
   dormant?: { wakeRange: number };
   /** Players within this radius are cursed and deal less damage while they stay near. */
   curse?: { radius: number };
+  /**
+   * A long body (sim/body.ts): hurt circles beyond the collider, `along` units ahead of its centre
+   * along the facing (negative is behind), and where the model turns about, all at the code radius
+   * and for a model `height` units tall (a height override scales them). Hits and targeting use
+   * them; movement and pathing keep the collider.
+   */
+  body?: { circles: readonly { along: number; radius: number }[]; pivot: number; height: number };
 }
 
 interface EnemyBase {
@@ -178,6 +185,7 @@ export const ENEMY_TYPE_IDS = [
   // Chargers
   'tusked_boar',
   'horned_charger',
+  'charger',
   // Exploders
   'bloated_corpse',
   'volatile',
@@ -440,6 +448,32 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     { life: 150, speed: 95, radius: 19, contact: 10, color: 0x9a3a2a },
     [{ kind: 'charge', cooldown: 5, range: 460, windup: 0.9, speed: 640, duration: 0.7, damage: 32, width: 26 }],
     { knockbackImmune: true },
+  ),
+  // Its model is the owner's brother's Charger, made for this game only and not licensed for reuse.
+  // Slow on foot so the heavy stride its short legs can take matches the ground (tools/blender/README.md);
+  // the charge is the threat.
+  charger: monster(
+    'charger',
+    'Charger',
+    'charger',
+    'melee',
+    { life: 160, speed: 72, radius: 26, contact: 12, contactCooldown: 1.1, color: 0x5a5a48 },
+    // Range is the dash itself (600 x 0.7), so it never charges at someone the dash cannot reach.
+    [{ kind: 'charge', cooldown: 5, range: 420, windup: 0.9, speed: 600, duration: 0.7, damage: 28, width: 30 }],
+    // The collider covers the head; the trunk and tail behind it, measured off the model at height 80.
+    {
+      knockbackImmune: true,
+      body: {
+        circles: [
+          { along: -45, radius: 32 },
+          { along: -78, radius: 18 },
+          { along: -104, radius: 12 },
+          { along: -126, radius: 9 },
+        ],
+        pivot: -50,
+        height: 80,
+      },
+    },
   ),
 
   // Exploders: kill them at range, or pay for it.
