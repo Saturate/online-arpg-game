@@ -1,8 +1,9 @@
-import { applyTunables, benchCast, HARNESS_DEFAULTS, type BenchCast, type TunableValues } from '@rune/shared';
+import { benchCast, HARNESS_DEFAULTS, type BenchCast, type TunableValues } from '@rune/shared';
 import { useEffect, useRef, useState } from 'react';
 import { StudioSim } from '../../dev/studio/studioSim.js';
 import { StudioView } from '../../dev/studio/studioView.js';
 import type { BenchRow } from './benchRows.js';
+import { endWatch, watchWith } from './watchTuning.js';
 
 interface Reading {
   seconds: number;
@@ -85,10 +86,10 @@ export default function WatchPanel({ row, live, proposed, previewing, onClose }:
   const close = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    applyTunables(which === 'proposed' ? proposed : live);
+    watchWith(which === 'proposed' ? proposed : live);
     setCast(benchCast(row.spec));
   }, [which, row, live, proposed]);
-  useEffect(() => () => applyTunables({}), []);
+  useEffect(() => endWatch, []);
 
   useEffect(() => {
     close.current?.focus();

@@ -1,7 +1,7 @@
 import { BENCH_MARKS, can, CLASS_IDS, CLASSES, isClassId, type BenchSpell, type BenchState, type ClassId, type Role } from '@rune/shared';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { tunablesApi } from '../TunablesTab.js';
-import { pendingPatch, proposedValues, tuningKey, useTuningDraft } from '../tuningDraft.js';
+import { droppedNotice, pendingPatch, previewSet, tuningKey, useTuningDraft } from '../tuningDraft.js';
 import { benchApi } from './benchApi.js';
 import { buildRows, bestOf, filterViews, ROW_SOURCES, sideOf, SOURCE_NAMES, sortViews, type BenchRow, type RowSource, type RowView, type Sort, type SortKey } from './benchRows.js';
 import { BenchTable } from './BenchTable.js';
@@ -24,7 +24,7 @@ const ago = (at: number): string => {
  */
 export function BenchTab({ token, role, notify, openTuning }: { token: string; role: Role; notify: (t: string) => void; openTuning: () => void }) {
   const canEdit = can(role, 'tuning');
-  const { server, setServer, edits } = useTuningDraft();
+  const { server, receive, edits } = useTuningDraft();
   const [bench, setBench] = useState<BenchState | null>(null);
   const [benchError, setBenchError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,15 +45,20 @@ export function BenchTab({ token, role, notify, openTuning }: { token: string; r
   }, [token]);
 
   useEffect(() => {
-    // The Tuning tab may not have been opened yet; its unsaved edits, if any, stay as they are.
-    if (!useTuningDraft.getState().server) void tunablesApi.state(token).then((r) => (r.ok ? setServer(r.data) : notify(r.error)));
+    // Fresh saved values every time the bench opens, so the preview is against what is live now;
+    // an edit another admin's save has overtaken is dropped (receive) and named.
+    void tunablesApi.state(token).then((r) => {
+      if (!r.ok) return notify(r.error);
+      const dropped = receive(r.data);
+      if (dropped.length > 0) notify(droppedNotice(dropped));
+    });
     void loadBench();
-  }, [token, notify, setServer, loadBench]);
+  }, [token, notify, receive, loadBench]);
 
   const specs = useMemo(() => new Map((server?.schema ?? []).map((s) => [s.path, s])), [server]);
   const live = useMemo(() => server?.values ?? {}, [server]);
   const pending = useMemo(() => pendingPatch(edits, specs, live), [edits, specs, live]);
-  const proposed = useMemo(() => proposedValues(live, pending.patch), [live, pending]);
+  const { proposed, brokenTables } = useMemo(() => previewSet(live, pending.patch), [live, pending]);
   const liveKey = tuningKey(live);
   const proposedKey = tuningKey(proposed);
   const previewing = server !== null && liveKey !== proposedKey;
@@ -104,6 +109,8 @@ export function BenchTab({ token, role, notify, openTuning }: { token: string; r
   };
 
   const remove = async (id: number) => {
+    const pick = bench?.picks.find((p) => p.id === id);
+    if (!window.confirm(`Remove pick #${id}${pick ? ` (${pick.text}, added by ${pick.account})` : ''} for every admin?`)) return;
     setBusy(true);
     const r = await benchApi.remove(token, id);
     setBusy(false);
@@ -138,6 +145,11 @@ export function BenchTab({ token, role, notify, openTuning }: { token: string; r
           <p className="muted small bn-note">
             Damage per Force over a 10 s run at the 0.35 s cadence, as a multiple of the best kit under the same numbers. Edit numbers in the Tuning tab without saving to preview them here.
             {pending.bad > 0 && ` ${pending.bad} edit${pending.bad === 1 ? ' is' : 's are'} out of range and left out.`}
+          </p>
+        )}
+        {brokenTables.length > 0 && (
+          <p className="bn-error bn-note" role="status">
+            Not previewed, as a Save would refuse it: {brokenTables.join('; ')}. Those affix tables are shown at their saved numbers.
           </p>
         )}
         {failed && <p className="bn-error">The measuring worker failed: {failed}. Reload the page.</p>}
@@ -178,7 +190,8 @@ export function BenchTab({ token, role, notify, openTuning }: { token: string; r
         </p>
       )}
       {bench && bench.popular.length === 0 && <p className="muted small">No saves hold an equipped sigil yet, so the most equipped list is empty.</p>}
-      {bench && bench.popular.length > 0 && <p className="muted small">Most equipped counted from the saves {ago(bench.popularAt)}; it is counted again every few minutes.</p>}
+      {bench && !bench.popularReady && <p className="muted small">The server is still counting the saves it had at start; the most equipped list fills in as it goes.</p>}
+      {bench && bench.popular.length > 0 && <p className="muted small">Most equipped from every character's last save; it last changed {ago(bench.popularAt)}.</p>}
 
       <div className="bn-scroll">
         {shown.length === 0 ? <p className="muted">No row matches these filters.</p> : <BenchTable views={shown} sort={sort} onSort={onSort} previewing={previewing} canEdit={canEdit} onWatch={(v) => setWatching(v.row)} onRemove={(id) => void remove(id)} />}

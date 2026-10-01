@@ -13,7 +13,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { call, type ApiResult } from '../net/api.js';
 import { searchId, type Jump } from './tabs.js';
-import { parsed, pendingPatch, useTuningDraft } from './tuningDraft.js';
+import { droppedNotice, parsed, pendingPatch, useTuningDraft } from './tuningDraft.js';
 import './tunables.css';
 
 /** The server checks every value again; checking the reply keeps a bad response out of the editor. */
@@ -95,7 +95,7 @@ function Row({ spec, saved, edit, editable, onEdit }: { spec: TunableSpec; saved
  */
 export function TunablesTab({ token, role, notify, focus }: { token: string; role: Role; notify: (t: string) => void; focus: Jump | null }) {
   const editable = can(role, 'tuning');
-  const { server, setServer, edits, setEdits } = useTuningDraft();
+  const { server, receive, edits, edit, clearEdits } = useTuningDraft();
   const [history, setHistory] = useState<TunableHistoryEntry[]>([]);
   const [view, setView] = useState<View>('runes');
   const [search, setSearch] = useState('');
@@ -113,9 +113,13 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
   }, [token, notify]);
 
   useEffect(() => {
-    void tunablesApi.state(token).then((r) => (r.ok ? setServer(r.data) : notify(r.error)));
+    void tunablesApi.state(token).then((r) => {
+      if (!r.ok) return notify(r.error);
+      const dropped = receive(r.data);
+      if (dropped.length > 0) notify(droppedNotice(dropped));
+    });
     void loadHistory();
-  }, [token, notify, loadHistory, setServer]);
+  }, [token, notify, loadHistory, receive]);
 
   const specs = useMemo(() => new Map((server?.schema ?? []).map((s) => [s.path, s])), [server]);
   const values = server?.values ?? {};
@@ -138,18 +142,11 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
     setSearch('');
   };
 
-  const setEdit = (path: string, text: string | undefined) => {
-    const next = { ...edits };
-    if (text === undefined) delete next[path];
-    else next[path] = text;
-    setEdits(next);
-  };
-
   const applied = (r: ApiResult<TunablesState>, done: string) => {
     setBusy(false);
     if (!r.ok) return notify(r.error);
-    setServer(r.data);
-    setEdits({});
+    clearEdits();
+    receive(r.data);
     notify(r.data.warning ?? done);
     void loadHistory();
   };
@@ -194,7 +191,7 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
               <button type="button" className="primary" disabled={pending.count === 0 || pending.bad > 0 || busy} onClick={() => void save()}>
                 Save {pending.count > 0 ? pending.count : ''}
               </button>
-              <button type="button" disabled={Object.keys(edits).length === 0 || busy} onClick={() => setEdits({})}>
+              <button type="button" disabled={Object.keys(edits).length === 0 || busy} onClick={clearEdits}>
                 Discard
               </button>
             </div>
@@ -218,7 +215,7 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
                       </th>
                     </tr>
                   )}
-                  <Row spec={s} saved={values[s.path]} edit={edits[s.path]} editable={editable} onEdit={(t) => setEdit(s.path, t)} />
+                  <Row spec={s} saved={values[s.path]} edit={edits[s.path]?.text} editable={editable} onEdit={(t) => edit(s, t)} />
                 </Fragment>
               ))}
             </tbody>
