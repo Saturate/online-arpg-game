@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { addItem, discard, spawnBag, spawnGold, takeLoot, updateLoot } from '../src/sim/inventory.js';
+import { addItem, carryGroundLoot, discard, spawnBag, spawnGold, takeLoot, updateLoot } from '../src/sim/inventory.js';
 import { previewNames, serializeEntities, snapshotFor } from '../src/sim/snapshot.js';
-import { createGear, createRune, LOOT, NET, Simulation, type EntityId, type Item, type ItemUid, type PlayerComp } from '../src/index.js';
+import { createGear, createRune, LOOT, NET, parseClientMessage, Simulation, type EntityId, type Item, type ItemUid, type PlayerComp } from '../src/index.js';
 
 function setup() {
   const sim = new Simulation(4, { kind: 'flat' });
@@ -289,5 +289,73 @@ describe('loot piles', () => {
     const save = sim.exportPlayer(pid);
     expect(save?.items.some((i) => i.uid === mine.uid || i.uid === ground.uid)).toBe(false);
     expect(Object.keys(save ?? {})).not.toContain('loot');
+  });
+
+  it('does not join a pile behind a wall from where the drop fell', () => {
+    const sim = new Simulation(2, { kind: 'world', seed: 3 });
+    sim.rates.lootMerge = 100;
+    const rock = sim.mapDef.obstacles.find((o) => o.blocksShots && o.shape.type === 'circle' && o.shape.r >= 20 && o.shape.r <= 30);
+    if (!rock || rock.shape.type !== 'circle') throw new Error('no rock');
+    const { x, y, r } = rock.shape;
+    spawnBag(sim, x + r + 10, y, [ring(sim)], 8, null);
+    spawnBag(sim, x - r - 10, y, [ring(sim)], 8, null);
+    expect(piles(sim)).toHaveLength(2);
+  });
+
+  it('a town rebuild carries every pile item over once, free of dropper marks', () => {
+    const { sim, pid, p, pos } = setup();
+    const mine = ring(sim);
+    addItem(p, mine);
+    expect(discard(sim, pid, mine.uid)).toBeNull();
+    const other = [ring(sim), ring(sim, 'rare')];
+    spawnBag(sim, pos.x + 10, pos.y, other, LOOT.bagRadius, null);
+    spawnGold(sim, pos.x + 200, pos.y, 12);
+    const next = new Simulation(5, { kind: 'flat' });
+    carryGroundLoot(sim, next);
+    expect(sim.world.loot.size).toBe(0);
+    const carried = [...next.world.loot.values()];
+    expect(carried.flatMap((l) => l.items.map((i) => i.uid)).sort()).toEqual([mine.uid, ...other.map((i) => i.uid)].sort());
+    expect(carried.reduce((n, l) => n + l.gold, 0)).toBe(12);
+    expect(carried.every((l) => l.droppers.size === 0)).toBe(true);
+  });
+
+  it('gold pays once with two players standing on it', () => {
+    const { sim, p, pos } = setup();
+    spawnGold(sim, pos.x, pos.y, 50);
+    const coins = [...sim.world.loot].find(([, l]) => l.gold > 0)?.[0];
+    const at = coins === undefined ? undefined : sim.world.position.get(coins);
+    if (!at) throw new Error('no gold');
+    pos.x = at.x;
+    pos.y = at.y;
+    const other = addPlayer(sim, 'b', at);
+    const before = p.gold + other.p.gold;
+    updateLoot(sim, 0);
+    updateLoot(sim, 0);
+    expect(p.gold + other.p.gold).toBe(before + 50);
+  });
+
+  it('a take keeps the item that did not fit, even beside another with the same uid', () => {
+    const { sim, pid, p, pos } = setup();
+    fillBag(sim, p);
+    const first = p.inventory.findIndex((u) => u !== null);
+    const junk = p.inventory[first];
+    if (junk === undefined || junk === null) throw new Error('setup');
+    // One free cell: a ring fits, a body armour does not.
+    p.inventory = p.inventory.map((u) => (u === junk ? null : u));
+    p.items.delete(junk);
+    const small = ring(sim);
+    const big = { ...createGear(sim.newItemUid(), sim.rand.loot, 'rare', 1, { category: 'body' }), uid: small.uid };
+    spawnBag(sim, pos.x + 30, pos.y, [small, big], LOOT.bagRadius, null);
+    const id = onlyPile(sim);
+    expect(takeLoot(sim, pid, id, null)).toBe('No room in your bag');
+    expect(p.items.get(small.uid)).toBe(small);
+    expect(sim.world.loot.get(id)?.items).toEqual([big]);
+  });
+
+  it('refuses a pickup whose uid is not a whole number', () => {
+    expect(parseClientMessage({ t: 'pickup', id: 3 })).toEqual({ t: 'pickup', id: 3 });
+    expect(parseClientMessage({ t: 'pickup', id: 3, uid: 9 })).toEqual({ t: 'pickup', id: 3, uid: 9 });
+    for (const uid of [null, -1, 1.5, '9']) expect(parseClientMessage({ t: 'pickup', id: 3, uid })).toBeNull();
+    expect(parseClientMessage({ t: 'lootOpen', id: -2 })).toBeNull();
   });
 });

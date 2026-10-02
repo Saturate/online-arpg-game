@@ -888,11 +888,12 @@ export function takeLoot(sim: Simulation, pid: EntityId, lootId: EntityId, uid: 
   const at = w.position.get(lootId);
   let taken = 0;
   let short = false;
-  const gone = new Set<ItemUid>();
+  // By object, not uid: the item that went into the bag is the one that leaves the pile.
+  const gone = new Set<Item>();
   for (const it of wanted) {
     const count = it.kind === 'rune' ? it.count : 1;
     if (takeFromGround(p, it)) {
-      gone.add(it.uid);
+      gone.add(it);
       taken++;
     } else {
       short = true;
@@ -900,8 +901,8 @@ export function takeLoot(sim: Simulation, pid: EntityId, lootId: EntityId, uid: 
     }
   }
   if (gone.size > 0) {
-    pile.items = pile.items.filter((it) => !gone.has(it.uid));
-    for (const u of gone) pile.droppers.delete(u);
+    pile.items = pile.items.filter((it) => !gone.has(it));
+    for (const it of gone) pile.droppers.delete(it.uid);
   }
   if (taken > 0) {
     pile.rev++;

@@ -108,10 +108,11 @@ export function LootPreview() {
       window.removeEventListener('pointerup', move);
     };
   }, [id]);
-  if (id === null || at.held || names.length === 0) return null;
+  // A single item's label already names it.
+  if (id === null || at.held || count < 2) return null;
   const more = count - names.length;
-  // Flipped below the cursor near the top edge, and left of it near the right edge.
-  const style = { left: at.x + 18, top: at.y - 14, transform: `translate(${at.x > window.innerWidth - 260 ? 'calc(-100% - 36px)' : '0'}, ${at.y < 200 ? '28px' : '-100%'})` };
+  // Clear of the pile's own label under the cursor; flipped below it near the top edge, and left of it near the right edge.
+  const style = { left: at.x + 18, top: at.y - 40, transform: `translate(${at.x > window.innerWidth - 260 ? 'calc(-100% - 36px)' : '0'}, ${at.y < 200 ? '28px' : '-100%'})` };
   return (
     <div className="loot-preview" style={style} role="tooltip">
       {names.map((n, i) => (

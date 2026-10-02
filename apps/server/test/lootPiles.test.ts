@@ -105,4 +105,15 @@ describe('loot window over the wire', () => {
     room.tick();
     expect(lootMessages(a.sent)).toHaveLength(1);
   });
+
+  it('keeps the window open when someone joins the room, and closes it when its viewer leaves', () => {
+    const { room, a, pile } = setup();
+    room.handle(a.client, { t: 'lootOpen', id: pile });
+    const count = lootMessages(a.sent).length;
+    room.add(recordingClient('c').client, 'priest', 'Cy');
+    room.tick();
+    expect(lootMessages(a.sent)).toHaveLength(count);
+    room.remove(a.client);
+    expect(lootMessages(a.sent).at(-1)).toEqual({ t: 'lootPile', id: pile, items: null });
+  });
 });

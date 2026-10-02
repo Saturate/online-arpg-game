@@ -206,6 +206,9 @@ export class Room {
     const m = this.members.get(client.id);
     if (!m) return null;
     const save = this.sim.exportPlayer(m.playerId);
+    // The window's pile belongs to this room's world, so it cannot follow the player into the next
+    // one, not even a town rebuild that keeps the room id.
+    if (m.openLoot) client.send({ t: 'lootPile', id: m.openLoot.id, items: null });
     this.sim.removePlayer(m.playerId);
     this.members.delete(client.id);
     if (client.room === this) client.room = null;
@@ -378,11 +381,6 @@ export class Room {
       ...(this.planHash === undefined ? {} : { planHash: this.planHash }),
     });
     m.sentInventoryVersion = -1;
-    // Entity ids belong to the room's world, which a welcome may have replaced (a town rebuild).
-    if (m.openLoot) {
-      m.client.send({ t: 'lootPile', id: m.openLoot.id, items: null });
-      m.openLoot = null;
-    }
   }
 
   private broadcast(): void {

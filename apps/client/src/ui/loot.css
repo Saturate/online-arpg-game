@@ -1,7 +1,7 @@
 /* Loot window: beside the hero, who stands on the pile at the screen's centre. */
 .panel.loot-window {
   top: 26%;
-  left: calc(50% - 390px);
+  left: calc(50% - 420px);
   width: 270px;
   padding: 10px 12px;
 }
@@ -68,7 +68,7 @@
   max-width: 240px;
   padding: 4px 8px;
   background: rgba(6, 5, 4, 0.88);
-  border: 1px solid #3a2f20;
+  border: 1px solid #4a3a22;
   border-radius: 2px;
   box-shadow: 0 0 0 1px #000, 0 6px 18px #000c;
   font: 600 12px var(--font-body);
