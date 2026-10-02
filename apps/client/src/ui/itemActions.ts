@@ -44,7 +44,9 @@ export type ItemPlace =
   /** In the forge editor's slots or pool: only for tooltips, with the hint to show under it. */
   | { at: 'forge'; hint: string; warn?: string }
   /** Another player's item linked in chat: a display copy, only for tooltips. */
-  | { at: 'chat' };
+  | { at: 'chat' }
+  /** In a ground pile's loot window: only for tooltips, with the hint to show under it. */
+  | { at: 'ground'; hint: string };
 
 export interface DragPayload {
   uid: ItemUid;
@@ -125,6 +127,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
     case 'trader':
     case 'forge':
     case 'chat':
+    case 'ground':
       return null;
     case 'sigil':
       return { t: 'unequipSigil', slot: place.slot };
@@ -146,7 +149,7 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
   const fromGrid = drag.from.at === 'bag' || inStashPlace(drag.from);
-  if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge' || drag.from.at === 'tabLabel' || target.at === 'chat' || drag.from.at === 'chat') return null;
+  if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge' || drag.from.at === 'tabLabel' || target.at === 'chat' || drag.from.at === 'chat' || target.at === 'ground' || drag.from.at === 'ground') return null;
   if (target.at === 'runeTab') return fromGrid && item.kind === 'rune' && drag.from.at !== 'runeTab' ? { t: 'moveItem', uid: item.uid, to: { at: 'runes' } } : null;
   if (target.at === 'sigilTab') return fromGrid && item.kind === 'sigil' && drag.from.at !== 'sigilTab' ? { t: 'moveItem', uid: item.uid, to: { at: 'sigils' } } : null;
   if (target.at === 'tabLabel') {

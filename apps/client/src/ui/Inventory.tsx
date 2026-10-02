@@ -161,7 +161,7 @@ export function ItemTooltip() {
       <footer className="tt-hint">
         {place?.at === 'chat'
           ? 'Linked in chat'
-          : place?.at === 'forge'
+          : place?.at === 'forge' || place?.at === 'ground'
           ? place.hint
           : place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`

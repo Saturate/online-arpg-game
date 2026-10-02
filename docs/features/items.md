@@ -17,7 +17,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 - **New items** (picked up, bought, a rune stack that grew) get an ember mark until hovered.
 - **Sort** packs the bag on the server: gear by slot, then sigils, vessels, runes; within each, tier, item level and name.
 - **The trader** at the stall nearest the town spawn buys anything unbound for gold and sells from one shelf shared by the whole server.
-- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first when the prompt setting is on, see "Sell and drop prompt"). A dropped item lands as a bag at your feet that you cannot click back up until you step away; others can take it ([loot.md](loot.md)).
+- **Controls:** right-click equips or moves between bag and stash; drag to place; Delete drops the hovered item (rares and relics ask first when the prompt setting is on, see "Sell and drop prompt"). A dropped item lands at your feet, joining a pile there if one is close; you cannot take it back until you step away, others can take it at once ([loot.md](loot.md)).
 - **The inventory and trader windows move** like the other framed panels: unlock panels on the HUD and drag them by the title bar; they snap to the screen edges and to each other, and Settings resets them. Positions are kept per browser (`ui/GamePanel.tsx`).
 
 ## Why
@@ -35,7 +35,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 
 - **Grids are flat cell arrays** (one uid per covered cell), so saves barely changed when the grid came in. A save of another size is repacked on load.
 - **Nothing is ever dropped to make room.** Anything that fits nowhere stays *pending* with the character. On load, pending items go to the stash first (never bound ones), then the bag. After an inventory action (inscribe, equip, sort, drop, move, sell) they are placed in the bag. Placing tops up matching rune stacks first.
-- **Adding to the bag is all or nothing:** a purchase that does not fit tops up no stacks. Ground pickups may take part of a rune stack, since they shrink the real ground item.
+- **Adding to the bag is all or nothing:** a purchase that does not fit tops up no stacks. Ground pickups may take part of a plain rune stack, since they shrink the real ground item. Each item of a ground pile is its own all-or-nothing take, so Take all fills the bag with what fits and leaves the rest in the pile.
 - **Inventory edits are commands.** The server resends the whole inventory after every command, so a rejected edit snaps back.
 - **Item ids are unique across the server:** each room takes its own block of 2^32 ids, and items coming from a save, the stash or the shelf get fresh uids. A command carrying an id from the room a player just left cannot touch a different item.
 
