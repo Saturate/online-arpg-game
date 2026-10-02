@@ -46,7 +46,11 @@ export type ItemPlace =
   /** Another player's item linked in chat: a display copy, only for tooltips. */
   | { at: 'chat' }
   /** In a ground pile's loot window: only for tooltips, with the hint to show under it. */
-  | { at: 'ground'; hint: string };
+  | { at: 'ground'; hint: string }
+  /** A cell of guild stash tab `tab` (guildStashView.ts handles every drop to or from it). */
+  | { at: 'guild'; tab: number; x: number; y: number }
+  /** A guild tab's label: only a drop target, which puts the item anywhere in that tab. */
+  | { at: 'guildTab'; tab: number };
 
 export interface DragPayload {
   uid: ItemUid;
@@ -73,6 +77,7 @@ function parsePlace(v: unknown): ItemPlace | null {
   if (!isRecord(v)) return null;
   if (v.at === 'bag') return cell(v.x) && cell(v.y) ? { at: 'bag', x: v.x, y: v.y } : { at: 'bag' };
   if (v.at === 'stash' && cell(v.x) && cell(v.y) && typeof v.tab === 'number' && Number.isInteger(v.tab)) return { at: 'stash', tab: v.tab, x: v.x, y: v.y };
+  if (v.at === 'guild' && cell(v.x) && cell(v.y) && typeof v.tab === 'number' && Number.isInteger(v.tab)) return { at: 'guild', tab: v.tab, x: v.x, y: v.y };
   if (v.at === 'runeTab' || v.at === 'sigilTab') return { at: v.at };
   if ((v.at === 'sigil' || v.at === 'warband') && typeof v.slot === 'number' && Number.isInteger(v.slot) && v.slot >= 0 && v.slot < 4) return { at: v.at, slot: v.slot };
   if (v.at === 'gear' && isGearSlot(v.slot)) return { at: 'gear', slot: v.slot };
@@ -128,6 +133,8 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
     case 'forge':
     case 'chat':
     case 'ground':
+    case 'guild':
+    case 'guildTab':
       return null;
     case 'sigil':
       return { t: 'unequipSigil', slot: place.slot };
@@ -148,6 +155,8 @@ export function quickAction(inv: InventoryMessage, item: Item, place: ItemPlace,
 
 /** What dropping `drag` onto `target` should do, or null when it does not fit there. */
 export function dropAction(inv: InventoryMessage, item: Item, drag: DragPayload, target: ItemPlace, classId: ClassId): ClientMessage | null {
+  // The guild stash has rules of its own (guildDropAction).
+  if (target.at === 'guild' || target.at === 'guildTab' || drag.from.at === 'guild' || drag.from.at === 'guildTab') return null;
   const fromGrid = drag.from.at === 'bag' || inStashPlace(drag.from);
   if (target.at === 'trader' || drag.from.at === 'trader' || target.at === 'forge' || drag.from.at === 'forge' || drag.from.at === 'tabLabel' || target.at === 'chat' || drag.from.at === 'chat' || target.at === 'ground' || drag.from.at === 'ground') return null;
   if (target.at === 'runeTab') return fromGrid && item.kind === 'rune' && drag.from.at !== 'runeTab' ? { t: 'moveItem', uid: item.uid, to: { at: 'runes' } } : null;

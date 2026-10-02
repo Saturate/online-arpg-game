@@ -11,6 +11,7 @@ import { GrantTab } from './GrantTab.js';
 import { TokensTab } from './TokensTab.js';
 import { LiveTab } from './live/LiveTab.js';
 import { LogTab } from './LogTab.js';
+import { GuildsTab } from './GuildsTab.js';
 import { SearchBox } from './search/SearchBox.js';
 import type { SearchEntry } from './search/searchIndex.js';
 import { searchId, TAB_NAMES, visibleTabs, type Jump, type Tab } from './tabs.js';
@@ -22,7 +23,7 @@ import { searchId, TAB_NAMES, visibleTabs, type Jump, type Tab } from './tabs.js
  */
 
 /** Tabs with wide tables or editors use the whole window; forms keep the narrow column. */
-const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'players', 'log', 'tuning', 'bench', 'monsters', 'minions', 'modelCheck']);
+const WIDE_TABS: ReadonlySet<Tab> = new Set(['live', 'players', 'guilds', 'log', 'tuning', 'bench', 'monsters', 'minions', 'modelCheck']);
 
 function ago(at: number): string {
   if (at === 0) return 'never';
@@ -597,6 +598,7 @@ function AdminPage({ access }: { access: StaffAccess }) {
       <main className={WIDE_TABS.has(tab) ? 'adm-main adm-wide' : 'adm-main'}>
         {shows('live') && <LiveTab token={token} role={role} notify={notify} openPlayer={openPlayer} />}
         {shows('players') && <Players token={token} role={role} notify={notify} focus={focusOf('players')} />}
+        {shows('guilds') && <GuildsTab token={token} role={role} notify={notify} />}
         {shows('arena') && <Arena notify={notify} />}
         {shows('settings') && <Settings token={token} role={role} notify={notify} />}
         {shows('tuning') && <TunablesTab token={token} role={role} notify={notify} focus={focusOf('tuning')} />}

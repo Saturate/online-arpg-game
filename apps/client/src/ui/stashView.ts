@@ -9,7 +9,11 @@ export type SigilContents = 'all' | 'blank' | 'runes' | 'starter';
  * general tab is on screen.
  */
 export interface StashView {
+  /** Which stash the window shows: the account's own, or the guild's (docs/features/guilds.md). */
+  source: 'account' | 'guild';
   tab: StashTabRef;
+  /** The guild tab on screen while the guild stash is shown. */
+  guildTab: number;
   runeSort: RuneSortKey;
   runeSortAffix: AffixId;
   runeFilter: RuneId | 'all';
@@ -22,7 +26,9 @@ export interface StashView {
 }
 
 export const useStashView = create<StashView>(() => ({
+  source: 'account',
   tab: 1,
+  guildTab: 1,
   runeSort: 'rune',
   runeSortAffix: 'rune_damage',
   runeFilter: 'all',
@@ -38,4 +44,10 @@ export const useStashView = create<StashView>(() => ({
 export function openGeneralTab(): number | null {
   const { tab } = useStashView.getState();
   return typeof tab === 'number' ? tab : null;
+}
+
+/** The guild tab a quick move from the bag goes to, or null while the window shows the account stash. */
+export function openGuildTab(): number | null {
+  const { source, guildTab } = useStashView.getState();
+  return source === 'guild' ? guildTab : null;
 }

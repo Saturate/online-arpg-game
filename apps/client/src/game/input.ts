@@ -49,6 +49,9 @@ export class InputState {
   }
   leftPresses = 0;
   rightDown = false;
+  /** Bumped on every right press over the canvas, with where it happened in page coordinates. */
+  rightPresses = 0;
+  rightAt = { x: 0, y: 0 };
   get shiftDown(): boolean {
     return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
   }
@@ -146,7 +149,11 @@ export class InputState {
           this.mouseDown = true;
           this.leftPresses++;
         }
-        if (e.button === 2) this.rightDown = true;
+        if (e.button === 2) {
+          this.rightDown = true;
+          this.rightPresses++;
+          this.rightAt = { x: e.clientX, y: e.clientY };
+        }
       },
       opts,
     );

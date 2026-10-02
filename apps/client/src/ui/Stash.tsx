@@ -6,7 +6,6 @@ import {
   formatAffix,
   generalTab,
   isRuneAffixId,
-  isStashTabName,
   ITEM_TIERS,
   matchingStarter,
   placements,
@@ -19,7 +18,6 @@ import {
   SIGIL_SORT_KEYS,
   sigilCapacity,
   STASH,
-  STASH_COLORS,
   STASH_TABS,
   type AffixId,
   type ClassId,
@@ -33,10 +31,9 @@ import {
   type RuneSortKey,
   type SigilItem,
   type SigilSortKey,
-  type StashColorId,
   type StashTabRef,
 } from '@rune/shared';
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { cssColor } from '../render/config.js';
 import { ItemIcon } from './icons.js';
 import { ItemGrid, QUICK_KEY, useDrag, useHover } from './Inventory.js';
@@ -47,6 +44,8 @@ import { useStashView, type SigilContents } from './stashView.js';
 import { activeStation } from './stations.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
+import { colorHex, TabEditor } from './StashTabEditor.js';
+import { GuildStashPane } from './GuildStash.js';
 import './forge.css';
 import './stash.css';
 import { formatCooldown, sigilCooldown, useCastTiming } from '../game/castTiming.js';
@@ -73,10 +72,6 @@ const RUNE_AFFIXES: readonly AffixId[] = AFFIX_IDS.filter((id) => isRuneAffixId(
 
 function affixLabel(id: AffixId): string {
   return affixText(AFFIXES[id], '#', '#');
-}
-
-function colorHex(id: StashColorId): string {
-  return STASH_COLORS.find((c) => c.id === id)?.hex ?? '#6e6a62';
 }
 
 function isRuneSortKey(v: string): v is RuneSortKey {
@@ -221,54 +216,6 @@ function TabBar({ inv, current }: { inv: InventoryMessage; current: StashTabRef 
       <TabButton tab="runes" label="Runes" color={null} count={inv.stash.runes.list.length} active={current === 'runes'} />
       <TabButton tab="sigils" label="Sigils" color={null} count={inv.stash.sigils.list.length} active={current === 'sigils'} />
       <BuyTab inv={inv} />
-    </div>
-  );
-}
-
-// Rename and recolour ---------------------------------------------------------------------------
-
-/** Trims and collapses spaces, the way the server wants a name. */
-function cleanName(v: string): string {
-  return v.replace(/\s+/g, ' ').trim();
-}
-
-function TabEditor({ tab, name, color, onClose }: { tab: number; name: string; color: StashColorId; onClose: () => void }) {
-  const [text, setText] = useState(name);
-  const [pick, setPick] = useState<StashColorId>(color);
-  const clean = cleanName(text);
-  const ok = isStashTabName(clean);
-  const save = () => {
-    if (!ok) return;
-    sendCommand({ t: 'editStashTab', tab, name: clean, color: pick });
-    onClose();
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') save();
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onClose();
-    }
-  };
-  return (
-    <div className="stash-editor" role="dialog" aria-label="Edit stash tab">
-      <label>
-        <span>Name</span>
-        <input autoFocus value={text} maxLength={STASH_TABS.nameMax} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} spellCheck={false} />
-      </label>
-      <div className="stash-swatches" role="radiogroup" aria-label="Tab colour">
-        {STASH_COLORS.map((c) => (
-          <button key={c.id} type="button" role="radio" aria-checked={pick === c.id} className={`bare stash-swatch${pick === c.id ? ' on' : ''}`} style={{ background: c.hex }} aria-label={c.label} {...tip(c.label)} onClick={() => setPick(c.id)} />
-        ))}
-      </div>
-      {!ok && <p className="stash-editor-why">1 to {STASH_TABS.nameMax} letters, digits, spaces or . , ' ! ? &amp; ( ) + # : -</p>}
-      <div className="stash-editor-actions">
-        <button type="button" onClick={save} disabled={!ok}>
-          Save
-        </button>
-        <button type="button" onClick={onClose}>
-          Cancel
-        </button>
-      </div>
     </div>
   );
 }
@@ -651,15 +598,54 @@ function GeneralTabView({ inv, id, onEdit }: { inv: InventoryMessage; id: number
 }
 
 /** The account's shared stash, beside the bag while standing at the chest in town. */
+/**
+ * The Account | Guild switch. The server keeps an open guild stash current for this client until it
+ * is told to stop, so it opens while the guild side is on screen and closes on switching back,
+ * closing the window or walking away (the window unmounts its side). A new connection (`send`
+ * changes) opens it again.
+ */
+function useGuildStashOpen(open: boolean): 'account' | 'guild' {
+  const inGuild = useUi((s) => s.guild !== null);
+  const source = useStashView((s) => s.source);
+  const send = useUi((s) => s.send);
+  const shown = inGuild ? source : 'account';
+  useEffect(() => {
+    if (!open || shown !== 'guild' || !send) return;
+    send({ t: 'guildStashOpen' });
+    return () => {
+      send({ t: 'guildStashClose' });
+      useUi.setState({ guildStash: null });
+    };
+  }, [open, shown, send]);
+  return shown;
+}
+
+function SourceSwitch({ shown }: { shown: 'account' | 'guild' }) {
+  const tag = useUi((s) => s.guild?.tag);
+  if (!tag) return null;
+  return (
+    <div className="gstash-switch" role="tablist" aria-label="Which stash">
+      <button type="button" role="tab" aria-selected={shown === 'account'} className={`bare${shown === 'account' ? ' on' : ''}`} onClick={() => useStashView.setState({ source: 'account' })}>
+        Account
+      </button>
+      <button type="button" role="tab" aria-selected={shown === 'guild'} className={`bare${shown === 'guild' ? ' on' : ''}`} onClick={() => useStashView.setState({ source: 'guild' })}>
+        Guild [{tag}]
+      </button>
+    </div>
+  );
+}
+
 export function StashWindow() {
   // The forge sits near the chest; its editor takes the stash's place on screen while it is open.
   const open = useUi((s) => activeStation(s) === 'stash');
   const inv = useUi((s) => s.inventory);
   const tab = useStashView((s) => s.tab);
+  const shown = useGuildStashOpen(open);
+  const guildName = useUi((s) => s.guild?.name ?? '');
   const [editing, setEditing] = useState(false);
   useEffect(() => setEditing(false), [open, tab]);
   // A row that unmounts under the mouse never sends mouseleave, so its tooltip would stay up.
-  useEffect(() => useHover.getState().set(null, 0, 0), [tab]);
+  useEffect(() => useHover.getState().set(null, 0, 0), [tab, shown]);
   const { ref, handleProps } = useMovablePanel('stash');
   if (!open || !inv) return null;
   // Another account (or a stash from before a purchase) may not have the tab last looked at.
@@ -669,15 +655,22 @@ export function StashWindow() {
     <section ref={ref} className="panel inv-window stash-window" aria-label="Stash">
       <header className="inv-header" {...handleProps}>
         <h2>Stash</h2>
+        <SourceSwitch shown={shown} />
         <span className="muted">
-          shared by all your characters · <span className="gold">{inv.gold} gold</span>
+          {shown === 'guild' ? `shared by ${guildName}` : 'shared by all your characters'} · <span className="gold">{inv.gold} gold</span>
         </span>
       </header>
-      <TabBar inv={inv} current={current} />
-      <div className="stash-pane">
-        {typeof current === 'number' ? <GeneralTabView inv={inv} id={current} onEdit={() => setEditing(true)} /> : current === 'runes' ? <RuneTabView inv={inv} /> : <SigilTabView inv={inv} />}
-        {editing && editTab && <TabEditor key={editTab.id} tab={editTab.id} name={editTab.name} color={editTab.color} onClose={() => setEditing(false)} />}
-      </div>
+      {shown === 'guild' ? (
+        <GuildStashPane inv={inv} />
+      ) : (
+        <>
+          <TabBar inv={inv} current={current} />
+          <div className="stash-pane">
+            {typeof current === 'number' ? <GeneralTabView inv={inv} id={current} onEdit={() => setEditing(true)} /> : current === 'runes' ? <RuneTabView inv={inv} /> : <SigilTabView inv={inv} />}
+            {editing && editTab && <TabEditor key={editTab.id} name={editTab.name} color={editTab.color} onSave={(name, color) => sendCommand({ t: 'editStashTab', tab: editTab.id, name, color })} onClose={() => setEditing(false)} />}
+          </div>
+        </>
+      )}
       <footer className="inv-footer">
         <span>
           <kbd>{QUICK_KEY}</kbd>+click or <kbd>Right-click</kbd> to the bag and back
@@ -685,7 +678,7 @@ export function StashWindow() {
         <span>
           <kbd>Drag</kbd> to place or onto a tab
         </span>
-        {current === 'runes' && (
+        {shown === 'account' && current === 'runes' && (
           <span>
             <kbd>Shift</kbd>+click split
           </span>

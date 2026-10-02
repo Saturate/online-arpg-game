@@ -292,3 +292,15 @@ body {
 .adm :is(input, textarea, select):focus {
   border-color: #a8834a;
 }
+
+/* Guilds tab: a guild's roster and log open under its row. */
+.adm-guild-detail h3 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+.adm-guild-detail > p {
+  margin: 4px 0 8px;
+}
+.adm-table tr.adm-dim td {
+  opacity: 0.6;
+}

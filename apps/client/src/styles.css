@@ -2201,6 +2201,20 @@ kbd {
 .chat-line.party b {
   color: #8fe07a;
 }
+/* Guild chat: a weathered verdigris, quieter than the party green so the two never read as one. */
+.chat-line.guild,
+.chat-line.guild b {
+  color: #86aaa0;
+}
+/* Names take a right-click for the player menu even while the chat is closed. */
+.chat-line .chat-who {
+  pointer-events: auto;
+  cursor: var(--cur-hover);
+}
+.chat-line .chat-tag {
+  color: #a8936a;
+  font-weight: 500;
+}
 .chat-line.system {
   color: #9fd4ff;
   font-style: italic;

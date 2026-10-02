@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, ROLES, TUNABLES, type Role, type SearchAccount } from '@rune/shared';
+import { can, DEFAULT_SERVER_SETTINGS, ROLES, TUNABLES, type Role, type SearchAccount } from '@rune/shared';
 import { describe, expect, it } from 'vitest';
 import { accountEntries, allowedEntries, logEntries, rankEntries, scoreEntry, SETTING_LABELS, staticEntries, tokenEntries, type SearchEntry } from '../src/admin/search/searchIndex.js';
 import { isSearchShortcut } from '../src/admin/search/SearchBox.js';
@@ -27,6 +27,11 @@ describe('admin tabs per role', () => {
     expect(visibleTabs('admin')).not.toContain('grant');
     expect(visibleTabs('owner')).toEqual(expect.arrayContaining(['live', 'log', 'tokens', 'grant']));
     for (const role of ROLES) if (role !== 'player') expect(visibleTabs(role)[0]).toBe('live');
+  });
+
+  it('shows the Guilds tab to every staff role; only the guilds permission reassigns a Leader', () => {
+    for (const role of ROLES) expect(visibleTabs(role).includes('guilds')).toBe(role !== 'player');
+    expect(ROLES.filter((r) => can(r, 'guilds'))).toEqual(['admin', 'owner']);
   });
 });
 

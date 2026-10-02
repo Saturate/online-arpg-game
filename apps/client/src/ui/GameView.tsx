@@ -15,6 +15,8 @@ import { DRAG_TYPE, parseDrag } from './itemActions.js';
 import { Banner, Hud, Notices, Party, RecordingBadge, TargetFrame } from './Hud.js';
 import { Inventory, ItemTooltip, requestDrop, TraderWindow } from './Inventory.js';
 import { StashWindow } from './Stash.js';
+import { GuildInvitePrompt, GuildWindow } from './GuildWindow.js';
+import { PlayerMenu } from './PlayerMenu.js';
 import { ForgeEditor } from './ForgeEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
@@ -99,6 +101,8 @@ export function GameView({ token, character }: { token: string; character: Chara
         <DebugOverlay />
         <EscMenu />
         <PartyInvitePrompt />
+        <GuildInvitePrompt />
+        <GuildWindow />
         <TownEditorPanel />
         <DevPanel />
         <StagingPanel />
@@ -116,6 +120,7 @@ export function GameView({ token, character }: { token: string; character: Chara
       <LootPreview />
       <ItemTooltip />
       <GameTooltip />
+      <PlayerMenu />
     </div>
   );
 }

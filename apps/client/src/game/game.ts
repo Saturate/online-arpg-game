@@ -70,6 +70,9 @@ import { emitLight, entityLightKey } from '../render/lights.js';
 import { enemyBody, setModelOverrides } from '../render/characters.js';
 import { applyTryOns, watchTryOns } from '../render/tryOn.js';
 import { actionFor, useSettings } from '../ui/settings.js';
+import { receiveGuild, taggedName } from '../ui/guildView.js';
+import { closePlayerMenu, openPlayerMenu } from '../ui/playerActions.js';
+import { useStashView } from '../ui/stashView.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
 /** How long a chat line hangs over the speaker's head. */
@@ -208,6 +211,11 @@ export class Game {
   /** The left button went down on loot or a station, so this press interacts instead of casting or walking. */
   private leftOnLoot = false;
   private pickPresses = 0;
+  /** Other players drawn this frame, for a right-click on one in town. */
+  private renderedPlayers: { x: number; y: number; r: number; name: string }[] = [];
+  /** The right button went down on a player in town: it opened their menu and casts nothing while held. */
+  private rightOnPlayer = false;
+  private rightPresses = 0;
   /** Keeps the target frame up briefly after the cursor slips off, so it does not flicker in a fight. */
   private targetHeldUntil = 0;
   private hoverEnemyId: EntityId | null = null;
@@ -391,6 +399,7 @@ export class Game {
     clearItemInteractions();
     dropLootWindow();
     hoverPile(null);
+    closePlayerMenu();
     const loaded = loadMap(desc);
     const game = loaded.game;
     const sealed = loaded.def.portals.filter((p) => p.sealed === 'boss');
@@ -520,6 +529,7 @@ export class Game {
     else if (code === 'F3') useUi.setState((s) => ({ devOpen: !s.devOpen }));
     else if (code === 'Escape') {
       if (ui.settingsOpen) useUi.setState({ settingsOpen: false });
+      else if (ui.guildOpen) useUi.setState({ guildOpen: false });
       else if (useWorldMap.getState().open) useWorldMap.setState({ open: false });
       else if (useLootWindow.getState().id !== null) closeLootWindow();
       else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen || ui.station || ui.waypointMenu) {
@@ -559,6 +569,9 @@ export class Game {
         break;
       case 'worldMap':
         toggleWorldMap();
+        break;
+      case 'guild':
+        useUi.setState((s) => ({ guildOpen: !s.guildOpen }));
         break;
       default:
         break;
@@ -640,7 +653,7 @@ export class Game {
       }
       case 'chat': {
         const items = msg.items ?? [];
-        const line = { id: ++this.chatSeq, kind: msg.kind, from: msg.from, to: msg.to, text: msg.text, items, at: performance.now() };
+        const line = { id: ++this.chatSeq, kind: msg.kind, from: msg.from, ...(msg.tag ? { tag: msg.tag } : {}), to: msg.to, text: msg.text, items, at: performance.now() };
         useUi.setState((s) => ({ chat: [...s.chat, line].slice(-60) }));
         // Speech bubble over the speaker, when they are in this room, like D2's overhead text.
         if (msg.kind === 'game') this.bubbles.set(msg.from, { text: chatPlainText(msg.text, items), until: performance.now() + BUBBLE_MS });
@@ -700,6 +713,22 @@ export class Game {
         if (typeof models !== 'string') setModelOverrides(models);
         return;
       }
+      case 'guild':
+        useUi.setState((s) => receiveGuild(s, msg));
+        if (msg.guild === null) useStashView.setState({ source: 'account' });
+        return;
+      case 'guildLog':
+        useUi.setState((s) => receiveGuild(s, msg));
+        return;
+      case 'guildInvite':
+        useUi.setState((s) => receiveGuild(s, msg));
+        useUi.getState().notify(`${msg.from} invited you to the guild ${msg.guild} [${msg.tag}]`);
+        return;
+      case 'guildStash':
+        useUi.setState((s) => receiveGuild(s, msg));
+        // The server closed it (kicked, disbanded, or the stash would not load): back to the account's.
+        if (msg.stash === null) useStashView.setState({ source: 'account' });
+        return;
       case 'partyInvite':
         useUi.setState({ partyInvite: msg.from });
         useUi.getState().notify(`${msg.from} invited you to a party`);
@@ -802,7 +831,14 @@ export class Game {
     const { leftSkill, rightSkill } = useUi.getState();
     const leftBit = SKILL_BUTTONS[leftSkill] ?? 0;
     const rightBit = SKILL_BUTTONS[rightSkill] ?? 0;
-    if (room.input.rightDown && room.input.overCanvas) sampled.buttons |= rightBit;
+    if (room.input.rightPresses !== this.rightPresses) {
+      this.rightPresses = room.input.rightPresses;
+      const name = room.input.overCanvas && aimPoint ? this.playerInTownAt(room, aimPoint) : null;
+      this.rightOnPlayer = name !== null;
+      if (name !== null) openPlayerMenu(name, room.input.rightAt.x, room.input.rightAt.y);
+    }
+    if (!room.input.rightDown) this.rightOnPlayer = false;
+    if (room.input.rightDown && room.input.overCanvas && !this.rightOnPlayer) sampled.buttons |= rightBit;
     if (useSettings.getState().options.controls === 'keyboard' && room.input.leftDown && room.input.overCanvas) sampled.buttons |= leftBit;
     const now = performance.now();
     // D2 style: items stay on the ground until clicked. A press on a bag starts a pickup instead of a cast.
@@ -876,6 +912,25 @@ export class Game {
       room.mover.moveTo(origin, aimPoint, now);
     }
     sampled.moveDir = room.mover.direction(origin);
+  }
+
+  /**
+   * Another player under a right-click, only inside a safe area (town): nobody casts there, so the
+   * right button is free to open their menu. Outside town it always casts, as before.
+   */
+  private playerInTownAt(room: RoomView, p: Vec2): string | null {
+    const safe = room.def.safe || (room.def.safeZones ?? []).some((z) => p.x >= z.x && p.y >= z.y && p.x <= z.x + z.w && p.y <= z.y + z.h);
+    if (!safe) return null;
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const pl of this.renderedPlayers) {
+      const d = Math.hypot(pl.x - p.x, pl.y - p.y) - pl.r;
+      if (d < 22 && d < bestD) {
+        best = pl.name;
+        bestD = d;
+      }
+    }
+    return best;
   }
 
   /** Walks to the clicked pile and takes it (one item) or opens its window on arrival; movement keys or the pile vanishing cancel it. */
@@ -1052,6 +1107,7 @@ export class Game {
     const sample = room.interp.sample(now);
     this.renderedEnemies = [];
     this.renderedLoot = [];
+    this.renderedPlayers = [];
     const showAllLoot = room.input.showLootDown;
     const partyNames = useUi.getState().partyInfo?.members;
 
@@ -1067,7 +1123,8 @@ export class Game {
         if (to.k === 'player') {
           // Party members carry a faint share of the hero's light, so the group reads at night.
           if (partyNames?.some((m) => m.name === to.name)) emitLight(entityLightKey(id), x, y, 100, 0xffd6a0, 0.55 * lighting.heroLight, 320, 1);
-          labels.push({ key: `p${id}`, x, y, text: to.name, color: '#cfe6ff', height: 78, className: 'fx-label' });
+          labels.push({ key: `p${id}`, x, y, text: taggedName(to.name, to.tag), color: '#cfe6ff', height: 78, className: 'fx-label' });
+          if (!to.dead) this.renderedPlayers.push({ x, y, r, name: to.name });
           const bubble = this.bubbles.get(to.name);
           if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
         }

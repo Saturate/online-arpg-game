@@ -14,6 +14,7 @@ export function EscMenu() {
   const toggleMenu = useUi((s) => s.toggleMenu);
   const recording = useUi((s) => s.recording);
   const recordKey = useSettings((s) => s.bindings.record);
+  const guildKey = useSettings((s) => s.bindings.guild);
   const toggleRecording = useUi((s) => s.toggleRecording);
   const [inviteName, setInviteName] = useState('');
   if (!open) return null;
@@ -96,7 +97,7 @@ export function EscMenu() {
           </button>
         )}
         <p className="muted small">
-          <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>M</kbd> world map <kbd>Alt</kbd> show all loot
+          <kbd>Esc</kbd> menu <kbd>Tab</kbd> minimap <kbd>M</kbd> world map <kbd>{keyLabel(guildKey)}</kbd> guild <kbd>Alt</kbd> show all loot
         </p>
       </GamePanel>
     </div>

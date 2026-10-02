@@ -3,7 +3,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { composeChat, linkLabel, linkUidAt, ownItem, type DraftLink } from './chatCompose.js';
 import { useHover } from './Inventory.js';
 import { tierColor } from './parts.js';
+import { chatPartner, openPlayerMenu } from './playerActions.js';
 import { sendCommand, useUi, type ChatLine } from './store.js';
+import { chatWho } from './chatLine.js';
 
 /** Lines stay readable this long after arriving, then fade; opening the chat shows them all again. */
 const VISIBLE_MS = 12_000;
@@ -41,11 +43,30 @@ function Body({ line }: { line: ChatLine }) {
 }
 
 function Line({ line }: { line: ChatLine }) {
+  const me = useUi((s) => s.name);
   if (line.kind === 'system') return <li className="chat-line system">{line.text}</li>;
-  const who = line.kind === 'whisper' ? (line.to && line.from !== line.to ? `${line.from} to ${line.to}` : line.from) : line.from;
+  // The server speaks on the guild channel too (the message of the day on entering), with no sender.
+  if (line.from === '')
+    return (
+      <li className={`chat-line ${line.kind} unsigned`}>
+        <Body line={line} />
+      </li>
+    );
+  const who = chatWho(line);
+  const partner = chatPartner(line, me);
   return (
     <li className={`chat-line ${line.kind}`}>
-      <b>{who}:</b> <Body line={line} />
+      <b
+        className="chat-who"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (partner) openPlayerMenu(partner, e.clientX, e.clientY);
+        }}
+      >
+        {who.tag && <span className="chat-tag">[{who.tag}] </span>}
+        {who.name}:
+      </b>{' '}
+      <Body line={line} />
     </li>
   );
 }
@@ -76,6 +97,20 @@ export function ChatBox() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // A whisper started from a player's menu opens the input with "/w name " typed in.
+  const chatDraft = useUi((s) => s.chatDraft);
+  useEffect(() => {
+    if (!open) return;
+    const draftText = chatDraft;
+    if (draftText === null) return;
+    useUi.setState({ chatDraft: null });
+    setText(draftText);
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(draftText.length, draftText.length);
+    });
+  }, [open, chatDraft]);
 
   useEffect(() => {
     if (open) input.current?.focus();
@@ -177,7 +212,7 @@ export function ChatBox() {
               }
             }}
             onBlur={() => text.trim() === '' && close()}
-            placeholder="Say something to your game. Shift+click an item to link it. /help for commands"
+            placeholder="Say something to your game. /p party, /g guild. Shift+click an item to link it. /help for commands"
             aria-label="Chat message"
           />
         </form>

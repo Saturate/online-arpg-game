@@ -8,7 +8,8 @@ import { activeStation } from './stations.js';
 import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
-import { openGeneralTab } from './stashView.js';
+import { openGeneralTab, openGuildTab } from './stashView.js';
+import { guildDropAction, guildItem, guildItemHint, guildQuickAction, involvesGuild, type GuildAction } from './guildStashView.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { useSettings } from './settings.js';
@@ -88,6 +89,19 @@ export function requestDrop(uid: ItemUid): void {
     return;
   }
   sendCommand({ t: 'discard', uid });
+}
+
+/** Sends a guild stash action, or says why it cannot happen; true when there was one. */
+function runGuild(action: GuildAction): boolean {
+  if (!action) return false;
+  if ('send' in action) sendCommand(action.send);
+  else useUi.getState().notify(action.refuse);
+  return true;
+}
+
+/** The item a drag carries: guild stash items live in the guild's view, everything else in the inventory. */
+function draggedItemOf(drag: DragPayload, inv: InventoryMessage | null): Item | undefined {
+  return drag.from.at === 'guild' ? guildItem(useUi.getState().guildStash, drag.uid) : itemByUid(inv, drag.uid);
 }
 
 function isTyping(t: EventTarget | null): boolean {
@@ -175,6 +189,8 @@ export function ItemTooltip() {
             ? isBound(item)
               ? 'Starter item: cannot be sold'
               : `Right-click to sell for ${sellPrice(item)} gold`
+            : place?.at === 'guild'
+              ? guildItemHint(useUi.getState().guildStash, place.tab, QUICK_KEY)
             : place?.at === 'stash' || place?.at === 'runeTab' || place?.at === 'sigilTab'
           ? item.kind === 'rune' && item.affixes.length === 0 && item.count > 1
             ? `${QUICK_KEY}+click to take it out · Shift+click to take some · Drag to move`
@@ -206,6 +222,7 @@ export function ItemCell({
   iconSize = 44,
   style,
   gridCell,
+  canDrag = true,
 }: {
   item: Item | undefined;
   place: ItemPlace;
@@ -219,6 +236,8 @@ export function ItemCell({
   style?: CSSProperties;
   /** Pixel size of one grid cell, for bag and stash cells, so a drop knows which cell it hit. */
   gridCell?: number;
+  /** False for a guild item the viewer's rank may neither take nor move. */
+  canDrag?: boolean;
 }) {
   const setHover = useHover((h) => h.set);
   const [over, setOver] = useState(false);
@@ -226,15 +245,26 @@ export function ItemCell({
   const level = useUi((s) => s.level);
   const classId = useUi((s) => s.classId);
   const inv = useUi((s) => s.inventory);
+  const guildView = useUi((s) => s.guildStash);
 
-  const dragged = drag && inv ? itemByUid(inv, drag.uid) : undefined;
-  const accepts = drag !== null && dragged !== undefined && inv !== null && classId !== null && dragged.uid !== item?.uid && dropAction(inv, dragged, drag, place, classId) !== null;
+  const dragged = drag ? draggedItemOf(drag, inv) : undefined;
+  const guildDrop = drag && dragged && involvesGuild(drag, place) ? guildDropAction(guildView, dragged, drag, place) : undefined;
+  const accepts =
+    guildDrop !== undefined
+      ? guildDrop !== null && 'send' in guildDrop
+      : drag !== null && dragged !== undefined && inv !== null && classId !== null && dragged.uid !== item?.uid && dropAction(inv, dragged, drag, place, classId) !== null;
   const blocked = item && classId ? unusable(item, level, classId) : null;
   const fresh = useFresh((f) => item !== undefined && place.at === 'bag' && f.uids.has(item.uid));
 
   /** Ctrl+click (Cmd+click on macOS) at the stash: the same quick move as a right-click there. */
   const quick = (e: MouseEvent): boolean => {
     if (!item || !(e.ctrlKey || e.metaKey)) return false;
+    const guild = guildQuickAction(useUi.getState().guildStash, openGuildTab(), activeStation(useUi.getState()), item, place);
+    if (guild) {
+      e.preventDefault();
+      setHover(null, 0, 0);
+      return runGuild(guild);
+    }
     const msg = quickClick(item, place, activeStation(useUi.getState()), openGeneralTab());
     if (!msg) return false;
     e.preventDefault();
@@ -265,6 +295,7 @@ export function ItemCell({
       return;
     }
     const station = activeStation(useUi.getState());
+    if (runGuild(guildQuickAction(useUi.getState().guildStash, openGuildTab(), station, item, place))) return;
     // A relic asks before it goes to the shared shelf, where anyone can buy it.
     if (station === 'trader' && place.at === 'bag' && asksBeforeSelling(item, useSettings.getState().options.confirmValuable)) {
       usePendingDrop.setState({ uid: item.uid, sell: true });
@@ -283,16 +314,21 @@ export function ItemCell({
     const payload = parseDrag(e.dataTransfer.getData(DRAG_TYPE));
     const { inventory, classId: cls } = useUi.getState();
     if (!payload || !inventory || !cls) return;
-    const moving = itemByUid(inventory, payload.uid);
+    const moving = draggedItemOf(payload, inventory);
     if (!moving) return;
-    const msg = dropAction(inventory, moving, payload, cellUnder(e), cls);
+    const target = cellUnder(e);
+    if (involvesGuild(payload, target)) {
+      runGuild(guildDropAction(useUi.getState().guildStash, moving, payload, target));
+      return;
+    }
+    const msg = dropAction(inventory, moving, payload, target, cls);
     if (msg?.t === 'swapSigils') swapSkills(msg.a, msg.b);
     else if (msg) sendCommand(msg);
   };
 
   /** A grid place refined to the exact cell under the pointer: an item spans several cells. */
   function cellUnder(e: { clientX: number; clientY: number; currentTarget: Element }): ItemPlace {
-    if (!gridCell || (place.at !== 'bag' && place.at !== 'stash') || place.x === undefined || place.y === undefined) return place;
+    if (!gridCell || (place.at !== 'bag' && place.at !== 'stash' && place.at !== 'guild') || place.x === undefined || place.y === undefined) return place;
     const grid = place;
     // Spans come from the item's footprint, not its pixel size, so window zoom and UI scale cannot
     // throw the cell count off.
@@ -322,12 +358,12 @@ export function ItemCell({
       type="button"
       className={classes}
       style={tier}
-      draggable={item !== undefined}
+      draggable={item !== undefined && canDrag}
       onDragStart={(e) => {
         if (!item) return;
         const under = cellUnder(e);
         const grab =
-          (under.at === 'bag' || under.at === 'stash') && (place.at === 'bag' || place.at === 'stash') && under.x !== undefined && under.y !== undefined && place.x !== undefined && place.y !== undefined
+          (under.at === 'bag' || under.at === 'stash' || under.at === 'guild') && (place.at === 'bag' || place.at === 'stash' || place.at === 'guild') && under.x !== undefined && under.y !== undefined && place.x !== undefined && place.y !== undefined
             ? { x: under.x - place.x, y: under.y - place.y }
             : { x: 0, y: 0 };
         const payload: DragPayload = { uid: item.uid, from: place, grab };
@@ -347,7 +383,7 @@ export function ItemCell({
       onMouseEnter={(e) => {
         if (!item) return;
         setHover(item, e.clientX, e.clientY, place);
-        unmarkFresh(item.uid);
+        if (place.at === 'bag') unmarkFresh(item.uid);
       }}
       onMouseMove={(e) => item && setHover(item, e.clientX, e.clientY, place)}
       onMouseLeave={() => setHover(null, 0, 0)}
@@ -356,7 +392,8 @@ export function ItemCell({
         if (item) onSelect?.();
       }}
       onContextMenu={act}
-      data-link-uid={item?.uid}
+      // Guild stash uids are the guild's own and can equal a bag item's, so a guild item never offers itself as a chat link.
+      data-link-uid={place.at === 'guild' ? undefined : item?.uid}
       aria-label={item ? `${item.name}${blocked ? ' (cannot use)' : ''}` : (label ?? 'Empty slot')}
     >
       {label && <span className="inv-cell-key">{label}</span>}
@@ -451,7 +488,7 @@ function Paperdoll() {
 }
 
 /** Pixel size of one bag or stash cell. */
-const CELL = 44;
+export const CELL = 44;
 
 /** A D2-style grid: items span their footprint, and every free cell is a drop target. `which` is the bag or a general tab's id. */
 export function ItemGrid({ which, selUid, onSelect }: { which: 'bag' | number; selUid: ItemUid | null; onSelect: (uid: ItemUid) => void }) {

@@ -26,6 +26,7 @@ import {
 import { initialRestart, nextRestart, restartRetryMs, takeUpdating, waitingForServer, type RestartEvent, type RestartState } from '../game/restart.js';
 import { create } from 'zustand';
 import { closeStation, openStation, openWaypointMenu, type ItemStation, type WaypointMenu } from './stations.js';
+import { EMPTY_GUILD_LOG, type GuildSlice } from './guildView.js';
 
 export interface DebugStats {
   tick: number;
@@ -71,7 +72,7 @@ export interface Notice {
   text: string;
 }
 
-interface UiState {
+interface UiState extends GuildSlice {
   /** 'elsewhere': another tab took the game over; this one waits to be told to play here. */
   phase: 'login' | 'characters' | 'playing' | 'elsewhere';
   /** Session token from the HTTP login, kept in localStorage so a reload stays logged in. */
@@ -101,6 +102,10 @@ interface UiState {
   teleport: { to: string; endsAt: number; seconds: number } | null;
   /** Name of whoever invited us, while the invite is unanswered. */
   partyInvite: string | null;
+  /** The guild window (G). The guild itself, its invite, log and stash come from GuildSlice. */
+  guildOpen: boolean;
+  /** Text the chat input opens with once (a whisper started from a player's menu). */
+  chatDraft: string | null;
   /** Antechamber ready check, while standing in one. */
   staging: StagingMessage | null;
   /** Live wave and score, while in an Arena run. */
@@ -254,6 +259,13 @@ export const useUi = create<UiState>((set, get) => ({
   partyStatus: [],
   teleport: null,
   partyInvite: null,
+  guild: null,
+  guildFoundPrice: 0,
+  guildInvite: null,
+  guildLog: EMPTY_GUILD_LOG,
+  guildStash: null,
+  guildOpen: false,
+  chatDraft: null,
   staging: null,
   arena: null,
   arenaResult: null,
@@ -366,12 +378,14 @@ export const useUi = create<UiState>((set, get) => ({
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyStatus: [], teleport: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0, restart: nextRestart(get().restart, { e: 'done', now: performance.now() }) }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyStatus: [], teleport: null, partyInvite: null, guild: null, guildInvite: null, guildLog: EMPTY_GUILD_LOG, guildStash: null, guildOpen: false, chatDraft: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0, restart: nextRestart(get().restart, { e: 'done', now: performance.now() }) }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   // Closing the bag closes the station too, so the next I opens only the bag.
   toggleInventory: () => set((s) => (s.inventoryOpen ? { ...closeStation(s), inventoryOpen: false, characterOpen: false } : { inventoryOpen: true, characterOpen: true })),
-  openStation: (kind) => set((s) => openStation(s, kind)),
+  // The stash and the trader take the left of the screen, where the guild window sits too; like the
+  // character sheet, it steps aside (G brings it back on top).
+  openStation: (kind) => set((s) => ({ ...openStation(s, kind), ...(kind === 'forge' ? {} : { guildOpen: false }) })),
   openWaypointMenu: (menu) => set((s) => openWaypointMenu(s, menu)),
   closeStation: () => set((s) => closeStation(s)),
   toggleEditor: () => {

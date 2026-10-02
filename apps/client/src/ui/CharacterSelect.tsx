@@ -286,7 +286,7 @@ export function CharacterSelect() {
           </div>
         </>
       )}
-      <p className="hint">WASD to move, mouse to aim, left and right click cast the skills you pick on the skill bar (click a slot with that button, or scroll; Shift+scroll for the left), 1 to 4 cast directly, I inventory, C character, T minion stance, Esc menu, Tab minimap, M world map, Alt loot names, F1 debug, F3 dev tools (builders), F8 record replay, Enter chat. Click-to-move and gamepad are in Esc, Settings.</p>
+      <p className="hint">WASD to move, mouse to aim, left and right click cast the skills you pick on the skill bar (click a slot with that button, or scroll; Shift+scroll for the left), 1 to 4 cast directly, I inventory, C character, T minion stance, Esc menu, Tab minimap, M world map, G guild, Alt loot names, F1 debug, F3 dev tools (builders), F8 record replay, Enter chat (/g for the guild). Click-to-move and gamepad are in Esc, Settings.</p>
     </main>
   );
 }
