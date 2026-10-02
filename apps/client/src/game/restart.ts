@@ -38,14 +38,20 @@ export const SERVICE_RESTART = 1012;
  */
 export const RESTART_WAIT_MS = 3 * 60_000;
 
-/** Between tries while waiting. Gentle on a server that is booting, quick enough to feel instant once it is up. */
-export const RESTART_RETRY_MS = 2000;
+/**
+ * Between tries while waiting: 1.5 to 3 s, spread at random so every tab of a busy evening does not
+ * knock on the booting server in the same instant; quick enough to feel instant once it is up.
+ */
+export function restartRetryMs(random: number): number {
+  return 1500 + Math.min(1, Math.max(0, random)) * 1500;
+}
 
 /**
- * A drop this close to the end of a countdown (or after it) is the restart even without the
- * server's last word, which a proxy in between can swallow.
+ * A drop from just before the end of a countdown to a minute after it is the restart even without
+ * the server's last word, which a proxy in between can swallow. Later, a drop is a drop again.
  */
 const COUNTDOWN_SLACK_MS = 5000;
+const COUNTDOWN_LATE_MS = 60_000;
 
 export function initialRestart(resuming: boolean, now: number): RestartState {
   return { overlay: resuming ? 'resuming' : 'hidden', countdownEndsAt: null, since: now };
@@ -58,7 +64,7 @@ export function nextRestart(s: RestartState, ev: RestartEvent): RestartState {
       return s.overlay === 'waiting' ? s : { ...s, overlay: 'waiting', since: ev.now };
     case 'closed': {
       if (s.overlay === 'waiting' || s.overlay === 'reloading') return s;
-      const due = s.countdownEndsAt !== null && ev.now >= s.countdownEndsAt - COUNTDOWN_SLACK_MS;
+      const due = s.countdownEndsAt !== null && ev.now >= s.countdownEndsAt - COUNTDOWN_SLACK_MS && ev.now <= s.countdownEndsAt + COUNTDOWN_LATE_MS;
       return ev.code === SERVICE_RESTART || due ? { ...s, overlay: 'waiting', since: ev.now } : s;
     }
     case 'welcome':

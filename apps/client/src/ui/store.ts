@@ -23,7 +23,7 @@ import {
   type StagingMessage,
   type PlayerStats,
 } from '@rune/shared';
-import { initialRestart, nextRestart, RESTART_RETRY_MS, takeUpdating, waitingForServer, type RestartEvent, type RestartState } from '../game/restart.js';
+import { initialRestart, nextRestart, restartRetryMs, takeUpdating, waitingForServer, type RestartEvent, type RestartState } from '../game/restart.js';
 import { create } from 'zustand';
 import { closeStation, openStation, openWaypointMenu, type ItemStation, type WaypointMenu } from './stations.js';
 
@@ -340,7 +340,7 @@ export const useUi = create<UiState>((set, get) => ({
         reconnectTimer = null;
         if (get().phase === 'playing') set((s) => ({ reconnectKey: s.reconnectKey + 1 }));
       },
-      waiting ? RESTART_RETRY_MS : Math.min(5000, 500 * 2 ** (attempt - 1)),
+      waiting ? restartRetryMs(Math.random()) : Math.min(5000, 500 * 2 ** (attempt - 1)),
     );
   },
   restart: initialRestart(takeUpdating(), performance.now()),

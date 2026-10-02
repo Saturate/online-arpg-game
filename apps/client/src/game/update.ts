@@ -46,7 +46,8 @@ export function reloadForUpdate(serverBuild: string, resume: Resume): boolean {
   // The new page keeps the "Updating game server" overlay up until the game is back.
   if (!document.hidden) markUpdating();
   allowLeave();
-  location.reload();
+  // Spread over a second and a half, so every tab coming back at once does not fetch the new build together.
+  setTimeout(() => location.reload(), Math.random() * 1500);
   return true;
 }
 

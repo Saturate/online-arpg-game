@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countdownLeft, initialRestart, nextRestart, RESTART_WAIT_MS, SERVICE_RESTART, waitingForServer, type RestartEvent, type RestartState } from '../src/game/restart.js';
+import { countdownLeft, initialRestart, nextRestart, RESTART_WAIT_MS, restartRetryMs, SERVICE_RESTART, waitingForServer, type RestartEvent, type RestartState } from '../src/game/restart.js';
 
 function run(start: RestartState, events: readonly RestartEvent[]): RestartState {
   return events.reduce(nextRestart, start);
@@ -43,7 +43,15 @@ describe('restart overlay states', () => {
     const counting = nextRestart(hidden, { e: 'notice', seconds: 60, now: 0 });
     expect(nextRestart(counting, { e: 'closed', code: 1006, now: 20_000 }).overlay).toBe('hidden');
     // A proxy can swallow the server's last word; a drop at the end of the countdown is the restart.
-    expect(nextRestart(counting, { e: 'closed', code: 1006, now: 58_000 }).overlay).toBe('waiting');
+    expect(nextRestart(counting, { e: 'closed', code: 1006, now: 58_000 }).overlay).toBe('waiting');    // A minute after the countdown ran out with no deploy, a wifi blip is a blip again.
+    expect(nextRestart(counting, { e: 'closed', code: 1006, now: 60_000 + 59_000 }).overlay).toBe('waiting');
+    expect(nextRestart(counting, { e: 'closed', code: 1006, now: 60_000 + 61_000 }).overlay).toBe('hidden');
+  });
+
+  it('spreads the retries between 1.5 and 3 seconds', () => {
+    expect(restartRetryMs(0)).toBe(1500);
+    expect(restartRetryMs(0.5)).toBe(2250);
+    expect(restartRetryMs(1)).toBe(3000);
   });
 
   it('waits for the server for a few minutes, then gives up', () => {
