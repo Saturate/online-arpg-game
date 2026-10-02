@@ -313,6 +313,16 @@ export class TownEditor {
     this.changed(false);
   }
 
+  /**
+   * Puts back unsaved edits made over the same saved layout, after the world was rebuilt under the
+   * editor (a forced rebuild or a reroll) and the editor with it. The undo steps do not come back.
+   */
+  resume(draft: TownLayout): void {
+    this.layout = clone(draft);
+    this.selection = null;
+    this.changed(true);
+  }
+
   saveLayout(): void {
     this.save(clone(this.layout));
     this.original = clone(this.layout);

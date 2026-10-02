@@ -776,7 +776,7 @@ export function spawnGold(sim: Simulation, x: number, y: number, amount: number)
  * Moves every bag and gold pile on the ground of `from` to the same spot in `to`, for a room rebuilt
  * in place (a town save rebuilds the world). `from` is left with none, so nothing exists twice.
  */
-export function carryGroundLoot(from: Simulation, to: Simulation): void {
+export function carryGroundLoot(from: Simulation, to: Simulation, shift: { x: number; y: number } = { x: 0, y: 0 }): void {
   const src = from.world;
   const dst = to.world;
   for (const [id, l] of [...src.loot]) {
@@ -785,10 +785,12 @@ export function carryGroundLoot(from: Simulation, to: Simulation): void {
       const radius = src.radius.get(id) ?? LOOT.bagRadius;
       const copy = dst.create('loot');
       // On open ground near where it lay: a rebuilt world round a moved gate can have a rock there now,
-      // and one rebuilt smaller can end before it, so it is brought inside the map first.
+      // and one rebuilt smaller can end before it, so it is brought inside the map first. `shift` is
+      // how far the town moved (a world of another size centres it elsewhere), so a bag in town stays
+      // where it lay in town.
       const { width, height } = to.mapDef;
-      const x = Math.min(width - radius - 60, Math.max(radius + 60, pos.x));
-      const y = Math.min(height - radius - 60, Math.max(radius + 60, pos.y));
+      const x = Math.min(width - radius - 60, Math.max(radius + 60, pos.x + shift.x));
+      const y = Math.min(height - radius - 60, Math.max(radius + 60, pos.y + shift.y));
       dst.position.set(copy, freeBagSpot(to, x, y, radius));
       dst.radius.set(copy, radius);
       // The dropper was an entity of the old room; a bag nobody claims is free to all, as it soon is anyway.

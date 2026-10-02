@@ -5,7 +5,7 @@ import { betterOf } from '../items/runeRolls.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
 import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
-import { WORLD_GEN_KEYS, WORLD_GEN_SPECS, worldGenProblem, type WorldGen, type WorldGenKey } from '../world/worldGen.js';
+import { WORLD_GEN_DEFAULTS, WORLD_GEN_KEYS, WORLD_GEN_SPECS, worldGenProblem, type WorldGenKey } from '../world/worldGen.js';
 import type { TunableValues } from './values.js';
 
 /**
@@ -466,8 +466,7 @@ export function tunableSetProblem(values: Readonly<TunableValues>): string | nul
     const problem = affixTableProblem(id, values);
     if (problem !== null) return problem;
   }
-  const gen: Record<WorldGenKey, number> = { ...WORLD_GEN };
-  for (const key of WORLD_GEN_KEYS) gen[key] = valueIn(values, worldGenPath(key)) ?? gen[key];
-  const world: WorldGen = gen;
-  return worldGenProblem(world);
+  const gen: Record<WorldGenKey, number> = { ...WORLD_GEN_DEFAULTS };
+  for (const key of WORLD_GEN_KEYS) gen[key] = values[worldGenPath(key)] ?? WORLD_GEN_DEFAULTS[key];
+  return worldGenProblem(gen);
 }

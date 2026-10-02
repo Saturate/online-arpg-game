@@ -3,11 +3,13 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyTunables, gateTimers, loadMap, openedChests, planChecksum, resetTunables, SIM, type GateInfo, type ServerMessage, type Vec2, type WorldRebuildResult } from '@rune/shared';
+import { applyTunables, gateTimers, loadMap, openedChests, planChecksum, resetTunables, SIM, Simulation, type GateInfo, type ServerMessage, type Vec2, type WorldRebuildResult } from '@rune/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { AccountApi } from '../src/http.js';
 import { RoomManager } from '../src/manager.js';
+import { WorldGenStore } from '../src/worldGenStore.js';
+import { DatabaseSync } from 'node:sqlite';
 import type { Room } from '../src/room.js';
 import { FakeSocket } from './fakeSocket.js';
 
@@ -325,12 +327,164 @@ describe('the rebuild and reroll routes', () => {
       expect((await post('/api/admin/worlds/rebuild', 'boss', { game: 'i9' })).status).toBe(404);
       const ok = await post('/api/admin/worlds/rebuild', 'boss', {});
       expect(ok.status).toBe(200);
-      expect(await ok.json()).toEqual({ copies: [], gen: {} });
+      expect(await ok.json()).toEqual({ copies: [], failed: [], gen: {} });
       expect((await post('/api/admin/worlds/rebuild', 'boss', {})).status).toBe(429);
     } finally {
       server.close();
       store.close();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/** A bag of gold put on the ground directly, as a kill would drop it. */
+function dropGold(room: Room, x: number, y: number): void {
+  const w = room.sim.world;
+  const id = w.create('loot');
+  w.position.set(id, { x, y });
+  w.radius.set(id, 16);
+  w.loot.set(id, { items: [], gold: 77, lifetime: 900, dropper: null });
+}
+
+function goldBag(room: Room): Vec2 {
+  const w = room.sim.world;
+  for (const [id, l] of w.loot) {
+    const p = w.position.get(id);
+    if (l.gold === 77 && p) return { x: p.x, y: p.y };
+  }
+  throw new Error('no bag');
+}
+
+describe('a rebuild on another world size', () => {
+  it.each([
+    ['grows', 16000, 2400],
+    ['shrinks', 11000, 1800],
+  ])('keeps a player at the stash and a bag in town where they were in town when the world %s', async (_how, size, hub) => {
+    const { rooms, sockets, ids } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('no socket');
+    const room = roomOf(rooms, a);
+    const stash = room.sim.mapDef.stash;
+    const town = room.sim.mapDef.townAt;
+    if (!stash || !town) throw new Error('no stash');
+    teleport(rooms, a, stash.x + 60, stash.y);
+    const stood = pos(rooms, a);
+    dropGold(room, town.x + 400, town.y + 300);
+    const lay = goldBag(room);
+
+    applyTunables({ 'worldgen.size': size, 'worldgen.hubRadius': hub });
+    result(rooms.rebuildWorlds(ids[0] ?? 0, null));
+    ticks(rooms, 0.2);
+    const next = roomOf(rooms, a);
+    expect(next.sim.mapDef.width).toBe(size);
+    const moved = next.sim.mapDef.townAt;
+    if (!moved) throw new Error('no town');
+    const shift = { x: moved.x - town.x, y: moved.y - town.y };
+    expect(Math.abs(shift.x)).toBeGreaterThanOrEqual(1000);
+    const p = pos(rooms, a);
+    expect(Math.hypot(p.x - (stood.x + shift.x), p.y - (stood.y + shift.y))).toBeLessThan(40);
+    expect(next.inSafeZone(p.x, p.y)).toBe(true);
+    const bag = goldBag(next);
+    expect(Math.hypot(bag.x - (lay.x + shift.x), bag.y - (lay.y + shift.y))).toBeLessThan(60);
+    expect(room.sim.world.loot.size).toBe(0);
+  }, 60_000);
+});
+
+describe('rebuild safety and limits', () => {
+  it('keeps the memory when a changed number moves no ground', async () => {
+    const { rooms, sockets, ids } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('no socket');
+    const g = killGateBoss(rooms, a);
+    openChest(rooms, a);
+    const chests = [...openedChests(roomOf(rooms, a).sim)];
+    const hash = welcome(a).planHash;
+    applyTunables({ 'worldgen.levelMax': 40 });
+    const r = result(rooms.rebuildWorlds(ids[0] ?? 0, null));
+    expect(r.copies[0]).toMatchObject({ planChanged: false, players: 1 });
+    ticks(rooms, 0.2);
+    // The checksum covers the numbers, so it changes; the ground the memory is kept by does not.
+    expect(welcome(a).planHash).not.toBe(hash);
+    const sim = roomOf(rooms, a).sim;
+    expect(sim.zone?.plan?.gen.levelMax).toBe(40);
+    expect(gateTimers(sim).map((t) => t.id)).toEqual([g.id]);
+    expect([...openedChests(sim)]).toEqual(chests);
+  }, 60_000);
+
+  it('rebuilds one copy at most once a minute, whoever asks', async () => {
+    const { rooms, ids } = await setup(2);
+    result(rooms.rebuildWorlds(ids[0] ?? 0, null));
+    const again = result(rooms.rebuildWorlds(ids[1] ?? 0, null));
+    expect(again.copies).toEqual([]);
+    expect(again.failed).toEqual([{ game: 'i1', name: 'Public world 1', reason: expect.stringMatching(/once a minute/) }]);
+  }, 60_000);
+
+  it('leaves a copy whose build fails as it was, says so, and goes on with the others', async () => {
+    const { rooms, sockets, ids } = await setup(3);
+    const [a, b, c] = sockets;
+    if (!a || !b || !c) throw new Error('no sockets');
+    // b and c in a party world, a alone in the public one.
+    b.emit({ t: 'partyInvite', name: 'player2Hero' });
+    c.emit({ t: 'partyAnswer', accept: true });
+    ticks(rooms, 0.2);
+    b.emit({ t: 'partyWorld' });
+    ticks(rooms, 0.5);
+    const publicRoom = roomOf(rooms, a);
+    const before = welcome(a);
+    applyTunables({ 'worldgen.packs': 300 });
+    // The first room built (the public copy's) throws while it is made.
+    const spy = vi.spyOn(Simulation.prototype, 'startItemUidsAt').mockImplementationOnce(() => {
+      throw new Error('test: build failed');
+    });
+    const r = result(rooms.rerollWorld(ids[0] ?? 0, 'i1', 5150));
+    spy.mockRestore();
+    expect(r.failed).toEqual([{ game: 'i1', name: 'Public world 1', reason: 'the build failed; see the server log' }]);
+    expect(r.copies).toEqual([]);
+    // Nothing changed: same room, same map, the seed setting and the stored numbers untouched.
+    expect(roomOf(rooms, a)).toBe(publicRoom);
+    expect(welcome(a)).toBe(before);
+    expect(rooms.settings().worldSeed).toBe(1);
+    expect(rooms.live().worlds.find((w) => w.game === 'i1')?.seed).toBe(1);
+
+    const spy2 = vi.spyOn(Simulation.prototype, 'startItemUidsAt').mockImplementationOnce(() => {
+      throw new Error('test: build failed');
+    });
+    const all = result(rooms.rebuildWorlds(ids[1] ?? 0, null));
+    spy2.mockRestore();
+    expect(all.failed.map((f) => f.game)).toEqual(['i1']);
+    expect(all.copies.map((x) => x.game)).toEqual(['i2']);
+    expect(roomOf(rooms, b).sim.zone?.plan?.gen.packs).toBe(300);
+  }, 60_000);
+
+  it('pins a public copy onto a seed another public copy is on with that seed\'s numbers, not the ones in force', async () => {
+    const { store, rooms, sockets, ids } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('no socket');
+    // A second public copy on seed 2, made while levelMax was 40.
+    rooms.updateSettings({ worldSeed: 2 });
+    applyTunables({ 'worldgen.levelMax': 40 });
+    const { socket: b } = await enter(store, rooms, 'second');
+    ticks(rooms, 0.2);
+    expect(welcome(b).map).toMatchObject({ gen: { levelMax: 40 } });
+    applyTunables({ 'worldgen.levelMax': 30 });
+    const r = result(rooms.rerollWorld(ids[0] ?? 0, 'i1', 2));
+    expect(r.gen).toEqual({ levelMax: 40 });
+    ticks(rooms, 0.2);
+    expect(welcome(a).map).toEqual(welcome(b).map);
+    expect(store.worldGen.publicGen(2)).toEqual({ levelMax: 40 });
+  }, 60_000);
+});
+
+describe('stored public numbers', () => {
+  it('keeps the readable numbers one by one and puts the rest back to their defaults', () => {
+    const db = new DatabaseSync(':memory:');
+    const s = new WorldGenStore(db);
+    expect(s.publicGen(9)).toBeNull();
+    db.prepare('INSERT INTO world_gen (seed, gen_json, updated_at) VALUES (?, ?, 0)').run(9, JSON.stringify({ packs: 300, size: 99999, gone: 1, levelMin: 30, levelMax: 20 }));
+    expect(s.publicGen(9)).toEqual({ packs: 300 });
+    db.prepare('INSERT INTO world_gen (seed, gen_json, updated_at) VALUES (?, ?, 0)').run(10, '{not json');
+    expect(s.publicGen(10)).toEqual({});
+    s.savePublic(11, { forests: 60, levelCurve: 2 });
+    expect(s.publicGen(11)).toEqual({ forests: 60, levelCurve: 2 });
   });
 });

@@ -1,4 +1,4 @@
-import { isClassId, isRole, isWorldGenValues, type AdminLive, type WorldRebuildCopy, type WorldRebuildResult, type AdminSearch, type LiveHealth, type LivePlayer, type LiveRoom, type LiveRoomKind, type LiveWorld, type SearchAccount, type ServerEvent, type ServerLogResponse } from '@rune/shared';
+import { isClassId, isRole, isWorldGenValues, type AdminLive, type WorldRebuildCopy, type WorldRebuildFailure, type WorldRebuildResult, type AdminSearch, type LiveHealth, type LivePlayer, type LiveRoom, type LiveRoomKind, type LiveWorld, type SearchAccount, type ServerEvent, type ServerLogResponse } from '@rune/shared';
 import { call, narrow } from '../../net/api.js';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -65,8 +65,12 @@ function isRebuildCopy(v: unknown): v is WorldRebuildCopy {
   return isRecord(v) && str(v.game) && str(v.name) && num(v.seed) && typeof v.open === 'boolean' && num(v.players) && typeof v.planChanged === 'boolean';
 }
 
+function isRebuildFailure(v: unknown): v is WorldRebuildFailure {
+  return isRecord(v) && str(v.game) && str(v.name) && str(v.reason);
+}
+
 export function isWorldRebuildResult(v: unknown): v is WorldRebuildResult {
-  return isRecord(v) && listOf(v.copies, isRebuildCopy) && isWorldGenValues(v.gen);
+  return isRecord(v) && listOf(v.copies, isRebuildCopy) && listOf(v.failed, isRebuildFailure) && isWorldGenValues(v.gen);
 }
 
 export const liveApi = {
@@ -81,12 +85,14 @@ export const liveApi = {
 
 /** One line for the admin after a rebuild or reroll: what moved, and which copies forgot their bosses and chests. */
 export function rebuildSummary(r: WorldRebuildResult, verb: string): string {
-  if (r.copies.length === 0) return 'No world copy to rebuild';
+  const failed = r.failed.map((f) => `${f.name} was left as it was: ${f.reason}`).join('; ');
+  if (r.copies.length === 0) return failed || 'No world copy to rebuild';
   const players = r.copies.reduce((n, c) => n + c.players, 0);
   const fresh = r.copies.filter((c) => c.planChanged).map((c) => c.name);
   const closed = r.copies.filter((c) => !c.open).length;
   const parts = [`${verb} ${r.copies.length} world cop${r.copies.length === 1 ? 'y' : 'ies'}, ${players} player${players === 1 ? '' : 's'} carried over`];
   if (closed > 0) parts.push(`${closed} closed, built anew when next entered`);
-  parts.push(fresh.length > 0 ? `a new plan in ${fresh.join(', ')}: dead bosses and opened chests there are forgotten` : 'the plan is unchanged, so bosses and chests stay as they were');
+  parts.push(fresh.length > 0 ? `new ground in ${fresh.join(', ')}: dead bosses and opened chests there are forgotten` : 'the ground is unchanged, so bosses and chests stay as they were');
+  if (failed) parts.push(failed);
   return parts.join('; ');
 }

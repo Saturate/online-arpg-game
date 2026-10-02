@@ -167,6 +167,15 @@ describe('a world copy on its own numbers', () => {
     expect(loadMap(desc)).not.toBe(loadMap({ kind: 'world', seed: 811 }));
   });
 
+  it('keys a copy\'s memory by the ground it lies on, not by every number', () => {
+    const layout = (gen: WorldGenValues) => freshWorld(3, undefined, undefined, gen).zone.memoryLayout();
+    const base = layout({});
+    // Levels can change which boss a region gets (its type follows the level), so they may move it; counts never do.
+    expect(layout({})).toBe(base);
+    for (const gen of [{ levelMax: 40 }, { packs: 400 }, { looseRocks: 900 }, { bones: 10 }]) expect(layout(gen), JSON.stringify(gen)).toBe(base);
+    for (const gen of [{ rareShare: 0.2 }, { size: 14000 }, { trunkWander: 0.3 }, { dungeonsRegion: 1 }]) expect(layout(gen), JSON.stringify(gen)).not.toBe(base);
+  });
+
   it('changes the plan checksum with every number, levels and counts too', () => {
     const base = planChecksum(freshWorld(3).plan);
     // The default world hashes as it did before the numbers existed.

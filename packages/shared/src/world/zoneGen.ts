@@ -7,7 +7,7 @@ import { inRect, rock, scatterDecor, tree } from './gen.js';
 import { GameMap, type ChunkObstacleSource } from './gamemap.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import type { Decor, MonsterPack, Obstacle, SafeZone, WorldMap } from './types.js';
-import type { WorldPlan } from './worldPlan.js';
+import { fnv, planParts, type WorldPlan } from './worldPlan.js';
 
 /**
  * World streaming step 3: a generated zone (a Wilds or an overworld zone) is a cheap zone-wide plan
@@ -416,6 +416,21 @@ export class ZoneWorld implements ChunkObstacleSource {
   /** Calls `fn` with each chunk of the 3 by 3 block around (cx, cy) inside the zone. */
   private around(cx: number, cy: number, fn: (nx: number, ny: number) => void): void {
     for (let ny = cy - 1; ny <= cy + 1; ny++) for (let nx = cx - 1; nx <= cx + 1; nx++) if (this.inChunks(nx, ny)) fn(nx, ny);
+  }
+
+  /**
+   * A hash of what a world copy's memory is kept by: the plan's roads and gates, each gate's boss,
+   * the chests' spots and the region bosses' spots and packs. Two builds with the same one can hand
+   * dead bosses and opened chests from one to the other; numbers that move none of it (levels, the
+   * count of packs or rocks) keep it.
+   */
+  memoryLayout(): string {
+    const parts = this.plan ? planParts(this.plan) : [];
+    const r = Math.round;
+    for (const g of this.def.gates ?? []) parts.push(`G${g.id},${g.boss};`);
+    for (const c of this.def.chests ?? []) parts.push(`C${r(c.x)},${r(c.y)};`);
+    for (const p of this.allPlanPacks) if (p.boss) parts.push(`B${r(p.x)},${r(p.y)},${p.types.join('+')};`);
+    return fnv(parts);
   }
 
   /** Whether a spot can be walked to from the spawn past the plan's barriers (rivers, ridges, ruins, the town). */

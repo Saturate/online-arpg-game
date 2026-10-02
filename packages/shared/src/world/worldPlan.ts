@@ -642,30 +642,41 @@ export function isWaypointId(v: unknown): v is string {
 }
 
 /**
- * A short hash of the plan's nodes and gates and the numbers it was generated with. Server and client each build the plan from the seed
- * with `atan2`, `cos`, `sin` and `hypot`, which browsers need not compute bit for bit alike; one
+ * A short hash of the plan's nodes and gates and the numbers it was generated with. Server and
+ * client each build the plan from the seed with `atan2`, `cos`, `sin` and `hypot`, which browsers need not compute bit for bit alike; one
  * flipped comparison changes a road's later branches. The server sends its hash in the welcome and a
  * client that gets another one reports it, so a split shows in the server log. Positions are rounded
  * to a hundredth of a unit: a last-bit difference that flips nothing is harmless and should not report.
  */
 export function planChecksum(plan: WorldPlan): string {
-  // FNV-1a, 32 bits: no crypto needed, only the same answer in Node and every browser.
-  let h = 0x811c9dc5;
-  const add = (s: string): void => {
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 0x01000193) >>> 0;
-    }
-  };
-  const q = (v: number): string => String(Math.round(v * 100));
-  for (const n of plan.nodes) add(`n${n.id},${q(n.x)},${q(n.y)},${n.parent ?? '-'},${n.region},${n.road},${n.behind ?? '-'};`);
-  for (const g of plan.gates) add(`g${g.id},${g.node},${g.road},${g.region},${q(g.angle * 1000)};`);
+  const parts = planParts(plan);
   // Only numbers off their defaults, so a world on the defaults hashes as it always did. Levels and
   // counts move no node, so they are hashed for themselves: two builds that differ in them differ.
   const gen = worldGenOverrides(plan.gen);
   for (const k of WORLD_GEN_KEYS) {
     const v = gen[k];
-    if (v !== undefined) add(`w${k}=${v};`);
+    if (v !== undefined) parts.push(`w${k}=${v};`);
+  }
+  return fnv(parts);
+}
+
+/** FNV-1a, 32 bits, over the parts in order: no crypto needed, only the same answer in Node and every browser. */
+export function fnv(parts: readonly string[]): string {
+  let h = 0x811c9dc5;
+  for (const s of parts) {
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
   }
   return h.toString(16).padStart(8, '0');
+}
+
+/** The plan's nodes and gates as hashed, positions rounded to a hundredth of a unit. */
+export function planParts(plan: WorldPlan): string[] {
+  const q = (v: number): string => String(Math.round(v * 100));
+  const out: string[] = [];
+  for (const n of plan.nodes) out.push(`n${n.id},${q(n.x)},${q(n.y)},${n.parent ?? '-'},${n.region},${n.road},${n.behind ?? '-'};`);
+  for (const g of plan.gates) out.push(`g${g.id},${g.node},${g.road},${g.region},${q(g.angle * 1000)};`);
+  return out;
 }

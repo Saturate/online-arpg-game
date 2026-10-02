@@ -21,7 +21,7 @@ import {
   carryGroundLoot,
   currentWorldGen,
   entranceArrival,
-  mapKey,
+  loadMap,
   worldGenKey,
   GATES,
   rememberWorld,
@@ -70,6 +70,7 @@ import {
   type WorldMemory,
   type WorldGenValues,
   type WorldRebuildCopy,
+  type WorldRebuildFailure,
   type WorldRebuildResult,
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
@@ -87,6 +88,11 @@ import { loadTownLayout, saveTownLayout } from './townStore.js';
 
 const startedAt = Date.now();
 const TOWN_SAVE_COOLDOWN_MS = 3000;
+/**
+ * The least time between two rebuilds or rerolls of one world copy, whoever asks: a rebuild that
+ * moves the ground fills its chests and brings its bosses back, so rebuilds must not farm them.
+ */
+const COPY_REBUILD_COOLDOWN_MS = 60_000;
 const SERVER_BUILD = process.env.BUILD_ID ?? 'dev';
 
 /** How often joins and leaves are summed up in the server log. */
@@ -204,13 +210,23 @@ export class RoomManager implements AdminHooks {
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */
   private createRoom(id: string, desc: MapDescriptor, instance: Instance | null, rules: Partial<RoomRules> = {}): Room {
+    const room = this.buildRoom(id, desc, instance, rules);
+    this.register(room, instance);
+    return room;
+  }
+
+  /** A room that nothing can reach until `register`: a rebuild builds its new world room first. */
+  private buildRoom(id: string, desc: MapDescriptor, instance: Instance | null, rules: Partial<RoomRules> = {}): Room {
     const room = new Room(id, desc, this.seedCounter++, { bench: false, ...rules }, this.tuning.current, this.rates());
     this.applySettings(room);
     room.instanceId = instance?.id ?? null;
     if (desc.kind === 'world') room.hostsTown = true;
+    return room;
+  }
+
+  private register(room: Room, instance: Instance | null): void {
     this.rooms.set(room.id, room);
     instance?.rooms.add(room.id);
-    return room;
   }
 
   private rates(): SimRates {
@@ -574,9 +590,13 @@ export class RoomManager implements AdminHooks {
   }
 
   private worldDesc(inst: Instance): Extract<MapDescriptor, { kind: 'world' }> {
+    return this.worldDescFor(inst.seed, inst.gen);
+  }
+
+  private worldDescFor(instanceSeed: number, gen: WorldGenValues): Extract<MapDescriptor, { kind: 'world' }> {
     // From the instance seed, so a world copy is the same world each time it opens.
-    const seed = (Math.imul(inst.seed + 1, 2654435761) >>> 0) % 1_000_000;
-    return { kind: 'world', seed, layout: this.townLayout, ...(worldGenKey(inst.gen) === '' ? {} : { gen: inst.gen }) };
+    const seed = (Math.imul(instanceSeed + 1, 2654435761) >>> 0) % 1_000_000;
+    return { kind: 'world', seed, layout: this.townLayout, ...(worldGenKey(gen) === '' ? {} : { gen }) };
   }
 
   private worldRoomId(inst: Instance): string {
@@ -1174,16 +1194,22 @@ export class RoomManager implements AdminHooks {
    * cannot reach from the town (inside a new ridge) gives the town spawn instead.
    */
   private carryInto(old: Room, next: Room): number {
-    carryGroundLoot(old.sim, next.sim);
+    // A world of another size centres the town elsewhere: everything moves with it, so whoever stood
+    // at the stash still does, and what lay in town still lies there.
+    const from = old.sim.mapDef.townAt ?? { x: 0, y: 0 };
+    const to = next.sim.mapDef.townAt ?? { x: 0, y: 0 };
+    const shift = { x: to.x - from.x, y: to.y - from.y };
+    carryGroundLoot(old.sim, next.sim, shift);
     const { width, height } = next.sim.mapDef;
     const zone = next.sim.zone;
     let players = 0;
     for (const m of [...old.members.values()]) {
-      const at = old.playerState(m.client);
+      const was = old.playerState(m.client);
       const save = old.remove(m.client);
       if (!save) continue;
+      const at = was ? { x: was.x + shift.x, y: was.y + shift.y } : null;
       const inside = at && at.x > 0 && at.y > 0 && at.x < width && at.y < height;
-      const open = inside ? next.sim.map.findOpen(at.x, at.y, SIM.playerRadius + 6) : null;
+      const open = at && inside ? next.sim.map.findOpen(at.x, at.y, SIM.playerRadius + 6) : null;
       const spot = open && (!zone || zone.reachable(open.x, open.y)) ? open : undefined;
       next.add(m.client, save.classId, save.name, save, spot);
       // The new world's seals may lie elsewhere: someone left standing behind one goes back out.
@@ -1214,59 +1240,103 @@ export class RoomManager implements AdminHooks {
     return inst.kind === 'public' ? [...this.instances.values()].filter((i) => i.kind === 'public' && i.seed === inst.seed) : [inst];
   }
 
+  private rebuildEach(targets: readonly Instance[], seed: (inst: Instance) => number, gen: WorldGenValues): WorldRebuildResult {
+    const copies: WorldRebuildCopy[] = [];
+    const failed: WorldRebuildFailure[] = [];
+    for (const inst of targets) {
+      const r = this.rebuildCopy(inst, seed(inst), gen);
+      if ('reason' in r) failed.push(r);
+      else copies.push(r);
+    }
+    return { copies, failed, gen };
+  }
+
   /**
    * Force rebuild (admin): world copies take the generation numbers in force now and their open world
-   * rooms are rebuilt at once, as a town save does. A copy whose plan changes forgets its dead bosses
-   * and opened chests, since they belonged to spots and chunks of the old plan; one whose plan is the
-   * same keeps them. `game` null rebuilds every copy.
+   * rooms are rebuilt at once, as a town save does. A copy whose ground moves forgets its dead bosses
+   * and opened chests, since they belonged to spots and chunks of the old plan; one whose ground is
+   * the same keeps them. `game` null rebuilds every copy. A copy that fails is reported and left as it
+   * was; the others go on.
    */
   rebuildWorlds(accountId: number, game: string | null): WorldRebuildResult | string {
     const targets = this.rebuildTargets(game);
     if (typeof targets === 'string') return targets;
     if (!this.rebuildAllowed(accountId)) return 'wait';
     const gen = currentWorldGen();
-    const copies = targets.map((inst) => this.rebuildCopy(inst, inst.seed, gen));
-    for (const seed of new Set(targets.filter((i) => i.kind === 'public').map((i) => i.seed))) this.store.worldGen.savePublic(seed, gen);
-    return { copies, gen };
+    const result = this.rebuildEach(targets, (inst) => inst.seed, gen);
+    const done = new Set(result.copies.map((c) => c.game));
+    for (const seed of new Set(targets.filter((i) => i.kind === 'public' && done.has(i.id)).map((i) => i.seed))) this.store.worldGen.savePublic(seed, gen);
+    return result;
   }
 
   /**
-   * A new seed for a world copy (random, or `seed` to pin one), with the numbers in force now. The
-   * public world is one world on the `worldSeed` setting, so rerolling a public copy sets the setting
-   * and moves every public copy on the old seed to the new one.
+   * A new seed for a world copy (random, or `seed` to pin one). The public world is one world on the
+   * `worldSeed` setting, so rerolling a public copy sets the setting and moves every public copy on
+   * the old seed to the new one. One seed is one world: a public seed another copy is on, or that
+   * numbers are stored for, keeps its numbers; any other takes the numbers in force now.
    */
   rerollWorld(accountId: number, game: string, seed: number | null): WorldRebuildResult | string {
     const targets = this.rebuildTargets(game);
     if (typeof targets === 'string') return targets;
     if (!this.rebuildAllowed(accountId)) return 'wait';
     const next = seed ?? (Math.imul(this.seedCounter++, 2654435761) >>> 0) % (SETTINGS_LIMITS.seedMax + 1);
-    const gen = currentWorldGen();
-    if (targets.some((i) => i.kind === 'public')) {
+    const isPublic = targets.some((i) => i.kind === 'public');
+    const sharing = isPublic ? [...this.instances.values()].find((i) => i.kind === 'public' && i.seed === next && !targets.includes(i)) : undefined;
+    const gen = sharing?.gen ?? (isPublic ? this.store.worldGen.publicGen(next) : null) ?? currentWorldGen();
+    const result = this.rebuildEach(targets, () => next, gen);
+    // Only once a copy is on the new seed, so a build that failed everywhere changes nothing stored.
+    if (isPublic && result.copies.length > 0) {
       this.store.worldGen.savePublic(next, gen);
       this.updateSettings({ worldSeed: next });
     }
-    return { copies: targets.map((inst) => this.rebuildCopy(inst, next, gen)), gen };
+    return result;
   }
 
-  private rebuildCopy(inst: Instance, seed: number, gen: WorldGenValues): WorldRebuildCopy {
-    const before = mapKey(this.worldDesc(inst));
+  /** When each world copy was last rebuilt or rerolled: a rebuild that moves the ground fills its chests again. */
+  private readonly copyRebuiltAt = new Map<string, number>();
+
+  /**
+   * One copy onto `seed` and `gen`. The new room is built before anything changes, so a build that
+   * throws leaves the copy as it was; the memory is kept when the ground it is keyed by (roads,
+   * gates, chest and boss spots, `ZoneWorld.memoryLayout`) is the same.
+   */
+  private rebuildCopy(inst: Instance, seed: number, gen: WorldGenValues): WorldRebuildCopy | WorldRebuildFailure {
+    const fail = (reason: string): WorldRebuildFailure => ({ game: inst.id, name: inst.name, reason });
+    const now = Date.now();
+    const last = this.copyRebuiltAt.get(inst.id);
+    if (last !== undefined && now - last < COPY_REBUILD_COOLDOWN_MS) return fail(`rebuilt ${Math.round((now - last) / 1000)} s ago; a copy can be rebuilt once a minute`);
+    const id = this.worldRoomId(inst);
+    const old = this.rooms.get(id);
+    const desc = this.worldDescFor(seed, gen);
+    let next: Room | null = null;
+    let planChanged: boolean;
+    try {
+      const before = old ? old.sim.zone?.memoryLayout() : loadMap(this.worldDesc(inst)).zone?.memoryLayout();
+      if (old) next = this.buildRoom(id, desc, inst);
+      const after = next ? next.sim.zone?.memoryLayout() : loadMap(desc).zone?.memoryLayout();
+      planChanged = before !== after;
+    } catch (err) {
+      events.error('error', `[world] rebuilding ${inst.name} (${inst.id}) on seed ${seed} failed; it is left as it was`, err);
+      return fail('the build failed; see the server log');
+    }
+    this.copyRebuiltAt.set(inst.id, now);
+    for (const [k, at] of this.copyRebuiltAt) if (now - at >= COPY_REBUILD_COOLDOWN_MS) this.copyRebuiltAt.delete(k);
     inst.seed = seed;
     inst.gen = gen;
-    const planChanged = mapKey(this.worldDesc(inst)) !== before;
     const result = (open: boolean, players: number): WorldRebuildCopy => ({ game: inst.id, name: inst.name, seed, open, players, planChanged });
-    const old = this.rooms.get(this.worldRoomId(inst));
-    if (!old) {
+    if (!old || !next) {
       if (planChanged) inst.memory = null;
       return result(false, 0);
     }
+    // `close` keeps the room's memory on the copy; it belongs to the old ground if that moved.
     this.close(old);
-    // `close` kept the room's memory; it belongs to the old plan's spots and chunks.
     if (planChanged) inst.memory = null;
-    const next = this.worldRoom(inst);
+    else if (inst.memory) restoreWorld(next.sim, inst.memory);
+    this.register(next, inst);
     const players = this.carryInto(old, next);
     const text = planChanged ? 'An admin rebuilt this world: new ground, its bosses and chests are back' : 'An admin rebuilt this world: fresh monsters, bosses and chests as they were';
     for (const m of next.members.values()) this.system(m.client, text);
-    events.log('server', `[world] ${inst.name} rebuilt on seed ${seed}${planChanged ? ', a new plan: dead bosses and opened chests forgotten' : ''}; ${players} players carried over`);
+    events.log('server', `[world] ${inst.name} rebuilt on seed ${seed}${planChanged ? ', its ground moved: dead bosses and opened chests forgotten' : ''}; ${players} players carried over`);
     return result(true, players);
   }
 

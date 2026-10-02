@@ -47,7 +47,7 @@ Routes:
 |---|---|---|---|
 | GET | `/api/admin/live?have=` | `viewAdmin` | `{ health, players, rooms, worlds, log, staff }`; `log` and `staff` need `serverLog` and are null otherwise; a world's `regions` is null when `have` names its copy and `planHash` (up to 32 `copy:hash` pairs; unreadable ones are ignored) |
 | GET | `/api/admin/bench` | `viewAdmin` | `{ picks, popular, popularAt }`: admin picks with who added them, the most equipped sigils by rune text and count (no names); POST `.../bench/picks` and DELETE `.../bench/picks/<id>` need `tuning` (live-tuning.md) |
-| POST | `/api/admin/worlds/rebuild` | `tuning` | `{ copies, gen }`: every copy, or `{ game }`; 404 unknown copy, 429 inside the 3 s cooldown (world-map.md, "Generation settings") |
+| POST | `/api/admin/worlds/rebuild` | `tuning` | `{ copies, failed, gen }`: every copy, or `{ game }`; a copy rebuilt in the last minute or whose build failed is in `failed` with the reason; 404 unknown copy, 429 inside the 3 s cooldown (world-map.md, "Generation settings") |
 | POST | `/api/admin/worlds/reroll` | `settings` | as rebuild; `{ game }` for a random seed or `{ game, seed }` to pin one |
 | GET | `/api/admin/search?q=` | `viewAdmin` | `{ accounts, log }`; `q` 2 to 64 characters after trimming (400 otherwise); `log` needs `serverLog` |
 

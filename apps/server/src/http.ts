@@ -167,7 +167,8 @@ const GAME_ID = /^[A-Za-z0-9_-]{1,32}$/;
 function rebuildLine(r: WorldRebuildResult): string {
   const gen = Object.entries(r.gen).map(([k, v]) => `${k}=${v}`).join(' ') || 'code defaults';
   const copies = r.copies.map((c) => `${c.name} (${c.game}, seed ${c.seed}${c.open ? `, ${c.players} players` : ', closed'}${c.planChanged ? ', new plan, memory dropped' : ''})`).join('; ');
-  return `${copies || 'no world copies'}; numbers ${gen}`;
+  const failed = r.failed.map((f) => `${f.name} (${f.game}) left as it was: ${f.reason}`).join('; ');
+  return `${copies || 'no world copies'}${failed ? `; ${failed}` : ''}; numbers ${gen}`;
 }
 
 const GRANT_ERRORS = {

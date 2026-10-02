@@ -160,7 +160,7 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     setMonsterOverride: () => emptyTuning(),
     setMinionOverride: () => emptyTuning(),
     tunablesChanged: () => undefined,
-    rebuildWorlds: () => ({ copies: [], gen: {} }),
+    rebuildWorlds: () => ({ copies: [], failed: [], gen: {} }),
     rerollWorld: () => 'No such world copy',
   };
 }

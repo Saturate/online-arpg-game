@@ -31,6 +31,7 @@ import {
   parseModelOverrides,
   placeName,
   planChecksum,
+  layoutHash,
   mapKey,
   worldGenHash,
   enemyDisplayName,
@@ -58,7 +59,7 @@ import { SpellTable } from './spellTable.js';
 import { Predictor } from './prediction.js';
 import { receiveCastCooldown } from './castTiming.js';
 import { receiveTunables } from './tunables.js';
-import { TownEditor } from './townEditor.js';
+import { TownEditor, useTownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
 import { lighting } from '../render/daylight.js';
@@ -452,6 +453,24 @@ export class Game {
     if (this.session.kind === 'live') this.send({ t: 'planMismatch', roomId, server, client: mine });
   }
 
+  /**
+   * The open editor's unsaved edits, kept over a rebuild of the room in place that someone else
+   * caused, so the editor reopens with them; null when there is nothing to keep. When the saved
+   * town itself changed (another builder saved) the edits were made over another town and are
+   * dropped, with a warning. This builder's own save reopens on the saved town as before.
+   */
+  private editorDraft(next: MapDescriptor): TownLayout | null {
+    const editor = this.editor;
+    if (!editor || this.reopenEditor) return null;
+    this.reopenEditor = true;
+    this.editorCamera = { ...editor.camera };
+    const before = this.townLayout ? layoutHash(this.townLayout) : null;
+    const after = next.kind === 'town' || next.kind === 'world' ? layoutHash(next.layout ?? DEFAULT_TOWN_LAYOUT) : null;
+    if (before === after) return useTownEditor.getState().dirty ? editor.layout : null;
+    useUi.getState().notify('The town was saved by someone else while you edited: the editor shows the saved town, and your unsaved changes are gone');
+    return null;
+  }
+
   private toggleTownEditor(): void {
     const room = this.room;
     if (this.editor) {
@@ -564,11 +583,13 @@ export class Game {
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
         // A world rebuilt in place (a town save, a forced rebuild, a reroll) keeps its room id with a new map.
         if (this.room?.id !== msg.roomId || mapKey(this.room.desc) !== mapKey(msg.map)) {
+          const draft = this.room?.id === msg.roomId ? this.editorDraft(msg.map) : null;
           this.enterRoom(msg.roomId, msg.map);
           this.checkPlan(msg.roomId, msg.planHash);
           if (this.reopenEditor) {
             this.reopenEditor = false;
             this.toggleTownEditor();
+            if (draft) this.editor?.resume(draft);
           }
         }
         useUi.setState({ playerId: msg.playerId, canPause: msg.canPause, editorAllowed: msg.editor, devTools: msg.devTools });

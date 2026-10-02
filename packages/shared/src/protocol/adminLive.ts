@@ -169,12 +169,20 @@ export interface WorldRebuildCopy {
   open: boolean;
   /** Players carried into the rebuilt room. */
   players: number;
-  /** The seed or the numbers changed, so the plan did: its dead bosses and opened chests were forgotten. */
+  /** The ground its memory is kept by moved (roads, gates, chest or boss spots): its dead bosses and opened chests were forgotten. */
   planChanged: boolean;
+}
+
+/** A copy left as it was: inside its cooldown, or its build failed. */
+export interface WorldRebuildFailure {
+  game: string;
+  name: string;
+  reason: string;
 }
 
 export interface WorldRebuildResult {
   copies: WorldRebuildCopy[];
+  failed: WorldRebuildFailure[];
   /** The numbers the copies were rebuilt with, those off the code defaults. */
   gen: WorldGenValues;
 }

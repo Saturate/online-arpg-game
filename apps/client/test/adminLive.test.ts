@@ -126,11 +126,15 @@ describe('Live view polling', () => {
 
   it('reads a rebuild reply and sums it up, naming the copies that forgot their bosses and chests', () => {
     const copy = { game: 'i1', name: 'Public world 1', seed: 7, open: true, players: 3, planChanged: true };
-    const reply = { copies: [copy, { ...copy, game: 'i4', name: "Bob's party world", open: false, players: 0, planChanged: false }], gen: { size: 12000 } };
+    const reply = { copies: [copy, { ...copy, game: 'i4', name: "Bob's party world", open: false, players: 0, planChanged: false }], failed: [], gen: { size: 12000 } };
     expect(isWorldRebuildResult(reply)).toBe(true);
-    expect(isWorldRebuildResult({ copies: [{ ...copy, players: 'x' }], gen: {} })).toBe(false);
-    expect(rebuildSummary(reply, 'Rebuilt')).toBe('Rebuilt 2 world copies, 3 players carried over; 1 closed, built anew when next entered; a new plan in Public world 1: dead bosses and opened chests there are forgotten');
-    expect(rebuildSummary({ copies: [{ ...copy, planChanged: false, players: 1 }], gen: {} }, 'Rebuilt')).toBe('Rebuilt 1 world copy, 1 player carried over; the plan is unchanged, so bosses and chests stay as they were');
-    expect(rebuildSummary({ copies: [], gen: {} }, 'Rebuilt')).toBe('No world copy to rebuild');
+    expect(isWorldRebuildResult({ copies: [{ ...copy, players: 'x' }], failed: [], gen: {} })).toBe(false);
+    expect(isWorldRebuildResult({ copies: [], gen: {} })).toBe(false);
+    expect(rebuildSummary(reply, 'Rebuilt')).toBe('Rebuilt 2 world copies, 3 players carried over; 1 closed, built anew when next entered; new ground in Public world 1: dead bosses and opened chests there are forgotten');
+    expect(rebuildSummary({ copies: [{ ...copy, planChanged: false, players: 1 }], failed: [], gen: {} }, 'Rebuilt')).toBe('Rebuilt 1 world copy, 1 player carried over; the ground is unchanged, so bosses and chests stay as they were');
+    expect(rebuildSummary({ copies: [], failed: [], gen: {} }, 'Rebuilt')).toBe('No world copy to rebuild');
+    const failed = { game: 'i2', name: 'Public world 2', reason: 'the build failed; see the server log' };
+    expect(rebuildSummary({ copies: [], failed: [failed], gen: {} }, 'Rebuilt')).toBe('Public world 2 was left as it was: the build failed; see the server log');
+    expect(rebuildSummary({ copies: [copy], failed: [failed], gen: {} }, 'Rebuilt')).toContain('; Public world 2 was left as it was');
   });
 });
