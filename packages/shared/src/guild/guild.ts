@@ -306,10 +306,9 @@ export function parseGuildStash(raw: unknown): GuildStashLoad {
       used.add(uid);
     }
   });
-  for (const r of rolls?.returned ?? []) {
-    const copy = reissueUids(r, () => stash.nextUid++);
-    stash.items.set(copy.uid, copy);
-  }
+  // A returned rune keeps the uid it had in its sigil: guild uids come from one counter, sigil runes
+  // included, so it names nothing else, and `bump` already counted it.
+  for (const r of rolls?.returned ?? []) if (!stash.items.has(r.uid)) stash.items.set(r.uid, r);
   placeUnplaced(stash);
   const left = unplacedGuildItems(stash).length;
   if (left > 0) warnings.push(`${left} items fit in no tab; they wait unplaced until room frees up`);

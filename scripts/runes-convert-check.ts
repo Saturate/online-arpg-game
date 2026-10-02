@@ -54,6 +54,8 @@ import {
   type ClassId,
   type ConversionReport,
   type Item,
+  isItemShape,
+  parseGuildStash,
 } from '../packages/shared/src/index.js';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -631,6 +633,20 @@ function main(): void {
         console.log(`\ntrader shelf\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
       }
     } else console.log('\ntrader shelf: none stored');
+    // Guild stashes (docs/features/guilds.md) carry the same markers and take the same pass on load.
+    const hasGuilds = rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'guilds'").length > 0;
+    for (const row of hasGuilds ? rows(db, 'SELECT id, name, stash_json FROM guilds ORDER BY id') : []) {
+      const title = `guild stash ${String(row.id)} "${String(row.name)}"`;
+      try {
+        const raw: unknown = typeof row.stash_json === 'string' ? JSON.parse(row.stash_json) : null;
+        const stored = isRecord(raw) && Array.isArray(raw.items) ? raw.items.filter(isItemShape) : [];
+        console.log(`\n${title}`);
+        reportRolls(title, stored, [...parseGuildStash(raw).stash.items.values()], 'mage', { marked: isRuneTiers6(raw) });
+      } catch (err) {
+        failures++;
+        console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });
