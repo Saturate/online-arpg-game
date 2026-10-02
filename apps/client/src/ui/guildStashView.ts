@@ -1,4 +1,4 @@
-import { canPlace, findSpot, itemSize, STASH, stashRefuses, type ClientMessage, type GuildStashView, type GuildTabView, type InventoryMessage, type Item, type ItemUid, type ManagedRank, type TabPerms } from '@rune/shared';
+import { canPlace, findSpot, guildCan, type GuildRank, itemSize, STASH, stashRefuses, type ClientMessage, type GuildStashView, type GuildTabView, type InventoryMessage, type Item, type ItemUid, type ManagedRank, type TabPerms } from '@rune/shared';
 import type { DragPayload, ItemPlace } from './itemActions.js';
 import type { ItemStation } from './stations.js';
 
@@ -141,6 +141,21 @@ export function guildQuickAction(view: GuildStashView | null, openTab: number | 
   return tab ? deposit(item, tab, null) : null;
 }
 
+/**
+ * Whether a deposit waits for a yes, and what the prompt says. A tab the viewer's rank cannot take
+ * from is a one-way trip, so every deposit there asks, dragged or clicked. With the Settings prompt
+ * on, a quick click with a rare or relic asks too, like selling and dropping do; a drag is deliberate
+ * enough on its own.
+ */
+export function depositPrompt(view: GuildStashView | null, action: GuildAction, item: Item, how: 'quick' | 'drag', confirmValuable: boolean): string | null {
+  if (!view || !action || !('send' in action) || action.send.t !== 'guildDeposit') return null;
+  const tab = guildTabOf(view, action.send.tab);
+  if (!tab) return null;
+  if (!tab.access.withdraw) return `You cannot take this back out of ${tab.name}.`;
+  if (how === 'quick' && confirmValuable && (item.tier === 'rare' || item.tier === 'relic')) return `Put it into ${tab.name} for the guild?`;
+  return null;
+}
+
 /** Whether a drop involves the guild stash at all, so the account stash rules stay out of it. */
 export function involvesGuild(drag: DragPayload, target: ItemPlace): boolean {
   return drag.from.at === 'guild' || target.at === 'guild' || target.at === 'guildTab';
@@ -191,6 +206,14 @@ export function togglePerm(p: TabPerms, key: PermKey, on: boolean): TabPerms {
 export function nextPendingPerms(base: Record<ManagedRank, TabPerms>, pending: Record<ManagedRank, TabPerms> | null, rank: ManagedRank, key: PermKey, on: boolean): Record<ManagedRank, TabPerms> {
   const current = pending ?? base;
   return { ...current, [rank]: togglePerm(current[rank], key, on) };
+}
+
+/**
+ * Which permission rows a viewer may change: Member rows for anyone who manages tabs, the Officer
+ * row for the Leader alone (the server refuses Officers setting their own rank's access).
+ */
+export function canEditPermRow(viewer: GuildRank, row: ManagedRank): boolean {
+  return row === 'officer' ? viewer === 'leader' : guildCan(viewer, 'manageTabs');
 }
 
 /** The Buy button sends once per tab count: a second click before the new tab arrives does nothing. */

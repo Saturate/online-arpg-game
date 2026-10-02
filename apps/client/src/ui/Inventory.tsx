@@ -9,7 +9,8 @@ import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
 import { openGeneralTab, openGuildTab } from './stashView.js';
-import { draggedItem, guildDropAction, guildItemHint, guildQuickAction, involvesGuild, isDraggedHere, type GuildAction } from './guildStashView.js';
+import { depositPrompt, draggedItem, guildDropAction, guildItemHint, guildQuickAction, involvesGuild, isDraggedHere, type GuildAction } from './guildStashView.js';
+import { usePendingGuildDeposit } from './guildDepositConfirm.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { useSettings } from './settings.js';
@@ -91,9 +92,17 @@ export function requestDrop(uid: ItemUid): void {
   sendCommand({ t: 'discard', uid });
 }
 
-/** Sends a guild stash action, or says why it cannot happen; true when there was one. */
-function runGuild(action: GuildAction): boolean {
+/**
+ * Sends a guild stash action, or says why it cannot happen; true when there was one. A deposit that
+ * should be confirmed (depositPrompt) waits in the guild stash pane instead.
+ */
+export function runGuild(action: GuildAction, item?: Item, how?: 'quick' | 'drag'): boolean {
   if (!action) return false;
+  const text = item && how ? depositPrompt(useUi.getState().guildStash, action, item, how, useSettings.getState().options.confirmValuable) : null;
+  if (text && 'send' in action && action.send.t === 'guildDeposit' && item) {
+    usePendingGuildDeposit.setState({ pending: { msg: action.send, item, text } });
+    return true;
+  }
   if ('send' in action) sendCommand(action.send);
   else useUi.getState().notify(action.refuse);
   return true;
@@ -267,7 +276,7 @@ export function ItemCell({
     if (guild) {
       e.preventDefault();
       setHover(null, 0, 0);
-      return runGuild(guild);
+      return runGuild(guild, item, 'quick');
     }
     const msg = quickClick(item, place, activeStation(useUi.getState()), openGeneralTab());
     if (!msg) return false;
@@ -299,7 +308,7 @@ export function ItemCell({
       return;
     }
     const station = activeStation(useUi.getState());
-    if (runGuild(guildQuickAction(useUi.getState().guildStash, openGuildTab(), station, item, place))) return;
+    if (runGuild(guildQuickAction(useUi.getState().guildStash, openGuildTab(), station, item, place), item, 'quick')) return;
     // A relic asks before it goes to the shared shelf, where anyone can buy it.
     if (station === 'trader' && place.at === 'bag' && asksBeforeSelling(item, useSettings.getState().options.confirmValuable)) {
       usePendingDrop.setState({ uid: item.uid, sell: true });
@@ -322,7 +331,7 @@ export function ItemCell({
     if (!moving) return;
     const target = cellUnder(e);
     if (involvesGuild(payload, target)) {
-      runGuild(guildDropAction(useUi.getState().guildStash, moving, payload, target));
+      runGuild(guildDropAction(useUi.getState().guildStash, moving, payload, target), moving, 'drag');
       return;
     }
     const msg = dropAction(inventory, moving, payload, target, cls);

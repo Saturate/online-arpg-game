@@ -1,8 +1,10 @@
-import { guildCan, itemSize, MANAGED_RANKS, GUILD_RANK_NAMES, placements, STASH, type GuildStashView, type GuildTabView, type InventoryMessage, type ManagedRank, type TabPerms } from '@rune/shared';
+import { guildCan, itemSize, type GuildRank, MANAGED_RANKS, GUILD_RANK_NAMES, placements, STASH, type GuildStashView, type GuildTabView, type InventoryMessage, type ManagedRank, type TabPerms } from '@rune/shared';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { CELL, ItemCell, useDrag, useHover } from './Inventory.js';
+import { CELL, ItemCell, runGuild, useDrag, useHover } from './Inventory.js';
+import { usePendingGuildDeposit } from './guildDepositConfirm.js';
+import { tierColor } from './parts.js';
 import { DRAG_TYPE, parseDrag, type ItemPlace } from './itemActions.js';
-import { accessText, canDragFrom, canSendBuy, currentGuildTab, draggedItem, guildDropAction, guildItem, involvesGuild, nextPendingPerms, PERM_KEYS, PERM_LABELS, type PermKey } from './guildStashView.js';
+import { accessText, canDragFrom, canEditPermRow, canSendBuy, currentGuildTab, draggedItem, guildDropAction, guildItem, involvesGuild, nextPendingPerms, PERM_KEYS, PERM_LABELS, type PermKey } from './guildStashView.js';
 import { colorHex, TabEditor } from './StashTabEditor.js';
 import { useStashView } from './stashView.js';
 import { sendCommand, useUi } from './store.js';
@@ -79,9 +81,7 @@ function GuildTabButton({ tab, active }: { tab: GuildTabView; active: boolean })
         const ui = useUi.getState();
         const item = drag ? draggedItem(drag, ui.inventory, ui.guildStash) : undefined;
         if (!drag || !item) return;
-        const action = guildDropAction(ui.guildStash, item, drag, { at: 'guildTab', tab: tab.id });
-        if (action && 'send' in action) sendCommand(action.send);
-        else if (action) ui.notify(action.refuse);
+        runGuild(guildDropAction(ui.guildStash, item, drag, { at: 'guildTab', tab: tab.id }), item, 'drag');
       }}
       {...tip(`${tab.name}: ${accessText(tab.access)}`)}
     >
@@ -132,7 +132,7 @@ function BuyGuildTab({ view, gold }: { view: GuildStashView; gold: number }) {
  * Per tab, what Officers and Members may do; the Leader can always do everything. A popover over
  * the grid, so opening it never moves the grid or grows the window.
  */
-function PermEditor({ tab, onClose }: { tab: GuildTabView; onClose: () => void }) {
+function PermEditor({ tab, rank: viewer, onClose }: { tab: GuildTabView; rank: GuildRank; onClose: () => void }) {
   const base = tab.perms;
   const [pending, setPending] = useState<Record<ManagedRank, TabPerms> | null>(null);
   // The server's next view of the tab is the truth again.
@@ -162,21 +162,55 @@ function PermEditor({ tab, onClose }: { tab: GuildTabView; onClose: () => void }
             <th scope="row">Leader</th>
             <td colSpan={3}>always all</td>
           </tr>
-          {MANAGED_RANKS.map((rank) => (
-            <tr key={rank}>
-              <th scope="row">{GUILD_RANK_NAMES[rank]}</th>
-              {PERM_KEYS.map((k) => (
-                <td key={k}>
-                  <input type="checkbox" checked={shown[rank][k]} aria-label={`${GUILD_RANK_NAMES[rank]} ${PERM_LABELS[k].toLowerCase()}`} onChange={(e) => set(rank, k, e.target.checked)} />
-                </td>
-              ))}
-            </tr>
-          ))}
+          {MANAGED_RANKS.map((rank) => {
+            const editable = canEditPermRow(viewer, rank);
+            return (
+              <tr key={rank} className={editable ? '' : 'gstash-perm-fixed'} {...tip(editable ? null : 'Only the Leader sets Officer permissions')}>
+                <th scope="row">{GUILD_RANK_NAMES[rank]}</th>
+                {PERM_KEYS.map((k) => (
+                  <td key={k}>
+                    <input type="checkbox" checked={shown[rank][k]} disabled={!editable} aria-label={`${GUILD_RANK_NAMES[rank]} ${PERM_LABELS[k].toLowerCase()}`} onChange={(e) => set(rank, k, e.target.checked)} />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <button type="button" className="small" onClick={onClose}>
         Done
       </button>
+    </div>
+  );
+}
+
+/** The in-game yes or no for a deposit that cannot be taken back, or a valuable one (depositPrompt). */
+function DepositConfirm() {
+  const pending = usePendingGuildDeposit((s) => s.pending);
+  // Leaving the guild side drops the question; the item stays in the bag.
+  useEffect(() => () => usePendingGuildDeposit.setState({ pending: null }), []);
+  if (!pending) return null;
+  const close = () => usePendingGuildDeposit.setState({ pending: null });
+  return (
+    <div className="inv-confirm gstash-confirm" role="alertdialog" aria-label="Put into the guild stash">
+      <p>
+        Put <strong style={{ color: tierColor(pending.item) }}>{pending.item.name}</strong> into the guild stash? {pending.text}
+      </p>
+      <div>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => {
+            sendCommand(pending.msg);
+            close();
+          }}
+        >
+          Put it in
+        </button>
+        <button type="button" onClick={close} autoFocus>
+          Keep it
+        </button>
+      </div>
     </div>
   );
 }
@@ -284,7 +318,8 @@ export function GuildStashPane({ inv }: { inv: InventoryMessage }) {
             )}
           </div>
         )}
-        {tab && permsOpen && <PermEditor tab={tab} onClose={() => setPerms(false)} />}
+        {tab && permsOpen && rank && <PermEditor tab={tab} rank={rank} onClose={() => setPerms(false)} />}
+        <DepositConfirm />
         {tab?.cells ? (
           <div className="inv-bag stash-grid">
             <GuildGrid view={view} tab={tab} />

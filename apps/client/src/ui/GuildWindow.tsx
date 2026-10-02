@@ -1,7 +1,7 @@
 import { CLASSES, GUILD_LIMITS, GUILD_RANK_NAMES, guildCan, type GuildInfo, type GuildMemberView } from '@rune/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { GamePanel, useMovablePanel } from './GamePanel.js';
-import { cleanGuildName, foundProblem, isSelf, LOG_KIND_LABELS, logRequest, memberActions, motdDraftChanged, onlineCount, sortRoster } from './guildView.js';
+import { cleanGuildName, foundProblem, INVITE_LAPSE_MS, pendingInvites, isSelf, LOG_KIND_LABELS, logRequest, memberActions, motdDraftChanged, onlineCount, sortRoster } from './guildView.js';
 import { openPlayerMenu } from './playerActions.js';
 import { keyLabel, useSettings } from './settings.js';
 import { sendCommand, useUi } from './store.js';
@@ -182,6 +182,35 @@ function Roster({ guild, onAsk }: { guild: GuildInfo; onAsk: (p: Pending) => voi
   );
 }
 
+/** The Leader's open invites, each with Cancel; one that lapses drops off without waiting for the server. */
+function PendingInvites({ guild }: { guild: GuildInfo }) {
+  const [now, setNow] = useState(() => Date.now());
+  const list = pendingInvites(guild, now);
+  const open = list.length > 0;
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [open]);
+  if (!open) return null;
+  return (
+    <section className="guild-invites" aria-label="Pending invites">
+      <h3>Pending invites</h3>
+      <ul>
+        {list.map((i) => (
+          <li key={i.id}>
+            <span>{i.name}</span>
+            <span className="muted">lapses in {Math.max(0, Math.ceil((i.at + INVITE_LAPSE_MS - now) / 1000))} s</span>
+            <button type="button" className="small" onClick={() => sendCommand({ t: 'guildCancelInvite', member: i.id })}>
+              Cancel
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function InviteForm() {
   const [name, setName] = useState('');
   return (
@@ -275,6 +304,7 @@ function InGuild({ guild }: { guild: GuildInfo }) {
       </div>
       {view === 'roster' ? <Roster guild={guild} onAsk={setPending} /> : <GuildLog />}
       {view === 'roster' && guildCan(guild.rank, 'invite') && <InviteForm />}
+      {view === 'roster' && <PendingInvites guild={guild} />}
       {pending ? (
         <div className="guild-confirm" role="alertdialog" aria-label="Confirm">
           <span>{pendingText(pending, guild)}</span>

@@ -23,6 +23,34 @@ function when(at: number): string {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
 }
 
+/** For a guild nobody leads: name an account (in no guild) to join it as Leader. */
+function AssignLeader({ token, id, notify, done }: { token: string; id: number; notify: (t: string) => void; done: () => void }) {
+  const [name, setName] = useState('');
+  return (
+    <form
+      className="adm-toolbar"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const username = name.trim();
+        if (!username) return;
+        void guildsApi.assignLeader(token, id, username).then((r) => {
+          notify(r.ok ? `${username} now leads this guild` : r.error);
+          if (r.ok) {
+            setName('');
+            done();
+          }
+        });
+      }}
+    >
+      <span className="badge red">no leader</span>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Account username, in no guild" aria-label="Assign Leader" />
+      <button type="submit" className="small" disabled={!name.trim()}>
+        Assign Leader
+      </button>
+    </form>
+  );
+}
+
 function Detail({ token, role, id, notify, reloadList }: { token: string; role: Role; id: number; notify: (t: string) => void; reloadList: () => void }) {
   const [detail, setDetail] = useState<AdminGuildDetail | null>(null);
   const [log, setLog] = useState<GuildLogEntry[]>([]);
@@ -60,6 +88,7 @@ function Detail({ token, role, id, notify, reloadList }: { token: string; role: 
           <dd>{detail.tabList.map((t) => `${t.name} (${t.items} items)`).join(', ') || <span className="muted">none</span>}</dd>
         </div>
       </dl>
+      {!detail.leader && mayLead && <AssignLeader token={token} id={id} notify={notify} done={() => { load(); reloadList(); }} />}
       <h3>Roster</h3>
       <table className="adm-table inner">
         <thead>

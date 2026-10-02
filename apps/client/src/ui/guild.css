@@ -453,3 +453,45 @@
   margin-top: 0;
   text-align: inherit;
 }
+
+/* The deposit question floats over the bottom of the grid, so the window never grows for it. */
+.gstash-confirm {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 6;
+  margin: 0;
+  background: rgba(36, 8, 6, 0.96);
+  box-shadow: 0 8px 24px #000c;
+}
+/* A permission row the viewer cannot change reads as fixed. */
+.gstash-perm-fixed th,
+.gstash-perm-fixed input {
+  opacity: 0.55;
+}
+
+.guild-invites {
+  margin-top: 8px;
+  padding: 6px 9px;
+  background: #110d09;
+  border: 1px solid #2e261b;
+  font-size: 12.5px;
+}
+.guild-invites h3 {
+  margin: 0 0 4px;
+}
+.guild-invites ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.guild-invites li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+.guild-invites li .muted {
+  margin-left: auto;
+}

@@ -73,6 +73,7 @@ import { actionFor, useSettings } from '../ui/settings.js';
 import { receiveGuild } from '../ui/guildView.js';
 import { closePlayerMenu, openPlayerMenu } from '../ui/playerActions.js';
 import { useStashView } from '../ui/stashView.js';
+import { activeStation } from '../ui/stations.js';
 import { playerInTownAt, type TownPlayer } from './townPick.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
@@ -726,8 +727,13 @@ export class Game {
         return;
       case 'guildStash':
         useUi.setState((s) => receiveGuild(s, msg));
-        // The server closed it (kicked, disbanded, or the stash would not load): back to the account's.
-        if (msg.stash === null) useStashView.setState({ source: 'account' });
+        // The server closed it while the window still shows it (kicked, disbanded, out of reach by
+        // the server's measure): back to the account's. Once the window is gone (walked away, which
+        // closes it here first) the player's choice of side is kept for next time.
+        if (msg.stash === null && activeStation(useUi.getState()) === 'stash') useStashView.setState({ source: 'account' });
+        return;
+      case 'guildStashTabs':
+        useUi.setState((s) => receiveGuild(s, msg));
         return;
       case 'partyInvite':
         useUi.setState({ partyInvite: msg.from });

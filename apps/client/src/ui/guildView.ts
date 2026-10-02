@@ -1,4 +1,4 @@
-import { canKick, guildCan, guildNameProblem, guildTagProblem, rankOrder, type GuildInfo, type GuildLogEntry, type GuildMemberView, type GuildRank, type GuildStashView, type ServerMessage } from '@rune/shared';
+import { applyGuildStashTabs, canKick, guildCan, guildNameProblem, guildTagProblem, rankOrder, type GuildInfo, type GuildLogEntry, type GuildMemberView, type GuildRank, type GuildStashView, type ServerMessage } from '@rune/shared';
 
 /**
  * The guild window's rules, kept free of React so they can be tested: which roster buttons a rank
@@ -31,7 +31,7 @@ export interface GuildSlice {
   guildStash: GuildStashView | null;
 }
 
-type GuildMessage = Extract<ServerMessage, { t: 'guild' | 'guildInvite' | 'guildLog' | 'guildStash' }>;
+type GuildMessage = Extract<ServerMessage, { t: 'guild' | 'guildInvite' | 'guildLog' | 'guildStash' | 'guildStashTabs' }>;
 
 /** What one guild message changes in the store. */
 export function receiveGuild(s: GuildSlice, msg: GuildMessage): Partial<GuildSlice> {
@@ -53,6 +53,9 @@ export function receiveGuild(s: GuildSlice, msg: GuildMessage): Partial<GuildSli
     }
     case 'guildStash':
       return { guildStash: msg.stash };
+    // Only the tabs a move changed; a late one after the window closed has nothing to merge into.
+    case 'guildStashTabs':
+      return s.guildStash ? { guildStash: applyGuildStashTabs(s.guildStash, msg.update) } : {};
   }
 }
 
@@ -96,6 +99,15 @@ export function sortRoster(members: readonly GuildMemberView[]): GuildMemberView
 /** The viewer's own row: the account's current character is the name the roster shows for it. */
 export function isSelf(member: GuildMemberView, myName: string): boolean {
   return member.name.toLowerCase() === myName.toLowerCase();
+}
+
+/** An open invite lapses this long after it was sent (the server's rule). */
+export const INVITE_LAPSE_MS = 2 * 60 * 1000;
+
+/** The Leader's open invites, without the ones that have lapsed; nobody else is sent any. */
+export function pendingInvites(g: GuildInfo, now: number): NonNullable<GuildInfo['invites']> {
+  if (g.rank !== 'leader') return [];
+  return (g.invites ?? []).filter((i) => now - i.at < INVITE_LAPSE_MS);
 }
 
 export function onlineCount(g: GuildInfo): number {

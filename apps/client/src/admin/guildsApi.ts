@@ -46,4 +46,6 @@ export const guildsApi = {
   list: async (token: string) => narrow(await call('GET', '/api/admin/guilds', token), isGuildList),
   detail: async (token: string, id: number, before: number | null) => narrow(await call('GET', `/api/admin/guilds/${id}${before === null ? '' : `?before=${before}`}`, token), isGuildDetail),
   setLeader: async (token: string, id: number, accountId: number) => narrow(await call('POST', `/api/admin/guilds/${id}/leader`, token, { accountId }), isOk),
+  /** A guild left without a Leader: this account (in no guild yet) joins it as Leader. */
+  assignLeader: async (token: string, id: number, username: string) => narrow(await call('POST', `/api/admin/guilds/${id}/leader`, token, { username }), isOk),
 };
