@@ -90,8 +90,11 @@ export type ClientMessage =
   | { t: 'equipVessel'; uid: ItemUid; slot: number }
   | { t: 'unequipVessel'; slot: number }
   | { t: 'discard'; uid: ItemUid }
-  /** Pick up the items in a ground bag; the server checks reach and bag room. */
-  | { t: 'pickup'; id: EntityId }
+  /** Take item `uid` from a ground pile, or everything that fits without it; the server checks reach and bag room. */
+  | { t: 'pickup'; id: EntityId; uid?: ItemUid }
+  /** Standing at a pile: open its loot window, which the server then keeps current (a `lootPile` message). */
+  | { t: 'lootOpen'; id: EntityId }
+  | { t: 'lootClose' }
   /** Standing at the trader: send the shared stock. */
   | { t: 'traderList' }
   | { t: 'sell'; uid: ItemUid }
@@ -212,7 +215,18 @@ export type EntitySnap =
     })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
-  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: { n: string; tier: ItemTier; u?: true }[]; gold: number });
+  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: LootName[]; gold: number });
+
+/**
+ * One item of a pile as snapshots carry it, for its label and the hover preview: the best
+ * LOOT.pilePreviewNames of the pile, best tier first. `u` marks a named unique, `c` a rune stack's count.
+ */
+export interface LootName {
+  n: string;
+  tier: ItemTier;
+  u?: true;
+  c?: number;
+}
 
 /**
  * A spell entity as sent once, when it becomes visible or its motion changes: enough for the client
@@ -440,6 +454,13 @@ export type ServerMessage =
   | { t: 'models'; models: ModelOverrides }
   /** The trader's shared stock, oldest first. */
   | { t: 'trader'; stock: TraderEntry[] }
+  /**
+   * The open loot window's pile, in full, sent when it opens and whenever it changes; `items` null
+   * closes the window (the pile is gone, or the hero walked away). `own` are the viewer's own drops,
+   * which they cannot take back yet.
+   */
+  | { t: 'lootPile'; id: EntityId; items: Item[]; own: ItemUid[] }
+  | { t: 'lootPile'; id: EntityId; items: null }
   | ChatMessage
   /** Opens the waypoint menu: the zone of the waypoint underfoot and every one this character has found. */
   | { t: 'waypoints'; current: string; unlocked: string[] }

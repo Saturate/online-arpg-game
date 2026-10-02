@@ -33,7 +33,7 @@ import { STASH_TABS } from '../config/stash.js';
 import { cloneLayout, emptyStash, isListableRune, locateInStash, newGeneralTab, removeFromStash, stashItemUids, stashRefuses, type StashLayout, type StashSave } from '../items/stash.js';
 import { levelRequirement } from './progression.js';
 import { acquireLink, spiritReservedFor } from './auras.js';
-import type { EntityId, EquippedSigil, PlayerComp } from './ecs.js';
+import type { DropMark, EntityId, EquippedSigil, PlayerComp } from './ecs.js';
 import { distSq } from './math.js';
 import { despawnMinion, packVesselCount } from './minions.js';
 import type { PlayerSave, Simulation } from './simulation.js';
@@ -753,13 +753,56 @@ function freeBagSpot(sim: Simulation, x: number, y: number, radius: number): { x
   return { x, y };
 }
 
-export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, dropper: EntityId | null): void {
+/**
+ * The item pile a new drop at (x, y) joins: the nearest one within the admin's merge radius of the
+ * fall point, in sight of it (a pile behind a wall is a different place), with room for the drop.
+ * Gold piles are left out: they go on walk-over and would turn a pile into a coin pile.
+ */
+function pileFor(sim: Simulation, x: number, y: number, adding: number): EntityId | null {
+  const radius = sim.rates.lootMerge;
+  if (radius <= 0) return null;
   const w = sim.world;
+  let best: EntityId | null = null;
+  let bestD = radius * radius;
+  for (const [id, pile] of w.loot) {
+    if (!w.isAlive(id) || pile.items.length === 0 || pile.gold > 0 || pile.items.length + adding > LOOT.pileMaxItems) continue;
+    const at = w.position.get(id);
+    if (!at) continue;
+    const d = distSq(at.x, at.y, x, y);
+    if (d <= bestD && sim.map.lineClear(x, y, at.x, at.y, 0, 'shots')) {
+      best = id;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Lays items on the ground at (x, y): into the item pile there if one is close enough (see pileFor),
+ * else as a new pile. `dropper` marks every item as that player's own drop.
+ */
+export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], radius: number, dropper: EntityId | null): void {
+  if (items.length === 0) return;
+  const w = sim.world;
+  const mark = dropper === null ? null : { id: dropper, x, y };
+  const joined = pileFor(sim, x, y, items.length);
+  const pile = joined === null ? undefined : w.loot.get(joined);
+  if (joined !== null && pile) {
+    pile.items.push(...items);
+    if (mark) for (const it of items) pile.droppers.set(it.uid, mark);
+    // A pile that just grew starts its clock again, so the new drop gets its full time on the ground.
+    pile.lifetime = Math.max(pile.lifetime, LOOT.bagLifetimeSeconds);
+    pile.rev++;
+    w.radius.set(joined, Math.max(w.radius.get(joined) ?? LOOT.bagRadius, radius));
+    return;
+  }
   const spot = freeBagSpot(sim, x, y, radius);
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, radius);
-  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, dropper: dropper === null ? null : { id: dropper, x, y } });
+  const droppers = new Map<ItemUid, DropMark>();
+  if (mark) for (const it of items) droppers.set(it.uid, mark);
+  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, droppers, rev: 0 });
 }
 
 export function spawnGold(sim: Simulation, x: number, y: number, amount: number): void {
@@ -769,12 +812,12 @@ export function spawnGold(sim: Simulation, x: number, y: number, amount: number)
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, LOOT.bagRadius);
-  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, dropper: null });
+  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, droppers: new Map(), rev: 0 });
 }
 
 /**
- * Moves every bag and gold pile on the ground of `from` to the same spot in `to`, for a room rebuilt
- * in place (a town save rebuilds the world). `from` is left with none, so nothing exists twice.
+ * Moves every pile on the ground of `from` to the same spot in `to`, for a room rebuilt in place (a
+ * town save rebuilds the world). `from` is left with none, so nothing exists twice.
  */
 export function carryGroundLoot(from: Simulation, to: Simulation): void {
   const src = from.world;
@@ -787,36 +830,90 @@ export function carryGroundLoot(from: Simulation, to: Simulation): void {
       // On open ground near where it lay: a rebuilt world round a moved gate can have a rock there now.
       dst.position.set(copy, freeBagSpot(to, pos.x, pos.y, radius));
       dst.radius.set(copy, radius);
-      // The dropper was an entity of the old room; a bag nobody claims is free to all, as it soon is anyway.
-      dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, dropper: null });
+      // Droppers were entities of the old room; an item nobody claims is free to all, as it soon is anyway.
+      dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, droppers: new Map(), rev: 0 });
     }
     src.destroy(id);
   }
   src.flushDestroyed();
 }
 
-/** A click on a ground bag: takes what fits if the player is close enough. Returns why not, or null. */
-export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): string | null {
+/** Why a player cannot use a pile from where they stand, or null when they can. `slack` widens the reach. */
+function pileReachRefusal(sim: Simulation, pid: EntityId, lootId: EntityId, slack: number): string | null {
   const w = sim.world;
-  const p = w.player.get(pid);
-  const bag = w.loot.get(lootId);
   const pos = w.position.get(pid);
   const at = w.position.get(lootId);
-  if (!p || !bag || !pos || !at || p.respawnIn !== null) return null;
+  if (!pos || !at) return 'It is gone';
   // The request can arrive before the input frames that walked the hero there, so the server allows
   // a couple of frames of movement more than the client aims for.
-  const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach + LOOT.pickupLagSlack;
+  const reach = (w.radius.get(lootId) ?? LOOT.bagRadius) + (w.radius.get(pid) ?? 0) + LOOT.pickupReach + LOOT.pickupLagSlack + slack;
   if (distSq(pos.x, pos.y, at.x, at.y) > reach * reach) return 'Too far away';
   if (!sim.map.lineClear(pos.x, pos.y, at.x, at.y, 0, 'shots')) return 'Out of reach';
-  // A drop is meant to leave the bag: a click on the item just dropped would put it straight back.
+  return null;
+}
+
+/** A pile's full contents as the loot window shows them, or null once it is gone or out of reach. */
+export function lootView(sim: Simulation, pid: EntityId, lootId: EntityId): { items: Item[]; own: ItemUid[]; rev: number } | null {
+  const w = sim.world;
+  const pile = w.loot.get(lootId);
+  const p = w.player.get(pid);
+  if (!p || !pile || !w.isAlive(lootId) || p.respawnIn !== null || pile.items.length === 0) return null;
+  if (pileReachRefusal(sim, pid, lootId, LOOT.pileWindowSlack) !== null) return null;
+  const own = pile.items.filter((it) => pile.droppers.get(it.uid)?.id === pid).map((it) => it.uid);
+  return { items: pile.items, own, rev: pile.rev };
+}
+
+/**
+ * Takes item `uid` from a pile, or every item (`uid` null), if the player is close enough. Each item
+ * goes into the bag whole or not at all; a plain rune stack may go in part, shrinking the ground
+ * stack by exactly what the bag gained. Returns why not, or null.
+ */
+export function takeLoot(sim: Simulation, pid: EntityId, lootId: EntityId, uid: ItemUid | null): string | null {
+  const w = sim.world;
+  const p = w.player.get(pid);
+  const pile = w.loot.get(lootId);
+  if (!p || p.respawnIn !== null) return null;
+  // Destroyed piles stay readable until the end of the tick; their items already went somewhere.
+  if (!pile || !w.isAlive(lootId) || pile.items.length === 0) return uid === null ? null : 'Someone else took it';
+  const far = pileReachRefusal(sim, pid, lootId, 0);
+  if (far) return far;
+  // A drop is meant to leave the item: a click on the item just dropped would put it straight back.
   // updateLoot lifts this once the dropper steps away.
-  if (bag.dropper?.id === pid && bag.items.length > 0) return 'Step away before taking back your own drop';
-  const before = bag.items.length;
-  bag.items = bag.items.filter((item) => !takeFromGround(p, item));
-  const taken = before - bag.items.length;
-  if (taken > 0) sim.emit({ e: 'pickup', id: pid, x: at.x, y: at.y, count: taken }, at.x, at.y);
-  if (bag.items.length === 0 && bag.gold === 0) w.destroy(lootId);
-  return bag.items.length > 0 ? 'No room in your bag' : null;
+  const mine = (it: Item): boolean => pile.droppers.get(it.uid)?.id === pid;
+  const wanted = uid === null ? pile.items.filter((it) => !mine(it)) : pile.items.filter((it) => it.uid === uid);
+  const one = wanted[0];
+  if (uid !== null && !one) return 'Someone else took it';
+  if (uid !== null && one && mine(one)) return 'Step away before taking back your own drop';
+  if (wanted.length === 0) return 'Step away before taking back your own drop';
+  const at = w.position.get(lootId);
+  let taken = 0;
+  let short = false;
+  const gone = new Set<ItemUid>();
+  for (const it of wanted) {
+    const count = it.kind === 'rune' ? it.count : 1;
+    if (takeFromGround(p, it)) {
+      gone.add(it.uid);
+      taken++;
+    } else {
+      short = true;
+      if (it.kind === 'rune' && it.count !== count) taken++;
+    }
+  }
+  if (gone.size > 0) {
+    pile.items = pile.items.filter((it) => !gone.has(it.uid));
+    for (const u of gone) pile.droppers.delete(u);
+  }
+  if (taken > 0) {
+    pile.rev++;
+    if (at) sim.emit({ e: 'pickup', id: pid, x: at.x, y: at.y, count: taken }, at.x, at.y);
+  }
+  if (pile.items.length === 0 && pile.gold === 0) w.destroy(lootId);
+  return short ? 'No room in your bag' : null;
+}
+
+/** A click on a single-item pile, or Take all: every item that fits. Returns why not, or null. */
+export function pickupLoot(sim: Simulation, pid: EntityId, lootId: EntityId): string | null {
+  return takeLoot(sim, pid, lootId, null);
 }
 
 export function dropLoot(sim: Simulation, enemyId: EntityId): void {
@@ -841,8 +938,8 @@ export function bestTier(items: readonly Item[]): (typeof ITEM_TIERS)[number] {
 }
 
 /**
- * Walking over gold picks it up; items wait for a click (pickupLoot), D2 style. A bag's dropper is
- * ignored until they step away, for gold and clicks alike.
+ * Walking over gold picks it up; items wait for a click (takeLoot), D2 style. Each dropped item's
+ * mark lifts once its dropper steps away (see DropMark).
  */
 export function updateLoot(sim: Simulation, dt: number): void {
   const w = sim.world;
@@ -853,30 +950,28 @@ export function updateLoot(sim: Simulation, dt: number): void {
       w.destroy(id);
       continue;
     }
-    const r = w.radius.get(id) ?? LOOT.bagRadius;
-    const dropper = bag.dropper;
-    if (dropper) {
-      const dpos = w.position.get(dropper.id);
-      // A dropper who left the room, or died, has stepped away as far as the bag is concerned.
-      if (!dpos || w.player.get(dropper.id)?.respawnIn !== null || distSq(dpos.x, dpos.y, dropper.x, dropper.y) > LOOT.dropStepAway ** 2) bag.dropper = null;
+    for (const [uid, mark] of bag.droppers) {
+      const dpos = w.position.get(mark.id);
+      // A dropper who left the room, or died, has stepped away as far as the item is concerned.
+      if (!dpos || w.player.get(mark.id)?.respawnIn !== null || distSq(dpos.x, dpos.y, mark.x, mark.y) > LOOT.dropStepAway ** 2) {
+        bag.droppers.delete(uid);
+        bag.rev++;
+      }
     }
+    if (bag.gold === 0) continue;
+    const r = w.radius.get(id) ?? LOOT.bagRadius;
     for (const [pid, p] of w.player) {
       if (p.respawnIn !== null) continue;
       const ppos = w.position.get(pid);
       const reach = r + (w.radius.get(pid) ?? 0);
-      if (!ppos) continue;
-      if (bag.dropper?.id === pid) continue;
-      const d2 = distSq(pos.x, pos.y, ppos.x, ppos.y);
-      if (d2 > reach * reach || bag.gold === 0) continue;
+      if (!ppos || distSq(pos.x, pos.y, ppos.x, ppos.y) > reach * reach) continue;
       const gold = bag.gold;
       p.gold += gold;
       bag.gold = 0;
       changed(p);
       sim.emit({ e: 'pickup', id: pid, x: pos.x, y: pos.y, count: 0, gold }, pos.x, pos.y);
-      if (bag.items.length === 0) {
-        w.destroy(id);
-        break;
-      }
+      if (bag.items.length === 0) w.destroy(id);
+      break;
     }
   }
 }

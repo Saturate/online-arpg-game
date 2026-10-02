@@ -323,6 +323,24 @@ function Settings({ token, role, notify }: TabProps) {
       <fieldset disabled={!editable}>
         {rate('xpRate', 'XP rate', 'Multiplies XP from every kill.')}
         {rate('lootRate', 'Loot rate', 'Multiplies how often monsters drop, and how many items rares and bosses drop.')}
+        <label className="adm-field" data-search-id={searchId('settings', 'lootMergeRadius')}>
+          <span>
+            Loot pile radius <b>{draft.lootMergeRadius === 0 ? 'off' : `${draft.lootMergeRadius} units`}</b>
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={SETTINGS_LIMITS.lootMergeRadiusMax}
+            step={1}
+            value={draft.lootMergeRadius}
+            aria-label="Loot pile radius"
+            onChange={(e) => {
+              // An emptied field reads as 0, which would silently switch merging off on save.
+              if (e.target.value !== '') setDraft({ ...draft, lootMergeRadius: Number(e.target.value) });
+            }}
+          />
+          <small className="muted">{`A new drop this close to an item pile joins it, so one label shows for the pile. A player is 28 units wide; 0 keeps every drop apart. Applies to drops from now on. Default ${DEFAULT_SERVER_SETTINGS.lootMergeRadius}.`}</small>
+        </label>
         {force('forceMax', 'Force bar', `Force at level 1 before gear; each level adds more. Default ${DEFAULT_SERVER_SETTINGS.forceMax}.`, SETTINGS_LIMITS.forceMaxMin, SETTINGS_LIMITS.forceMaxMax, 10)}
         {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}

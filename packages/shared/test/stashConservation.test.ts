@@ -333,6 +333,8 @@ function run(seed: number, nearCaps: boolean, steps: number): { ok: number; refu
       pos.y = stashAt.y;
       const items = Array.from({ length: rng.int(1, 3) }, () => randomItem(sim, rng)).filter((i) => i.bound !== true);
       const ground = tally({ ...p, items: new Map(items.map((i) => [i.uid, i])), stash: p.stash });
+      // An empty drop lays no pile.
+      if (items.length === 0) continue;
       spawnBag(sim, pos.x, pos.y, items, 14, null);
       const loot = [...sim.world.loot.keys()].at(-1);
       if (loot === undefined) throw new Error('no bag');

@@ -58,6 +58,7 @@ export interface SearchEntry {
 export const SETTING_LABELS: Record<keyof ServerSettings, { label: string; target: string; terms?: string[] }> = {
   xpRate: { label: 'XP rate', target: 'xpRate', terms: ['experience'] },
   lootRate: { label: 'Loot rate', target: 'lootRate', terms: ['drops'] },
+  lootMergeRadius: { label: 'Loot pile radius', target: 'lootMergeRadius', terms: ['drops', 'merge', 'pile'] },
   motd: { label: 'Message of the day', target: 'motd', terms: ['motd', 'welcome'] },
   registrationOpen: { label: 'Registration open', target: 'registrationOpen', terms: ['signup', 'new accounts'] },
   worldSeed: { label: 'World seed', target: 'worldSeed' },

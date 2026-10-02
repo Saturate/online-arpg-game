@@ -184,8 +184,9 @@ describe('progression', () => {
 });
 
 describe('dropped loot', () => {
-  it('scatters bags dropped on the same spot so they never stack', () => {
+  it('with merging off, scatters bags dropped on the same spot so they never stack', () => {
     const sim = new Simulation(9, { kind: 'flat' });
+    sim.rates.lootMerge = 0;
     const pid = sim.addPlayer('c', 'warrior');
     const p = sim.world.player.get(pid);
     if (!p) throw new Error('no player');

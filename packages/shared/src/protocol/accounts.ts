@@ -1,4 +1,4 @@
-import { ENEMY_LEVEL, HEAT, STREAMING } from '../config/sim.js';
+import { ENEMY_LEVEL, HEAT, LOOT, STREAMING } from '../config/sim.js';
 import { isClassId, type ClassId } from '../data/classes.js';
 import type { Role } from './roles.js';
 import { cleanChat } from './validate.js';
@@ -90,6 +90,8 @@ export interface ServerSettings {
   xpRate: number;
   /** Multiplier on how often monsters drop and how many items rares and bosses drop. */
   lootRate: number;
+  /** World units: a new drop this close to an item pile joins it; 0 turns merging off. */
+  lootMergeRadius: number;
   /** Shown to everyone as they enter the world; empty for none. */
   motd: string;
   registrationOpen: boolean;
@@ -144,6 +146,7 @@ export interface ServerSettings {
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   xpRate: 1,
   lootRate: 1,
+  lootMergeRadius: LOOT.mergeRadius,
   motd: '',
   registrationOpen: true,
   worldSeed: 1,
@@ -255,6 +258,8 @@ export const SETTINGS_LIMITS = {
   /** Under 0.1 s a held key casts nearly every 0.05 s tick; over 3 s spells feel broken. */
   castCooldownMin: 0.1,
   castCooldownMax: 3,
+  /** Past 200 (seven body widths) a pile swallows drops from across a fight. */
+  lootMergeRadiusMax: 200,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -313,8 +318,9 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     bossLifeMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
     bossDamageMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
     castCooldownSeconds: [SETTINGS_LIMITS.castCooldownMin, SETTINGS_LIMITS.castCooldownMax],
+    lootMergeRadius: [0, SETTINGS_LIMITS.lootMergeRadiusMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds', 'lootMergeRadius'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];
