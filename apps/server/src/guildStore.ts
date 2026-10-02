@@ -48,8 +48,9 @@ function isLogKind(v: unknown): v is GuildLogKind {
 export class GuildStore {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`
+      -- AUTOINCREMENT so a disbanded guild's id is never handed to a new one: logs and admin links stay unambiguous.
       CREATE TABLE IF NOT EXISTS guilds (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE COLLATE NOCASE,
         tag TEXT NOT NULL UNIQUE COLLATE NOCASE,
         motd TEXT NOT NULL DEFAULT '',

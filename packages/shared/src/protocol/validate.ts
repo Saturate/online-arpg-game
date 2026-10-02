@@ -304,6 +304,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'guildPromote':
     case 'guildDemote':
     case 'guildTransfer':
+    case 'guildCancelInvite':
       return isMemberId(value.member) ? { t: value.t, member: value.member } : null;
     case 'guildDisband':
       return { t: 'guildDisband' };
@@ -349,7 +350,7 @@ function isPlanHash(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables', 'lootPile', 'restart', 'guild', 'guildInvite', 'guildLog', 'guildStash']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables', 'lootPile', 'restart', 'guild', 'guildInvite', 'guildLog', 'guildStash', 'guildStashTabs']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -367,6 +368,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   if (value.t === 'guild') return isFiniteNumber(value.foundPrice) && (value.guild === null || isGuildInfo(value.guild));
   if (value.t === 'guildInvite') return typeof value.from === 'string' && typeof value.guild === 'string' && typeof value.tag === 'string';
   if (value.t === 'guildLog') return Array.isArray(value.entries) && typeof value.more === 'boolean';
+  if (value.t === 'guildStashTabs') return isRecord(value.update) && Array.isArray(value.update.tabs) && Array.isArray(value.update.items);
   if (value.t === 'guildStash') return value.stash === null || (isRecord(value.stash) && Array.isArray(value.stash.tabs) && Array.isArray(value.stash.items));
   return value.t !== 'inscribed' || isInscribeReply(value);
 }

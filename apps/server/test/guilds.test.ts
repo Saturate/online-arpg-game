@@ -1,4 +1,4 @@
-import { addItem, BAG, createGear, createRune, findSpot, GUILD, GUILD_LIMITS, guildTabPrice, parseGuildStash, Rng, type GuildInfo, type GuildStashView, type Item, type PlayerComp } from '@rune/shared';
+import { applyGuildStashTabs, addItem, BAG, createGear, createRune, findSpot, GUILD, GUILD_LIMITS, guildTabPrice, parseGuildStash, Rng, type GuildInfo, type GuildStashView, type Item, type PlayerComp } from '@rune/shared';
 import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,8 +7,9 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
-import { LEADER_IDLE_MS } from '../src/guilds.js';
+import { INVITE_MS, LEADER_IDLE_MS } from '../src/guilds.js';
 import { AccountApi } from '../src/http.js';
+import { events } from '../src/eventLog.js';
 import { RoomManager } from '../src/manager.js';
 import { FakeSocket } from './fakeSocket.js';
 
@@ -86,8 +87,14 @@ function guildInfo(socket: FakeSocket): GuildInfo | null {
   return socket.last('guild')?.guild ?? null;
 }
 
+/** The guild stash as the client holds it: the last full view with every later tab update merged in. */
 function stashView(socket: FakeSocket): GuildStashView | null {
-  return socket.last('guildStash')?.stash ?? null;
+  let view: GuildStashView | null = null;
+  for (const m of socket.sent) {
+    if (m.t === 'guildStash') view = m.stash;
+    else if (m.t === 'guildStashTabs' && view) view = applyGuildStashTabs(view, m.update);
+  }
+  return view;
 }
 
 function lastNotice(socket: FakeSocket): string | undefined {
@@ -543,11 +550,12 @@ describe('the guild stash', () => {
     a.socket.emit({ t: 'guildStashOpen' });
     const uids = Array.from({ length: 12 }, (_, i) => giveGear(w.rooms, a.socket, `Spam ${i}`, i + 1));
     for (const uid of uids) a.socket.emit({ t: 'guildDeposit', uid, tab: 1, at: null });
-    expect(stashView(a.socket)?.items.length).toBeLessThan(12);
-    expect(stashView(a.socket)?.items.length).toBe(8);
-    w.advance(1000);
+    expect(stashView(a.socket)?.items.length).toBe(4);
     const p = player(w.rooms, a.socket);
-    for (const uid of uids) if (p.inventory.includes(uid)) a.socket.emit({ t: 'guildDeposit', uid, tab: 1, at: null });
+    for (let i = 0; i < 2; i++) {
+      w.advance(1000);
+      for (const uid of uids) if (p.inventory.includes(uid)) a.socket.emit({ t: 'guildDeposit', uid, tab: 1, at: null });
+    }
     expect(stashView(a.socket)?.items.length).toBe(12);
   });
 });
@@ -658,7 +666,7 @@ describe('leadership handover', () => {
     expect(w.rooms.setGuildLeader(id, b.accountId, 'test admin')).toBeNull();
     expect(guildInfo(b.socket)?.rank).toBe('leader');
     expect(guildInfo(a.socket)?.rank).toBe('officer');
-    expect(w.rooms.setGuildLeader(id, 999_999, 'test admin')).toBe('That account is not in the guild');
+    expect(w.rooms.setGuildLeader(id, 999_999, 'test admin')).toMatch(/^That account is not in the guild/);
     expect(w.rooms.setGuildLeader(999, b.accountId, 'test admin')).toBe('No such guild');
     expect(w.rooms.guildList()).toEqual([expect.objectContaining({ id, name: 'Iron Oath', tag: 'IRON', members: 2, leader: expect.objectContaining({ accountId: b.accountId, character: 'Hero1' }), tabs: 1, items: 0, stashReadable: true })]);
   });
@@ -818,3 +826,168 @@ describe('the admin Guilds routes', () => {
     expect(read()).toEqual(first);
   });
 });
+
+describe('after the independent review', () => {
+  it('lets only the Leader set what Officers may do', async () => {
+    const w = await world(2);
+    found(w, [1]);
+    const [a, b] = [0, 1].map((i) => hero(w.heroes, i));
+    if (!a || !b) throw new Error('heroes');
+    a.socket.emit({ t: 'guildPromote', member: b.accountId });
+    atChest(w.rooms, a.socket);
+    const pb = atChest(w.rooms, b.socket);
+    a.socket.emit({ t: 'guildStashOpen' });
+    a.socket.emit({ t: 'guildDeposit', uid: giveGear(w.rooms, a.socket, 'Leader Vest'), tab: 1, at: null });
+    a.socket.emit({ t: 'guildTabPerms', tab: 1, rank: 'officer', perms: { view: true, deposit: false, withdraw: false } });
+    b.socket.emit({ t: 'guildStashOpen' });
+    w.advance(2000);
+    b.socket.emit({ t: 'guildTabPerms', tab: 1, rank: 'officer', perms: { view: true, deposit: true, withdraw: true } });
+    expect(lastNotice(b.socket)).toBe('Only the Leader sets Officer permissions');
+    b.socket.emit({ t: 'guildWithdraw', uid: uidIn(stashView(b.socket), 'Leader Vest'), at: null });
+    expect(bagHas(pb, 'Leader Vest')).toBe(false);
+    // Officers still manage Members.
+    b.socket.emit({ t: 'guildTabPerms', tab: 1, rank: 'member', perms: { view: true, deposit: true, withdraw: true } });
+    expect(stashView(b.socket)?.tabs[0]?.perms?.member.withdraw).toBe(true);
+  });
+
+  it('drops an invite whose sender left or lost the power, after 2 minutes, or when the Leader cancels it', async () => {
+    const w = await world(4);
+    found(w, [1]);
+    const [a, b, c, d] = [0, 1, 2, 3].map((i) => hero(w.heroes, i));
+    if (!a || !b || !c || !d) throw new Error('heroes');
+    a.socket.emit({ t: 'guildPromote', member: b.accountId });
+    b.socket.emit({ t: 'guildInvite', name: c.name });
+    a.socket.emit({ t: 'guildKick', member: b.accountId });
+    c.socket.emit({ t: 'guildAnswer', accept: true });
+    expect(guildInfo(c.socket)).toBeNull();
+    expect(systemLines(c.socket).at(-1)).toBe('That guild invite is no longer open');
+    a.socket.emit({ t: 'guildInvite', name: c.name });
+    expect(guildInfo(a.socket)?.invites?.map((i) => i.name)).toEqual(['Hero2']);
+    w.advance(INVITE_MS);
+    c.socket.emit({ t: 'guildAnswer', accept: true });
+    expect(guildInfo(c.socket)).toBeNull();
+    a.socket.emit({ t: 'guildInvite', name: d.name });
+    a.socket.emit({ t: 'guildCancelInvite', member: d.accountId });
+    expect(systemLines(d.socket).at(-1)).toBe('Your invite to Iron Oath was withdrawn');
+    expect(guildInfo(a.socket)?.invites).toEqual([]);
+    d.socket.emit({ t: 'guildAnswer', accept: true });
+    expect(guildInfo(d.socket)).toBeNull();
+    // An invite that is fresh and whose sender still may invite goes through.
+    a.socket.emit({ t: 'guildInvite', name: c.name });
+    w.advance(INVITE_MS - 1000);
+    c.socket.emit({ t: 'guildAnswer', accept: true });
+    expect(guildInfo(c.socket)?.rank).toBe('member');
+  });
+
+  it('sends viewers only the tabs a move changed, closes it for one who walked away, and logs moves inside a tab', async () => {
+    const w = await world(2);
+    found(w, [1]);
+    const [a, b] = [0, 1].map((i) => hero(w.heroes, i));
+    if (!a || !b) throw new Error('heroes');
+    const pa = atChest(w.rooms, a.socket);
+    atChest(w.rooms, b.socket);
+    pa.gold = 5000;
+    a.socket.emit({ t: 'guildStashOpen' });
+    a.socket.emit({ t: 'guildBuyTab' });
+    b.socket.emit({ t: 'guildStashOpen' });
+    const sent = b.socket.sent.length;
+    a.socket.emit({ t: 'guildDeposit', uid: giveGear(w.rooms, a.socket, 'Moved Vest'), tab: 1, at: { x: 0, y: 0 } });
+    const updates = b.socket.sent.slice(sent).flatMap((m) => (m.t === 'guildStashTabs' ? [m.update.tabs.map((t) => String(t.id))] : m.t === 'guildStash' ? [['full']] : []));
+    expect(updates).toEqual([['1']]);
+    w.advance(2000);
+    a.socket.emit({ t: 'guildMove', uid: uidIn(stashView(a.socket), 'Moved Vest'), tab: 1, at: { x: 4, y: 0 } });
+    a.socket.emit({ t: 'guildLog', before: null });
+    expect(a.socket.last('guildLog')?.entries[0]?.text).toBe('Hero0 moved Moved Vest (rare, item level 5) inside Tab 1');
+    // Hero1 walks off: the next change closes their window instead of following them.
+    roomOf(w.rooms, b.socket).pos.x += 2000;
+    a.socket.emit({ t: 'guildMove', uid: uidIn(stashView(a.socket), 'Moved Vest'), tab: 2, at: { x: 0, y: 0 } });
+    expect(b.socket.sent.at(-1)).toEqual({ t: 'guildStash', stash: null });
+  });
+
+  it('limits stash writes per guild as well as per member', async () => {
+    const w = await world(5);
+    found(w, [1, 2, 3, 4]);
+    const heroes = [0, 1, 2, 3, 4].map((i) => hero(w.heroes, i));
+    for (const h of heroes) atChest(w.rooms, h.socket);
+    let busy = 0;
+    for (const h of heroes) {
+      for (let i = 0; i < 4; i++) h.socket.emit({ t: 'guildDeposit', uid: giveGear(w.rooms, h.socket, `${h.name} ${i}`, i + 1), tab: 1, at: null });
+      if (lastNotice(h.socket) === 'The guild stash is busy; try again in a moment') busy++;
+    }
+    expect(busy).toBe(1);
+    expect(w.rooms.guildList()[0]?.items).toBe(16);
+  });
+
+  it('answers a withdrawal or move from a tab the rank cannot see as if the item were not there', async () => {
+    const w = await world(2);
+    found(w, [1]);
+    const [a, b] = [0, 1].map((i) => hero(w.heroes, i));
+    if (!a || !b) throw new Error('heroes');
+    atChest(w.rooms, a.socket);
+    atChest(w.rooms, b.socket);
+    a.socket.emit({ t: 'guildStashOpen' });
+    a.socket.emit({ t: 'guildDeposit', uid: giveGear(w.rooms, a.socket, 'Hidden'), tab: 1, at: null });
+    const gid = uidIn(stashView(a.socket), 'Hidden');
+    a.socket.emit({ t: 'guildTabPerms', tab: 1, rank: 'member', perms: { view: false, deposit: false, withdraw: false } });
+    w.advance(2000);
+    b.socket.emit({ t: 'guildWithdraw', uid: gid, at: null });
+    expect(lastNotice(b.socket)).toBe('Someone else took it');
+    b.socket.emit({ t: 'guildMove', uid: gid, tab: 1, at: { x: 5, y: 5 } });
+    expect(lastNotice(b.socket)).toBe('Someone else took it');
+    b.socket.emit({ t: 'guildWithdraw', uid: 999_999, at: null });
+    expect(lastNotice(b.socket)).toBe('Someone else took it');
+  });
+
+  it('never reuses a disbanded guild id', async () => {
+    const w = await world(1);
+    found(w);
+    const a = hero(w.heroes, 0);
+    const first = guildInfo(a.socket)?.id ?? 0;
+    a.socket.emit({ t: 'guildDisband' });
+    player(w.rooms, a.socket).gold = 5000;
+    a.socket.emit({ t: 'guildCreate', name: 'Second Oath', tag: 'TWO' });
+    expect(guildInfo(a.socket)?.id).toBeGreaterThan(first);
+  });
+
+  it('lets an admin give a guild left with no members any account outside a guild as its Leader', async () => {
+    const w = await world(3);
+    found(w);
+    const [a, , c] = [0, 1, 2].map((i) => hero(w.heroes, i));
+    if (!a || !c) throw new Error('heroes');
+    atChest(w.rooms, a.socket);
+    a.socket.emit({ t: 'guildStashOpen' });
+    a.socket.emit({ t: 'guildDeposit', uid: giveGear(w.rooms, a.socket, 'Stranded Vest'), tab: 1, at: null });
+    const id = guildInfo(a.socket)?.id ?? 0;
+    a.socket.close();
+    w.raw.prepare('DELETE FROM accounts WHERE id = ?').run(a.accountId);
+    w.rooms.checkGuildLeadership();
+    expect(w.rooms.guildList()[0]).toMatchObject({ members: 0, leader: null, items: 1 });
+    expect(w.rooms.setGuildLeader(id, 999_999, 'test admin')).toBe('No such account');
+    expect(w.rooms.setGuildLeader(id, c.accountId, 'test admin')).toBeNull();
+    expect(guildInfo(c.socket)).toMatchObject({ rank: 'leader', name: 'Iron Oath' });
+    const pc = atChest(w.rooms, c.socket);
+    c.socket.emit({ t: 'guildStashOpen' });
+    c.socket.emit({ t: 'guildWithdraw', uid: uidIn(stashView(c.socket), 'Stranded Vest'), at: null });
+    expect(bagHas(pc, 'Stranded Vest')).toBe(true);
+  });
+
+  it('names the bag stacks a plain rune stack merged into in the server log', async () => {
+    const w = await world(1);
+    found(w);
+    const a = hero(w.heroes, 0);
+    const p = atChest(w.rooms, a.socket);
+    const { room } = roomOf(w.rooms, a.socket);
+    a.socket.emit({ t: 'guildStashOpen' });
+    const first = createRune(room.sim.newItemUid(), 'nova', 3);
+    if (!addItem(p, first)) throw new Error('full');
+    a.socket.emit({ t: 'guildDeposit', uid: first.uid, tab: 1, at: null });
+    const kept = createRune(room.sim.newItemUid(), 'nova', 5);
+    if (!addItem(p, kept)) throw new Error('full');
+    const gid = stashView(a.socket)?.items.find((i) => i.kind === 'rune')?.uid ?? -1;
+    a.socket.emit({ t: 'guildWithdraw', uid: gid, at: null });
+    expect(p.items.get(kept.uid)).toMatchObject({ count: 8 });
+    const line = events.recent(5, (e) => e.text.includes('withdrawal from Iron Oath')).at(0)?.text ?? '';
+    expect(line).toContain(`bag stack ${kept.uid} (+3)`);
+  });
+});
+

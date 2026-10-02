@@ -60,11 +60,37 @@ export function canKick(actor: GuildRank, target: GuildRank): boolean {
 // Names and tags --------------------------------------------------------------------------------
 
 /**
- * Tags and names other players would read as staff or the game speaking. The codebase has no
- * profanity filter for character names either (chat-and-parties.md); this list only guards
- * against impersonation. Compared without case, a tag whole and a name word by word.
+ * Words other players would read as staff or the game speaking. The codebase has no profanity
+ * filter for character names either (chat-and-parties.md); this only guards against impersonation.
+ * Text is folded first (case, digits that pass for letters, separators gone), so "Adm1n", "ST4FF"
+ * and "Server Admins" are caught. Long words are refused anywhere in the text; short ones only as
+ * the whole tag or a whole word of a name, since "gm" or "mod" inside other words is common
+ * ("Kingmaker", "Modest Few").
  */
-const RESERVED = ['admin', 'admins', 'adm', 'mod', 'mods', 'moderator', 'gm', 'gms', 'staff', 'owner', 'dev', 'devs', 'developer', 'sys', 'sysop', 'system', 'server', 'official', 'support'];
+const RESERVED_ANYWHERE = ['admin', 'moderator', 'staff', 'owner', 'developer', 'system', 'sysop', 'server', 'official', 'support'];
+const RESERVED_WHOLE = ['adm', 'mod', 'mods', 'gm', 'gms', 'dev', 'devs', 'sys'];
+
+const LOOKALIKE: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b' };
+
+/** Lower case, look-alike digits as letters, everything but letters and digits removed. */
+function fold(v: string): string {
+  return v
+    .toLowerCase()
+    .replace(/[0-9]/g, (d) => LOOKALIKE[d] ?? d)
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function reservedWord(word: string): boolean {
+  const folded = fold(word);
+  const bare = word.toLowerCase().replace(/[^a-z]/g, '');
+  return RESERVED_WHOLE.includes(folded) || RESERVED_WHOLE.includes(bare);
+}
+
+/** Whether a tag or name reads as staff; exported for the tests. */
+export function isReservedGuildText(v: string, kind: 'tag' | 'name'): boolean {
+  if (RESERVED_ANYWHERE.some((w) => fold(v).includes(w))) return true;
+  return kind === 'tag' ? reservedWord(v) : v.split(/[ '-]+/).some(reservedWord);
+}
 
 export const GUILD_TAG_PATTERN = /^[A-Za-z0-9]+$/;
 export const GUILD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9 '-]*$/;
@@ -74,7 +100,7 @@ export function guildTagProblem(v: unknown): string | null {
   if (typeof v !== 'string' || v.length < GUILD_LIMITS.tagMin || v.length > GUILD_LIMITS.tagMax || !GUILD_TAG_PATTERN.test(v)) {
     return `Tags are ${GUILD_LIMITS.tagMin} to ${GUILD_LIMITS.tagMax} letters or digits`;
   }
-  if (RESERVED.includes(v.toLowerCase())) return 'That tag is reserved';
+  if (isReservedGuildText(v, 'tag')) return 'That tag is reserved';
   return null;
 }
 
@@ -83,7 +109,7 @@ export function guildNameProblem(v: unknown): string | null {
   if (typeof v !== 'string' || v.length < GUILD_LIMITS.nameMin || v.length > GUILD_LIMITS.nameMax || v !== v.trim() || v.includes('  ') || !GUILD_NAME_PATTERN.test(v)) {
     return `Guild names are ${GUILD_LIMITS.nameMin} to ${GUILD_LIMITS.nameMax} letters, digits, spaces, ' or -, starting with a letter`;
   }
-  if (v.toLowerCase().split(/[ '-]+/).some((w) => RESERVED.includes(w))) return 'That name is reserved';
+  if (isReservedGuildText(v, 'name')) return 'That name is reserved';
   return null;
 }
 
@@ -376,4 +402,32 @@ export function guildStashView(s: GuildStash, rank: GuildRank, tabPrice: number 
     return { id: t.id, name: t.name, color: t.color, cells: access.view ? [...t.cells] : null, access, ...(manager ? { perms: { officer: { ...t.perms.officer }, member: { ...t.perms.member } } } : {}) };
   });
   return { tabs, items, tabPrice, unplaced: unplacedGuildItems(s).length };
+}
+
+/**
+ * Only some tabs, after a move: the client replaces these tabs and their items and keeps the rest,
+ * so a busy guild does not resend ten full tabs to every viewer per click.
+ */
+export interface GuildStashTabsUpdate {
+  tabs: GuildTabView[];
+  /** Every item now in these tabs (that the viewer may see). */
+  items: Item[];
+  tabPrice: number | null;
+  unplaced: number;
+}
+
+export function guildStashTabsView(s: GuildStash, rank: GuildRank, ids: readonly number[], tabPrice: number | null): GuildStashTabsUpdate {
+  const full = guildStashView({ ...s, tabs: s.tabs.filter((t) => ids.includes(t.id)) }, rank, tabPrice);
+  return { tabs: full.tabs, items: full.items, tabPrice, unplaced: unplacedGuildItems(s).length };
+}
+
+/** The client's side of a partial update: the open view with these tabs and their items replaced. */
+export function applyGuildStashTabs(view: GuildStashView, update: GuildStashTabsUpdate): GuildStashView {
+  const replaced = new Set(update.tabs.map((t) => t.id));
+  const gone = new Set<ItemUid>();
+  for (const t of view.tabs) if (replaced.has(t.id)) for (const c of t.cells ?? []) if (c !== null) gone.add(c);
+  const tabs = view.tabs.map((t) => update.tabs.find((u) => u.id === t.id) ?? t);
+  for (const t of update.tabs) if (!view.tabs.some((v) => v.id === t.id)) tabs.push(t);
+  const fresh = new Set(update.items.map((i) => i.uid));
+  return { tabs, items: [...view.items.filter((i) => !gone.has(i.uid) && !fresh.has(i.uid)), ...update.items], tabPrice: update.tabPrice, unplaced: update.unplaced };
 }

@@ -15,6 +15,7 @@ import {
   guildCan,
   guildNameProblem,
   guildPlace,
+  guildStashTabsView,
   guildStashView,
   guildTab,
   guildTabPrice,
@@ -69,7 +70,11 @@ export const LEADER_IDLE_MS = 30 * DAY_MS;
  * Stash moves a client may make per second. Each one writes the character and the whole guild stash
  * in one transaction, so a client clicking as fast as the socket allows must not stall every room.
  */
-const STASH_OPS_PER_SECOND = 8;
+const STASH_OPS_PER_SECOND = 4;
+/** And per guild, so a whole guild clicking at once still cannot stall every room. */
+const GUILD_OPS_PER_SECOND = 16;
+/** An unanswered invite lapses after this long. */
+export const INVITE_MS = 2 * 60 * 1000;
 
 interface Member {
   rank: GuildRank;
@@ -87,6 +92,8 @@ interface Guild {
   stash: GuildStash | null;
   /** Clients with the guild stash open, who get it again after every change. */
   viewers: Set<Client>;
+  /** Stash writes this second, for the per-guild limit. */
+  ops: { start: number; n: number };
 }
 
 /** What the guild service needs from the room manager. */
@@ -99,6 +106,16 @@ export interface GuildHost {
 }
 
 type Actor = { room: Room; pid: EntityId; p: PlayerComp };
+
+/** Tabs whose cells differ between two versions of a stash: what viewers need sent again. */
+function changedTabs(was: GuildStash, now: GuildStash): number[] {
+  return now.tabs
+    .filter((t) => {
+      const old = was.tabs.find((o) => o.id === t.id);
+      return !old || t.cells.some((c, i) => c !== old.cells[i]);
+    })
+    .map((t) => t.id);
+}
 
 /**
  * Items as the guild log names them for players: "Fire Rune x12 (common, item level 3)". Uids stay
@@ -124,7 +141,7 @@ export class GuildService {
   private readonly guilds = new Map<number, Guild>();
   private readonly byAccount = new Map<number, number>();
   /** Invited account to the guild and the inviting account. Kept in memory, like party invites. */
-  private readonly invites = new Map<number, { guildId: number; from: number }>();
+  private readonly invites = new Map<number, { guildId: number; from: number; at: number }>();
   private readonly opWindow = new WeakMap<Client, { start: number; n: number }>();
 
   constructor(
@@ -160,7 +177,7 @@ export class GuildService {
       } catch (err) {
         events.error('save', `[guild] ${row.name} (${row.id}) has an unreadable stash; it is kept as is and refused until someone looks at it`, err);
       }
-      const g: Guild = { id: row.id, name: row.name, tag: row.tag, motd: row.motd, createdAt: row.createdAt, members: new Map(row.members.map((m) => [m.accountId, { rank: m.rank, joinedAt: m.joinedAt }])), stash, viewers: new Set() };
+      const g: Guild = { id: row.id, name: row.name, tag: row.tag, motd: row.motd, createdAt: row.createdAt, members: new Map(row.members.map((m) => [m.accountId, { rank: m.rank, joinedAt: m.joinedAt }])), stash, viewers: new Set(), ops: { start: 0, n: 0 } };
       this.guilds.set(g.id, g);
       for (const id of g.members.keys()) this.byAccount.set(id, g.id);
     }
@@ -239,7 +256,9 @@ export class GuildService {
   }
 
   private info(g: Guild, rank: GuildRank, members: GuildMemberView[]): GuildInfo {
-    return { id: g.id, name: g.name, tag: g.tag, motd: g.motd, rank, members, maxMembers: GUILD_LIMITS.maxMembers, createdAt: g.createdAt };
+    // Open invites are the Leader's to see and cancel.
+    const invites = rank === 'leader' ? { invites: this.openInvites(g) } : {};
+    return { id: g.id, name: g.name, tag: g.tag, motd: g.motd, rank, members, maxMembers: GUILD_LIMITS.maxMembers, createdAt: g.createdAt, ...invites };
   }
 
   /** Every online member gets the guild again: a join, a leave, a rank or a message of the day changed. */
@@ -308,6 +327,9 @@ export class GuildService {
         return true;
       case 'guildTransfer':
         this.transfer(client, msg.member);
+        return true;
+      case 'guildCancelInvite':
+        this.cancelInvite(client, msg.member);
         return true;
       case 'guildDisband':
         this.disband(client);
@@ -391,7 +413,7 @@ export class GuildService {
       // A UNIQUE column refusing means someone took the name or tag a moment ago.
       return this.notice(client, this.db.nameOrTagTaken(name, tag) ? 'That guild name or tag was just taken' : 'The guild could not be saved, so nothing changed');
     }
-    const g: Guild = { id, name, tag, motd: '', createdAt: now, members: new Map([[me, { rank: 'leader', joinedAt: now }]]), stash, viewers: new Set() };
+    const g: Guild = { id, name, tag, motd: '', createdAt: now, members: new Map([[me, { rank: 'leader', joinedAt: now }]]), stash, viewers: new Set(), ops: { start: 0, n: 0 } };
     this.guilds.set(id, g);
     this.byAccount.set(me, id);
     this.invites.delete(me);
@@ -412,9 +434,39 @@ export class GuildService {
     if (target.accountId === me) return this.system(client, 'You cannot invite yourself');
     if (this.guildOf(target.accountId)) return this.system(client, `${this.host.playerName(target)} is already in a guild`);
     if (g.members.size >= GUILD_LIMITS.maxMembers) return this.system(client, `Your guild is full (${GUILD_LIMITS.maxMembers})`);
-    this.invites.set(target.accountId, { guildId: g.id, from: me });
+    this.invites.set(target.accountId, { guildId: g.id, from: me, at: this.clock() });
     target.send({ t: 'guildInvite', from: this.host.playerName(client), guild: g.name, tag: g.tag });
     this.system(client, `Invited ${this.host.playerName(target)} to ${g.name}`);
+    this.sendGuild(g);
+  }
+
+  /** Open invites of a guild, dropping lapsed ones on the way. */
+  private openInvites(g: Guild): { id: number; name: string; at: number }[] {
+    const now = this.clock();
+    const online = this.online();
+    const out: { id: number; name: string; at: number }[] = [];
+    for (const [acc, inv] of [...this.invites]) {
+      if (now - inv.at >= INVITE_MS) {
+        this.invites.delete(acc);
+        continue;
+      }
+      if (inv.guildId !== g.id) continue;
+      const c = online.get(acc);
+      out.push({ id: acc, name: c ? this.host.playerName(c) : this.memberName(acc), at: inv.at });
+    }
+    return out;
+  }
+
+  /** The Leader withdraws an invite nobody answered yet. */
+  private cancelInvite(client: Client, target: number): void {
+    const who = this.officer(client, 'transfer', 'Only the Leader cancels invites');
+    if (!who) return;
+    const inv = this.invites.get(target);
+    if (!inv || inv.guildId !== who.g.id) return this.system(client, 'That invite is no longer open');
+    this.invites.delete(target);
+    const c = this.online().get(target);
+    if (c) this.system(c, `Your invite to ${who.g.name} was withdrawn`);
+    this.sendGuild(who.g);
   }
 
   private answer(client: Client, accept: boolean): void {
@@ -423,7 +475,9 @@ export class GuildService {
     const inv = this.invites.get(me);
     this.invites.delete(me);
     const g = inv ? this.guilds.get(inv.guildId) : undefined;
-    if (!inv || !g) return this.system(client, 'That guild invite is no longer open');
+    // The invite stands only while it is fresh and its sender is still in the guild and may invite.
+    const sender = inv && g ? g.members.get(inv.from) : undefined;
+    if (!inv || !g || !sender || !guildCan(sender.rank, 'invite') || this.clock() - inv.at >= INVITE_MS) return this.system(client, 'That guild invite is no longer open');
     const inviter = this.online().get(inv.from);
     const who = this.host.playerName(client);
     if (!accept) {
@@ -663,11 +717,16 @@ export class GuildService {
   private allowOp(client: Client): boolean {
     const now = this.clock();
     const w = this.opWindow.get(client);
-    if (!w || now - w.start >= 1000) {
-      this.opWindow.set(client, { start: now, n: 1 });
-      return true;
+    if (!w || now - w.start >= 1000) this.opWindow.set(client, { start: now, n: 1 });
+    else if (++w.n > STASH_OPS_PER_SECOND) return false;
+    const g = this.guildOf(client.accountId);
+    if (!g) return true;
+    if (now - g.ops.start >= 1000) g.ops = { start: now, n: 0 };
+    if (++g.ops.n > GUILD_OPS_PER_SECOND) {
+      this.notice(client, 'The guild stash is busy; try again in a moment');
+      return false;
     }
-    return ++w.n <= STASH_OPS_PER_SECOND;
+    return true;
   }
 
   /**
@@ -709,13 +768,24 @@ export class GuildService {
     if (v) client.send(v);
   }
 
-  /** After a change: everyone with the stash open sees it as it is now, as their rank may. */
-  private refreshViewers(g: Guild): void {
-    if (!g.stash) return;
-    for (const c of g.viewers) {
-      const v = c.accountId === null ? null : this.view(g, g.stash, c.accountId);
-      if (v) c.send(v);
-      else g.viewers.delete(c);
+  /**
+   * After a change: everyone with the stash open sees the changed tabs as they are now, as their
+   * rank may (`tabs` null sends everything). A viewer who walked away from the chest, or left the
+   * guild, stops getting it and their window closes.
+   */
+  private refreshViewers(g: Guild, tabs: readonly number[] | null): void {
+    const stash = g.stash;
+    if (!stash) return;
+    for (const c of [...g.viewers]) {
+      const m = c.accountId === null ? undefined : g.members.get(c.accountId);
+      const a = this.actor(c);
+      if (!m || !a || !nearStash(a.room.sim, a.pid)) {
+        g.viewers.delete(c);
+        c.send({ t: 'guildStash', stash: null });
+        continue;
+      }
+      const price = guildTabPrice(stash.tabs.length);
+      c.send(tabs === null ? { t: 'guildStash', stash: guildStashView(stash, m.rank, price) } : { t: 'guildStashTabs', update: guildStashTabsView(stash, m.rank, tabs, price) });
     }
   }
 
@@ -776,7 +846,7 @@ export class GuildService {
     }
     g.stash = next;
     events.log('server', `[guild] ${actor} (${client.accountName}) deposit into ${g.name} (${g.id}) ${tab.name}: ${item.name}, bag uid ${uid} -> guild uid ${copy.uid}`);
-    this.refreshViewers(g);
+    this.refreshViewers(g, [tab.id]);
   }
 
   private withdraw(client: Client, uid: ItemUid, at: { x: number; y: number } | null): void {
@@ -789,9 +859,11 @@ export class GuildService {
     if (!item || !tab) {
       // Another member took it first, or the window was a step behind.
       this.notice(client, 'Someone else took it');
-      return this.refreshViewers(g);
+      return this.refreshViewers(g, null);
     }
     const access = tabAccess(tab, rank);
+    // A tab the rank cannot see answers as if the item were not there, so uids cannot be probed.
+    if (!access.view) return this.notice(client, 'Someone else took it');
     if (!access.withdraw) return this.notice(client, `Your rank cannot take items from ${tab.name}`);
     // Fresh uids from this room, as every item arriving from storage gets; the guild keeps none of its own on it.
     const copy = reissueUids(item, () => a.room.sim.newItemUid());
@@ -803,6 +875,12 @@ export class GuildService {
       place(a.p.inventory, BAG, copy.uid, size, at.x, at.y);
       changed(a.p);
     } else if (!addItem(a.p, copy)) return this.notice(client, 'No room in your bag');
+    // A plain stack may have gone into bag stacks in part or whole; the server log names each one.
+    const landed = [...a.p.items.values()].flatMap((it) => {
+      const was = before.items.get(it.uid);
+      if (it.uid === copy.uid && a.p.inventory.includes(it.uid)) return [`bag uid ${it.uid}`];
+      return it.kind === 'rune' && was?.kind === 'rune' && it.count > was.count ? [`bag stack ${it.uid} (+${it.count - was.count})`] : [];
+    });
     const next = cloneGuildStash(stash);
     guildTake(next, uid);
     placeUnplaced(next);
@@ -815,8 +893,8 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing moved');
     }
     g.stash = next;
-    events.log('server', `[guild] ${actor} (${client.accountName}) withdrawal from ${g.name} (${g.id}) ${tab.name}: ${item.name}, guild uid ${uid} -> bag uid ${copy.uid}`);
-    this.refreshViewers(g);
+    events.log('server', `[guild] ${actor} (${client.accountName}) withdrawal from ${g.name} (${g.id}) ${tab.name}: ${item.name}, guild uid ${uid} -> ${landed.join(', ') || 'nowhere (report this)'}`);
+    this.refreshViewers(g, changedTabs(stash, next));
   }
 
   /** Inside the guild stash: needs withdraw on the tab it leaves and deposit on the tab it enters. */
@@ -830,9 +908,10 @@ export class GuildService {
     const to = guildTab(stash, tabId);
     if (!item || !from) {
       this.notice(client, 'Someone else took it');
-      return this.refreshViewers(g);
+      return this.refreshViewers(g, null);
     }
     if (!to) return this.notice(client, 'No such guild tab');
+    if (!tabAccess(from, rank).view) return this.notice(client, 'Someone else took it');
     if (from.id !== to.id && !tabAccess(from, rank).withdraw) return this.notice(client, `Your rank cannot take items from ${from.name}`);
     if (!tabAccess(to, rank).deposit) return this.notice(client, `Your rank cannot put items into ${to.name}`);
     if (from.id === to.id && anchorOf(from.cells, STASH, uid)?.x === at.x && anchorOf(from.cells, STASH, uid)?.y === at.y) return;
@@ -841,8 +920,9 @@ export class GuildService {
     if (error) return this.notice(client, error);
     placeUnplaced(next);
     const actor = this.host.playerName(client);
-    // Moves inside one tab are tidying and stay out of the log; between tabs they say where things went.
-    const log = from.id === to.id ? null : { kind: 'move' as const, actor, accountId: me, text: `${actor} moved ${itemLabel(item)} from ${from.name} to ${to.name}` };
+    // Moves inside a tab are logged too: a Member with deposit only can still shuffle a tab, and the
+    // log should show who touched what.
+    const log = { kind: 'move' as const, actor, accountId: me, text: from.id === to.id ? `${actor} moved ${itemLabel(item)} inside ${to.name}` : `${actor} moved ${itemLabel(item)} from ${from.name} to ${to.name}` };
     try {
       this.db.tx(() => this.writeStash(g, next, log));
     } catch (err) {
@@ -850,7 +930,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing moved');
     }
     g.stash = next;
-    this.refreshViewers(g);
+    this.refreshViewers(g, changedTabs(stash, next));
   }
 
   private buyTab(client: Client): void {
@@ -879,7 +959,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing changed');
     }
     g.stash = next;
-    this.refreshViewers(g);
+    this.refreshViewers(g, null);
   }
 
   private editTab(client: Client, tabId: number, name: string, color: StashColorId): void {
@@ -905,7 +985,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing changed');
     }
     g.stash = next;
-    this.refreshViewers(g);
+    this.refreshViewers(g, null);
   }
 
   private setPerms(client: Client, tabId: number, target: ManagedRank, perms: TabPerms): void {
@@ -914,6 +994,8 @@ export class GuildService {
     if (!ctx) return;
     const { g, stash, me, rank } = ctx;
     if (!guildCan(rank, 'manageTabs')) return this.notice(client, 'Only the Leader and Officers set tab permissions');
+    // Officers manage Members' access; only the Leader decides what Officers may do.
+    if (target === 'officer' && rank !== 'leader') return this.notice(client, 'Only the Leader sets Officer permissions');
     const tab = guildTab(stash, tabId);
     if (!tab) return this.notice(client, 'No such guild tab');
     const want = normalisePerms(perms);
@@ -933,7 +1015,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing changed');
     }
     g.stash = next;
-    this.refreshViewers(g);
+    this.refreshViewers(g, null);
   }
 
   // Leadership --------------------------------------------------------------------------------
@@ -1039,10 +1121,13 @@ export class GuildService {
   adminSetLeader(id: number, accountId: number, by: string): string | null {
     const g = this.guilds.get(id);
     if (!g) return 'No such guild';
-    const t = g.members.get(accountId);
-    if (!t) return 'That account is not in the guild';
-    if (t.rank === 'leader') return 'That account leads the guild already';
     const leader = [...g.members].find(([, m]) => m.rank === 'leader')?.[0];
+    // A guild with no Leader (its last Leader's account was removed) takes any account outside a
+    // guild as its new Leader, so its stash is never stranded.
+    if (!g.members.has(accountId) && leader === undefined) return this.adminAdoptLeader(g, accountId, by);
+    const t = g.members.get(accountId);
+    if (!t) return 'That account is not in the guild; only a guild without a Leader takes an outside account';
+    if (t.rank === 'leader') return 'That account leads the guild already';
     const name = this.memberName(accountId);
     const text = `An admin made ${name} the Leader`;
     const now = this.clock();
@@ -1059,6 +1144,26 @@ export class GuildService {
     this.sendGuild(g);
     if (leader !== undefined) this.refreshViewer(g, leader);
     this.refreshViewer(g, accountId);
+    return null;
+  }
+
+  private adminAdoptLeader(g: Guild, accountId: number, by: string): string | null {
+    const username = this.db.usernames([accountId]).get(accountId);
+    if (username === undefined) return 'No such account';
+    if (this.guildOf(accountId)) return 'That account is in another guild';
+    if (g.members.size >= GUILD_LIMITS.maxMembers) return 'The guild is full';
+    const now = this.clock();
+    const name = this.memberName(accountId);
+    const text = `An admin made ${name} (${username}) the Leader of a guild without one`;
+    this.db.tx(() => {
+      this.db.addMember(g.id, accountId, 'leader', now);
+      this.db.addLog(g.id, 'leader', '', null, text, now);
+    });
+    g.members.set(accountId, { rank: 'leader', joinedAt: now });
+    this.byAccount.set(accountId, g.id);
+    this.invites.delete(accountId);
+    events.log('server', `[guild] ${g.name} (${g.id}): ${by} made ${username} (account ${accountId}) the Leader of the leaderless guild`);
+    this.sendGuild(g);
     return null;
   }
 

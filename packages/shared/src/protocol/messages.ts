@@ -19,7 +19,7 @@ import type { ModelOverrides } from '../data/tuning.js';
 import type { TunableValues } from '../tuning/values.js';
 import type { StashColorId } from '../config/stash.js';
 import type { StashLayout, StashSortKey, StashTabRef } from '../items/stash.js';
-import type { GuildRank, GuildStashView, ManagedRank, TabPerms } from '../guild/guild.js';
+import type { GuildRank, GuildStashTabsUpdate, GuildStashView, ManagedRank, TabPerms } from '../guild/guild.js';
 
 /**
  * One slot of a sigil in an inscribe request, left to right.
@@ -151,6 +151,8 @@ export type ClientMessage =
   | { t: 'guildDemote'; member: number }
   /** The Leader hands leadership to another member and becomes an Officer. */
   | { t: 'guildTransfer'; member: number }
+  /** The Leader withdraws an open invite (by the invited account's id). */
+  | { t: 'guildCancelInvite'; member: number }
   | { t: 'guildDisband' }
   | { t: 'guildMotd'; text: string }
   /** Send the roster again (the guild window asks while it is open). */
@@ -493,6 +495,8 @@ export interface GuildInfo {
   members: GuildMemberView[];
   maxMembers: number;
   createdAt: number;
+  /** Open invites, only for the Leader, who can cancel them; each lapses 2 minutes after it was sent. */
+  invites?: { id: number; name: string; at: number }[];
 }
 
 export const GUILD_LOG_KINDS = ['found', 'join', 'leave', 'kick', 'rank', 'leader', 'deposit', 'withdraw', 'move', 'tab', 'motd'] as const;
@@ -537,6 +541,8 @@ export type ServerMessage =
   | { t: 'guildLog'; entries: GuildLogEntry[]; more: boolean }
   /** The open guild stash, in full, on opening and after every change; null closes it. */
   | { t: 'guildStash'; stash: GuildStashView | null }
+  /** Only the tabs a move changed, to merge into the open guild stash (`applyGuildStashTabs`). */
+  | { t: 'guildStashTabs'; update: GuildStashTabsUpdate }
   | PartyStatusMessage
   | TeleportChannelMessage
   | { t: 'lighting'; lighting: Lighting }

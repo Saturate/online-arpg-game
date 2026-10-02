@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyTunables,
+  applyGuildStashTabs,
+  guildStashTabsView,
   canKick,
   cloneGuildStash,
   createGear,
@@ -57,6 +59,14 @@ describe('guild tags and names', () => {
     expect(guildNameProblem('Moderator-Guild')).toBe('That name is reserved');
     // A reserved word inside another word is fine.
     expect(guildNameProblem('Modest Few')).toBeNull();
+  });
+
+  it('sees through look-alike digits, case and separators', () => {
+    for (const t of ['Adm1n', 'ST4FF', 'GM1', 'gm', 'm0d', 'D3V', 'SYS0P', 'Own3r']) expect([t, guildTagProblem(t)]).toEqual([t, 'That tag is reserved']);
+    for (const n of ['ServerAdmins', 'The St4ff', 'Adm1n Corps', 'Offic1al Guild', 'Sys-Op Hall', 'GM Club', 'Mod Squad']) expect([n, guildNameProblem(n)]).toEqual([n, 'That name is reserved']);
+    // Short words only count whole, so ordinary names that contain them still pass.
+    for (const n of ['Kingmaker', 'Modest Few', 'Devils Due', 'Sysiphus']) expect([n, guildNameProblem(n)]).toEqual([n, null]);
+    for (const t of ['IRON', 'KGM', 'Moda']) expect([t, guildTagProblem(t)]).toEqual([t, null]);
   });
 });
 
@@ -268,3 +278,22 @@ describe('guild messages on the wire', () => {
     expect(isChatMessage({ t: 'chat', kind: 'game', from: 'Hero', to: null, text: 'hi', tag: 'TOOLONG' })).toBe(false);
   });
 });
+
+describe('partial stash updates', () => {
+  it('replace only the sent tabs and their items, so an item moved between tabs is shown once', () => {
+    const s = emptyGuildStash();
+    s.tabs.push(newGuildTab(2), newGuildTab(3));
+    guildPlace(s, 1, intoGuild(s, gear(1, 'Mover')), null);
+    guildPlace(s, 3, intoGuild(s, gear(2, 'Stayer')), null);
+    const view = guildStashView(s, 'leader', 500);
+    const mover = view.items.find((i) => i.name === 'Mover');
+    if (!mover) throw new Error('no mover');
+    guildPlace(s, 2, mover, { x: 0, y: 0 });
+    const next = applyGuildStashTabs(view, guildStashTabsView(s, 'leader', [1, 2], 500));
+    expect(next.items.map((i) => i.name).sort()).toEqual(['Mover', 'Stayer']);
+    expect(next.tabs[0]?.cells?.includes(mover.uid)).toBe(false);
+    expect(next.tabs[1]?.cells?.[0]).toBe(mover.uid);
+    expect(next.tabs[2]).toBe(view.tabs[2]);
+  });
+});
+

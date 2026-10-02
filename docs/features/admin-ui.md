@@ -23,7 +23,7 @@ Status: Built 2026-10-01 on `feat/admin-ui`, not pushed. Planned by the owner th
 - **Header:** tabs on a row of their own under the title, search and links, since eleven tabs (twelve with the balance bench) did not fit beside them.
 - **Balance bench tab** (after Tuning; every staff role sees it, adding and removing admin picks needs `tuning`): every kit, the balance test's spells, the 20 most equipped sigils and admin picks, with Force and damage per Force against the best kit, outliers marked, sortable and filterable; unsaved edits in the Tuning tab are previewed as before, after and the change, and Watch opens two Spell Studio stages. The Tuning tab's edits now live in `admin/tuningDraft.ts` so they survive switching to the bench. Details, routes and tests: [live-tuning.md](live-tuning.md), "The balance bench".
 
-- **Guilds tab** (2026-10-02, `feat/guilds`, not deployed; every staff role sees it): every guild with name, tag, members, Leader, tabs, items and when it was founded, flagged when its stash cannot be read or it has no Leader. A click opens the roster (account, character, rank, joined, last active, online) and the guild log, paged back 100 at a time. "Make Leader" on a member needs the new `guilds` permission (owner and admin, and a token scope); the old Leader becomes an Officer and the change is in the guild log and the staff log. Code: `admin/GuildsTab.tsx`, `admin/guildsApi.ts`; [guilds.md](guilds.md).
+- **Guilds tab** (2026-10-02, `feat/guilds`, not deployed; every staff role sees it): every guild with name, tag, members, Leader, tabs, items and when it was founded, flagged when its stash cannot be read or it has no Leader. A click opens the roster (account, character, rank, joined, last active, online) and the guild log, paged back 100 at a time. "Make Leader" on a member needs the new `guilds` permission (owner and admin, and a token scope); the old Leader becomes an Officer and the change is in the guild log and the staff log. A guild with no Leader takes any account outside a guild, by username. Code: `admin/GuildsTab.tsx`, `admin/guildsApi.ts`; [guilds.md](guilds.md).
 
 ## Why
 
@@ -53,7 +53,7 @@ Routes:
 | POST | `/api/admin/worlds/reroll` | `settings` | as rebuild; `{ game }` for a random seed or `{ game, seed }` to pin one |
 | GET | `/api/admin/guilds` | `viewAdmin` | every guild (`AdminGuildSummary`, `protocol/adminGuilds.ts`) |
 | GET | `/api/admin/guilds/<id>?before=` | `viewAdmin` | `AdminGuildDetail`: roster, tabs, a page of the log older than `before`; 404 unknown |
-| POST | `/api/admin/guilds/<id>/leader` | `guilds` | `{ accountId }` of a member; 409 when not a member or already Leader |
+| POST | `/api/admin/guilds/<id>/leader` | `guilds` | `{ accountId }` of a member, or `{ username }` of an account in no guild for a guild without a Leader; 404 unknown guild or account, 409 otherwise refused |
 | GET | `/api/admin/search?q=` | `viewAdmin` | `{ accounts, log }`; `q` 2 to 64 characters after trimming (400 otherwise); `log` needs `serverLog` |
 
 Tests:

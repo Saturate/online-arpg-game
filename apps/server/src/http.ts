@@ -723,11 +723,13 @@ export class AccountApi {
     if (leaderRoute && method === 'POST') {
       need('guilds');
       const body = await readJson(req);
-      const target = isRecord(body) ? body.accountId : undefined;
-      if (typeof target !== 'number' || !Number.isSafeInteger(target) || target < 0) throw new HttpError(400, 'accountId is required: a member of the guild');
+      // By id, or by username for a guild without a Leader, which takes an outside account.
+      const named = isRecord(body) && typeof body.username === 'string' ? this.store.accountByUsername(body.username)?.id : undefined;
+      const target = isRecord(body) && body.username !== undefined ? named : isRecord(body) ? body.accountId : undefined;
+      if (typeof target !== 'number' || !Number.isSafeInteger(target) || target < 0) throw new HttpError(400, 'accountId (a member) or username (an account, for a guild without a Leader) is required');
       const id = Number(leaderRoute[1]);
       const error = this.admin.setGuildLeader(id, target, who);
-      if (error) throw new HttpError(error === 'No such guild' ? 404 : 409, error);
+      if (error) throw new HttpError(error === 'No such guild' || error === 'No such account' ? 404 : 409, error);
       log(`guild ${id}: leader set to account ${target}`);
       return [200, { ok: true }];
     }
