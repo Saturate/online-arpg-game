@@ -186,7 +186,9 @@ export function rollImplicit(rng: Rng, rune: RuneId, ilvl: number, exact: boolea
   const t = def.tiers[tier];
   if (!t) return null;
   const value = roundTo(exact ? rng.range(t.min, t.max) : (t.min + t.max) / 2, def.decimals ?? 0);
-  return { id, tier, value };
+  // Stored at the tier its value counts as, so Split's tiers that share a value (0 in T6 to T4, 1 in
+  // T3 and T2) give one stack and one price.
+  return { id, tier: implicitTier(id, value), value };
 }
 
 /** A plain rune as a monster drops it: its implicit's tier gated by the monster's level. */

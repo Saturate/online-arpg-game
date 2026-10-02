@@ -183,6 +183,8 @@ export function kitRoll(a: AffixRoll): AffixRoll {
   const tiers = AFFIXES[a.id].tiers;
   const upTo = tiers.length === RUNE_AFFIX_TIERS ? RUNE_AFFIX_TIERS - 2 : Infinity;
   const clamped = clampInto(a, rangeOf(tiers, upTo));
-  const tier = honestTier(a.id, clamped.value);
-  return clamped.value === a.value && tier === a.tier ? a : { id: a.id, tier, value: clamped.value };
+  // A ranged roll keeps its spread and counts as the tier of its average.
+  const tier = honestTier(a.id, rollAverage(clamped));
+  if (clamped.value === a.value && clamped.max === a.max && tier === a.tier) return a;
+  return clamped.max === undefined ? { id: a.id, tier, value: clamped.value } : { id: a.id, tier, value: clamped.value, max: clamped.max };
 }

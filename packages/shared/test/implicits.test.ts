@@ -118,7 +118,8 @@ describe('implicits on drops', () => {
       if (r.affixes.length === 0 && t) expect(i.value).toBe(Math.round((t.min + t.max) / 2));
     }
     // Level 1 unlocks T6 and T5 only; deep levels reach T1.
-    expect(Math.max(...low.map((r) => r.implicit?.tier ?? 0))).toBeLessThanOrEqual(1);
+    // (Split's 0 counts as the neutral T4 wherever it rolled, since T6 to T4 all hold it.)
+    expect(Math.max(...low.filter((r) => r.rune !== 'split').map((r) => r.implicit?.tier ?? 0))).toBeLessThanOrEqual(1);
     expect(Math.max(...high.map((r) => r.implicit?.tier ?? 0))).toBe(5);
     // No two rolled runes alike: rolled implicits spread over their tier.
     const rolledBolts = new Set(high.filter((r) => r.rune === 'bolt' && r.affixes.length > 0).map((r) => r.implicit?.value));
@@ -155,7 +156,10 @@ describe('implicits in the text form', () => {
   });
 
   it('refuse what no rune could hold', () => {
-    const errors = (text: string): string[] => compileText(text).ok ? [] : (compileText(text) as Extract<SigilCompile, { ok: false }>).errors.map((e) => e.rule);
+    const errors = (text: string): string[] => {
+      const c = compileText(text);
+      return c.ok ? [] : c.errors.map((e) => e.rule);
+    };
     expect(errors('bolt{5}')).toContain('implicit-range');
     expect(errors('bolt{900}')).toContain('implicit-range');
     expect(errors('bolt split{5}')).toContain('implicit-range');
@@ -339,14 +343,31 @@ describe('implicits and stacks', () => {
     // A ref naming an implicit nobody holds is refused and nothing moves.
     expect(sim.inscribe(pid, blank.uid, [{ from: 'keep', index: 0 }, { from: 'plain', rune: 'fire', implicit: { tier: 4, value: 111 } }])).toBe('You need a Fire Rune');
     expect(blank.slots).toHaveLength(2);
-    // Without one (an older client) it takes the first stack in source order.
+    // Without one (an older client) it takes the neutral roll, never a better stack nobody picked.
     expect(sim.inscribe(pid, blank.uid, [{ from: 'keep', index: 0 }, { from: 'keep', index: 1 }, { from: 'plain', rune: 'fire' }])).toBeNull();
-    expect(plain.count + strong.count).toBe(2);
+    expect(plain.count).toBe(1);
+    expect(strong.count).toBe(1);
     // The rune taken out comes back with its implicit and tops up its own stack.
     expect(sim.inscribe(pid, blank.uid, [{ from: 'keep', index: 0 }])).toBeNull();
     const fires = [...p.items.values()].filter((i): i is RuneItem => i.kind === 'rune' && i.rune === 'fire');
     expect(fires.reduce((n, r) => n + r.count, 0)).toBe(4);
     expect(fires.find((r) => r.implicit?.value === 120)?.count).toBe(2);
+  });
+});
+
+describe('Split implicits', () => {
+  it('drop at the tier their value counts as, so equal Splits stack and price alike', () => {
+    const rng = new Rng(8);
+    const seen = new Map<number, Set<number>>();
+    for (let i = 0; i < 2000; i++) {
+      const r = createPlainDrop(i, rng, 'split', 50);
+      const v = r.implicit?.value ?? -1;
+      const tiers = seen.get(v) ?? new Set<number>();
+      tiers.add(r.implicit?.tier ?? -1);
+      seen.set(v, tiers);
+    }
+    for (const [v, tiers] of seen) expect(tiers.size, `value ${v}`).toBe(1);
+    expect(seen.get(0)).toEqual(new Set([IMPLICIT_NEUTRAL_TIER]));
   });
 });
 

@@ -13,6 +13,7 @@ import {
   describeTree,
   formatAffix,
   formatRunes,
+  kitRoll,
   programDamage,
   resetTunables,
   Rng,
@@ -231,6 +232,14 @@ describe('ranged rolls on the way out and on the bench', () => {
     expect(clampRoll(r)).toBe(r);
     applyTunables({ [affixTierPath('rune_damage', 5, 'max')]: 80 });
     expect(clampRoll(r)).toEqual({ id: 'rune_damage', tier: 5, value: 30, max: 130 });
+  });
+
+  it('a kit roll clamps a ranged roll by its average and keeps its spread', () => {
+    const out = kitRoll({ id: 'rune_damage', tier: 5, value: 150, max: 250 });
+    expect(out.max).toBeDefined();
+    expect((out.max ?? 0) - out.value).toBe(100);
+    const best = Math.max(...(AFFIXES.rune_damage.tiers.slice(0, -1).map((t) => t.max)));
+    expect(rollAverage(out)).toBe(best);
   });
 
   it('the balance bench takes ranges a drop can have and refuses wider ones', () => {

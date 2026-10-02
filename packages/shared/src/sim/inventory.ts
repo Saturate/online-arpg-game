@@ -11,6 +11,7 @@ import {
   isBound,
   isPlainRune,
   matchingStarter,
+  implicitKey,
   runeImplicit,
   stacksWith,
   ITEM_TIERS,
@@ -370,7 +371,10 @@ function plainSources(p: PlayerComp, rune: RuneId, implicit: RuneRefImplicit | u
       const it = uid === null ? undefined : p.items.get(uid);
       if (it?.kind === 'rune' && isPlainRune(it) && it.rune === rune && it.count > 0 && implicitMatches(it, implicit)) here.push(it);
     }
-    return here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+    // A ref naming no implicit (an older client) takes the neutral roll first, so it never spends a
+    // better stack the player did not pick.
+    const neutralFirst = (r: RuneItem): number => (implicit === undefined && implicitKey(r) !== implicitKey(createRune(0, r.rune)) ? 1 : 0);
+    return here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true) || neutralFirst(a) - neutralFirst(b));
   };
   return [...stacksIn(p.inventory), ...stacksIn(p.stash.runes.list), ...p.stash.general.flatMap((tab) => stacksIn(tab.cells))];
 }
