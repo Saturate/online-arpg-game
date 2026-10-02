@@ -568,7 +568,7 @@ describe('the guild log', () => {
     a.socket.emit({ t: 'guildLog', before: null });
     const entries = a.socket.last('guildLog')?.entries ?? [];
     expect(entries.map((e) => e.kind)).toEqual(['leave', 'kick', 'rank', 'withdraw', 'deposit', 'join', 'join', 'found']);
-    expect(entries.find((e) => e.kind === 'deposit')?.text).toMatch(/^Hero0 put Logged Vest \(rare, item level 5, uid \d+\) into Tab 1$/);
+    expect(entries.find((e) => e.kind === 'deposit')?.text).toMatch(/^Hero0 put Logged Vest \(rare, item level 5\) into Tab 1$/);
     expect(entries.find((e) => e.kind === 'withdraw')?.text).toMatch(/^Hero0 took Logged Vest .* from Tab 1$/);
     expect(entries.find((e) => e.kind === 'join')?.text).toBe('Hero2 joined (invited by Hero0)');
     // Paged by id, newest first.

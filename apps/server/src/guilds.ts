@@ -100,10 +100,13 @@ export interface GuildHost {
 
 type Actor = { room: Room; pid: EntityId; p: PlayerComp };
 
-/** Items as the log names them: "Fire Rune x12 (common, item level 3)". */
+/**
+ * Items as the guild log names them for players: "Fire Rune x12 (common, item level 3)". Uids stay
+ * out of it; the server log has them for tracing.
+ */
 function itemLabel(item: Item): string {
   const count = item.kind === 'rune' && item.count > 1 ? ` x${item.count}` : '';
-  return `${item.name}${count} (${item.tier}, item level ${item.ilvl}, uid ${item.uid})`;
+  return `${item.name}${count} (${item.tier}, item level ${item.ilvl})`;
 }
 
 /**
