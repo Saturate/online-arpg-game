@@ -40,4 +40,6 @@ Planned shape, to be confirmed when it is built:
 
 - **Item safety review needed before it ships:** a fresh-eyes loss and duplication review, including two members taking the same item at the same moment from different rooms.
 - The exact founding price and tab cap are "about" values in the owner's brief; they become config numbers when built.
-- Not decided: what happens to the guild stash when the guild disbands, and whether a Leader who deletes their account passes leadership on.
+- **Disbanding (owner, 2026-10-02):** a guild can only disband with an empty stash, so nothing is lost; the Leader hands items out first.
+- **A Leader who leaves (owner, 2026-10-02):** on account deletion, or after 30 days without a login, leadership passes to the longest-serving Officer, else the longest-serving Member.
+- **Founding price and tab cap** become live tuning numbers (base numbers, owner's rule).
