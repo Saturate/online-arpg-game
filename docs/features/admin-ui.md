@@ -23,6 +23,8 @@ Status: Built 2026-10-01 on `feat/admin-ui`, not pushed. Planned by the owner th
 - **Header:** tabs on a row of their own under the title, search and links, since eleven tabs (twelve with the balance bench) did not fit beside them.
 - **Balance bench tab** (after Tuning; every staff role sees it, adding and removing admin picks needs `tuning`): every kit, the balance test's spells, the 20 most equipped sigils and admin picks, with Force and damage per Force against the best kit, outliers marked, sortable and filterable; unsaved edits in the Tuning tab are previewed as before, after and the change, and Watch opens two Spell Studio stages. The Tuning tab's edits now live in `admin/tuningDraft.ts` so they survive switching to the bench. Details, routes and tests: [live-tuning.md](live-tuning.md), "The balance bench".
 
+- **Guilds tab** (2026-10-02, `feat/guilds`, not deployed; every staff role sees it): every guild with name, tag, members, Leader, tabs, items and when it was founded, flagged when its stash cannot be read or it has no Leader. A click opens the roster (account, character, rank, joined, last active, online) and the guild log, paged back 100 at a time. "Make Leader" on a member needs the new `guilds` permission (owner and admin, and a token scope); the old Leader becomes an Officer and the change is in the guild log and the staff log. Code: `admin/GuildsTab.tsx`, `admin/guildsApi.ts`; [guilds.md](guilds.md).
+
 ## Why
 
 - **Polling, not a socket,** so it works the same for the admin page and for scripts with a token, through the routes that already check permissions.
@@ -49,12 +51,15 @@ Routes:
 | GET | `/api/admin/bench` | `viewAdmin` | `{ picks, popular, popularAt }`: admin picks with who added them, the most equipped sigils by rune text and count (no names); POST `.../bench/picks` and DELETE `.../bench/picks/<id>` need `tuning` (live-tuning.md) |
 | POST | `/api/admin/worlds/rebuild` | `tuning` | `{ copies, failed, gen }`: every copy, or `{ game }`; a copy rebuilt in the last minute or whose build failed is in `failed` with the reason; 404 unknown copy, 429 inside the 3 s cooldown (world-map.md, "Generation settings") |
 | POST | `/api/admin/worlds/reroll` | `settings` | as rebuild; `{ game }` for a random seed or `{ game, seed }` to pin one |
+| GET | `/api/admin/guilds` | `viewAdmin` | every guild (`AdminGuildSummary`, `protocol/adminGuilds.ts`) |
+| GET | `/api/admin/guilds/<id>?before=` | `viewAdmin` | `AdminGuildDetail`: roster, tabs, a page of the log older than `before`; 404 unknown |
+| POST | `/api/admin/guilds/<id>/leader` | `guilds` | `{ accountId }` of a member; 409 when not a member or already Leader |
 | GET | `/api/admin/search?q=` | `viewAdmin` | `{ accounts, log }`; `q` 2 to 64 characters after trimming (400 otherwise); `log` needs `serverLog` |
 
 Tests:
 
 - `apps/server/test/adminLive.test.ts`: the ring keeps the newest samples oldest first without growing; ticks roll into one sample per second with the mean, the worst and message rates; the sparkline stays at its window; each room's ticks are measured and bounded; the live view reports players with region, party and time online, rooms with kind and tick, the world copy with dots and a region grid, connections and messages; a region grid goes only to a caller that does not hold it for that plan; the tails go to owner and admin only, newest first, without token reads (matched on the whole line), and are null for moderator and builder, 404 for a player; tokens get the tails only with the `serverLog` scope and their polling stays out of the staff log; account search by name and character, prefix first, `%` and `_` matched as themselves; log search by role and token scope; query length limits.
-- `apps/server/test/adminTokens.test.ts`: both routes are in the per-scope route check.
+- `apps/server/test/adminTokens.test.ts`: both routes are in the per-scope route check, and the guild routes. `apps/server/test/guilds.test.ts`: the guild routes per role. `apps/client/test/adminGuilds.test.ts`.
 - `apps/client/test/adminSearch.test.ts`: tabs per role (the balance bench for every staff role); every setting has a label; every tuning number is found by path, label and category; ranking order; players and settings above log lines; a character lands on its account; results for tabs the role cannot open are dropped, for every role; the Ctrl+K and Cmd+K shortcut.
 - `apps/client/test/adminLive.test.ts`: the reply check; tick colours and durations; the health panel, sparkline, players (actions only when allowed), rooms, log tail and minimap render (the seed and the older numbers flag too); the 429 backoff; the region grid cache, replaced after a rebuild; the rebuild reply check and summary. The rebuild and reroll routes: `apps/server/test/worldGen.test.ts`.
 - `apps/server/test/static.test.ts`: pages allow fonts from `'self'` and Google Fonts only.
