@@ -299,6 +299,118 @@ describe('item conservation across a restart', () => {
     expect(census(store, next, players, roomIds)).toEqual(start);
   });
 
+  /** Hero0 holds an unbound ring in the bag, saved; returns what the census counted then. */
+  async function withRing() {
+    const t = await setup(2);
+    const [a] = t.sockets;
+    if (!a) throw new Error('setup');
+    ticks(t.rooms, 2);
+    const room = roomOf(t.rooms, a);
+    const pos = at(t.rooms, a);
+    const [ring] = rings(room, 1);
+    if (!ring) throw new Error('no ring');
+    spawnBag(room.sim, pos.x + 30, pos.y, [ring], LOOT.bagRadius, null);
+    const bag = [...room.sim.world.loot.keys()].at(-1);
+    if (bag === undefined) throw new Error('no bag');
+    a.emit({ t: 'pickup', id: bag });
+    ticks(t.rooms, 0.2);
+    const p = room.sim.world.player.get(welcome(a).playerId);
+    if (!p?.items.has(ring.uid)) throw new Error('ring not picked up');
+    t.rooms.saveAll();
+    return { ...t, a, room, ring, start: census(t.store, t.rooms, t.players, [room.id]) };
+  }
+
+  it('an item dropped on the last tick is on the restored ground and not in the save', async () => {
+    const { store, rooms, players, clock, owners, a, room, ring, start } = await withRing();
+    a.emit({ t: 'discard', uid: ring.uid });
+    rooms.tick();
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(census(store, next, players, [room.id])).toEqual(start);
+    expect(store.loadCharacter(nth(players, 0).account, nth(players, 0).character)?.save?.items.some((i) => fingerprint(i) === fingerprint(ring))).toBe(false);
+  });
+
+  it('a drop and then a disconnect before SIGTERM leaves the item on the ground once', async () => {
+    const { store, rooms, players, clock, owners, a, room, ring, start } = await withRing();
+    a.emit({ t: 'discard', uid: ring.uid });
+    rooms.tick();
+    a.close();
+    rooms.tick();
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(census(store, next, players, [room.id])).toEqual(start);
+  });
+
+  it('a drop and then a walk into a dungeon before SIGTERM leaves the item on the world ground once', async () => {
+    const { store, rooms, players, clock, owners, a, room, ring, start } = await withRing();
+    a.emit({ t: 'discard', uid: ring.uid });
+    rooms.tick();
+    const entrance = room.sim.mapDef.portals.find((p) => p.target === 'staging' && p.dungeon && (room.sim.zone?.plan?.gateAt(p.x, p.y) ?? null) === null);
+    if (!entrance) throw new Error('no open dungeon entrance');
+    a.emit({ t: 'dev', cmd: { c: 'teleport', x: entrance.x, y: entrance.y } });
+    ticks(rooms, 1);
+    expect(welcome(a).map.kind).toBe('staging');
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(census(store, next, players, [room.id])).toEqual(start);
+  });
+
+  it('a failed shutdown write leaves no snapshot, and the plain save after it keeps every item', async () => {
+    const { store, rooms, players, clock, owners, a, room, ring, start } = await withRing();
+    a.emit({ t: 'discard', uid: ring.uid });
+    rooms.tick();
+    vi.spyOn(store.snapshots, 'write').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    expect(() => rooms.shutdown()).toThrow('disk full');
+    expect(store.snapshots.has()).toBe(false);
+    expect(a.last('restart')).toEqual({ t: 'restart', seconds: 0 });
+    // What index.ts does next. The dropped ring is on the ground of a process that is ending: lost, as on any restart before.
+    rooms.saveAll();
+    const { rooms: next, summary } = reboot(store, owners, clock);
+    expect(summary).toBe('no session snapshot');
+    const after = census(store, next, players, [room.id]);
+    const lost = start.items.filter((f) => f === fingerprint(ring));
+    expect(after.items).toEqual(start.items.filter((f) => !lost.includes(f)));
+  });
+
+  it('gives every item in a restored room its own uid once everyone is back', async () => {
+    const { store, rooms, players, clock, owners, room } = await withRing();
+    const pos = room.sim.playerSpawnPoint();
+    for (let i = 0; i < 20; i++) spawnBag(room.sim, pos.x + 200 + i * 60, pos.y, rings(room, 3), LOOT.bagRadius, null);
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    for (const p of players) join(next, store, p);
+    ticks(next, 0.5);
+    const restored = next.roomById(room.id);
+    if (!restored) throw new Error('no room');
+    const uids: number[] = [];
+    const w = restored.sim.world;
+    for (const [, p] of w.player) {
+      for (const it of p.items.values()) {
+        uids.push(it.uid);
+        if (it.kind === 'sigil') for (const r of it.slots) uids.push(r.uid);
+      }
+    }
+    for (const [id, l] of w.loot) if (w.isAlive(id)) for (const it of l.items) uids.push(it.uid);
+    expect(uids.length).toBeGreaterThan(60);
+    expect(new Set(uids).size).toBe(uids.length);
+  });
+
+  it('keeps no ground loot of a room where a member had no character to export', async () => {
+    const { store, rooms, sockets, clock, owners } = await setup(1);
+    const [a] = sockets;
+    if (!a) throw new Error('setup');
+    ticks(rooms, 1);
+    const room = roomOf(rooms, a);
+    const pos = at(rooms, a);
+    spawnBag(room.sim, pos.x + 100, pos.y, rings(room, 2), LOOT.bagRadius, null);
+    vi.spyOn(room, 'exportMember').mockReturnValue(null);
+    expect(rooms.shutdown().piles).toBe(0);
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(next.roomById(room.id)?.sim.world.loot.size ?? 0).toBe(0);
+  });
+
   it('a crash without SIGTERM restores nothing new', async () => {
     const { store, rooms, players, sockets, clock, owners } = await setup(1);
     const [a] = sockets;

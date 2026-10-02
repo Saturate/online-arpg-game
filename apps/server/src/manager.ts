@@ -1917,7 +1917,12 @@ export class RoomManager implements AdminHooks {
         try {
           const save = room.exportMember(m.client);
           const { characterId, accountId } = m.client;
-          if (!save || characterId === null || accountId === null) continue;
+          if (characterId === null || accountId === null) continue;
+          if (!save) {
+            // A member with no character to export has a save older than this room's ground.
+            failed.add(room.id);
+            continue;
+          }
           const { character, stash } = splitStash(save);
           saves.push({ characterId, save: character, accountId, stash });
         } catch (err) {
@@ -2059,18 +2064,30 @@ export class RoomManager implements AdminHooks {
     this.stop();
     const { saves, failed } = this.collectSaves();
     const snap = this.snapshot(failed);
-    const bytes = this.store.saveShutdown(saves, snap);
+    let bytes: number;
+    try {
+      bytes = this.store.saveShutdown(saves, snap);
+    } catch (err) {
+      // Nothing was written: the caller saves the characters alone, and the clients still hear it.
+      this.closeForRestart();
+      throw err;
+    }
     const ms = performance.now() - started;
+    this.closeForRestart();
+    let piles = 0;
+    for (const i of snap.instances) piles += i.loot.length;
+    if (failed.size > 0) events.error('save', `[restart] ground loot of ${[...failed].join(', ')} not kept: a character there could not be exported`);
+    return { players: snap.players.length, piles, bytes, ms };
+  }
+
+  /** Nothing is handled or saved from here on; every client hears the server is going down now. */
+  private closeForRestart(): void {
     this.shuttingDown = true;
     for (const c of [...this.clients.values()]) {
       c.send({ t: 'restart', seconds: 0 });
       // 1012 is the WebSocket code for a service restart; the client waits for the server on it.
       c.socket.close(1012, 'server restart');
     }
-    let piles = 0;
-    for (const i of snap.instances) piles += i.loot.length;
-    if (failed.size > 0) events.error('save', `[restart] ground loot of ${[...failed].join(', ')} not kept: a character there could not be exported`);
-    return { players: snap.players.length, piles, bytes, ms };
   }
 
   /**
