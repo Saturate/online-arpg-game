@@ -161,6 +161,9 @@ describe('admin API tokens', () => {
     { method: 'GET', path: '/api/admin/bench', scope: 'viewAdmin' },
     // An empty body is refused by the grammar check, so the scope is tested without adding a pick.
     { method: 'POST', path: '/api/admin/bench/picks', body: {}, scope: 'tuning' },
+    { method: 'GET', path: '/api/admin/guilds', scope: 'viewAdmin' },
+    // An empty body is refused after the permission check, so the scope is tested without a guild.
+    { method: 'POST', path: '/api/admin/guilds/1/leader', body: {}, scope: 'guilds' },
   ];
 
   it('lets each scope through only the routes it names', async () => {

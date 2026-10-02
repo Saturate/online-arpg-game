@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * file for such a read outside a function body and fails naming the line.
  */
 
-const ROOTS = ['SPELL', 'AURA', 'LINK', 'AILMENTS', 'RUNE_FORCE', 'RUNE_SPIRIT', 'RUNE_PRICE', 'PLAIN_MODIFIER_EFFECT', 'CONCENTRATED', 'DEFAULTS', 'AFFIXES'];
+const ROOTS = ['SPELL', 'AURA', 'LINK', 'AILMENTS', 'RUNE_FORCE', 'RUNE_SPIRIT', 'RUNE_PRICE', 'PLAIN_MODIFIER_EFFECT', 'CONCENTRATED', 'DEFAULTS', 'AFFIXES', 'GUILD'];
 const HEAT_KEYS = TUNABLES.filter((t) => t.path.startsWith('force.') && !t.path.startsWith('force.rune.') && t.path !== 'force.splitPerCopy').map((t) => t.path.slice('force.'.length));
 /** Any mention of a tunable config object, not only a property read: `const { bolt } = SPELL` copies too. */
 const READ = new RegExp(`\\b(?:${ROOTS.join('|')})\\b|\\bHEAT\\.(?:${HEAT_KEYS.join('|')})\\b`);
