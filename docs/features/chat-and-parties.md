@@ -59,7 +59,7 @@ Tests:
 - No mute or block list, and no profanity filter.
 - Links show the item as it was when sent, and only while the chat is open (closed, the lines take no mouse so they never block clicks on the game). Plain runes in the forge's pool are counts, not items, so they cannot be linked; a rolled rune or one in a slot can. Trader shelf items are not the player's and cannot be linked.
 - The tooltip compares nothing and shows no spirit preview for a linked item; a sigil's sentence and cost are worked out for the reader's own class.
-- Parties are lost on a server restart, since they live in memory.
+- Parties live in memory; a deploy's restart keeps them through the session snapshot ([seamless-restart.md](seamless-restart.md)), a crash loses them.
 - Offline and disconnected are one state: a dropped connection leaves the world at once, so there is no "reconnecting" state to show.
 - The Arena gate shows as "Arena" on the frames, though a teleport there is allowed; only runs are refused.
 - The minimap turn is fixed by `VIEW.yawDegrees`, since the camera never turns in play; a camera that turns would need the minimap to redraw on each change.

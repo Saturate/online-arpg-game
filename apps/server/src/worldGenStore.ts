@@ -6,7 +6,7 @@ import { events } from './eventLog.js';
  * The generation numbers the public world was built with, by its seed (docs/features/world-map.md,
  * "Generation settings"). A world copy keeps the numbers it was made with; the public world's are
  * stored so a restart builds the same world again instead of taking whatever live tuning holds now.
- * Party worlds end with their party, which a restart ends too, so they are not stored.
+ * Party worlds end with their party; a deploy's restart carries theirs in the session snapshot.
  */
 export class WorldGenStore {
   constructor(private readonly db: DatabaseSync) {

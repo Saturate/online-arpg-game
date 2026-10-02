@@ -85,11 +85,13 @@ Map edges, dungeon meshes and lights are in [town.md](docs/features/town.md); th
 
 ## Operations
 
-**Deploys:** a push to `main` builds the image in GitHub Actions and Flux rolls it out to arpg.akj.io, restarting the server (everyone is saved first and reconnects). Pushes that only change Markdown skip the image build. Hold pushes until the owner says deploy.
+**Deploys:** a push to `main` builds the image in GitHub Actions and Flux rolls it out to arpg.akj.io, restarting the server. Pushes that only change Markdown skip the image build. Hold pushes until the owner says deploy.
+
+**Deploys are seamless restarts** ([seamless-restart.md](docs/features/seamless-restart.md)): on SIGTERM the server writes every character and a session snapshot (world copies, their memory, parties, ground loot, where everyone stood) in one transaction, and the next boot restores it before opening the port; players back within 5 minutes land where they stood. Clients show an "Updating game server" overlay while they wait and reload onto the new build. When people are online, send the restart countdown first (admin Live tab, or `POST /api/admin/restart-countdown`). A crash writes no snapshot.
 
 **Stale tabs update themselves after a deploy.** The build id is baked into the image and the client. The welcome carries the server's build; on a mismatch the client stores the character it was playing, reloads and rejoins it. A background tab reloads without resuming, and a tab that already reloaded once shows a notice instead of looping. Dev builds skip the check.
 
-**Saves on shutdown:** SIGINT, SIGTERM and uncaught exceptions save every online character before the process ends ([accounts-admin.md](docs/features/accounts-admin.md), "Save points").
+**Saves on shutdown:** SIGINT, SIGTERM and uncaught exceptions save every online character before the process ends ([accounts-admin.md](docs/features/accounts-admin.md), "Save points"); SIGINT and SIGTERM write the session snapshot in the same transaction.
 
 **Town in git:** see [town.md](docs/features/town.md), "The town editor".
 

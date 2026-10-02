@@ -1,17 +1,52 @@
 # Seamless restart
 
-Status: Planned (owner, 2026-10-02).
+Status: Built on `feat/seamless-restart` (2026-10-02), not deployed. Planned by the owner the same day.
 
 "Could we somehow have restartless or better deploy of new code?" The owner chose a seamless restart: a deploy still restarts the server, but players continue where they were.
 
-## Planned
+## What it does
 
-- **On shutdown (SIGTERM):** save every character as today, plus the session state that is lost today: each player's room, world copy and position, their party, open dungeon runs where possible, ground loot and loot piles, and world copy memory (dead bosses, opened chests, gate timers). Written in one transaction to SQLite, with a format version.
-- **On boot:** restore that state before accepting players: rebuild the world copies with their own seeds and generation numbers, put ground loot and piles back where they lay, restore memory and parties. A player who reconnects within a few minutes lands where they stood, in the same world copy and party; later, or if their spot is gone, at the town spawn as today. The snapshot is used once and then deleted.
-- **What players see:** when the connection drops for a deploy, a calm full-screen overlay: "Updating game server, please hang tight" (dark, in the game's look), with a quiet progress pulse, while the client keeps reconnecting; it reloads on the new build and drops them back in. A countdown announcement goes out first when people are online (for example 60 s), so nobody is mid-fight by surprise.
-- **Items:** this moves items (ground loot, piles), so it gets a loss and duplication review. A crash without SIGTERM restores nothing new and loses only what a crash loses today.
+- **On SIGTERM (and SIGINT)** the server stops the tick, then writes every character and stash together with a **session snapshot** in one SQLite transaction: each world copy (id, seed, kind, name, party, generation numbers), its memory (dead gate and region bosses, opened chests), the ground loot and piles of its world room, every party (members, leader, last seen class and level, party world), and where each online player stood. The row carries a format version (`SNAPSHOT_FORMAT` in `apps/server/src/sessionSnapshot.ts`).
+- **Every client is told** (`{ t: 'restart', seconds: 0 }`), then its socket closes with code 1012 (service restart). After the write, nothing is handled or saved any more; the process waits up to 1.5 s for the close frames to go out and exits.
+- **On boot, before the first tick and before the port opens,** the snapshot is read and deleted in one go (used once, even if the restore fails), then the world copies come back with their own ids, seeds and numbers, their memory, the parties, and a world room for each copy that had players or loot on the ground, with the piles laid where they lay. Items on the ground take new uids in the new room's range, as a character's do when it arrives.
+- **A player who comes back within 5 minutes of the boot** (`RESUME_WINDOW_MS`) lands in the same world copy, at the spot they stood on (open ground nearby, reachable from the town, never behind a seal they have not opened), in the same party. Someone who was in a dungeon run or its antechamber lands beside that dungeon's entrance in the world; someone in the Arena, its gate or a sandbox lands in that copy's town. Later, or if the copy is gone, full or another party's, they start at the town spawn as before.
+- **A stale tab that resumed and then reloads onto the new build** gets its place again: a restored player leaving inside the window has the spot they left from kept for the next join.
+- **A restored copy and its world room stay open** with nobody inside until the window closes, so the loot waits for its players; after that they close by the usual rules (an empty world room after 5 minutes, keeping its memory).
+- **What players see:** when the server goes away for a restart, a full-screen overlay: "Updating game server", "Please hang tight. You will be back where you stood.", an ember in an iron ring breathing slowly, and a quiet step line ("Waiting for the server to come back", "Loading the new version", "Taking you back in"). The client tries again every 2 s for up to 3 minutes. When the server is back on a new build the tab reloads, keeps the overlay up through the reload and the character list, and drops back into the game; on the same build the overlay simply lifts. A drop without the restart word keeps the small "Connection lost. Reconnecting..." line, unless the countdown had just run out.
+- **The restart countdown:** `POST /api/admin/restart-countdown` (`{ "seconds": 60 }`, 10 to 600, default 60; the `announce` permission and token scope) or the "Restart countdown (60 s)" button on the admin Live tab sends a banner and a chat line ("The server restarts for an update in 60 seconds. You will be back where you stand."), a small "Server update in 0:59" pill at the top of the screen, and chat reminders at 30 and 10 seconds. Someone joining during it gets the time left. It only warns; the deploy does the restart. The README's deploy steps say to send it when people are online.
+
+## Why
+
+- **One transaction for saves and snapshot.** The items on the ground and in the saves are then from one frozen moment: a bag picked up on the last tick is in the save and not on the ground, and a write that fails writes neither (the server then saves the characters alone, as before).
+- **A crash restores nothing new.** Only SIGTERM and SIGINT write a snapshot; an uncaught exception saves the characters as before and the next boot starts fresh. A snapshot left from an earlier shutdown cannot be found later, since every boot takes it.
+- **A room where a character could not be exported (the export threw or found no character) keeps no ground loot.** That character's save is older than the ground, so an item they dropped since would exist twice.
+- **New uids for ground items.** Each room hands out uids from its own range, and the new process starts counting rooms again, so an old uid could name another item; reissuing them is what a room already does for every arriving character.
+- **Dungeon runs are not restored.** A run rebuilt from its seed comes back with its boss alive and its loot gone; putting the party beside the entrance is honest and cannot be farmed. Their ground loot is lost, as it was on every restart before.
+- **The window counts from the boot, not the shutdown,** so a slow image pull does not eat the players' time; 5 minutes covers the about one minute of downtime plus a reload.
+- **A snapshot of another format is dropped,** not read wrong. The new build changing the shape of items or of the snapshot bumps `SNAPSHOT_FORMAT`; that deploy then loses ground loot and places, as every deploy did before.
+- **A copy whose ground moved in the new build** (`ZoneWorld.memoryLayout()` differs from the one stored) forgets its dead bosses and opened chests, as a forced rebuild does. Its loot and players still come back, onto open, reachable ground near where they were.
+
+## How
+
+- `apps/server/src/sessionSnapshot.ts`: the snapshot types, `SNAPSHOT_FORMAT`, `RESUME_WINDOW_MS`, the shape check (`parseSnapshot`, which drops the whole snapshot on anything off) and `SnapshotStore` (table `session_snapshot`, one row; `take` reads and deletes).
+- `apps/server/src/accounts.ts`: `saveShutdown` writes the saves and the snapshot in one transaction.
+- `apps/server/src/manager.ts`: `snapshot`, `shutdown`, `restore`, the resume map and `resumeFor` / `resumeSpot` / `keepResume` in `join` and on leaving, `Instance.heldUntil`, `restartCountdown` and its reminders. The manager takes a clock (`Date.now` by default) so tests can step through the window.
+- `packages/shared/src/sim/inventory.ts`: `groundPiles` and `restoreGroundPile`.
+- `apps/server/src/index.ts`: `restore()` before `start()` and `listen`; the SIGTERM and SIGINT handler (`shutdown`, the fallback save, the 1.5 s close wait).
+- Client: `apps/client/src/game/restart.ts` (the overlay's states, as a pure function, and the flag that keeps the overlay through the update reload), `ui/RestartOverlay.tsx` (the overlay and the countdown pill), `ui/store.ts` (`restart`, the longer reconnect while waiting), `game/game.ts` (the `restart` message, the close code, the welcome), `net/connection.ts` (passes the close code).
+- Timing: with 32 players in four public copies and 396 piles of five items on the ground, the shutdown write took 3.7 ms (420 KB of snapshot) and the restore 3 ms on the owner's laptop. Kubernetes allows 20 s (`terminationGracePeriodSeconds` in the server repo's `k3s/apps/arpg/deployment.yaml`); the close wait of 1.5 s is the longest part.
+
+## Tests
+
+- `apps/server/test/seamlessRestart.test.ts`: a round trip (world copies with their seeds, numbers, kinds and names, opened chests, both parties' members and party world, piles with the same items, a player back within 40 units of where they stood); the snapshot used once; the world rooms and loot there before anyone joins; a player from a dungeon antechamber lands beside its entrance; the window (just inside lands on the spot, just past at the town spawn); a stale tab that resumed and reloads gets the spot it left from, but not after the window; a held world room keeps its loot past the idle close and closes after the window; item conservation (every item in saves, stashes and on the ground, counted before the shutdown, after the boot and after everyone rejoined and saved, with a bag picked up on the last tick before SIGTERM); an item dropped on the last tick, or dropped before a disconnect or before walking into a dungeon, is on the restored ground once and in no save; a failed shutdown write leaves no snapshot and the plain save after it keeps every item but the one on the ground (as before); every item in a restored room has its own uid once everyone is back; a crash without SIGTERM restores no snapshot and no loot; a room whose export threw, or where a member had no character to export, keeps no loot; nothing is saved after the shutdown write; damaged or other-format snapshots are dropped; the countdown, its reminder and the time left for a late joiner; the busy-world timing (32 players, about 400 piles, under a second).
+- `apps/client/test/restartOverlay.test.ts`: the overlay's states through a deploy (countdown, going down, the close frame, back on a new build, the reloaded page resuming), a restart onto the same build, an ordinary drop versus one at the end of the countdown, and giving up after 3 minutes.
+- `apps/server/test/adminTokens.test.ts`: the countdown route answers the `announce` scope only.
+- Reviewed for item loss and duplication by a separate reviewer (nothing found; its one edge, a member with no character to export, is now handled and tested). Checked in a browser against a local server: the countdown banner and pill, the overlay after SIGTERM still waiting after 35 s, the restart on a new build reloading the tab and putting the hero back on the same road.
 
 ## Limits and open questions
 
-- Monsters, spells in flight and Arena runs are not restored; chunks refill as on any first visit.
+- Monsters, spells in flight, dungeon runs, Arena runs and their ground loot are not restored; chunks refill as on any first visit, and a dead player comes back alive.
+- Who had an open party invite, a teleport channel or a ready check is not kept.
+- An item dropped by a player is restored without its "step away first" mark (as in a town rebuild).
 - The deployment keeps the Recreate strategy (one pod owns the SQLite file), so there is still about a minute of downtime; a faster handover is a separate step.
+- If the cluster kills the pod before SIGTERM's handler finishes (it has 20 s and needs milliseconds), or the node dies, that restart is a crash: characters as of the last save, no snapshot.

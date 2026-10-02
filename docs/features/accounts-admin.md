@@ -8,7 +8,7 @@ Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests 
 - **Guests** get a generated name (`Guest` plus 6 hex characters) and a one-year session. The character screen offers to claim the account with a real name and password; the characters stay. Unclaimed guests are deleted after 90 days without play.
 - **Roles:** player, builder, moderator, admin and owner. Staff pages live under `/admin/`; the dev tools at `/admin/dev/` need builder or higher ([dev-tools.md](dev-tools.md)).
 - **The admin page** (`/admin/`) has eight tabs, ten for an admin and eleven for the owner, and a search box (Ctrl+K) over all of them. Tabs, Live view parts and search results follow the role's permissions ([admin-ui.md](admin-ui.md)):
-  - **Live** (since 2026-10-01, replacing Overview): server health with a tick sparkline, the online players with region, party, time online, Go to and Kick, rooms with their tick time against the 50 ms budget, a minimap per world copy, the announce form, and for `serverLog` the log and staff tails. Refreshes every 3 s ([admin-ui.md](admin-ui.md)).
+  - **Live** (since 2026-10-01, replacing Overview): server health with a tick sparkline, the online players with region, party, time online, Go to and Kick, rooms with their tick time against the 50 ms budget, a minimap per world copy, the announce form and the restart countdown button, and for `serverLog` the log and staff tails. Refreshes every 3 s ([admin-ui.md](admin-ui.md)).
   - **Players:** account search, with role, guest and banned badges, the role picker (owner only), ban and unban, and each account's characters.
   - **Arena:** the season leaderboards with a month picker ([arena.md](arena.md)).
   - **Settings:** live server settings (below). Everyone who can open the page can view them; only the `settings` permission can edit.
@@ -28,7 +28,7 @@ Status: Live. Accounts since 2026-09-28, the admin page, staff roles and guests 
 - **Rate limits:** per IP over a sliding minute; 10 for register, login and guest, 120 for everything else. Behind the WAF, `TRUST_PROXY=x-real-ip` reads `X-Real-IP` (`cloudflare` reads `CF-Connecting-IP`); `X-Forwarded-For` is never read.
 - **Characters:** 12 per account, with names unique server-wide (case-insensitive). Every query is scoped by account id.
 - **One character online per account:** a second login ends the first session after saving it ("Logged in from another window"), which stops item duplication across two windows.
-- **Save points:** first entry, every room change, disconnect, a 30 s autosave (all online characters in one transaction), and shutdown (SIGINT, SIGTERM and uncaught exceptions save everyone first). The character and the account stash are always written together in one transaction ([stash.md](stash.md)).
+- **Save points:** first entry, every room change, disconnect, a 30 s autosave (all online characters in one transaction), and shutdown (SIGINT, SIGTERM and uncaught exceptions save everyone first; SIGINT and SIGTERM write the session snapshot in the same transaction, [seamless-restart.md](seamless-restart.md)). The character and the account stash are always written together in one transaction ([stash.md](stash.md)).
 - **An unreadable save is never overwritten.** The join is refused ("This character could not be loaded. Nothing was lost; ask the server owner to look at it."), the row is kept and the server logs it. An unreadable stash refuses the join the same way. The trader shelf is the exception: a damaged shelf starts fresh after a log line.
 - **Roles are fixed permission sets** in `protocol/roles.ts`, ranked by their order. Owner comes from `ADMIN_USERS` and is never stored or grantable; names in `ADMIN_USERS` cannot be registered or claimed. Only the owner hands out roles.
 - **Staff act only on accounts ranked below them** for kick and ban. An owner may unban anyone. Nobody can ban themselves or change an owner's role.
@@ -71,6 +71,7 @@ Routes:
 | PATCH | `/api/admin/tuning` (path to number, or null for the code default; all or nothing; body up to 64 KiB) | `tuning` |
 | POST | `/api/admin/tuning/revert` (`{ "id": <history id> }`) | `tuning` |
 | POST | `/api/admin/announce` | `announce` |
+| POST | `/api/admin/restart-countdown` | `announce` (`{ "seconds": 60 }`, 10 to 600; [seamless-restart.md](seamless-restart.md)) |
 | POST | `/api/admin/kick` | `kick` |
 | POST | `/api/admin/accounts/:id/ban` | `ban` (a ban also kicks and deletes the account's sessions) |
 | POST | `/api/admin/goto` | `teleport` |

@@ -61,9 +61,10 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 **How to deploy (any change that converts saves).**
 
 1. `pnpm admin GET /api/admin/overview` (who is online), then `pnpm admin backup apps/server/data/rune.db.live-<label>`: the only rollback.
-2. `pnpm runes:convert-check <copy>` and `pnpm world:convert-check <copy>`: every check must pass.
-3. Gates: `pnpm typecheck`, `pnpm test`, `pnpm -r --if-present build`; then push `main` and watch `gh run watch`.
-4. After the rollout: `pnpm admin GET /api/admin/overview` shows the build, `pnpm admin GET "/api/admin/log?since=0"` the conversion lines and errors. Roll back by restoring the copy and redeploying the previous image.
+2. If anyone is online, warn them a minute before the push in step 4: the "Restart countdown (60 s)" button on the admin Live tab, or `pnpm admin POST restart-countdown '{"seconds":60}'`. The restart itself keeps their places ([seamless-restart.md](docs/features/seamless-restart.md)); push when the countdown runs out.
+3. `pnpm runes:convert-check <copy>` and `pnpm world:convert-check <copy>`: every check must pass.
+4. Gates: `pnpm typecheck`, `pnpm test`, `pnpm -r --if-present build`; then push `main` and watch `gh run watch`.
+5. After the rollout: `pnpm admin GET /api/admin/overview` shows the build, `pnpm admin GET "/api/admin/log?since=0"` the conversion lines and errors. Roll back by restoring the copy and redeploying the previous image.
 
 **Working rules** are in `CLAUDE.md`.
 
