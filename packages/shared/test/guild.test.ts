@@ -178,6 +178,11 @@ describe('stored guild stashes', () => {
     expect(() => parseGuildStash({ ...save, items: [gear(1), gear(1)] })).toThrow(/twice/);
     expect(() => parseGuildStash({ ...save, tabs: [] })).toThrow(/no tabs/);
     expect(() => parseGuildStash({ ...save, tabs: [{ ...save.tabs[0], perms: null }] })).toThrow(/permissions/);
+    // A sigil rune without a whole uid would break the uid counter and let two deposits share a uid.
+    const sigil = { uid: 1, kind: 'sigil', tier: 'magic', name: 'Whorl', ilvl: 3, affixes: [], slots: [{}], corrupted: false };
+    expect(() => parseGuildStash({ ...save, items: [sigil] })).toThrow(/damaged rune/);
+    const clash = { ...sigil, slots: [{ ...createRune(2, 'bolt', 1) }] };
+    expect(() => parseGuildStash({ ...save, items: [clash, createRune(2, 'fire', 1)] })).toThrow(/both an item and a sigil rune/);
   });
 
   it('puts an item named in two places in one, keeps items whose cell is gone, and never reuses a uid', () => {

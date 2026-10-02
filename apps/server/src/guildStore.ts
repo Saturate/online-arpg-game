@@ -1,5 +1,6 @@
 import { GUILD_LIMITS, isClassId, isGuildRank, type ClassId, type GuildLogEntry, type GuildLogKind, type GuildRank, GUILD_LOG_KINDS } from '@rune/shared';
 import type { DatabaseSync } from 'node:sqlite';
+import { events } from './eventLog.js';
 
 /** One guild row with its members, as the guild service loads it at boot. */
 export interface GuildRow {
@@ -91,7 +92,10 @@ export class GuildStore {
     const members = new Map<number, MemberRow[]>();
     for (const raw of this.db.prepare('SELECT account_id, guild_id, rank, joined_at FROM guild_members').all()) {
       const rank = raw.rank;
-      if (!isGuildRank(rank)) continue;
+      if (!isGuildRank(rank)) {
+        events.error('save', `[guild] member row of account ${num(raw.account_id)} in guild ${num(raw.guild_id)} has an unknown rank ${String(rank)}; skipped`);
+        continue;
+      }
       const list = members.get(num(raw.guild_id)) ?? [];
       list.push({ accountId: num(raw.account_id), rank, joinedAt: num(raw.joined_at) });
       members.set(num(raw.guild_id), list);

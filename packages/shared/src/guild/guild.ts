@@ -180,6 +180,7 @@ export function unplacedGuildItems(s: GuildStash): Item[] {
  * in the same step, so the item exists once.
  */
 export function intoGuild(s: GuildStash, item: Item): Item {
+  if (!Number.isSafeInteger(s.nextUid)) throw new Error('guild stash: the uid counter is broken');
   return reissueUids(item, () => s.nextUid++);
 }
 
@@ -255,6 +256,18 @@ export function parseGuildStash(raw: unknown): GuildStashLoad {
   if (!Array.isArray(raw.items) || !Array.isArray(raw.tabs)) fail('items or tabs is not a list');
   const warnings: string[] = [];
   const stored = raw.items.map((it: unknown) => (isItemShape(it) ? it : fail(`item ${isRecord(it) ? String(it.uid) : '?'} is damaged`)));
+  // Sigil runes take uids from the same counter, so a slot without a whole uid would turn the
+  // counter into NaN and let two later deposits share one uid.
+  const slotUids = new Set<ItemUid>();
+  for (const it of stored) {
+    if (it.kind !== 'sigil') continue;
+    for (const r of it.slots) {
+      const uid: unknown = isRecord(r) ? r.uid : undefined;
+      if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 0 || slotUids.has(uid)) fail(`sigil ${it.uid} holds a damaged rune`);
+      slotUids.add(uid);
+    }
+  }
+  for (const it of stored) if (slotUids.has(it.uid)) fail(`uid ${it.uid} is both an item and a sigil rune`);
   const rolls = isRuneTiers6(raw) ? null : convertRuneRolls(stored);
   const items = rolls ? rolls.items : stored;
   const byUid = new Map<ItemUid, Item>();

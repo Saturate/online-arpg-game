@@ -1,5 +1,7 @@
 import {
   addItem,
+  anchorOf,
+  STASH,
   BAG,
   canPlace,
   canKick,
@@ -142,9 +144,15 @@ export class GuildService {
         stash = loaded.stash;
         for (const w of loaded.warnings) events.warn('save', `[guild] ${row.name} (${row.id}) stash: ${w}`);
         if (loaded.converted) {
-          // Written back marked, so the rune roll pass runs once on this row.
-          this.db.writeStash(row.id, JSON.stringify(serializeGuildStash(stash)));
-          events.log('conversion', `[guild] ${row.name} (${row.id}) stash went through the rune roll pass: ${loaded.rolls?.runesRetiered.length ?? 0} runes retiered`);
+          // Written back marked, so the rune roll pass runs once on this row. If that write fails the
+          // converted stash is used anyway: the next move writes it, and until then a restart only
+          // runs the same pass again on the same row.
+          try {
+            this.db.writeStash(row.id, JSON.stringify(serializeGuildStash(stash)));
+            events.log('conversion', `[guild] ${row.name} (${row.id}) stash went through the rune roll pass: ${loaded.rolls?.runesRetiered.length ?? 0} runes retiered`);
+          } catch (err) {
+            events.error('save', `[guild] ${row.name} (${row.id}) stash went through the rune roll pass but could not be written back; the next move writes it`, err);
+          }
         }
       } catch (err) {
         events.error('save', `[guild] ${row.name} (${row.id}) has an unreadable stash; it is kept as is and refused until someone looks at it`, err);
@@ -305,7 +313,8 @@ export class GuildService {
         this.setMotd(client, msg.text);
         return true;
       case 'guildRefresh':
-        this.sendTo(client);
+        // The roster reads every member's last save, so one window asking every 5 s is plenty.
+        if (this.allowRefresh(client)) this.sendTo(client);
         return true;
       case 'guildLog':
         this.sendLog(client, msg.before);
@@ -639,6 +648,15 @@ export class GuildService {
 
   // The guild stash ----------------------------------------------------------------------------
 
+  private readonly lastRefresh = new WeakMap<Client, number>();
+
+  private allowRefresh(client: Client): boolean {
+    const now = this.clock();
+    if (now - (this.lastRefresh.get(client) ?? -Infinity) < 1000) return false;
+    this.lastRefresh.set(client, now);
+    return true;
+  }
+
   private allowOp(client: Client): boolean {
     const now = this.clock();
     const w = this.opWindow.get(client);
@@ -754,6 +772,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing moved');
     }
     g.stash = next;
+    events.log('server', `[guild] ${actor} (${client.accountName}) deposit into ${g.name} (${g.id}) ${tab.name}: ${item.name}, bag uid ${uid} -> guild uid ${copy.uid}`);
     this.refreshViewers(g);
   }
 
@@ -793,6 +812,7 @@ export class GuildService {
       return this.notice(client, 'That could not be saved, so nothing moved');
     }
     g.stash = next;
+    events.log('server', `[guild] ${actor} (${client.accountName}) withdrawal from ${g.name} (${g.id}) ${tab.name}: ${item.name}, guild uid ${uid} -> bag uid ${copy.uid}`);
     this.refreshViewers(g);
   }
 
@@ -812,9 +832,11 @@ export class GuildService {
     if (!to) return this.notice(client, 'No such guild tab');
     if (from.id !== to.id && !tabAccess(from, rank).withdraw) return this.notice(client, `Your rank cannot take items from ${from.name}`);
     if (!tabAccess(to, rank).deposit) return this.notice(client, `Your rank cannot put items into ${to.name}`);
+    if (from.id === to.id && anchorOf(from.cells, STASH, uid)?.x === at.x && anchorOf(from.cells, STASH, uid)?.y === at.y) return;
     const next = cloneGuildStash(stash);
     const error = guildPlace(next, tabId, item, at);
     if (error) return this.notice(client, error);
+    placeUnplaced(next);
     const actor = this.host.playerName(client);
     // Moves inside one tab are tidying and stay out of the log; between tabs they say where things went.
     const log = from.id === to.id ? null : { kind: 'move' as const, actor, accountId: me, text: `${actor} moved ${itemLabel(item)} from ${from.name} to ${to.name}` };
@@ -841,6 +863,7 @@ export class GuildService {
     if (id > GUILD_LIMITS.tabIdMax) return this.notice(client, 'Your guild owns all the tabs it can');
     const next = cloneGuildStash(stash);
     next.tabs.push(newGuildTab(id));
+    placeUnplaced(next);
     const actor = this.host.playerName(client);
     const before = snapshotForTrade(a.p);
     a.p.gold -= price;
@@ -857,6 +880,7 @@ export class GuildService {
   }
 
   private editTab(client: Client, tabId: number, name: string, color: StashColorId): void {
+    if (!this.allowOp(client)) return;
     const ctx = this.stashContext(client, false);
     if (!ctx) return;
     const { g, stash, me, rank } = ctx;
@@ -882,6 +906,7 @@ export class GuildService {
   }
 
   private setPerms(client: Client, tabId: number, target: ManagedRank, perms: TabPerms): void {
+    if (!this.allowOp(client)) return;
     const ctx = this.stashContext(client, false);
     if (!ctx) return;
     const { g, stash, me, rank } = ctx;
@@ -939,7 +964,11 @@ export class GuildService {
           .sort(([ia, a], [ib, b]) => a.joinedAt - b.joinedAt || ia - ib)
           .map(([id]) => id)[0];
       const next = pick('officer') ?? pick('member');
-      if (next === undefined) continue;
+      if (next === undefined) {
+        // Nobody left to take it: the stash can only be reached once an admin names a Leader.
+        if (g.members.size === 0) events.error('server', `[guild] ${g.name} (${g.id}) has no members left${g.stash && g.stash.items.size > 0 ? ` and ${g.stash.items.size} items in its stash` : ''}; an admin can name a Leader once someone joins, or look at the row`);
+        continue;
+      }
       const name = this.memberName(next);
       const text = `Leadership passed to ${name}: ${reason}`;
       try {
