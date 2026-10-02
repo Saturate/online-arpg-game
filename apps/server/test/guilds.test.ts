@@ -745,7 +745,7 @@ describe('stored guild stashes', () => {
     const row: unknown = w.raw.prepare('SELECT stash_json FROM guilds WHERE id = ?').get(id);
     const json = typeof row === 'object' && row !== null ? Reflect.get(row, 'stash_json') : undefined;
     const stored: unknown = typeof json === 'string' ? JSON.parse(json) : null;
-    expect(stored).toMatchObject({ runeFormat: 2, runeTiers: 6, guildStashFormat: 1 });
+    expect(stored).toMatchObject({ runeFormat: 2, runeTiers: 6, runeImplicits: 1, guildStashFormat: 1 });
     // The roll keeps its value; only the tier label can move.
     const items = typeof stored === 'object' && stored !== null ? Reflect.get(stored, 'items') : null;
     expect(Array.isArray(items) && items[0]?.affixes?.[0]?.value).toBe(30);
@@ -791,5 +791,30 @@ describe('the admin Guilds routes', () => {
     } finally {
       server.close();
     }
+  });
+
+  it('gives a row from before rune implicits its implicits once, and writes it back marked', async () => {
+    const w = await world(1);
+    found(w);
+    const a = hero(w.heroes, 0);
+    const id = guildInfo(a.socket)?.id ?? 0;
+    const stack = { uid: 3, kind: 'rune', tier: 'common', name: 'Bolt Rune', ilvl: 1, rune: 'bolt', count: 12, affixes: [] };
+    const cells = Array.from({ length: 120 }, (_, i) => (i === 0 ? 3 : null));
+    const old = { guildStashFormat: 1, runeFormat: 2, runeTiers: 6, nextUid: 4, tabs: [{ id: 1, name: 'Tab 1', color: 'ash', cells, perms: { officer: { view: true, deposit: true, withdraw: true }, member: { view: true, deposit: true, withdraw: false } } }], items: [stack] };
+    w.raw.prepare('UPDATE guilds SET stash_json = ? WHERE id = ?').run(JSON.stringify(old), id);
+    a.socket.close();
+    const read = (): unknown => {
+      const row: unknown = w.raw.prepare('SELECT stash_json FROM guilds WHERE id = ?').get(id);
+      const json = typeof row === 'object' && row !== null ? Reflect.get(row, 'stash_json') : undefined;
+      return typeof json === 'string' ? JSON.parse(json) : null;
+    };
+    new RoomManager(1, w.store);
+    const first = read();
+    expect(first).toMatchObject({ runeImplicits: 1, items: [{ uid: 3, rune: 'bolt', count: 12 }] });
+    const items = typeof first === 'object' && first !== null ? Reflect.get(first, 'items') : null;
+    expect(Array.isArray(items) && items[0]?.implicit).toBeTruthy();
+    // A second boot loads the marked row exactly as stored.
+    new RoomManager(1, w.store);
+    expect(read()).toEqual(first);
   });
 });

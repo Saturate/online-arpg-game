@@ -152,7 +152,7 @@ export class GuildService {
           // runs the same pass again on the same row.
           try {
             this.db.writeStash(row.id, JSON.stringify(serializeGuildStash(stash)));
-            events.log('conversion', `[guild] ${row.name} (${row.id}) stash went through the rune roll pass: ${loaded.rolls?.runesRetiered.length ?? 0} runes retiered`);
+            events.log('conversion', `[guild] ${row.name} (${row.id}) stash converted on load: ${loaded.rolls ? `${loaded.rolls.runesRetiered.length} runes retiered` : 'roll pass not needed'}; ${loaded.implicits ? `${loaded.implicits.runesGiven.length} runes given their implicit` : 'implicit pass not needed'}`);
           } catch (err) {
             events.error('save', `[guild] ${row.name} (${row.id}) stash went through the rune roll pass but could not be written back; the next move writes it`, err);
           }

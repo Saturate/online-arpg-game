@@ -733,7 +733,9 @@ function main(): void {
         const raw: unknown = typeof row.stash_json === 'string' ? JSON.parse(row.stash_json) : null;
         const stored = isRecord(raw) && Array.isArray(raw.items) ? raw.items.filter(isItemShape) : [];
         console.log(`\n${title}`);
-        reportRolls(title, stored, [...parseGuildStash(raw).stash.items.values()], 'mage', { marked: isRuneTiers6(raw) });
+        const loadedGuild = [...parseGuildStash(raw).stash.items.values()];
+        const rolled = reportRolls(title, stored, loadedGuild, 'mage', { marked: isRuneTiers6(raw), implicitsMarked: isRuneImplicits1(raw) });
+        reportImplicits(rolled, loadedGuild, { marked: isRuneImplicits1(raw) });
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);

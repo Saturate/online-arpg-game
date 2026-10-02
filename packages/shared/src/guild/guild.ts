@@ -2,6 +2,7 @@ import { GUILD_LIMITS } from '../config/guild.js';
 import { isStashColorId, isStashTabName, type StashColorId } from '../config/stash.js';
 import { convertRuneRolls, type RuneRollsReport } from '../items/convertRuneRolls.js';
 import { isRuneTiers6 } from '../items/convertV2.js';
+import { isRuneImplicits1, loadImplicits, type ImplicitsReport } from '../items/convertImplicits.js';
 import { canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH } from '../items/grid.js';
 import { reissueUids, type Item, type ItemUid } from '../items/items.js';
 import { isItemShape } from '../items/stash.js';
@@ -126,6 +127,8 @@ export interface GuildStashSave {
   guildStashFormat: 1;
   runeFormat: 2;
   runeTiers: 6;
+  /** Every rune carries its implicit (rune phase 2); rows without it take the implicit pass once. */
+  runeImplicits: 1;
   nextUid: number;
   tabs: GuildTab[];
   items: Item[];
@@ -217,7 +220,7 @@ export function placeUnplaced(s: GuildStash): void {
 }
 
 export function serializeGuildStash(s: GuildStash): GuildStashSave {
-  return { guildStashFormat: 1, runeFormat: 2, runeTiers: 6, nextUid: s.nextUid, tabs: s.tabs.map((t) => ({ ...t, cells: [...t.cells] })), items: [...s.items.values()] };
+  return { guildStashFormat: 1, runeFormat: 2, runeTiers: 6, runeImplicits: 1, nextUid: s.nextUid, tabs: s.tabs.map((t) => ({ ...t, cells: [...t.cells] })), items: [...s.items.values()] };
 }
 
 // Reading stored data --------------------------------------------------------------------------
@@ -237,9 +240,11 @@ function parsePerms(v: unknown): TabPerms {
 
 export interface GuildStashLoad {
   stash: GuildStash;
-  /** The rune roll pass ran (the row predates the six rune tiers): write the row back. */
+  /** The rune roll pass or the implicit pass ran (the row predates a marker): write the row back. */
   converted: boolean;
   rolls: RuneRollsReport | null;
+  /** The implicit pass's report, when it ran. */
+  implicits: ImplicitsReport | null;
   warnings: string[];
 }
 
@@ -247,8 +252,9 @@ export interface GuildStashLoad {
  * A stored guild stash. Anything that says where an item is must read cleanly or the whole thing
  * throws, so a damaged row is never saved back with items missing; the server then refuses the
  * guild's stash and keeps the row for a human. A name or colour that no longer passes is reset.
- * Rows from before the six rune tiers go through the rune roll pass once, like every other stored
- * item list (items.md, "Rune roll pass"); runes it hands back join the stash.
+ * Rows from before the six rune tiers go through the rune roll pass once, and rows without
+ * `runeImplicits: 1` through the implicit pass after it, like every other stored item list
+ * (items.md); runes the roll pass hands back join the stash.
  */
 export function parseGuildStash(raw: unknown): GuildStashLoad {
   if (!isRecord(raw) || raw.guildStashFormat !== 1) fail('not guild stash format 1');
@@ -271,7 +277,11 @@ export function parseGuildStash(raw: unknown): GuildStashLoad {
   // Every load-time item conversion of a guild stash happens here, and serializeGuildStash writes
   // every marker: a new pass (and its marker) is added in these two places only.
   const rolls = isRuneTiers6(raw) ? null : convertRuneRolls(stored);
-  const items = rolls ? rolls.items : stored;
+  // Runes the roll pass hands back go through the implicit pass with the rest.
+  const returned = rolls?.returned ?? [];
+  const implicits = loadImplicits(raw, [...(rolls ? rolls.items : stored), ...returned]);
+  const items = implicits.items.slice(0, implicits.items.length - returned.length);
+  const back = implicits.items.slice(implicits.items.length - returned.length);
   const byUid = new Map<ItemUid, Item>();
   let top = typeof raw.nextUid === 'number' && Number.isSafeInteger(raw.nextUid) && raw.nextUid >= 1 ? raw.nextUid : 1;
   const bump = (it: Item): void => {
@@ -323,11 +333,11 @@ export function parseGuildStash(raw: unknown): GuildStashLoad {
   });
   // A returned rune keeps the uid it had in its sigil: guild uids come from one counter, sigil runes
   // included, so it names nothing else, and `bump` already counted it.
-  for (const r of rolls?.returned ?? []) if (!stash.items.has(r.uid)) stash.items.set(r.uid, r);
+  for (const r of back) if (!stash.items.has(r.uid)) stash.items.set(r.uid, r);
   placeUnplaced(stash);
   const left = unplacedGuildItems(stash).length;
   if (left > 0) warnings.push(`${left} items fit in no tab; they wait unplaced until room frees up`);
-  return { stash, converted: rolls !== null, rolls: rolls?.report ?? null, warnings };
+  return { stash, converted: rolls !== null || !isRuneImplicits1(raw), rolls: rolls?.report ?? null, implicits: isRuneImplicits1(raw) ? null : implicits.report, warnings };
 }
 
 // What the client sees -------------------------------------------------------------------------

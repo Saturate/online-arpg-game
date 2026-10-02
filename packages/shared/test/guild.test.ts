@@ -163,7 +163,7 @@ describe('stored guild stashes', () => {
     const s = emptyGuildStash();
     guildPlace(s, 1, intoGuild(s, gear(5)), { x: 3, y: 2 });
     const save = serializeGuildStash(s);
-    expect(save).toMatchObject({ guildStashFormat: 1, runeFormat: 2, runeTiers: 6 });
+    expect(save).toMatchObject({ guildStashFormat: 1, runeFormat: 2, runeTiers: 6, runeImplicits: 1 });
     const back = parseGuildStash(JSON.parse(JSON.stringify(save)));
     expect(back.converted).toBe(false);
     expect(serializeGuildStash(back.stash)).toEqual(save);
