@@ -58,9 +58,17 @@ export function dominantType(p: Readonly<DamagePacket>): DamageType | null {
   return best;
 }
 
-/** The element a floating number is coloured by: the dominant type when it is an element, else none. */
-export function hitElement(p: Readonly<DamagePacket>): ElementId | null {
-  const t = dominantType(p);
+/**
+ * The element a floating number is coloured by: the type carrying most of the hit when it is an
+ * element, else none. A tie goes to the element listed first in `order` (the shape's infusions, so
+ * `bolt cold fire` reads cold), then to DAMAGE_TYPES order.
+ */
+export function hitElement(p: Readonly<DamagePacket>, order: readonly ElementId[] = []): ElementId | null {
+  let top = 0;
+  for (const t of DAMAGE_TYPES) top = Math.max(top, p[t]);
+  if (top <= 0) return null;
+  const tied = DAMAGE_TYPES.filter((t) => p[t] === top);
+  const t = order.find((el) => tied.includes(el)) ?? tied[0];
   return t === 'fire' || t === 'cold' || t === 'lightning' ? t : null;
 }
 

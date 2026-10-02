@@ -74,10 +74,10 @@ describe('balance bench measurement', () => {
     }
   });
 
-  it('measures the best kit as the balance test reports it: Freezing Arrow 2.18 single, Exploding Arrow 7.94 pack (2.13 and 7.71 before per-hit rolls)', () => {
+  it('measures the best kit as the balance test reports it: Freezing Arrow 2.13 single, Exploding Arrow 7.71 pack', () => {
     const best = bestKit(kitSpecs().map(measureBenchSpec));
-    expect(best?.single.toFixed(2)).toBe('2.18');
-    expect(best?.pack.toFixed(2)).toBe('7.94');
+    expect(best?.single.toFixed(2)).toBe('2.13');
+    expect(best?.pack.toFixed(2)).toBe('7.71');
   });
 
   it('follows an applied override and goes back with the set', () => {

@@ -7,7 +7,7 @@ Status: v2 (phases 0 to 3 of the rework) pushed to `main` on 2026-09-30 and buil
 Every skill is a sigil holding runes, read left to right like a Noita wand. The order of the runes is the puzzle. Make a ball, turn it into fire, lightning or cold before it fires, split it, release something from it: every step is a rune.
 
 - **Shapes** start a spell or a payload: Orb (slow and big), Bolt (fast and thin), Nova, Zone, Dash, and the persistent Aura and Bond.
-- **Infusions** give the current shape an element: Fire, Cold, Lightning. They convert the shape's physical base damage to that element (two infusions take half each) and bring its ailment.
+- **Infusions** give the current shape an element: Fire, Cold, Lightning. They convert the shape's physical base damage to that element (two infusions take half each) and bring its ailment; a burn's strength is the hit's fire share.
 - **Effects** change what happens on contact: Impact (knockback), Ward (shield), Restore (heal).
 - **Shapers** change the current shape's count or motion: Split today.
 - **Triggers** release a payload: On Hit, On Expire, Timer, Pulse, On Land. A **release affix** on a rolled shape rune does the same without taking a slot.
@@ -51,7 +51,7 @@ A rune drops plain or rolled. Plain runes stack 20 to a cell. Rolled runes carry
 | split count | 2 | 2 to 3 | 3 to 4 | 4 to 5 | 5 to 6 | 6 | split |
 | more damage | 40 to 43% | 44 to 47% | 48 to 51% | 52 to 55% | 56 to 60% | 60% | concentrated (every drop rolls it) |
 | every X s | 0.52 to 0.6 | 0.44 to 0.51 | 0.36 to 0.43 | 0.28 to 0.35 | 0.2 to 0.27 | 0.15 to 0.19 | orb, bolt, zone |
-| adds X to 2X fire / cold / lightning | 1 to 2 | 2 to 3 | 3 to 4 | 4 to 5 | 5 to 6 | 7 to 9 | orb, bolt, nova, zone, dash (in place of a damage roll) |
+| adds X to 2X fire / cold / lightning | 1 to 2 | 2 to 3 | 3 to 4 | 4 to 5 | 5 to 6 | 7 to 9 | orb, bolt, nova, zone, dash (a sixth of the damage roll's old weight each; the damage roll keeps half) |
 | weight | 100 | 35 | 25 | 15 | 8 | 2 | |
 | least item level | 1 | 2 | 3 | 5 | 8 | 12 | |
 
@@ -145,7 +145,7 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
 - **Payloads:** a payload's base runes pay 15% for its first spawn. The v1 skills were priced by hand far below what a depth surcharge gave (Exploding Arrow 16 against 47 by formula), and this share reproduces those prices: a payload only goes off when the cast lands, and the entity cap and depth limit already bound a chain. Split is exempt, since copies multiply the cast.
 - **Payload riders pay at least 50%:** a payload's number affixes and the runes that only change it (elements, effects, Swift, Large) cost at least half their listed Force. At 15%, a Bolt releasing a `nova[+50% size, +55% damage]` dealt over twice a starter's pack damage per Force.
 - **Repeat spawns pay again,** scaled by the damage one spawn can land: 60% of the full price when a flying shape (bolt or orb) released it, the full price otherwise (zone, nova or dash). A ring sprayed from a moving orb is further weighted by how little of it faces one target (copies x 0.26 rad / 2 pi). At the first-spawn share alone, a Zone releasing a Nova every 0.2 s dealt about 8x a starter's damage per Force.
-- **Added damage** ("Adds X to 2X fire") is priced like the damage roll it equals on its shape: its average as a share of the shape's average base hit (adds 4 to 8 on a Bolt is +37.5% damage), at the shape's own affinity.
+- **Added damage** ("Adds X to 2X fire") pays a step per x1.25 of its shape's average base hit (adds 4 to 8 on a Bolt is +37.5%), at the shape's own affinity, and its whole price on a payload ("Damage packets", "Force for added damage").
 - **Number affixes** cost 3 per plain-rune step they stand for, on a log scale: `3 * ln(1 + v/100) / ln(step)`, with steps speed 1.5 (dash 1.3), size 1.5, duration 1.75, damage 2 and pierce 2 extra hits (the v1 Swift, Large, Linger and Pierce runes). A negative roll refunds half.
 - **Nothing is free:** every rune pays its own price. The "first rune is free" affix and its pricing (`HEAT.minWaivedForceShare`, the waiver in `runeForce`) are gone; at the end it was capped at a Bolt's base cost and 95% of the full price, worth about 5% of a cast, because anything more let one-rune spells reach 4 to 6x a starter's damage per Force.
 - **Concentrated** pays its base 5 plus its damage priced like a damage roll of the same size (`3 * ln(1 + v/100) / ln 2`, 1.5 at 40% and 2 at 60%). Its area loss refunds nothing, because on a Bolt or a lone target it costs the spell almost nothing. It is a rider, so on a payload it pays at least 50%.
@@ -180,7 +180,7 @@ The casting resource is shown to players as "Force"; internally it keeps the spe
 ### Balance
 
 - **Every kit stays within 15% of its v1 Force and 10% of its v1 damage** (single target and pack), measured by the same harness against `test/fixtures/skill-baseline-v1.json`. Kits whose rolls were clamped into the tables (Fireball, Frozen Orb, Blink, Flame Cleave, Multishot) are held to the numbers measured at their table rolls instead (`TABLE_ROLLS` in `skillParity.test.ts`), within the same bands.
-- **Damage per Force is a report against the best kit skill, not a limit** (owner, 2026-10-01: "Let runes be mods and spells base"). The reference is the best kit at its table rolls: Freezing Arrow to one target and Exploding Arrow to a pack, 2.18 and 7.94 per Force since the per-hit rolls of damage packets (2.13 and 7.71 before; "Damage packets" below says why they moved). The test fails only above 5x, to catch a broken combination, and prints every hand-picked spell past 2x (T1 and added-damage spells, up to 2.29x since the per-hit rolls). Until 2026-10-01 it failed above 2x; a random search (8000 spells per seed) then found nothing above about 2.13x.
+- **Damage per Force is a report against the best kit skill, not a limit** (owner, 2026-10-01: "Let runes be mods and spells base"). The reference is the best kit at its table rolls: Freezing Arrow to one target (2.13 per Force) and Exploding Arrow to a pack (7.71), the same two and the same numbers as before the kits were clamped and before damage packets (the harness hits for each range's mean). The test fails only above 5x, to catch a broken combination, and prints every hand-picked spell past 2x (T1 spells up to 2.28x, added-damage spells up to 3.51x; "Damage packets" below). Until 2026-10-01 it failed above 2x; a random search (8000 spells per seed) then found nothing above about 2.13x.
 - **Multishot and Flame Cleave were buffed** (owner, 2026-10-01). In v1 they dealt about 4 and 13 damage per cast against 100+ for Fireball. Measured with the parity harness (single target / pack over the run, Force per cast):
 
   | Starter | Before | After | v1 |
@@ -236,7 +236,7 @@ Tests:
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass ([items.md](items.md), "Rune roll pass").
 - `packages/shared/test/affixTuning.test.ts`: the six rune tiers (counts, labels, ranges against the old ones, item-level gates, drops inside their tier), the one-time re-tier (by value, from the code's table, never worth 3x the old price), and the affix ranges in live tuning ([live-tuning.md](live-tuning.md)).
 - `packages/shared/test/runeRolls.test.ts`: no kit rune is past the table; old kit sigils are, and clamp on the way out.
-- `packages/shared/test/forcePerDamage.test.ts`: 85 hand-picked spells (24 with Concentrated, 11 with T1 rolls, 9 with added damage; `BALANCE_SPELLS` in `src/bench/spells.ts`, the list the admin balance bench shows), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001), 300 of T1 rolls only (seed 20261002), 300 with added damage (seed 20261003) and 300 with T1 added damage (20261004), all drawn from the live drop tables, and every kit piece (prefixes in place and single runes, alone and with infusions added) stay under 5x the best kit's damage per Force, single and pack; spells past 2x are printed.
+- `packages/shared/test/forcePerDamage.test.ts`: 88 hand-picked spells (24 with Concentrated, 11 with T1 rolls, 12 with added damage; `BALANCE_SPELLS` in `src/bench/spells.ts`, the list the admin balance bench shows), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001), 300 of T1 rolls only (seed 20261002), 300 with added damage (seed 20261003) and 300 with T1 added damage (20261004), all drawn from the live drop tables, and every kit piece (prefixes in place and single runes, alone and with infusions added) stay under 5x the best kit's damage per Force, single and pack; spells past 2x are printed.
 - `packages/shared/test/concentrated.test.ts`: the Concentrated grammar, compile, Force, spirit, drops, rolls, prices, the rune tab sort, grants and the forge; every aura type and element mix (three different, three the same), with and without Large, at no more than 1.2x the damage per spirit with it and the same strength for Ward, Restore and Impact; a damage affix refused on Aura and Bond; and heals and shields per cast unchanged by it (less per Force); `apps/server/test/concentratedRune.test.ts`: saves holding it load and save back.
 - `packages/shared/test/damagePackets.test.ts`: damage packets (below); `apps/client/test/damageTooltips.test.ts`: the damage lines and the shape implicit; `apps/server/test/addedDamageRunes.test.ts`: old runes and runes with added damage load, cast and save back unchanged.
 - `packages/shared/test/grammarV2.test.ts`: the plan's examples, every rule, ambiguous cases, the tokenizer.
@@ -422,59 +422,63 @@ Damage per cast: Multishot 430 / 1290 to 167 / 500, Fireball 1174 / 4202 to 967 
 
 ### What it does
 
-- **Every hit is a packet** of physical, fire, cold, lightning and poison amounts (`DamagePacket` in `sim/damage.ts`), on every path: spell hits (projectiles, novas, zones, dashes and their payloads), elemental auras, burn and poison ticks, monster attacks (contact, slams, blasts, shots, charges, leaps, explosions, death bursts), hazards, minion bites, shots and pounces, the minion death explosion, Burning Ward, and reflected projectiles. `dealDamage(sim, target, packet, source, { ailments, quiet, ignoreArmor })` takes it. Resistances are not built: curse, shock, armour, wards and shields still act on the packet's total, so at defaults nothing hits harder or softer than before.
+- **Every hit is a packet** of physical, fire, cold, lightning and poison amounts (`DamagePacket` in `sim/damage.ts`), on every path: spell hits (projectiles, novas, zones, dashes and their payloads), elemental auras, burn and poison ticks, monster attacks (contact, slams, blasts, shots, charges, leaps, explosions, death bursts), hazards, minion bites, shots and pounces, the minion death explosion, Burning Ward, and reflected projectiles. `dealDamage(sim, target, packet, source, { ailments, quiet, ignoreArmor })` takes it. Resistances are not built: curse, shock, armour, wards and shields still act on the packet's total.
 - **Shapes deal a base damage range,** physical, rolled on every hit: their implicit ("Deals 12 to 20 physical damage" on a Bolt rune's tooltip). Bolt and Orb 12 to 20, Nova and Zone 10 to 18 (per tick for a Zone), Dash 9 to 15. Each range is centred on the single number the shape dealt before (16, 16, 14, 14, 12), so the average hit and every kit's balance hold. Aura and Bond have none: an aura deals only its elements, per second.
 - **Infusions convert:** Fire, Cold or Lightning turns the shape's physical base into its element and brings burn, chill or shock as before. Two different infusions split the one roll evenly (Frostfire half fire, half cold, then its +25%); a doubled infusion converts once and keeps its +25%. A payload converts with the infusions it inherits.
-- **Added damage:** new rune affixes "Adds X to 2X fire / cold / lightning damage" put flat elemental damage on every hit, on top of the base, without converting. They bring no ailment (a fire add on a plain Bolt does not burn; with Fire on the shape it burns as the infusion does). Every multiplier (damage roll, Concentrated, Splits, doubled infusions, Frostfire, the sigil, gear, Bond) scales the whole packet, adds included. On a shape that deals no damage (`nova restore`) the forge notes that the add does nothing.
-- **Per-hit rolls are deterministic:** each hit rolls the base once (then converts it) and each add on its own, from the sim's own `damage` random stream, so the same seed and casts give the same hits, and no combat, loot or world roll moves because a hit rolled.
-- **Monsters and minions** deal physical packets; an elemental attack keeps its element as the packet's type and its ailment. Hazards deal their kind: fire, cold for frost ground (which still chills on its own), poison. Poison stacks tick poison; burns tick fire. Floating numbers take their colour from the type carrying most of the hit (none for physical), so an infused spell reads as before; frost ground now reads cold.
+- **Burn strength is the hit's fire share** (owner, 2026-10-02), before mitigation, times `AILMENTS.burn.dpsFractionOfHit`. Ailments still come only from an infusion or a monster attack's element, never from added damage: a fire add on a plain Bolt does not burn, and added cold on a Fire Bolt does not feed its burn. Frostfire burns for its fire half, where it burned for the whole hit before.
+- **Added damage:** rune affixes "Adds X to 2X fire / cold / lightning damage" put flat elemental damage on every hit, on top of the base, without converting. A shape may carry a damage roll and any of the three adds together (owner, 2026-10-02); each add is its own affix group. Every multiplier (damage roll, Concentrated, Splits, doubled infusions, Frostfire, the sigil, gear, Bond) scales the whole packet, adds included. On a shape that deals no damage (`nova restore`) the forge notes that the add does nothing.
+- **Drops keep the damage family's share** (owner, 2026-10-02): the damage roll and the three adds together roll as often as the damage roll did alone, so the first affix of a shape rune is a damage-family affix as often as before (Bolt and Orb 13%, Zone 20%, Dash 28%, Nova 32%). Since that share cannot hold with the damage roll at its old weight and adds beside it, the family splits the old weight: the damage roll takes half and each add a sixth (`DAMAGE_FAMILY_SHARE`, applied as `dropShare` at roll time), so a % damage roll drops half as often as before. The tier weights in Rune balance stay the rune tier weights; the share applies on top.
+- **Per-hit rolls are deterministic:** each hit rolls the base once (then converts it) and each add on its own, from the sim's own `damage` random stream, so the same seed and casts give the same hits, and no combat, loot or world roll moves because a hit rolled. The balance harness and the admin bench hit for each range's mean instead (`Simulation.meanDamage`), so their numbers are exact and stable; the game, the Spell Studio and the Watch panel roll.
+- **Monsters and minions** deal physical packets; an elemental attack keeps its element as the packet's type and its ailment. Hazards deal their kind: fire, cold for frost ground (which still chills on its own), poison. Poison stacks tick poison; burns tick fire.
+- **Floating numbers** take their colour from the type carrying most of the hit (none for physical); a tie between elements goes to the shape's infusion order, so `bolt cold fire` reads cold and `bolt fire cold` fire. An infused spell reads as before; frost ground now reads cold.
 - **UI:** the sentence says what each shape deals ("Fires a fire orb. Deals 12 to 20 fire damage. On hit it releases a nova. The nova deals 10 to 18 fire damage."; zones "every 0.5 s"). Tooltips, the skill bar popup and the forge list each damaging shape with its sigil's numbers, one muted colour per type (`--dmg-*` in `styles.css`: bone grey physical, rust fire, slate cold, tarnished brass lightning, moss poison). Shape runes show their implicit; "Adds" rolls carry their element's colour.
+
+### Force for added damage
+
+- An add pays one plain-rune step (`HEAT.affixStepForce`, 3) per x1.25 of its shape's average base hit, on the log scale of the other number affixes (`SPELL.affixSteps.added`, tunable; the damage roll's step is x2). Adds 9 to 18 on a Bolt (average 13.5, +84%) costs 8.2 listed Force against the +100% damage roll's 3.
+- On a payload an add pays at least its full price (`HEAT.payloadAddedShare`, 1), where the riders pay half (`payloadAffixShare`): at half price a payload Nova with two T1 adds, a T1 damage roll, doubled Lightning and Concentrated reached 3.95x the best kit's damage per Force.
+- Why x1.25: priced like the damage roll (x2), a T1 damage roll with three T1 adds put a Bolt at 4.50x the best kit; the owner asked for these combinations to stay near the worst hand-picked spells (about 2.3x). Measured on each shape's cheapest class, as multiples of the best kit (2.13 single, 7.71 pack per Force), T1 rolls (+100% damage, adds 9 to 18 of fire, then cold, then lightning):
+
+| Spell | x2 (as a damage roll) | x1.5 | x1.3 | x1.25 (chosen) | x1.2 |
+|---|---|---|---|---|---|
+| `bolt[+100% damage]` | 2.20 | 2.20 | 2.20 | 2.20 | 2.20 |
+| Bolt, damage + 1 add | 3.27 | 2.88 | 2.48 | 2.33 | 2.13 |
+| Bolt, damage + 2 adds | 3.98 | 3.25 | 2.60 | 2.37 | 2.09 |
+| Bolt, damage + 3 adds | 4.50 | 3.49 | 2.67 | 2.40 | 2.08 |
+| Bolt, 1 add alone | 2.09 | 1.79 | 1.49 | 1.38 | 1.24 |
+| Orb, damage + 1 / 2 / 3 adds | 2.00 / 2.49 / 2.88 | 1.79 / 2.08 / 2.26 | 1.57 / 1.69 / 1.77 | 1.48 / 1.55 / 1.59 | 1.36 / 1.38 / 1.45 |
+| Nova, damage + 1 / 2 / 3 adds | 2.38 / 3.08 / 3.63 | 2.15 / 2.61 / 2.93 | 1.92 / 2.17 / 2.35 | 1.81 / 2.01 / 2.13 | 1.68 / 1.80 / 1.87 |
+
+  At x1.25 a lone add still buys damage (a Bolt with one T1 add 1.38x, a T1 damage roll alone 2.20x), so it is a way to put more damage in a cast for more Force rather than a cheaper one.
 
 ### Why
 
 - Packets first, so resistances, defence affixes and visuals by damage mix (later phases) read the share of each type instead of guessing from a tag.
 - Ranges centred on the old numbers keep the owner's balance; base numbers stay base numbers in live tuning (min and max per shape, "Base shapes").
-- **One damage affix per shape** (decided while building; open for the owner): an "Adds" roll takes the place of a damage roll (they share the `rune_damage` affix group, and the grammar holds a shape to one: `affix-not-allowed`). Stacked, a T1 add and a T1 damage roll put a Bolt at 3.3x the best kit's damage per Force, and three T1 adds with a damage roll at 4.6x (log pricing rewards stacking multipliers on a cheap shape); as one slot the worst hand-picked add spell measures 2.29x, beside the old T1 ceiling of 2.29x.
 - **One number per roll:** an add stores its low end X and reads "Adds X to 2X" (`ADDED_DAMAGE_SPREAD`), so rune items keep one value per roll and nothing in saves changes.
 
 ### How
 
-- `sim/damage.ts`: `DAMAGE_TYPES`, `DamagePacket`, `packetOf`, `hitPacket` (a monster's number and element), `shapeBaseRange` (live from `SPELL.<shape>.damageMin/Max`), `hitRanges` (conversion and adds), `rollHit` (the per-hit roll), `programDamage`/`shapeDamage` (the damage lines). `SpellNode.added` carries the adds; `parsedShapeDamage` in `compile.ts` gives the sentence its numbers on a plain sigil.
+- `sim/damage.ts`: `DAMAGE_TYPES`, `DamagePacket`, `packetOf`, `hitPacket` (a monster's number and element), `shapeBaseRange` (live from `SPELL.<shape>.damageMin/Max`), `hitRanges` (conversion and adds), `rollHit` (the per-hit roll), `meanPacket`, `hitElement` (the colour), `programDamage`/`shapeDamage` (the damage lines). `SpellNode.added` carries the adds; `parsedShapeDamage` in `compile.ts` gives the sentence its numbers on a plain sigil; `addedForce` prices them.
+- A spell projectile carries no packet of its own; when it is reflected it takes its spell's average hit as the caster stands then, capped at 12 on the total.
 - Text form: `bolt[adds 4 fire]` or `bolt[adds 4 to 8 fire]` (the high end must be twice the low); written back as the latter.
-- Affixes `rune_added_fire`, `rune_added_cold`, `rune_added_lightning` (data/affixes.ts): six tiers with the rune weights and item-level gates, tunable in Rune balance (`affix.rune_added_fire.t1.max`), rolled on orb, bolt, nova, zone and dash drops. Prices by tier like every rune affix.
+- Affixes `rune_added_fire`, `rune_added_cold`, `rune_added_lightning` (data/affixes.ts): six tiers (low end T6 1 to 2 up to T1 7 to 9) with the rune weights and item-level gates, tunable in Rune balance (`affix.rune_added_fire.t1.max`, with a note that the high end is twice the low), rolled on orb, bolt, nova, zone and dash drops. Prices by tier like every rune affix.
 - `Simulation.damageTap` sees every hit with its packet (tests and tools; the game leaves it null).
 - Saves: no stored item changes. Old items load unchanged; the new affix ids are new values in the existing roll shape, so the rune roll pass, `runes:convert-check` (identical output before and after on a copy of `rune.db.live-pre-restart-20261002`, all checks passed) and the seamless-restart snapshot format (still 1) need nothing. Rolling back past this build: a save holding an "Adds" rune fails an older build's affix check, as with Concentrated; roll back with the database copy.
 
 ### Measured
 
-Kits at defaults (parity harness, damage over the 10 s run, single / pack; Force unchanged for every kit):
+Every kit measures exactly as before this change (the harness hits for each range's mean; no kit holds Frostfire, so the burn change moves none): Fireball 967.2 / 3996.1 (single / pack over the run), Frozen Orb 950.4 / 3235.2, Static Nova 484.4 / 2906.4, Blink 348 / 1044, Leap Slam 392 / 2296, War Cry 406 / 2436, Flame Cleave 650.8 / 3881.9, Multishot 166.7 / 500, Exploding Arrow 478.6 / 2572.3, Freezing Arrow 728 / 1848, Evade 336 / 1020, Smite 534.4 / 1068.8, Bone Spear 627.2 / 1254.4, Corpse Blast 433.9 / 2602.5, Frost Mire 280 / 1680; every kit's Force is unchanged. The best kit is still 2.13 single (Freezing Arrow) and 7.71 pack (Exploding Arrow). Played, a kit's hits vary inside their ranges and average the same.
 
-| Kit | Before | After |
-|---|---|---|
-| Fireball | 967.2 / 3996.1 | 999.6 / 4062.6 |
-| Frozen Orb | 950.4 / 3235.2 | 980.6 / 3278.7 |
-| Static Nova | 484.4 / 2906.4 | 486.1 / 2951.3 |
-| Blink | 348 / 1044 | 349.5 / 1070.8 |
-| Leap Slam | 392 / 2296 | 391.8 / 2333.5 |
-| War Cry | 406 / 2436 | 408.1 / 2473.5 |
-| Flame Cleave | 650.8 / 3881.9 | 665 / 3999.2 |
-| Multishot | 166.7 / 500 | 166.6 / 510.2 |
-| Exploding Arrow | 478.6 / 2572.3 | 485.4 / 2648.6 |
-| Freezing Arrow | 728 / 1848 | 745.9 / 1910.7 |
-| Evade | 336 / 1020 | 335.8 / 1042 |
-| Smite | 534.4 / 1068.8 | 533.4 / 1089.6 |
-| Bone Spear | 627.2 / 1254.4 | 626.9 / 1278.9 |
-| Corpse Blast | 433.9 / 2602.5 | 443.3 / 2679.9 |
-| Frost Mire | 280 / 1680 | 278.9 / 1738.2 |
+The burn from the fire share lowers spells that hold Fire with another infusion by 1 to 4%: `nova fire cold lightning` 647 / 3861 to 619 / 3695, the worst hand-picked spell `nova[onexpire] zone[after 0.3s, +100% damage] fire cold concentrated(60) nova[+100% damage, +75% size] lightning concentrated(60)` 2.32x to 2.28x.
 
-Iron Skin, Prayer and Soul Link (spirit 42, 42, 37), Holy Nova and Sanctuary (Force 18.9, 20.7) deal no damage and did not change. With every range pinned to its old number the harness gives every kit's old numbers exactly; the differences are the rolls alone. They lean up (pack +1 to +3.5%) because the harness's seed draws high early (its damage stream averages 0.51 to 0.56 over its first 1000 draws) and a burn keeps the strongest of several hits. The best kit moved with them: 2.18 single (Freezing Arrow) and 7.94 pack (Exploding Arrow).
-
-Balance test with added damage: hand-picked add spells reach at most 2.29x the best kit (`zone[every 0.15s, adds 9 fire] lightning bolt[adds 9 cold]`), random add spells 2.08x, random T1 add spells 1.61x; every other search is where it was (1.41x, 1.96x, 1.83x).
+Balance test with added damage: the root-shape combinations above stay at most 2.40x (`bolt[adds 9 fire, adds 9 cold, adds 9 lightning, +100% damage]`); random add spells 1.69x and random T1 add spells 2.24x. Two hand-picked payload spells that stack adds with a T1 damage roll, doubled Lightning and Concentrated on a payload Nova reach 3.26x (`bolt[onhit, adds 9 lightning] nova[adds 9 cold, adds 9 fire, +100% damage, +75% size] lightning lightning concentrated(60)`) and 3.51x (the Nova and Zone chain above with adds), reported, under the 5x fail line.
 
 ### Limits and open questions
 
-- One damage affix per shape (above) is a balance call made while building; the owner may prefer adds beside the damage roll with a steeper price.
-- Ailments take the whole hit's total, as before (a burn from a Fire Bolt with added cold counts the cold too); with resistances they may move to the element's share.
+- The payload stacks above (3.3 to 3.5x) are the highest hand-picked spells in the game now; a steeper payload share or step would bring them down at the cost of making adds on payloads poor.
+- The damage family's drop share halves how often a % damage roll drops (above); the alternative is fewer adds and the family rolling more often than before.
+- Ailments other than burn ignore amounts; with resistances chill and shock may scale with their element's share.
 - The misfire's life loss is not a hit and carries no packet.
 - The first live tuning of a range: a stored `spell.<shape>.damage` override from before would be dropped on load without a report (the copy of live from 2026-10-02 had no tuning overrides at all).
 

@@ -260,7 +260,7 @@ export interface ProjectileComp {
   ownerId: EntityId;
   /**
    * The hit it lands when it has no spell (a monster's or minion's shot, a reflected spell). A
-   * spell's projectile rolls each hit from its node instead; this is then its average hit.
+   * spell's projectile rolls each hit from its node instead and gets its average hit here when reflected.
    */
   damage: DamagePacket;
   /** Ailments it applies, and its colour on the client. */

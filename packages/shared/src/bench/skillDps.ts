@@ -16,6 +16,8 @@
  * - The target point is `distance` units east of the player (250 by default; callers pass a short
  *   distance for spells that go off on the caster). One dummy sits on it for `single`, a sunflower
  *   pack of 6 around it for `pack` (same layout as the Spell Studio, dummies within 64 units of the target).
+ * - Spell hits deal the mean of their damage ranges (`Simulation.meanDamage`), not a roll, so the
+ *   numbers do not depend on how one seed's rolls fall; the game rolls every hit.
  * - Casts go off every 7 ticks (0.35 s, `castCooldown`), not at the game's admin setting. The v1
  *   baseline was recorded at that cadence (a 0.3 s cooldown that waited seven ticks through a float
  *   remainder) and Force pricing was balanced against it, so the harness compares strength per cast
@@ -102,6 +104,8 @@ const NO_GEAR: Record<GearSlot, null> = {
 function setup(opts: Required<SkillDpsOptions>, dummyCount: number): Bench {
   const sim = new Simulation(opts.seed, { kind: 'flat' });
   sim.setRates({ ...sim.rates, castCooldown: opts.castCooldown });
+  // Every hit at its range's mean, so a measurement is exact and stable rather than one seed's rolls.
+  sim.meanDamage = true;
   sim.waveTimer = Infinity;
   // The dummies are pinned with no speed, so the enemies' path field never moves anyone; it was
   // over half of every measurement, and skipping it changes no number.

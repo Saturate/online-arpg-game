@@ -109,6 +109,7 @@ const SPECIAL: Record<string, Range> = {
   'spell.affixSteps.duration': { min: 1.05, label: 'Affix price step: duration' },
   'spell.affixSteps.damage': { min: 1.05, label: 'Affix price step: damage' },
   'spell.affixSteps.pierce': { min: 0.1, label: 'Affix price step: pierce' },
+  'spell.affixSteps.added': { min: 1.05, label: 'Affix price step: added damage', note: 'An "Adds" roll pays one step per this multiple of its shape\'s average base hit.' },
   'spell.forceKnockback': { label: 'Impact knockback' },
   'spell.shieldSeconds': { min: TICK, label: 'Ward shield seconds' },
   'spell.comboDamageBonus': { label: 'Frostfire bonus damage' },
@@ -202,6 +203,7 @@ const FORCE_PRICING = [
   ['payloadForceFactor', 'Payload first spawn share'],
   ['payloadRepeatShare', 'Payload repeat share from a flying shape'],
   ['payloadAffixShare', 'Payload rider and affix share'],
+  ['payloadAddedShare', 'Payload added damage share'],
   ['minForcePerCast', 'Least Force per cast'],
   ['affixStepForce', 'Force per affix step'],
   ['affixRefundShare', 'Negative roll refund share'],
@@ -275,8 +277,10 @@ for (const id of AFFIX_IDS) {
     if (!t) continue;
     const name = `T${def.tiers.length - tier}`;
     const opts = (range: Range) => ({ range, group: affixGroup(id) });
-    add(affixTierPath(id, tier, 'min'), category, `${name}: lowest roll`, t, 'min', opts({ ...limits, int }));
-    add(affixTierPath(id, tier, 'max'), category, `${name}: highest roll`, t, 'max', opts({ ...limits, int }));
+    // An "Adds X to Y" roll stores its low end; the row tunes that number, and the high end follows.
+    const note = def.spread === undefined ? {} : { note: `The roll is the low end X; the high end is ${def.spread} times it ("Adds X to ${def.spread}X").` };
+    add(affixTierPath(id, tier, 'min'), category, `${name}: lowest roll`, t, 'min', opts({ ...limits, int, ...note }));
+    add(affixTierPath(id, tier, 'max'), category, `${name}: highest roll`, t, 'max', opts({ ...limits, int, ...note }));
     if (!rune || def.tiers.length !== RUNE_AFFIX_TIERS) continue;
     add(affixTierPath(id, tier, 'weight'), category, `${name}: drop weight`, t, 'weight', opts({ min: 0, max: 1000, int: true }));
     add(affixTierPath(id, tier, 'ilvl'), category, `${name}: least item level`, t, 'ilvl', opts({ min: 1, max: MAX_GATE_LEVEL, int: true }));

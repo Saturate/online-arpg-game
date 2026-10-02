@@ -132,6 +132,8 @@ export class Simulation {
   readonly rand: { loot: Rng; combat: Rng; world: Rng; damage: Rng };
   /** Sees every hit `dealDamage` lands, with its packet; tests and tools set it, the game never does. */
   damageTap: ((hit: DamageRecord) => void) | null = null;
+  /** Spell hits deal each range's mean instead of a roll: the bench and balance harness, never the game. */
+  meanDamage = false;
   readonly seed: number;
   readonly map: GameMap;
   readonly mapDef: WorldMap;

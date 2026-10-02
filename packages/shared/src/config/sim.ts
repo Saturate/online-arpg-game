@@ -69,6 +69,12 @@ export const HEAT = {
    */
   payloadAffixShare: 0.5,
   /**
+   * A payload's "Adds" rolls pay at least this share of their listed Force, above the riders' share:
+   * at 0.5 a payload Nova with two T1 adds, a T1 damage roll, doubled Lightning and Concentrated dealt
+   * about 4x the best kit's damage per Force.
+   */
+  payloadAddedShare: 1,
+  /**
    * No cast costs less than this, whatever the sigil's Force cost affix and negative rolls take off:
    * the cheapest plain cast (a Ranger's Bolt) costs 4.8.
    */
@@ -132,9 +138,12 @@ export const SPELL = {
    * What one plain-rune step of each number affix is worth, for pricing affixes (HEAT.affixStepForce).
    * Speed is x1.5 on a projectile and x1.3 on a dash (the v1 Swift rune), size x1.5 (Large),
    * duration x1.75 (Linger), damage x2 (no v1 rune; set so tuned starters keep their v1 price),
-   * and pierce 2 extra hits (the v1 Pierce rune).
+   * and pierce 2 extra hits (the v1 Pierce rune). Added damage ("Adds X to Y") pays a step per x1.25 of
+   * its shape's average base hit: at the damage roll's x2, a T1 damage roll with three T1 adds put a
+   * Bolt at 4.5x the best kit's damage per Force; at x1.25 it measures 2.4x, beside the worst
+   * hand-picked spells (about 2.3x), and a lone add buys damage at a Concentrated Nova's rate.
    */
-  affixSteps: { speed: 1.5, dashSpeed: 1.3, size: 1.5, duration: 1.75, damage: 2, pierce: 2 },
+  affixSteps: { speed: 1.5, dashSpeed: 1.3, size: 1.5, duration: 1.75, damage: 2, pierce: 2, added: 1.25 },
   forceKnockback: 320,
   shieldSeconds: 4,
   comboDamageBonus: 0.25,

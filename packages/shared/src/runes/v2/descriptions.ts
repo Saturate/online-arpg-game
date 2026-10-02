@@ -76,9 +76,9 @@ export const RUNE_AFFIX_DESCRIPTIONS = {
   rune_pierce: 'The shape flies through this many enemies before it stops.',
   split_count: 'How many copies the Split makes.',
   rune_concentrated: 'How much more damage the Concentrated rune gives the shape on its left.',
-  rune_added_fire: 'Fire damage on every hit, on top of the shape\'s own; it converts nothing and does not burn. Takes the place of a damage roll.',
-  rune_added_cold: 'Cold damage on every hit, on top of the shape\'s own; it converts nothing and does not chill. Takes the place of a damage roll.',
-  rune_added_lightning: 'Lightning damage on every hit, on top of the shape\'s own; it converts nothing and does not shock. Takes the place of a damage roll.',
+  rune_added_fire: 'Fire damage on every hit, on top of the shape\'s own; it converts nothing and does not burn.',
+  rune_added_cold: 'Cold damage on every hit, on top of the shape\'s own; it converts nothing and does not chill.',
+  rune_added_lightning: 'Lightning damage on every hit, on top of the shape\'s own; it converts nothing and does not shock.',
 } as const satisfies Record<RuneAffixId, string> & Partial<Record<AffixId, string>>;
 
 export function runeDescription(id: RuneId): string {

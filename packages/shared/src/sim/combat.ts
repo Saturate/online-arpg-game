@@ -111,10 +111,8 @@ export function dealDamage(sim: Simulation, targetId: EntityId, packet: Readonly
   }
   const ailments = opts.ailments ?? [];
   if (!opts.quiet) {
-    sim.emit({ e: 'dmg', id: targetId, amt: Math.round(amount), x: pos.x, y: pos.y, el: hitElement(packet) }, pos.x, pos.y);
-    // Ailment strength follows the whole hit, as it did with one number per hit; with resistances it
-    // may move to the element's own share.
-    if (ailments.length > 0) applyAilments(sim, targetId, raw, ailments, sourceId);
+    sim.emit({ e: 'dmg', id: targetId, amt: Math.round(amount), x: pos.x, y: pos.y, el: hitElement(packet, ailments) }, pos.x, pos.y);
+    if (ailments.length > 0) applyAilments(sim, targetId, packet, ailments, sourceId);
   }
   sim.damageTap?.({ targetId, sourceId, packet, dealt: amount, quiet: opts.quiet === true });
 
@@ -138,10 +136,15 @@ export function selfDamage(sim: Simulation, id: EntityId, amount: number): void 
   if (h.life <= 0) kill(sim, id);
 }
 
+/**
+ * The ailments a hit brings, from its infusions or a monster attack's element (added damage brings
+ * none). A burn's strength is the hit's fire share, before mitigation: a Frostfire hit burns for its
+ * fire half, and added cold on a Fire bolt does not feed the burn.
+ */
 export function applyAilments(
   sim: Simulation,
   targetId: EntityId,
-  hit: number,
+  hit: Readonly<DamagePacket>,
   elements: readonly ElementId[],
   sourceId: EntityId,
 ): void {
@@ -149,7 +152,8 @@ export function applyAilments(
   if (!st) return;
   for (const el of elements) {
     if (el === 'fire') {
-      const dps = hit * AILMENTS.burn.dpsFractionOfHit;
+      const dps = hit.fire * AILMENTS.burn.dpsFractionOfHit;
+      if (dps <= 0) continue;
       if (!st.burn || st.burn.dps <= dps) st.burn = { dps, t: AILMENTS.burn.seconds, sourceId };
       else st.burn.t = AILMENTS.burn.seconds;
     } else if (el === 'cold') {

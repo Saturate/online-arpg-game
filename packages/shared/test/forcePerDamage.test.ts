@@ -98,8 +98,7 @@ function randomSpell(rnd: () => number, concentrated = false, top = false, added
       const [lo, hi] = span(`rune_added_${el}`, top);
       return `adds ${lo + Math.floor(rnd() * (hi - lo + 1))} ${el}`;
     };
-    // One damage affix per shape: the damage roll or one added element, as drops roll them.
-    for (const pool of Object.values(numbers)) pool[0] = pick([pool[0] ?? adds('fire'), adds('fire'), adds('cold'), adds('lightning')], adds('fire'));
+    for (const pool of Object.values(numbers)) pool.push(adds('fire'), adds('cold'), adds('lightning'));
   }
   const every = (): string => `every ${between(...span('release_every', top)).toFixed(2)}s`;
   const after = (): string => `after ${between(...span('release_after')).toFixed(1)}s`;

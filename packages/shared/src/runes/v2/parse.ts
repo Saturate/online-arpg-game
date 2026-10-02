@@ -337,11 +337,6 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry a damage affix.`);
         else node.stats.damage += a.damage;
       }
-      // A shape takes one damage affix: a damage roll or one added element, as a drop rolls at most one
-      // (they share an affix group). Stacked, T1 adds and a T1 damage roll put a Bolt near 4x the best
-      // kit's damage per Force, twice the old ceiling.
-      const damageAffixes = (a.damage !== undefined ? 1 : 0) + INFUSION_IDS.filter((el) => a[ADDED_KEYS[el]] !== undefined).length;
-      if (damageAffixes > 1) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} carries ${damageAffixes} damage affixes; a shape takes one: a damage roll or one added element.`);
       for (const el of INFUSION_IDS) {
         const v = a[ADDED_KEYS[el]];
         if (v === undefined) continue;

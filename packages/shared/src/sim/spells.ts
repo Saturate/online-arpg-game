@@ -41,10 +41,12 @@ function spellScale(sim: Simulation, node: SpellNode, casterId: EntityId): numbe
 function spellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
   const base = shapeBaseRange(node.form);
   if (!base) return emptyPacket();
-  return scalePacket(rollHit(sim.rand.damage, base, node.elements, node.added), spellScale(sim, node, casterId));
+  // The bench and balance harness hit for each range's mean, so their numbers are exact and stable.
+  const packet = sim.meanDamage ? meanPacket(hitRanges(base, node.elements, node.added)) : rollHit(sim.rand.damage, base, node.elements, node.added);
+  return scalePacket(packet, spellScale(sim, node, casterId));
 }
 
-/** A node's average hit, for what a projectile carries once it stops being a spell (a reflect). */
+/** A node's average hit, for what a projectile carries once it stops being a spell (a reflect), as the caster stands then. */
 function averageSpellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
   const base = shapeBaseRange(node.form);
   if (!base) return emptyPacket();
@@ -369,7 +371,8 @@ function spawnForm(
         speed: base.speed * t.speed,
         radius: base.radius * node.areaScale * t.radius,
         range: base.range * t.range,
-        damage: averageSpellHit(sim, node, casterId),
+        // A spell projectile rolls each hit from its node; it only needs a packet of its own once reflected.
+        damage: emptyPacket(),
         partial: {
           elements: [...node.elements],
           pierceLeft: t.phase > 0 ? Infinity : node.pierce,
@@ -702,7 +705,8 @@ function reflect(sim: Simulation, id: EntityId, proj: ProjectileComp, enemyId: E
   }
   w.team.set(id, 'enemies');
   proj.ownerId = enemyId;
-  // Capped on the total, keeping the spell's mix of types.
+  // The spell's average hit, capped on the total, keeping its mix of types.
+  if (proj.spell) proj.damage = averageSpellHit(sim, proj.spell.node, proj.spell.casterId);
   const total = packetTotal(proj.damage);
   if (total > REFLECT_DAMAGE_CAP) proj.damage = scalePacket(proj.damage, REFLECT_DAMAGE_CAP / total);
   proj.hitIds.clear();

@@ -38,6 +38,12 @@ export interface AffixDef {
   signed?: boolean;
   /** `{v2}` in the text is the value times this: the high end of an "Adds {v} to {v2}" roll. */
   spread?: number;
+  /**
+   * Drops weigh every tier of this affix by this share (1 without it), so a family of affixes can split
+   * one affix's old weight without changing how often the family rolls. Its tier weights stay the
+   * rune tier weights, as tuning shows them.
+   */
+  dropShare?: number;
 }
 
 export const AFFIX_IDS = [
@@ -103,6 +109,13 @@ export type BehaviourAffixId = (typeof BEHAVIOUR_AFFIXES)[number];
  * level 3, 185 at the top), so the mix of number affixes against release affixes does not move.
  */
 export const RUNE_AFFIX_TIERS = 6;
+
+/**
+ * The damage roll and the three "Adds" rolls share the drop weight the damage roll had alone (owner,
+ * 2026-10-02): the damage family keeps its first-roll share on every shape (Bolt and Orb 13%, Zone
+ * 20%, Dash 28%, Nova 32% at the top levels), half of it the damage roll and a sixth each add.
+ */
+export const DAMAGE_FAMILY_SHARE = { roll: 1 / 2, added: 1 / 6 } as const;
 const RUNE_TIER_WEIGHTS = [100, 35, 25, 15, 8, 2] as const;
 const RUNE_TIER_ILVL = [1, 2, 3, 5, 8, 12] as const;
 
@@ -414,7 +427,7 @@ function buildAffixes(): Record<AffixId, AffixDef> {
     rune_speed: runeAffix('rune_speed', '{v}% speed', 'Fleet', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'dash'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 70]]),
     rune_size: runeAffix('rune_size', '{v}% size', 'Broad', shapesWhere((s) => s !== 'dash' && s !== 'bond'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 75]]),
     rune_duration: runeAffix('rune_duration', '{v}% duration', 'Lasting', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'zone'), [[15, 26], [27, 38], [39, 50], [51, 62], [63, 75], [76, 100]]),
-    rune_damage: runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 100]]),
+    rune_damage: { ...runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 100]]), dropShare: DAMAGE_FAMILY_SHARE.roll },
     // Whole numbers with few values: neighbouring tiers share an end.
     rune_pierce: {
       ...runeAffix('rune_pierce', 'Pierces {v} enemies', 'Piercing', shapesWhere((s) => PROJECTILE_SHAPES.includes(s)), [[1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [4, 4]]),
@@ -533,11 +546,9 @@ function runeAffix(id: AffixId, text: string, nameWord: string, runes: readonly 
 function addedAffix(id: AffixId, element: InfusionId, nameWord: string): AffixDef {
   return {
     ...runeAffix(id, `Adds {v} to {v2} ${element} damage`, nameWord, shapesWhere((s) => !isPersistentShape(s)), [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [7, 9]]),
-    // One damage affix per rune: a damage roll or one added element (the grammar holds a shape to
-    // the same). Stacked with a damage roll, adds doubled the most a shape could hit per Force.
-    group: 'rune_damage',
     signed: false,
     spread: ADDED_DAMAGE_SPREAD,
+    dropShare: DAMAGE_FAMILY_SHARE.added,
   };
 }
 

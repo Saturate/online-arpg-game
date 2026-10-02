@@ -432,7 +432,7 @@ export function rollAffixes(
       def.tiers.forEach((t, tier) => {
         if (tier > maxAffixTier || t.weight <= 0) return;
         if (t.ilvl !== undefined && ilvl !== undefined && ilvl < t.ilvl) return;
-        candidates.push({ item: { id, tier }, weight: t.weight });
+        candidates.push({ item: { id, tier }, weight: t.weight * (def.dropShare ?? 1) });
       });
     }
     const pick = weightedPick(rng, candidates);

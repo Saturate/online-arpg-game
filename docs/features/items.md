@@ -33,7 +33,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 
 ### Added damage affixes (2026-10-02, `feat/damage-packets`, not deployed)
 
-- Three rune affixes, "Adds X to 2X fire / cold / lightning damage" (`rune_added_fire`, `rune_added_cold`, `rune_added_lightning`), roll on orb, bolt, nova, zone and dash runes with the six rune tiers (low end 1 to 2 at T6 up to 7 to 9 at T1), the rune tier weights and item-level gates, and price like every rune affix by tier. They share the damage roll's group, so a rune has a damage roll or one added element, never both ([runes.md](runes.md), "Damage packets").
+- Three rune affixes, "Adds X to 2X fire / cold / lightning damage" (`rune_added_fire`, `rune_added_cold`, `rune_added_lightning`), roll on orb, bolt, nova, zone and dash runes with the six rune tiers (low end 1 to 2 at T6 up to 7 to 9 at T1), the rune tier weights and item-level gates, and price like every rune affix by tier. Each is its own affix group, so a rune may carry a damage roll and any of the adds. Together with the damage roll they keep the damage roll's old drop share: the damage roll drops at half its tier weights and each add at a sixth (`dropShare`, [runes.md](runes.md), "Damage packets").
 - **Saves do not change:** a roll still stores one value (the low end; the high end is twice it), so old items load as they are and the rune roll pass, `runes:convert-check` and the seamless-restart snapshot format are unchanged. `runes:convert-check` on a fresh copy of `rune.db.live-pre-restart-20261002` prints the same report before and after the change, all checks passed. A save holding one of the new affixes fails an older build's affix check, so roll back past it with the database copy.
 
 ### Grid inventory

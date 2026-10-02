@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AFFIX_IDS,
   AFFIXES,
+  AILMENTS,
   applyTunables,
   AURA,
   compileRunes,
@@ -16,6 +18,8 @@ import {
   programDamage,
   resetTunables,
   Rng,
+  rollAffixes,
+  runeMayCarry,
   rollHit,
   runeItemFromInstance,
   shapeBaseRange,
@@ -25,12 +29,13 @@ import {
   SPELL,
   tokenizeSpell,
   toRuneInstance,
+  TUNABLES,
   tunableSetProblem,
   type DamagePacket,
   type EntityId,
 } from '../src/index.js';
 import { applyPoison, dealDamage, type DamageRecord } from '../src/sim/combat.js';
-import { packetOf } from '../src/sim/damage.js';
+import { hitElement, packetOf } from '../src/sim/damage.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { compileText } from './helpers/spell.js';
 
@@ -50,9 +55,10 @@ interface Cast {
 }
 
 /** Casts `text` once at a pinned dummy and records every hit the sim deals. */
-function castAt(text: string, opts: { ticks?: number; seed?: number; distance?: number; classId?: 'mage' | 'ranger' | 'warrior' } = {}): Cast {
+function castAt(text: string, opts: { ticks?: number; seed?: number; distance?: number; classId?: 'mage' | 'ranger' | 'warrior'; mean?: boolean } = {}): Cast {
   const sim = new Simulation(opts.seed ?? 11, { kind: 'flat' });
   sim.waveTimer = Infinity;
+  sim.meanDamage = opts.mean === true;
   const pid = sim.addPlayer('p', opts.classId ?? 'mage');
   const p = sim.world.player.get(pid);
   const pos = sim.world.position.get(pid);
@@ -168,49 +174,83 @@ describe('conversion and added damage', () => {
     expect(tokenizeSpell('bolt[adds 4 to 9 fire]').errors[0]?.rule).toBe('unknown-affix');
   });
 
-  it('a shape takes one damage affix: a damage roll or one added element; persistent shapes take none', () => {
-    expect(parseSpellText('bolt[adds 4 fire, adds 4 cold]').errors[0]?.rule).toBe('affix-not-allowed');
-    expect(parseSpellText('bolt[adds 4 fire, +20% damage]').errors[0]?.rule).toBe('affix-not-allowed');
+  it('a shape may carry a damage roll and any added elements; persistent shapes take none', () => {
+    expect(parseSpellText('bolt[adds 4 fire, adds 4 cold, adds 4 lightning, +20% damage]').ok).toBe(true);
     expect(parseSpellText('aura[adds 4 fire] fire').errors[0]?.rule).toBe('affix-not-allowed');
-    expect(parseSpellText('bolt[adds 4 fire] split(2)').ok).toBe(true);
+    expect(parseSpellText('bolt[adds -1 fire]').errors[0]?.rule).toBe('affix-not-allowed');
     // On a shape that deals no damage it does nothing, and the forge says so.
     const heal = compileText('nova[adds 4 fire] restore');
     expect(heal.ok && heal.notes.some((n) => n.includes('added damage does nothing'))).toBe(true);
   });
 
-  it('is priced like the damage roll it equals on that shape', () => {
-    const force = (text: string): number => {
-      const r = compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage' });
-      return r.force;
-    };
-    // Adds 4 to 8 averages 6: on a Bolt's 16 that is +37.5% damage, on a Nova's 14 about +42.9%.
-    expect(force('bolt[adds 4 fire]')).toBeCloseTo(force('bolt[+37.5% damage]'), 5);
-    expect(force('nova[adds 4 cold]')).toBeCloseTo(force(`nova[+${(600 / 14).toFixed(6)}% damage]`), 1);
+  it('is priced per x1.25 of its shape\'s average hit, dearer than the damage roll, and in full on a payload', () => {
+    const force = (text: string): number => compileRunes(tokenizeSpell(text).runes, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage' }).force;
+    // Adds 4 to 8 averages 6: on a Bolt's 16 that is +37.5%; the damage roll pays per x2, adds per x1.25.
+    const rollCost = force('bolt[+37.5% damage]') - force('bolt');
+    const addCost = force('bolt[adds 4 fire]') - force('bolt');
+    expect(addCost / rollCost).toBeCloseTo(Math.log(2) / Math.log(SPELL.affixSteps.added), 0);
     expect(force('bolt[adds 9 fire]')).toBeGreaterThan(force('bolt[adds 1 fire]'));
+    expect(force('bolt[adds 4 fire, adds 4 cold]') - force('bolt')).toBeCloseTo(2 * addCost, 0);
+    // On a payload the riders pay half; added damage pays its whole price.
+    const payloadAdd = force('bolt[onhit] nova[adds 4 fire]') - force('bolt[onhit] nova');
+    const castAdd = force('nova[adds 4 fire]') - force('nova');
+    expect(payloadAdd).toBeCloseTo(castAdd, 0);
   });
 });
 
+/** The share of first affix rolls on a shape rune that land in the damage family, as drops roll them. */
+function familyShare(shape: 'bolt' | 'orb' | 'nova' | 'zone' | 'dash', rolls: number): number {
+  const rng = new Rng(4242);
+  let hits = 0;
+  for (let i = 0; i < rolls; i++) {
+    const [first] = rollAffixes(rng, 'rune', 1, 5, { rune: shape, allow: (a) => runeMayCarry(shape, a), ilvl: 30 });
+    if (first && (first.id === 'rune_damage' || first.id.startsWith('rune_added_'))) hits++;
+  }
+  return hits / rolls;
+}
+
+/** The damage roll's first-roll share before the adds existed: its weight against every affix the shape rolls. */
+function oldDamageShare(shape: 'bolt' | 'orb' | 'nova' | 'zone' | 'dash'): number {
+  let total = 0;
+  let damage = 0;
+  for (const id of AFFIX_IDS) {
+    if (id.startsWith('rune_added_') || !runeMayCarry(shape, id)) continue;
+    const w = AFFIXES[id].tiers.reduce((n, t) => n + ((t.ilvl ?? 1) <= 30 ? t.weight : 0), 0);
+    total += w;
+    if (id === 'rune_damage') damage = w;
+  }
+  return damage / total;
+}
+
 describe('the affixes', () => {
-  it('have six tiers, T1 best and rare, on every non-persistent castable shape, sharing the damage roll slot', () => {
+  it('have six tiers, T1 best and rare, on every non-persistent castable shape, each its own group', () => {
     for (const id of ['rune_added_fire', 'rune_added_cold', 'rune_added_lightning'] as const) {
       const def = AFFIXES[id];
       expect(def.tiers).toHaveLength(6);
-      expect(def.group).toBe(AFFIXES.rune_damage.group);
+      expect(def.group).toBe(id);
       expect(def.runes).toEqual(AFFIXES.rune_damage.runes);
       expect(def.tiers[5]?.weight).toBeLessThan(def.tiers[0]?.weight ?? 0);
       for (let t = 1; t < 6; t++) expect(def.tiers[t]?.min).toBeGreaterThanOrEqual(def.tiers[t - 1]?.max ?? Infinity);
     }
     expect(formatAffix({ id: 'rune_added_cold', tier: 2, value: 4 })).toBe('Adds 4 to 8 cold damage');
+    const note = TUNABLES.find((t) => t.path === 'affix.rune_added_fire.t1.max')?.note;
+    expect(note).toMatch(/high end is 2 times it/);
   });
 
-  it('drop on shape runes, never beside a damage roll, and read back as the grammar sets them', () => {
+  it('keep the damage family at the damage roll\'s old first-roll share on every shape', () => {
+    const shapes = ['bolt', 'orb', 'zone', 'dash', 'nova'] as const;
+    expect(shapes.map((s) => oldDamageShare(s).toFixed(2))).toEqual(['0.13', '0.13', '0.20', '0.28', '0.32']);
+    for (const shape of shapes) expect(familyShare(shape, 30000), shape).toBeCloseTo(oldDamageShare(shape), 2);
+  });
+
+  it('drop on shape runes, beside a damage roll too, and read back as the grammar sets them', () => {
     const rng = new Rng(99);
     const seen = new Set<string>();
+    let beside = 0;
     for (let i = 0; i < 4000; i++) {
       const r = createRolledRune(i, rng, 'relic', 30, 'bolt');
       const ids = r.affixes.map((a) => a.id);
-      const damageSlot = ids.filter((id) => id === 'rune_damage' || id.startsWith('rune_added_'));
-      expect(damageSlot.length).toBeLessThanOrEqual(1);
+      if (ids.includes('rune_damage') && ids.some((id) => id.startsWith('rune_added_'))) beside++;
       for (const a of r.affixes) if (a.id.startsWith('rune_added_')) seen.add(a.id);
       const inst = toRuneInstance(r);
       const text = formatRunes([inst]);
@@ -219,6 +259,7 @@ describe('the affixes', () => {
       expect(back.runes[0], text).toEqual(inst);
     }
     expect(seen).toEqual(new Set(['rune_added_fire', 'rune_added_cold', 'rune_added_lightning']));
+    expect(beside).toBeGreaterThan(0);
     const item = runeItemFromInstance(1, { id: 'orb', affixes: { addedLightning: 7 } }, false);
     expect(item.affixes).toEqual([{ id: 'rune_added_lightning', tier: 5, value: 7 }]);
   });
@@ -390,6 +431,46 @@ describe('every damage path carries a packet', () => {
     const blast = hits.filter((h) => h.sourceId === minion && h.targetId === near);
     expect(blast).toHaveLength(1);
     expect(only(blast[0]?.packet ?? packetOf('physical', 0))).toEqual(['fire']);
+  });
+});
+
+describe('ailments, colours and the harness', () => {
+  it('a burn takes the hit\'s fire share only', () => {
+    applyTunables(FLAT);
+    const fire = castAt('bolt fire');
+    const burn = fire.sim.world.status.get(fire.dummy)?.burn?.dps ?? 0;
+    expect(burn).toBeCloseTo(16 * AILMENTS.burn.dpsFractionOfHit, 9);
+    // Frostfire burns for its fire half (with the combo's bonus); added cold does not feed it.
+    const frostfire = castAt('bolt fire cold');
+    expect(frostfire.sim.world.status.get(frostfire.dummy)?.burn?.dps).toBeCloseTo(8 * (1 + SPELL.comboDamageBonus) * AILMENTS.burn.dpsFractionOfHit, 9);
+    const addedCold = castAt('bolt[adds 9 cold] fire');
+    expect(addedCold.sim.world.status.get(addedCold.dummy)?.burn?.dps).toBeCloseTo(burn, 9);
+  });
+
+  it('a tie between elements colours the number by the shape\'s infusion order', () => {
+    const p = packetOf('fire', 8);
+    p.cold = 8;
+    expect(hitElement(p, ['cold', 'fire'])).toBe('cold');
+    expect(hitElement(p, ['fire', 'cold'])).toBe('fire');
+    expect(hitElement(p)).toBe('fire');
+    expect(hitElement(packetOf('physical', 5))).toBeNull();
+    const c = castAt('bolt cold fire');
+    const shown = c.sim.takeEvents().map(({ ev }) => ev).filter((ev) => ev.e === 'dmg' && ev.id === c.dummy);
+    expect(shown.length).toBeGreaterThan(0);
+    for (const ev of shown) expect(ev.e === 'dmg' && ev.el).toBe('cold');
+  });
+
+  it('the harness mode hits for every range\'s mean; the game rolls', () => {
+    const mean = onDummy(castAt('orb[every 0.2s] cold split(3) bolt[adds 4 fire]', { ticks: 60, mean: true }));
+    expect(mean.length).toBeGreaterThan(3);
+    for (const h of mean) {
+      const shard = h.packet.fire > 0;
+      expect(h.packet.cold).toBeCloseTo(shard ? 16 * 0.4 : 16, 9);
+      if (shard) expect(h.packet.fire).toBeCloseTo(6 * 0.4, 9);
+    }
+    expect(new Simulation(1, { kind: 'flat' }).meanDamage).toBe(false);
+    const rolled = onDummy(castAt('bolt', { ticks: 10 }))[0]?.packet.physical;
+    expect(rolled).not.toBe(16);
   });
 });
 

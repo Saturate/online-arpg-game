@@ -300,13 +300,20 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
   // Concentrated's damage is priced like a damage roll of the same size, on top of its base cost.
   // Its area loss gives nothing back: on a Bolt or a lone target it costs the spell almost nothing.
   if (rune.id === 'concentrated') force += steps(a.concentration ?? CONCENTRATED.defaultMore, st.damage) * own;
-  // Added damage is priced like the damage roll it equals on that shape: its average as a share of the
-  // shape's average base hit. Every multiplier scales both alike, so the share holds wherever it lands.
-  for (const el of INFUSION_IDS) {
-    const low = a[ADDED_KEYS[el]];
-    if (low !== undefined && low > 0) force += steps(addedPercent(rune, low), st.damage) * own;
-  }
   return force * HEAT.affixStepForce;
+}
+
+/**
+ * Force of a shape's "Adds" rolls, before depth: each pays a step (HEAT.affixStepForce) per
+ * SPELL.affixSteps.added multiple of its shape's average base hit, on a log scale like a damage roll.
+ */
+function addedForce(rune: RuneInstance, affinity: (id: RuneId) => number): number {
+  let force = 0;
+  for (const el of INFUSION_IDS) {
+    const low = rune.affixes[ADDED_KEYS[el]];
+    if (low !== undefined && low > 0) force += steps(addedPercent(rune, low), SPELL.affixSteps.added);
+  }
+  return force * affinity(rune.id) * HEAT.affixStepForce;
 }
 
 /**
@@ -334,10 +341,13 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
     const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
     const affixes = affixForce(rune, affinity);
     const raised = Math.max(share, HEAT.payloadAffixShare);
+    // Added damage on a payload pays at least HEAT.payloadAddedShare: at the riders' half it stacked
+    // with Concentrated and doubled infusions to about 4x the best kit's damage per Force.
+    const added = addedForce(rune, affinity) * Math.max(share, HEAT.payloadAddedShare);
     const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
     // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
     const affixShare = affixes > 0 ? raised : share;
-    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare);
+    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare + added);
   });
   return Math.max(HEAT.minForcePerCast, round1(force * ctx.forceMultiplier));
 }
