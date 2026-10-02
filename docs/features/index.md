@@ -4,9 +4,9 @@ One file per feature, each the single place that explains it: what it does, why 
 
 | Doc | Status | What it covers |
 |---|---|---|
-| [runes.md](runes.md) | Live (v2 on `main` 2026-09-30); phase 4+ planned | The v2 rune grammar, the compiler and Force pricing, the spell engine, Aura and Bond, kit sigils, the six rune tiers, balance tests, and the rest of the rune plan |
+| [runes.md](runes.md) | Live (v2 on `main` 2026-09-30); damage packets, implicits and ranged rolls built, not deployed; phase 4+ planned | The v2 rune grammar, the compiler and Force pricing, the spell engine, Aura and Bond, kit sigils, the six rune tiers, damage packets, rune implicits and ranged per-cast rolls, balance tests, and the rest of the rune plan |
 | [forge.md](forge.md) | Live | The sigil editor at the forge, inscribe rules, gold prices, roll clamping, the builders' bench |
-| [items.md](items.md) | Live | Item kinds, affixes, bound items, named items (Brothers Creation), the grid inventory, pending items, the trader, the v1 to v2 conversion |
+| [items.md](items.md) | Live; implicits and the implicit pass built, not deployed | Item kinds, affixes, rune implicits and ranged rolls, bound items, named items (Brothers Creation), the grid inventory, pending items, the trader, the v1 to v2 conversion, the rune roll and implicit passes |
 | [loot.md](loot.md) | Live; loot piles built, not deployed | Drops, drop tables, gold, ground piles and pickup, the loot window, dungeon caches |
 | [stash.md](stash.md) | Live; tabs in progress | The account stash |
 | [characters.md](characters.md) | Live | Classes, levels and XP, stats, item requirements, death and respawn |

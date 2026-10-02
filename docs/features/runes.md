@@ -1,6 +1,6 @@
 # Runes and spells
 
-Status: v2 (phases 0 to 3 of the rework) pushed to `main` on 2026-09-30 and built on 2026-09-29. v1 runes went live on 2026-09-28. Phase 4 onward is planned (see "Planned" below). On 2026-10-01 Multishot and Flame Cleave were buffed and "first rune is free" was dropped, with a save pass on load (built on `fix/rune-rolls`, not deployed yet). The Concentrated rune was built the same day on `feat/concentrated-rune` (not deployed yet). Kit sigils became ordinary sigils with in-table rolls and rune affixes got six tiers on 2026-10-01 (`feat/no-starters`, not deployed). Damage packets (phase 1 of the damage update: per-type hits, shape base ranges, added damage affixes) were built on 2026-10-02 on `feat/damage-packets`, not deployed; see "Damage packets" below.
+Status: v2 (phases 0 to 3 of the rework) pushed to `main` on 2026-09-30 and built on 2026-09-29. v1 runes went live on 2026-09-28. Phase 4 onward is planned (see "Planned" below). On 2026-10-01 Multishot and Flame Cleave were buffed and "first rune is free" was dropped, with a save pass on load (built on `fix/rune-rolls`, not deployed yet). The Concentrated rune was built the same day on `feat/concentrated-rune` (not deployed yet). Kit sigils became ordinary sigils with in-table rolls and rune affixes got six tiers on 2026-10-01 (`feat/no-starters`, not deployed). Damage packets (phase 1 of the damage update: per-type hits, shape base ranges, added damage affixes) were built on 2026-10-02 on `feat/damage-packets`, not deployed; see "Damage packets" below. Implicits on every rune and ranged per-cast rolls (phase 2) were built on 2026-10-02 on `feat/damage-phase2`, not deployed; see "Implicits and ranged rolls" below.
 
 ## What it does
 
@@ -236,9 +236,10 @@ Tests:
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass ([items.md](items.md), "Rune roll pass").
 - `packages/shared/test/affixTuning.test.ts`: the six rune tiers (counts, labels, ranges against the old ones, item-level gates, drops inside their tier), the one-time re-tier (by value, from the code's table, never worth 3x the old price), and the affix ranges in live tuning ([live-tuning.md](live-tuning.md)).
 - `packages/shared/test/runeRolls.test.ts`: no kit rune is past the table; old kit sigils are, and clamp on the way out.
-- `packages/shared/test/forcePerDamage.test.ts`: 88 hand-picked spells (24 with Concentrated, 11 with T1 rolls, 12 with added damage; `BALANCE_SPELLS` in `src/bench/spells.ts`, the list the admin balance bench shows), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001), 300 of T1 rolls only (seed 20261002), 300 with added damage (seed 20261003) and 300 with T1 added damage (20261004), all drawn from the live drop tables, and every kit piece (prefixes in place and single runes, alone and with infusions added) stay under 5x the best kit's damage per Force, single and pack; spells past 2x are printed.
+- `packages/shared/test/forcePerDamage.test.ts`: 104 hand-picked spells (24 with Concentrated, 11 with T1 rolls, 12 with added damage, 16 with T1 implicits or ranged rolls; `BALANCE_SPELLS` in `src/bench/spells.ts`, the list the admin balance bench shows), 300 seeded random spells (seed 20260930), 300 more with Concentrated and Large (seed 20261001), 300 of T1 rolls only (seed 20261002), 300 with added damage (seed 20261003), 300 with T1 added damage (20261004), 300 with implicits and ranged rolls (20261005) and 300 with T1 implicits and ranged rolls (20261006), all drawn from the live drop tables, and every kit piece (prefixes in place and single runes, alone and with infusions added) stay under 5x the best kit's damage per Force, single and pack; spells past 2x are printed.
 - `packages/shared/test/concentrated.test.ts`: the Concentrated grammar, compile, Force, spirit, drops, rolls, prices, the rune tab sort, grants and the forge; every aura type and element mix (three different, three the same), with and without Large, at no more than 1.2x the damage per spirit with it and the same strength for Ward, Restore and Impact; a damage affix refused on Aura and Bond; and heals and shields per cast unchanged by it (less per Force); `apps/server/test/concentratedRune.test.ts`: saves holding it load and save back.
 - `packages/shared/test/damagePackets.test.ts`: damage packets (below); `apps/client/test/damageTooltips.test.ts`: the damage lines and the shape implicit; `apps/server/test/addedDamageRunes.test.ts`: old runes and runes with added damage load, cast and save back unchanged.
+- `packages/shared/test/implicits.test.ts`, `rangedRolls.test.ts`, `convertImplicits.test.ts`, `apps/server/test/implicitsLoad.test.ts`, `apps/client/test/implicitTooltips.test.ts`: implicits and ranged rolls (below, "Implicits and ranged rolls", Tests).
 - `packages/shared/test/grammarV2.test.ts`: the plan's examples, every rule, ambiguous cases, the tokenizer.
 - `packages/shared/test/compile.test.ts`: castability, named engine gaps, multicast, multi-shape payloads, affixes, capacity, Force by depth, affinity and affixes, spirit, starters compile for their class.
 - `packages/shared/test/spellEngine.test.ts`: the cooldown waits exactly the setting's seconds (0.3, 0.35 and the default), the cast delay share and cast speed shorten it, a changed setting applies from the next cast, multicast, `after` outlasting its shape, per-node speed and size, orb phasing.
@@ -482,16 +483,109 @@ Balance test with added damage: the root-shape combinations above stay at most 2
 - The misfire's life loss is not a hit and carries no packet.
 - The first live tuning of a range: a stored `spell.<shape>.damage` override from before would be dropped on load without a report (the copy of live from 2026-10-02 had no tuning overrides at all).
 
+## Implicits and ranged rolls (phase 2 of the damage update; owner, 2026-09-30; built 2026-10-02 on `feat/damage-phase2`, not deployed)
+
+"Every rune has an implicit rolled at drop ... No two runes alike." "An affix rolls a range at drop; the server rolls inside it on every cast."
+
+### What it does
+
+- **Every castable rune carries an implicit,** rolled at drop: one number on the rune itself, shown above its affixes with its tier ("104% base damage T3"). It is not an affix: it takes no affix slot, every rune has exactly one, and plain runes carry one too.
+
+  | Rune | Implicit | What the number does |
+  |---|---|---|
+  | Orb, Bolt, Nova, Zone, Dash | `implicit_base`, "104% base damage" | multiplies the shape's live base range ("Deals 12 to 21 physical damage") |
+  | Aura | `implicit_aura`, "104% aura area" | multiplies the aura's radius |
+  | Bond | `implicit_bond`, "104% bond strength" | multiplies the bond's ward, regeneration and element bonus |
+  | Fire, Cold, Lightning | `implicit_conversion`, "Converts at 104% to fire" | the infusion's share of the base comes out at this percentage of it (an aura's element damage too) |
+  | Split | `implicit_split`, "Up to 1 extra copy on a cast" | a copy range: each cast rolls from the Split's count to the count plus this, never past 6 |
+  | Timer | `implicit_fuse`, "Releases after 0.48 s" | the live default delay divided by the roll |
+  | Pulse | `implicit_pulse`, "Releases every 0.24 s" | the live default interval divided by the roll |
+  | On Hit, On Expire, On Land | `implicit_payload`, "Its payload deals 104% damage" | multiplies the damage of what the trigger releases |
+  | Impact, Ward, Restore | `implicit_effect`, "104% knockback / shield / healing" | multiplies the effect, on spells, auras and bonds |
+  | Swift, Large | `implicit_modifier`, "+31% speed" | multiplies the rune's live +30% speed or +50% size |
+  | Concentrated | `implicit_focus`, "25% less size" | Concentrated's live 30% size loss divided by the roll |
+
+- **Six tiers like the rune affixes,** T1 the best and rarest, tunable in Rune balance. Every implicit but Split's is a percentage of what the rune did before implicits, the **neutral roll** of 100 in the middle of T4:
+
+  | | T6 | T5 | T4 | T3 | T2 | T1 |
+  |---|---|---|---|---|---|---|
+  | quality implicits (%) | 85 to 91 | 92 to 97 | 98 to 102 | 103 to 108 | 109 to 115 | 116 to 125 |
+  | Split's extra copies | 0 | 0 | 0 | 0 to 1 | 1 | 1 to 2 |
+  | weight | 40 | 50 | 60 | 35 | 15 | 3 |
+  | least item level | 1 | 1 | 3 | 5 | 8 | 12 |
+  | sell value added | 0 | 0 | 0 | 1 | 2 | 8 |
+
+  The weights centre on T4, unlike the affixes' (100 on T6): an affix is a bonus on top, while an implicit is the rune's own strength, so the common roll sits near what runes did before. A level-1 drop rolls T6 or T5 (about 92% on average); from level 12 a drop averages about 98%, T1 about one drop in 70.
+- **Drops:** a rolled rune rolls its implicit inside its tier, after its affixes (so a seed gives the affixes it gave before). A plain rune takes its tier's middle (88, 95, 100, 106, 112, 121, or Split's 0, 0, 0, 1, 1, 2 rounded), so plain runes of one tier still stack while runes stack at all (below, "Why"). The tier is gated by the monster's level for both. Kit runes, the builders' bench, admin text and runes converted from old saves carry the neutral roll.
+- **Ranged rolls:** a quarter of the rune damage, pierce and Split count rolls come as a range at drop, centred on an ordinary roll of their tier: damage half the roll either side ("+20 to 60% damage" around 40), pierce and Split one either side ("Pierces 1 to 3 enemies", "Makes 3 to 5 copies"), kept inside pierce 0 and Split 2 to 6 (a Split of 2 or 6 has no room and stays a number). The server rolls inside each range on every cast, once for the whole cast, payloads included, from its own `cast` stream of the sim's seed, so the same seed and casts give the same rolls and no damage, combat or loot roll moves. Other affixes never roll a range. Tooltips, the stash and the forge read them "1 to 4".
+- **Force is priced at the average** of a ranged roll and of a Split's copy range (`bolt[+50 to 150% damage]` costs what `bolt[+100% damage]` does, `split(3){2}` what `split(4)` does). **The entity budget and the live cap use the maximum** (copies and pierce at their most), so `orb[every 0.15s] cold split(5) bolt` casts and `split(4 to 6)` or `split(5){1}` in its place is refused for 43 entities at its peak.
+- **Kits keep fixed values:** every kit rune carries the neutral roll and no range, so every kit casts, prices and measures exactly as before.
+- **The text form:** `bolt{120}` is a Bolt with a 120% implicit, `split(3){1}` a Split of 3 with one extra copy at most; `bolt[+20 to 60% damage, pierce 0 to 2] split(2 to 4)` writes ranges. The neutral roll is left out, so every existing spell reads as it did. The grammar refuses implicits outside 10 to 400% (`implicit-range`; Split's 0 to 4 whole), a range whose high end is not above its low end (`ranged-roll`), and a Split range past 6 (`split-count`).
+- **The sentence** reads ranges as written ("Fires 2 to 4 bolts, piercing 0 to 2 enemies and with +20 to 60% damage. Each deals 4 to 19 physical damage."), and the damage lines widen to what any cast can deal ("Bolt x2 to 4").
+
+### Why
+
+- **Implicits modify the live base numbers, they do not replace them** (the brief asked which for shapes). A shape implicit is a percentage of the shape's tunable range, not a range of its own: Base shapes tuning stays the owner's base numbers and reaches every rune already owned, and each rune keeps one number. A replaced range would freeze each rune's damage at drop, so a later tuning pass would only reach new drops. The same holds for every quality implicit (Swift's +30%, the Timer's 0.5 s, Concentrated's 30%).
+- **The neutral roll is today's rune.** Converted runes and kits carry it, so nothing owned loses strength, value or price, and the bench and parity hold. It sits in T4, the highest tier common drops of affixes reach, which is the reading of "a middle implicit roll for their tier" this build takes (below, Limits).
+- **Plain runes take their tier's middle** so stacking survives until "no stacking" ships: a stack holds one implicit, plain runes stack only with the same rune, binding and implicit, and the forge pool lists plain runes by implicit. Rolled runes roll freely, so no two rolled runes are alike.
+- **Ranges on damage, pierce and Split only** (the brief's examples), a quarter of the time: enough to find them, and on the three numbers where a swing per cast reads in play (how hard, how far, how many). Speed, size and duration ranges would make a shape's look change every cast.
+
+### How
+
+- Data: the implicit tables are affix definitions with the target `implicit` (`implicit_base` and the rest in `data/affixes.ts`, `implicitIdFor`, `IMPLICIT_NEUTRAL_TIER`); a rune affix's `ranged` field says it may roll a range. `RuneItem.implicit` (optional in the type: data from before implicits has none until the implicit pass, and `runeImplicit` reads the neutral roll for it); `AffixRoll.max` is a ranged roll's high end.
+- Items: `rollImplicit`, `createPlainDrop`, `createRolledRune`, `neutralImplicit`, `stacksWith`/`implicitKey`, `formatImplicit`, `implicitTier` in `items/items.ts`; ranged rolls in `rollAffixes` (`rangedRoll`), clamped by their average in `runeRolls.ts` (`rollAverage`). Prices: `FORGE.runeImplicitValue`.
+- Grammar: `RuneInstance.implicit`, `RuneAffixes.damageMax`/`pierceMax`/`countMax`; the parser's `NodeStats.base`/`damageMax`/`pierceMax`, `SpellNode.copiesMax`, `infusionQuality`, `effectQuality`, `NodeRelease.quality`; the budget counts `copiesMax` and `pierceMax`.
+- Compiler: the engine node's `baseScale`, `conversion`, `effectPower` and `perCast` (`sim/program.ts`); `implicitForce` prices implicits like a damage roll of their size (Swift and Large as their listed Force times the roll), on a payload at least their full price (`HEAT.payloadAddedShare`), as added damage does; Force reads every ranged roll and copy range at its average.
+- Engine: `rollCast` in `sim/program.ts`, called in `castSkill` with `sim.rand.cast`; the harness (`meanDamage`) rolls the damage percent at its average and copies and pierce from the stream. `nodeBaseRange`, `hitRanges`/`rollHit` take the conversion; spells, auras and bonds read `effectPower`.
+- Saves: the implicit pass (`items/convertImplicits.ts`, marker `runeImplicits: 1`; [items.md](items.md), "Implicit pass").
+
+### Measured
+
+Every kit measures exactly as before: on the bench, all 20 kits and the 88 earlier hand-picked spells give the same numbers before and after the change, and the parity test holds unchanged. Kits (Force, then damage per Force single / pack): Fireball Force 19.9, 1.68 / 6.92 per Force (single / pack), Frozen Orb 23.6, 1.39 / 4.73, Static Nova 18.3, 0.91 / 5.48, Blink 15.0, 0.80 / 2.40, Leap Slam 18.8, 0.72 / 4.21, War Cry 18.3, 0.77 / 4.59, Flame Cleave 17.8, 1.26 / 7.52, Multishot 16.7, 0.34 / 1.03, Exploding Arrow 11.5, 1.44 / 7.71, Freezing Arrow 11.8, 2.13 / 5.40, Evade 12.6, 0.92 / 2.79, Smite 14.4, 1.28 / 2.56, Bone Spear 14.8, 1.46 / 2.92, Corpse Blast 18.9, 0.79 / 4.75, Frost Mire 20.7, 0.47 / 2.80; Iron Skin and Prayer reserve 42 spirit, Soul Link 37. The best kit is still 2.13 single (Freezing Arrow) and 7.71 pack (Exploding Arrow).
+
+New hand-picked spells, as multiples of the best kit (single / pack):
+
+| Spell | Force | x best |
+|---|---|---|
+| `nova{125}[onexpire] zone{125}[after 0.3s, +100% damage, adds 9 fire] fire{125} cold{125} concentrated(60){125} nova{125}[+100% damage, adds 9 lightning, adds 9 fire, +75% size] lightning{125} concentrated(60){125}` | 61.8 | 2.94 / 4.49 |
+| the same without the adds | 37.3 | 2.26 / 3.46 (2.28x pack with neutral implicits) |
+| `nova{125}[+100% damage] lightning{125} lightning{125} concentrated(60){125}` | 29.7 | 1.65 / 2.70 |
+| `bolt onhit{125} nova{125}[+100% damage, +75% size] lightning{125} lightning{125}` (ranger) | 19.7 | 0.37 / 2.69 |
+| `bolt{125}[adds 9 lightning, +100% damage] lightning{125}` (ranger) | 17.5 | 2.38 / 0.66 |
+| `zone{125} pulse{125} lightning{125} bolt{125}` (ranger) | 99.5 | 2.24 / 0.87 |
+| `bolt[+50 to 150% damage]` (ranger) | 6.6 | 2.20 / 0.61, the same as `bolt[+100% damage]` |
+| `nova{125}[+50 to 150% damage, +75% size] lightning{125} concentrated(60){125}` | 29.8 | 1.32 / 2.18 |
+
+The worst is the hand-made chain with every one of its ten runes at T1 (a T1 implicit is one drop in about 70 from level 12) and T1 adds, at 4.49x, under the 5x fail line. At the riders' half price on payloads it was 4.70x, which is why implicits pay their full price there. The random searches: 300 spells with implicits and ranged rolls anywhere in their tables, worst 2.05x; 300 with T1 implicits and ranged rolls, worst 2.09x.
+
+### Tests
+
+- `packages/shared/test/implicits.test.ts`: every castable rune has an implicit with six tiers and its neutral roll in T4; the tables in Rune balance and the set check; every loose rune a monster drops carries one inside its tier, plain ones at the tier's middle, gated by level (T6 and T5 at level 1, T1 deep), rolled ones spread; kits, the bench and text carry the neutral roll and kits read as before; the text form and the round trip through items; what each implicit does (base range and its tuning, conversion on spells and auras, fuse, pulse, Swift, Large, Concentrated, payload damage, effect power, aura area, bond strength, a shield in play); Force (dearer above neutral, cheaper below, every kit's Force and spirit unchanged); spirit; prices by tier and the 3x gold check; stacks by implicit; the forge taking the stack a ref names at its price, refusing an implicit nobody holds, and an old ref without one; clamping on the way out; the tooltip lines.
+- `packages/shared/test/rangedRolls.test.ts`: a quarter of damage, pierce and split rolls ranged, centred in their tier and inside their limits; no other affix ranged; "1 to 4" lines, text form and round trip; per-cast rolls inside each range, deterministic, payloads included and conserving split damage; a fixed program draws nothing; the server casting different copy counts on different casts, the same for the same seed; Force at the average; the budget and the cap at the maximum (and a Split implicit counted); a ranged Split past 6 refused; the sentence and damage lines; clamping by the average; the balance bench's checks.
+- `packages/shared/test/forcePerDamage.test.ts`: the hand-picked and random spells above. `packages/shared/test/chatLinks.test.ts`: a linked rune shows its implicit and ranges.
+- `packages/shared/test/convertImplicits.test.ts`, `apps/server/test/implicitsLoad.test.ts`, the snapshot case in `apps/server/test/seamlessRestart.test.ts`: the implicit pass ([items.md](items.md)).
+- `apps/client/test/implicitTooltips.test.ts`: the implicit above the affixes with its base hit and tier, ranged lines, the damage line's copy range; `apps/client/test/forgeDraft.test.ts`: the pool by implicit, the ref naming it, its price and stock.
+
+### Limits and open questions
+
+- **"A middle implicit roll for their tier"** is read as the neutral roll, the middle of T4, for every converted rune whatever its level. A rune from a deep level does not get the better tier a drop from there could roll: that would be strength and gold from nothing, while the neutral roll keeps every rune exactly as strong and as valuable as it was. If the owner wants old high-level runes lifted, the pass can give the middle of the best tier their level and drop tier allow instead.
+- **Status chance:** every infused hit still brings its ailment, and the infusion implicit is its conversion only. A chance would have to sit below today's 100% and so make every converted rune weaker; it can come with resistances, where an ailment's chance and strength can follow its element's share.
+- **New drops are a little weaker than old runes on average** (about 98% from level 12, 92% at level 1), since the common roll is T4 and lower tiers exist. Kits and old runes sit at 100%.
+- A Split implicit's extra copies stop at 6 copies quietly, as the table's best (Split 6 with 2 extra) gains nothing.
+- Fuse and focus implicits cost no Force: a shorter fuse throws the payload sooner and a smaller size loss keeps more area, neither of which the damage-per-Force harness sees as damage.
+- The most-equipped list on the balance bench counts sigils by rune text, which now carries non-neutral implicits and ranges, so one kit with differently rolled runes shows as several rows.
+- Rune descriptions are hand-written ("half a second", "30% less size") and do not follow the implicit; the implicit line and the sentence do.
+- Rolling back past this build: a save holding implicits or ranged rolls loads in an older build (the fields are extra), but casts every rune at its neutral roll and the low end of its ranges, and stacks plain runes regardless of implicit, which would merge different implicits on the next stack. Roll back with the database copy from before the deploy.
+
 ## Planned: damage types, implicits, ranged rolls, aura payloads (owner, 2026-09-30)
 
-Damage packets, shape base ranges, infusion conversion and added damage are built (above, "Damage packets"). Poison is a packet type. The rest stays planned:
+Damage packets, shape base ranges, infusion conversion and added damage are built (above, "Damage packets"), and so are implicits on every rune and ranged per-cast rolls (above, "Implicits and ranged rolls"). Poison is a packet type. The rest stays planned:
 
 - **Resistances later:** the per-type packets are built; monster resistances and defence affixes are a follow-up.
-- **Every rune has an implicit** rolled at drop (Large: +20 to 40% area; Swift: speed; Split: a copy range; Timer: a delay; infusions: conversion and status chance; shapes: base damage), plus affixes; tiers by item level lift the implicit range. No two runes alike.
-- **Ranged per-cast rolls:** an affix rolls a range at drop ("Splits into 1 to 4", "+20 to 60% damage", "Pierces 0 to 3"); the server rolls inside it on every cast. Force priced at the average; the live cap and entity budget use the maximum. Starter sigils keep fixed values so the v1 parity tests hold.
+- **Status chance** on infusions (the owner's "conversion and status chance"): every infused hit still brings its ailment; see "Implicits and ranged rolls", Limits.
 - **No stacking:** every rune is a single item; the stash rune tab (a sortable, filterable list) handles bulk. Conversion splits plain stacks into single runes with a middle implicit roll; rune prices by rolls. Bag: nothing special for now.
 - **Visuals follow the damage mix:** lightning sparks, fire flames and embers, cold spiky ice crystals, physical a dark iron shimmer; mixed spells show both. Damage a hotter core and more sparks, duration longer trails, pierce a sharper streak, impact a shockwave ring, doubled infusions a denser shell, two infusions a two-tone swirl, release kinds a small glyph on the parent (ticking ring for "every", a fuse for "after"), rolled runes a faint rune-script sheen. Built on the VFX system ([vfx.md](vfx.md)).
 - **Aura payloads:** Aura and Bond may carry releases (the rule against releases on persistent shapes goes): `Aura [on hit], Fire, Orb` throws a fireball at the enemy the aura just burned; `Aura [every 1 s], Cold, Nova` pulses around the caster. Two triggers: "on hit" (the aura damages an enemy; payload aimed at it) and a new "when struck" (the caster is hit; payload aimed at the attacker), as trigger runes and release affixes. An internal cooldown per aura release (about 0.5 s, config); the aura keeps reserving spirit; each payload costs Force when it fires, as if cast.
 - **Righteous Fire bargain:** a rare aura affix, "Burns you for X% of its damage; deals Y% more damage" (for example 20% / 60%); plain fire auras stay safe.
-- **Balance:** Force pricing and the damage-per-Force search tests cover the new types, ranges and aura payloads.
+- **Balance:** Force pricing and the damage-per-Force search tests cover the new types and ranges (built) and aura payloads (planned).
 - **Order:** before the forge redesign (which then shows implicits and ranges). Item-moving parts (no stacking, conversion) get the loss and duplication review.

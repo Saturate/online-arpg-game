@@ -1,6 +1,6 @@
 # Live tuning
 
-Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Shape base damage became a min and max per shape with damage packets on 2026-10-02 (`feat/damage-packets`, not deployed; below, "Base damage ranges"). Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). The World generation category built 2026-10-02 on `feat/worldgen-settings` (not pushed). Phases 3 and 4 planned (owner, 2026-10-01).
+Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Shape base damage became a min and max per shape with damage packets on 2026-10-02 (`feat/damage-packets`, not deployed; below, "Base damage ranges"). Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). The World generation category built 2026-10-02 on `feat/worldgen-settings` (not pushed). Rune implicit tables added to Rune balance on 2026-10-02 (`feat/damage-phase2`, not deployed; below, "Implicit tables"). Phases 3 and 4 planned (owner, 2026-10-01).
 
 "I want base damage settings for all runes, skills etc. All entities need to be able to be configured via API, deployless."
 
@@ -90,6 +90,16 @@ Each shape's single base damage (`spell.bolt.damage` and the others) became a ph
 - **The bench and the balance tests hit for each range's mean** (`Simulation.meanDamage`, set by the harness), so a row's numbers are exact and stable and the best kit stays 2.13 single and 7.71 pack at defaults. Changing either end of a range moves its mean, and with it the bench. The Watch panel's Spell Studio stages roll like the game.
 - **Added damage pricing:** `spell.affixSteps.added` (x1.25, "Affix price step: added damage", Spell engine) and `force.payloadAddedShare` (1, "Payload added damage share", Force prices); [runes.md](runes.md), "Force for added damage".
 - **The Adds rows in Rune balance** carry a note: the roll is the low end X and the high end is twice it.
+
+## Implicit tables (2026-10-02, `feat/damage-phase2`, not deployed)
+
+Every rune's implicit has six tiers in Rune balance, after the affixes, one group per implicit ("Implicit of Orb, Bolt, Nova, Zone, Dash: #% base damage (implicit_base)"): each tier's lowest and highest roll, drop weight and least item level, at paths like the affixes' (`affix.implicit_base.t1.max`). Eleven implicits, 264 numbers ([runes.md](runes.md), "Implicits and ranged rolls").
+
+- **Base numbers stay base numbers:** an implicit is a percentage of the rune's live base number (a shape's range, Swift's speed, the Timer's delay), so Base shapes and Rune effects tuning still reach every rune owned; the implicit tables only decide what new drops roll.
+- **Checked as a set** like every affix table (`tunableSetProblem`): tiers in order without overlapping, T6 at item level 1 with a weight above 0. Engine limits: 10 to 400% (the grammar's `implicit-range`), Split's extra copies 0 to 4 whole.
+- **What a change reaches:** new drops, and where extraction clamps (the lower of the live and the code table's best, as for affixes). Stored implicits never change, and kits carry the neutral roll whatever the table. Prices count the stored tier, so a range change moves no price.
+- **Ranged rolls** have no number of their own in tuning: they are centred on an ordinary roll of the tier, so the damage, pierce and Split count tables tune them too. Their share (a quarter) and spread are code.
+- **The bench and the balance tests** read implicits and ranges from the rune text (`bolt{120}[+20 to 60% damage]`): an admin pick must hold an implicit inside its rune's table and a range a drop could have (centred on a roll of the table, no wider than a drop's); the harness rolls the damage percent of a range at its average and copies and pierce from the sim's stream.
 
 ## World generation (built 2026-10-02 on `feat/worldgen-settings`, not pushed)
 
