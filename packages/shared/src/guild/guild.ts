@@ -268,6 +268,8 @@ export function parseGuildStash(raw: unknown): GuildStashLoad {
     }
   }
   for (const it of stored) if (slotUids.has(it.uid)) fail(`uid ${it.uid} is both an item and a sigil rune`);
+  // Every load-time item conversion of a guild stash happens here, and serializeGuildStash writes
+  // every marker: a new pass (and its marker) is added in these two places only.
   const rolls = isRuneTiers6(raw) ? null : convertRuneRolls(stored);
   const items = rolls ? rolls.items : stored;
   const byUid = new Map<ItemUid, Item>();
