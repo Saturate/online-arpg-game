@@ -1,6 +1,6 @@
 # Live tuning
 
-Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). Phases 3 and 4 planned (owner, 2026-10-01).
+Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). The World generation category built 2026-10-02 on `feat/worldgen-settings` (not pushed). Phases 3 and 4 planned (owner, 2026-10-01).
 
 "I want base damage settings for all runes, skills etc. All entities need to be able to be configured via API, deployless."
 
@@ -80,6 +80,15 @@ Writes have their own limit (20 a minute per account, apart from tuning changes)
 - The bench measures at the 0.35 s v1 cadence like the tests, not the live cast cooldown.
 - An edit out of range in the Tuning tab is left out of the preview (the bench says how many).
 - The multiples are against the best kit under the same numbers, so an edit that weakens the best kit moves every row's multiple; the "own change" column shows only the row's own numbers.
+
+## World generation (built 2026-10-02 on `feat/worldgen-settings`, not pushed)
+
+A tenth category, **World generation** (`worldgen.*`, last in the Tuning tab): 23 numbers for density (packs, rares against chests, camps, dungeons, ruins, forests, rocks, bones, ridges), size and roads (world size, home region, branch lengths, forks, side valleys, winding) and levels (least, most, the climb). The numbers, ranges and why are in [world-map.md](world-map.md), "Generation settings".
+
+- **Unlike every other category, a change does not reach running rooms.** It is what new world copies are built with; a running copy keeps its own numbers until an admin rebuilds it (the Tuning tab's "Force rebuild every world copy", or per copy on the Live tab). The tab says so over the category, and a save's notice says "new world copies are built with them".
+- **Base numbers** (the owner's rule): the real counts and distances generation uses, not factors. Counts are for the whole world.
+- **Validated so generation always succeeds:** each number's range, and rules between them checked on a save like the affix tables (`tunableSetProblem`: levels and branch lengths in order, the home region inside its world), with a 400 naming the rule. History and revert work as for every number; a revert into a broken set is refused the same way.
+- **Clients apply the overrides too,** as for every number, but build a world only from the numbers in its descriptor, never from their own live tuning.
 
 ## How (plan)
 
@@ -172,7 +181,7 @@ Each phase ships on its own. Loot and prices touch the economy, so phase 4 gets 
 ## Limits and open questions
 
 - A change mid-fight applies on the next cast or spawn for what a spell stores when it spawns: a projectile's damage, speed and radius, a nova's or zone's size and duration. Nova, Zone and Dash damage, heal and shield, the ailment numbers, Impact knockback, Ward shield seconds and the aura and Bond numbers are read at hit time, so spells already alive feel those changes mid-flight.
-- Tuning is global: every room and every world copy shares one set. Arena runs and dungeons in progress take a change on the next cast too.
+- Tuning is global: every room and every world copy shares one set. Arena runs and dungeons in progress take a change on the next cast too. World generation is the exception: each world copy keeps the numbers it was built with.
 - **Affix ranges and prices:** a tier's price is fixed per tier (`runeAffixValue`), not tunable yet; widening T1 makes the same price buy a better roll. Prices are a phase 4 number.
 - **Kits after a range change:** a kit is clamped into the live table when it is made, so a range tuned down makes new kits weaker; kits already owned keep their rolls.
 - The forge's gold prices, the rune drop shares and the Force bar are not tunable here yet; the cast cooldown, cost multiplier and Force bar stay on the Settings tab. Rune and sigil affix ranges are (above).

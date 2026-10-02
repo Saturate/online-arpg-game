@@ -1,10 +1,10 @@
 # World map
 
-Status: Live (`f82ead6`, 2026-10-01). Stage 1 built 2026-10-01: the world plan, one world room per world copy, levels and density by distance, region names on the HUD and the waypoint menu. The save conversion (stage 3) built 2026-10-01. Respawn by inactivity (stage 3) built 2026-10-01. Minimap names, remembered fog and the world map (stage 4) built 2026-10-01. Gate bosses (stage 2) built 2026-10-01. Review fixes (the seal on every placement, world copy memory, the plan checksum) built 2026-10-01. Builds on [world-streaming.md](world-streaming.md), steps 1 to 3.
+Status: Live (`f82ead6`, 2026-10-01). Stage 1 built 2026-10-01: the world plan, one world room per world copy, levels and density by distance, region names on the HUD and the waypoint menu. The save conversion (stage 3) built 2026-10-01. Respawn by inactivity (stage 3) built 2026-10-01. Minimap names, remembered fog and the world map (stage 4) built 2026-10-01. Gate bosses (stage 2) built 2026-10-01. Review fixes (the seal on every placement, world copy memory, the plan checksum) built 2026-10-01. Generation settings (live tuning numbers per world copy, force rebuild, seed reroll and pin) built 2026-10-02 on `feat/worldgen-settings`, not pushed. Builds on [world-streaming.md](world-streaming.md), steps 1 to 3.
 
 ## What it does
 
-- **One seamless world per world copy:** a 13000 by 13000 map, 9 times a zone of before (5200 by 3600). The town, Emberwatch, sits in the middle, and three roads leave its north, east and south gates. There is no loading between areas; the world streams in by chunk as you walk.
+- **One seamless world per world copy:** on the default generation numbers (see "Generation settings"; every number below is a default) a 13000 by 13000 map, 9 times a zone of before (5200 by 3600). The town, Emberwatch, sits in the middle, and three roads leave its north, east and south gates. There is no loading between areas; the world streams in by chunk as you walk.
 - **Each road has a third of the circle to itself** and runs out to the map edge through the home region round the town (Mossy Barrens), its own region and, on two roads, a second region past a gate:
 
 | Road | First region | Past its gate |
@@ -207,15 +207,91 @@ Limits:
 - **Stage 2, gate bosses:** built (above). The seal is the plan's (`gateAt`), so a later stage that moves gates, adds a road or a gate inside the home region gets the seal and the ridge with it. Anything new that moves players (a scroll of town portal back, a summon to a party member) goes through `RoomManager.move`, which holds the seals; it only needs its own refusal (as `useWaypoint` and `teleportRefusal` have) to tell the player why.
 - **Stage 4, minimap names and fog:** built (above). Still open from it: the minimap's 256-pixel tiles cover the whole world at its 0.025 pixels per unit, so drawing them generates every chunk's obstacles at load (the World bench shows all 169 generated); smaller tiles would follow the hero. The world map's tiles do the same at its own scale.
 
-## Planned: generation settings in admin, gates walled properly (owner, 2026-10-01)
+## Generation settings
 
-The owner chose generation over a world editor: the world stays random per world copy (a seed each), the town stays the one hand-made layout, and generation gets better and tunable.
+Built 2026-10-02 on `feat/worldgen-settings`, not pushed. Owner decisions (2026-10-01): the world stays random per world copy (a seed each) and the town stays the one hand-made layout; generation gets tunable instead of a world editor. Base numbers, not multipliers, as in [live-tuning.md](live-tuning.md). Gates walled properly came first ("Gate walls" above).
 
-- **Gates first:** built 2026-10-01 ("Gate walls" above).
-- **Admin settings (ServerSettings or a generation block of its own), validated ranges:** density (packs, rares, chests, camps, dungeons, decor per region), size and roads (world size, road length, branching, winding), levels (level range by distance, how fast levels climb), and seed control (reroll a world copy's seed, pin a seed).
-- **Applying:** a change applies to new world copies only (new party worlds, the public world after its next restart or reroll), so players never see the world change under them; a "force" button rebuilds running copies at once, like a town save, for tuning.
-- **Limits to respect:** server and client build the same plan from the seed and settings, so the client needs the settings with the welcome; the plan checksum (above) must include them. World copy memory (dead bosses, opened chests) is dropped on a forced rebuild that changes the plan.
-- **Order:** the gate fix first (built), then the settings.
+### What it does
+
+- **A World generation category in the Tuning tab** (live tuning, with its history and revert): 23 numbers in three groups, each the real number generation uses, with a validated range.
+- **A change applies to new world copies only:** a new party world, a new public copy, or the public world after a reroll. A running copy keeps the numbers it was built with, so nobody sees the world change under them. The Tuning tab says so over the category, and the Live tab marks a copy built with older numbers ("older generation numbers", the numbers in its tooltip).
+- **A copy's numbers are fixed for its life** (`Instance.gen` in `manager.ts`): it closes and reopens on them, a town save rebuilds it on them, and they go to every client in the map descriptor. The public world's are stored by seed (`world_gen` table, `WorldGenStore`), so a server restart builds the same public world rather than taking whatever live tuning holds then; every public copy on a seed shares them. Party worlds end with their party, which a restart ends too, so theirs are not stored.
+- **Force rebuild:** the Tuning tab's "Force rebuild every world copy" and the Live tab's "Rebuild every copy" and per-copy "Rebuild" (admin API `POST /api/admin/worlds/rebuild`, `tuning`). Every copy (or the one named; a public copy brings every public copy on its seed) takes the numbers in force now and its world room is rebuilt at once, as a town save does: everyone inside is carried to where they stood on open ground (to the town spawn when that spot is past the edge of a smaller world or cannot be reached from the town), with the loot on the ground (bags past a smaller world's edge are brought inside it), and anyone a new seal leaves behind a gate sealed to them goes to its town side. A copy whose world room is closed is built anew on its next entry.
+- **Memory follows the plan:** a rebuild that changes the plan (another seed or other numbers) drops that copy's memory (dead gate and region bosses, opened chests), since it belongs to the old plan's spots and chunks; one whose plan is the same keeps it, as a town save does. The reply names each copy and whether its plan changed, the admin page sums it up ("a new plan in Public world 1: dead bosses and opened chests there are forgotten"), the staff log and the server log say it, and the players inside get a system line ("An admin rebuilt this world: new ground, its bosses and chests are back", or "fresh monsters, bosses and chests as they were").
+- **Seed control:** the Settings tab's world seed still pins the seed new public copies are made on. The Live tab's "Reroll seed" (a random seed) and "Pin" (a typed one) per copy (`POST /api/admin/worlds/reroll`, `settings`) rebuild it on that seed with the numbers in force now. A party world gets its own new seed. The public world is one world on the world seed setting, so rerolling a public copy sets the setting (and stores the numbers for the new seed) and moves every public copy on the old seed to the new one; copies still on an older seed run on until empty, as before.
+- **Server and client build the same map:** the world descriptor carries the copy's numbers that differ from the code defaults (`{ kind: 'world', seed, layout, gen }`), the client builds from them, never from its own live tuning, and the plan checksum hashes them (only those off the defaults, so a world on the defaults hashes as before). The map cache key includes them. A client whose room keeps its id but whose map changed (a rebuild, a reroll, a town save) builds the new map. The minimap's remembered fog is kept per character, seed and numbers (`rune.fog.<character>.<seed>-<8 hex>`, the bare seed on the defaults, so fog stored before is kept), so a world rebuilt on other numbers starts dark.
+- **The Live tab's minimap** shows each copy's seed and follows a rebuild: the plan hash changes, so the next poll gets the new region grid.
+
+### The numbers
+
+Counts are for the whole world, whatever its size. The defaults are what the 13000 world got before (a standard Wilds' counts scaled by area), so a world on the defaults is generated byte for byte as before (checked on the whole map of seeds 3 and 904226, and on the rivers and bridges of 85 seeds).
+
+| Group | Number (`worldgen.*`) | Default | Range | Why the range |
+|---|---|---|---|---|
+| Size and roads | World size `size` | 13000 | 11000 to 16000 | Below 11000 no home region bigger than the town by the spurs' reach fits with room past it; above 16000 the build and the nav grid grow past what the world was measured at (256 chunks against 169) |
+| | Home region radius `hubRadius` | 2400 | 1800 to 3400, and at most size / 2 - 650 - 3000 | Under 1800 the home region's spurs find no ground and it has no boss (all 12 seeds tried); past the rule the east road (the shortest) runs out with one trunk node past its gate (3 of 30 seeds at 2600 room, none at 2800) |
+| | Branch length, shortest and longest `branchStepsMin`, `branchStepsMax` (steps of 420) | 4, 6 | 2 to 8, 2 to 10, shortest at most longest | A branch stops early at its sector, the map or another road anyway; the crossroads' branches may run one step longer, as before |
+| | Branches between the crossroads and the gate `midForks` | 1 | 0 to 3 | Spread evenly; one sits halfway, as before |
+| | Side valley chance `sideValleyChance` | 0.8 | 0 to 1 | A chance |
+| | Trunk and branch winding `trunkWander`, `branchWander` (radians per step) | 0.16, 0.25 | 0 to 0.4, 0 to 0.5 | Past these a trunk turns back on itself before its sector's edge corrects it |
+| Density | Monster packs `packs` | 216 | 0 to 450 | About twice the default: 8 players spread over the densest world woke about 3000 monsters against 2000 (Measurements below). Packs keep 420 apart, so a small world holds fewer than asked |
+| | Dead ends with a rare pack `rareShare` (the rest a chest) | 0.5 | 0 to 1 | A share |
+| | Camps in the home region and each other `campsHome`, `campsRegion` | 5, 4 | 0 to 10 | A region places what its side valleys have room for; the tries are bounded |
+| | Dungeon entrances in the home region and each other `dungeonsHome`, `dungeonsRegion` | 1, 2 | 0 to 3, 0 to 4 | Dead ends left after the boss; entrances keep 500 apart |
+| | Ruins `ruinsHome`, `ruinsRegion` | 1, 2 | 0 to 4 | As camps |
+| | Forests, loose rocks, bone piles (decor), loose ridges `forests`, `looseRocks`, `bones`, `ridges` | 43, 503, 287, 22 | 0 to 100, 0 to 1100, 0 to 700, 0 to 50 | About twice the default; chunk generation time grows with them |
+| Levels | Monster level at the town gates and at each road's far end `levelMin`, `levelMax` | 1, 25 | 1 to 50, gates at most far ends | Monster levels stop at 50; gate bosses stand 2 above the ground |
+| | Level climb `levelCurve` (the power of the distance) | 1.3 | 0.3 to 3 | Above 1 slow near town and fast far out, below 1 the other way |
+
+Rules between numbers (the levels and branch lengths in order, the home region inside its world) are checked on a save like the affix tables (`tunableSetProblem`, a 400 naming the rule). Wherever a set arrives from (a stored copy, a descriptor), `resolveWorldGen` keeps a number out of range at its default and puts both numbers of a broken rule back to theirs, so whatever arrives, the world builds.
+
+### How
+
+- **Numbers:** `WORLD_GEN` in `config/sim.ts` (the code defaults, overwritten in place by live tuning; generation never reads it), `world/worldGen.ts` (`WORLD_GEN_SPECS` with labels, ranges and groups, `resolveWorldGen`, `worldGenProblem`, `currentWorldGen` for what a new copy takes, `worldGenKey` and `worldGenHash`). `WORLD` keeps the fixed numbers (steps, sector angles, road widths and gaps). The registry adds one `worldgen.<key>` path per number (`tuning/registry.ts`).
+- **Generation:** `WorldPlan` takes the copy's numbers (`WorldPlanInput.gen`, kept as `plan.gen`) for the home region, branch lengths, mid forks, side valleys, winding, dungeons, rares and chests, camps, ruins and levels (`plan.levels`); `worldZone(seed, layout, gen, size?)` for the world size, the rivers' and ridges' distance from the home region, the loose ridges and the chunk counts (`ZoneSpec.counts`, in place of the Wilds' counts times the area). `freshWorld(seed, layout, size, gen)`; `loadMap` resolves the descriptor's `gen`.
+- **Server:** `Instance.gen`, `publicGen` (stored or the current numbers, stored then), `worldDesc` adds `gen` when it is off the defaults, `rebuildWorlds` and `rerollWorld` (sharing `rebuildCopy` and, with the town save, `carryInto`; a 3 s cooldown per account like the town save's), `RoomManager.live` adds `kind`, `seed`, `gen` and `genCurrent` per world. `apps/server/src/worldGenStore.ts`; routes in `http.ts`. `ZoneWorld.reachable` answers whether a spot can be walked to from the town.
+- **Client:** `game/game.ts` (the fog key with `worldGenHash`, re-entering a room whose map changed), `admin/live/LiveTab.tsx` (`WorldActions`), `admin/live/liveApi.ts` (`rebuild`, `reroll`, `rebuildSummary`), `admin/TunablesTab.tsx` (the force rebuild button).
+- **Bench:** `WORLD_GEN='{"size":16000,"packs":450}' pnpm bench:streaming` runs the streaming benches on other numbers.
+
+Routes:
+
+| Method | Route | Needs | Body | Reply |
+|---|---|---|---|---|
+| POST | `/api/admin/worlds/rebuild` | `tuning` | `{}` for every copy, or `{ game }` | `{ copies: [{ game, name, seed, open, players, planChanged }], gen }`; 404 for an unknown copy, 429 inside the cooldown |
+| POST | `/api/admin/worlds/reroll` | `settings` | `{ game }` for a random seed, `{ game, seed }` (0 to 999999) to pin one | as above |
+
+### Measurements
+
+World build time (the map the server and every client build, `worldZone`), worst of seeds 3, 7, 904226 and 85369, and every chunk generated on top (`whole`), on a development Mac (2026-10-02, other agents loading it; the first row includes warming up):
+
+| Numbers | Map ms | Every chunk ms | Packs | Obstacles |
+|---|---|---|---|---|
+| Defaults | 20 | 9 | 235 to 242 | 1952 to 2227 |
+| Every number at its most (size 16000, home region 3400) | 21 | 19 | 477 to 481 | 3639 to 4088 |
+| Every number at its least | 10 | 0 | 12 | 572 to 673 |
+| Biggest world, densest | 21 | 15 | 472 to 477 | 3881 to 4159 |
+| Smallest world (11000), densest | 13 | 34 | 365 to 371 | 3289 to 3425 |
+| Smallest world, smallest home region | 12 | 5 | 231 to 233 | 1822 to 2122 |
+| Biggest world, biggest home region | 21 | 7 | 238 to 251 | 2156 to 2273 |
+
+Every single number at either end of its range, the others at their defaults, built in 13 to 28 ms (the biggest world the slowest). The build stays within about the default's, since it is mostly the plan's lookup cells and the walls along the seals, which grow with the map's side, not with the counts; chunk content is built as players come near, so the counts cost per chunk, not at creation.
+
+Room creation and a busy copy (`pnpm bench:streaming create spread` with `WORLD_GEN`, each beside a default run in the same minute, since other agents loaded the machine; the defaults' own row in "Measurements" above is the quiet machine's):
+
+| Numbers | Create ms (chunks) | Heap MB | Create ms (whole) | Monsters (whole) | 8 players spread: monsters | Step median / p95 ms | Room median / p95 ms |
+|---|---|---|---|---|---|---|---|
+| Defaults (beside the next row) | 22.7 | 1.82 | 37.4 | 2049 | 2030 | 2.60 / 6.81 | 3.11 / 7.38 |
+| Smallest world (11000), densest | 24.4 | 1.65 | 81.4 | 3374 | 3173 | 4.38 / 8.78 | 5.45 / 10.32 |
+| Defaults (beside the next row) | 32.2 | 1.82 | 49.4 | 2049 | 2030 | 3.80 / 9.91 | 4.58 / 10.77 |
+| Biggest world (16000), densest, longest roads | 45.3 | 2.64 | 86.3 | 4124 | 2670 | 4.71 / 12.40 | 5.95 / 13.63 |
+
+At the extremes a room is created in about 1.4 to 2 times the default's time (the biggest world has 256 chunks and a 400 by 400 nav grid to flood, against 169 and 325 by 325), and 8 players spread over the densest worlds tick in under 14 ms at the 95th percentile against the 50 ms tick. The whole world at most holds about twice the default's monsters (4124 against 2049), which is what the pack range was set for.
+
+### Tests
+
+- `packages/shared/test/worldGen.test.ts`: every default in its range and passing the rules; resolving keeps only numbers in range and puts back both sides of a broken rule; the registry has one path per number at its default, refuses out of range and broken sets, and `currentWorldGen` follows live tuning; every number alone at both ends of its range, every number at its most and at its least, the smallest world densest and the biggest world with the longest roads each build on two seeds within 400 ms with all ten waypoints, three gates, a boss in every region, every portal and chest reachable from the town, every stretch of road reachable within a bridge's reach, and levels from the least to the most; a copy on its own numbers builds the same map and checksum on a separately built client and in a simulation; the map cache keeps it apart from the default world; every number changes the checksum, levels and counts too, and the default world hashes as before (`6ad71b81` on seed 3).
+- `apps/server/test/worldGen.test.ts`: a change reaches a new party world (its welcome's descriptor, its plan and its levels) and not the running public world; the public world is built with its stored numbers after a restart that loads other ones; a rebuild with the same plan keeps the dead gate boss and opened chest and carries the player beside where they stood; a rebuild on a smaller world with other numbers drops them, carries the player from past its edge to open, reachable ground and tells them; the Live view sends the new region grid once the plan hash changes and flags older numbers; an unknown copy and the cooldown are refused; pinning a seed on the public world sets the world seed and changes the plan; rerolling a party world gives it a new seed and leaves the setting alone; the routes need `tuning` and `settings` and check the body.
+- `apps/client/test/adminLive.test.ts`: the minimap shows the seed and flags older numbers, the reply check refuses a bad world, the rebuild reply is checked and summed up, the region grid is replaced after a rebuild. `fog.test.ts`: the fog key keeps the bare seed on the defaults and starts dark on other numbers.
 
 ## Limits and open questions
 
@@ -233,4 +309,11 @@ The owner chose generation over a world editor: the world stays random per world
 - **Regions share one ground texture;** only the colour changes. Desert dunes and caves have no terrain of their own yet (themes per road are for later).
 - **Roads differ in length,** so levels climb faster per unit walked on the shorter ones (the east road on most seeds).
 - **Two players in different regions share one simulation:** a busy copy of 15 (the hard cap) has not been measured; 8 spread out tick at 2.5 ms median.
+- **Generation settings and restarts:** the brief said both "the public world takes a change after its next restart or a reroll" and "a restart rebuilds a copy with its own numbers"; the second is built, so the public world takes new numbers only by a reroll or a forced rebuild (or a new world seed in Settings). Party worlds end with a restart, as before, so there is nothing of theirs to keep.
+- **Counts are whole-world totals:** a bigger world on the same counts is thinner. Packs keep 420 apart, so a small world holds fewer than the number asks for; the Tuning tab's note says so.
+- **A road can cross a river at a slant beside its bridge,** through water past the gap cut for the bridge: 8 road segments over 85 seeds on the defaults, walked round over the bridge. Longer branches make it more likely. Refusing such courses would change rivers on default seeds (3 of 85 tried), so it is left for a change of its own.
+- **A region with no dungeon** is allowed (dungeons per region from 0), and so are no camps or ruins.
+- **The client's minimap tiles generate every chunk at load** (stage 4's open point above): the biggest world has 256 chunks against 169, so that load cost grows by about half; not measured in a browser.
+- **Rooms rebuilt in place:** a client that got a welcome for the room it was already in kept its old map, so after a town save other players' clients drew the old town until they left the room; it now builds the new map whenever the descriptor changes (found while building the rebuild).
+- **Worlds are square:** one size for width and height.
 - Waypoints into dungeons were read as "a waypoint leaves a dungeon's world": there are no waypoints inside dungeons; a dungeon's exits lead back to the world beside its entrance.
