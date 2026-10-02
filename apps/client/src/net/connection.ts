@@ -5,7 +5,8 @@ export interface ConnectionOptions {
   /** Artificial one-way delay applied to both directions, for testing prediction under latency. */
   oneWayLagMs: number;
   onMessage: (msg: ServerMessage) => void;
-  onClose: () => void;
+  /** `code` is the WebSocket close code; 1012 is the server restarting. */
+  onClose: (code: number) => void;
 }
 
 export class Connection {
@@ -26,7 +27,7 @@ export class Connection {
     // A Game torn down mid-connect (React StrictMode remount) never awaits this; don't report it as unhandled.
     this.opened.catch(() => undefined);
     this.socket.addEventListener('message', (ev) => this.delay(() => this.receive(ev.data)));
-    this.socket.addEventListener('close', () => opts.onClose());
+    this.socket.addEventListener('close', (ev) => opts.onClose(ev.code));
   }
 
   ready(): Promise<void> {

@@ -23,6 +23,7 @@ import {
   type StagingMessage,
   type PlayerStats,
 } from '@rune/shared';
+import { initialRestart, nextRestart, RESTART_RETRY_MS, takeUpdating, waitingForServer, type RestartEvent, type RestartState } from '../game/restart.js';
 import { create } from 'zustand';
 import { closeStation, openStation, openWaypointMenu, type ItemStation, type WaypointMenu } from './stations.js';
 
@@ -176,6 +177,9 @@ interface UiState {
   reconnectKey: number;
   reconnectAttempt: number;
   connectionLost: (reason: string) => void;
+  /** The restart countdown and the "Updating game server" overlay (game/restart.ts). */
+  restart: RestartState;
+  restartEvent: (ev: RestartEvent) => void;
   connected: () => void;
   recording: boolean;
 
@@ -222,6 +226,9 @@ function storeToken(token: string | null): void {
 }
 
 const initialToken = storedToken();
+
+/** The next reconnect try; a failed connect reports both its error and its close, and only one try may follow. */
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useUi = create<UiState>((set, get) => ({
   phase: initialToken ? 'characters' : 'login',
@@ -310,18 +317,34 @@ export const useUi = create<UiState>((set, get) => ({
   reconnectKey: 0,
   reconnectAttempt: 0,
   connectionLost: (reason) => {
+    if (reconnectTimer !== null) return;
+    const now = performance.now();
+    const restart = get().restart;
     const attempt = get().reconnectAttempt + 1;
-    // About half a minute in all: long enough for a dev server restart or a short network blip.
-    if (attempt > RECONNECT_ATTEMPTS) {
+    if (restart.overlay === 'waiting' && !waitingForServer(restart, now)) {
+      set({ reconnectAttempt: 0 });
+      get().leave('The server is taking longer than usual to come back. Try again in a minute.');
+      return;
+    }
+    const waiting = waitingForServer(restart, now);
+    // About half a minute in all: long enough for a dev server restart or a short network blip. A
+    // restart for an update is waited out longer (RESTART_WAIT_MS).
+    if (!waiting && attempt > RECONNECT_ATTEMPTS) {
       set({ reconnectAttempt: 0 });
       get().leave(reason);
       return;
     }
     set({ reconnectAttempt: attempt, send: null });
-    setTimeout(() => {
-      if (get().phase === 'playing') set((s) => ({ reconnectKey: s.reconnectKey + 1 }));
-    }, Math.min(5000, 500 * 2 ** (attempt - 1)));
+    reconnectTimer = setTimeout(
+      () => {
+        reconnectTimer = null;
+        if (get().phase === 'playing') set((s) => ({ reconnectKey: s.reconnectKey + 1 }));
+      },
+      waiting ? RESTART_RETRY_MS : Math.min(5000, 500 * 2 ** (attempt - 1)),
+    );
   },
+  restart: initialRestart(takeUpdating(), performance.now()),
+  restartEvent: (ev) => set((s) => ({ restart: nextRestart(s.restart, ev) })),
   connected: () => set({ reconnectAttempt: 0 }),
   recording: false,
 
@@ -341,7 +364,7 @@ export const useUi = create<UiState>((set, get) => ({
     // Opening the menu pauses when the server allows it (alone, outside town); closing resumes.
     s.send?.({ t: 'pause', paused: open && s.canPause });
   },
-  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyStatus: [], teleport: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0 }),
+  leave: (error) => set({ phase: get().token ? 'characters' : 'login', character: null, classId: null, connectionError: error, inventory: null, playerId: null, send: null, world: null, partyInfo: null, partyStatus: [], teleport: null, partyInvite: null, arena: null, arenaResult: null, boardOpen: false, station: null, waypointMenu: null, menuOpen: false, paused: false, reconnectAttempt: 0, restart: nextRestart(get().restart, { e: 'done', now: performance.now() }) }),
   toggleDebug: () => set((s) => ({ debugVisible: !s.debugVisible })),
   // Like D2, the bag opens with the character sheet beside it, so gear can be dragged straight on.
   // Closing the bag closes the station too, so the next I opens only the bag.

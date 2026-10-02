@@ -132,6 +132,7 @@ export const adminApi = {
   goto: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/goto', token, { characterId }), isOk),
   kick: async (token: string, characterId: number) => narrow(await call('POST', '/api/admin/kick', token, { characterId }), isKicked),
   announce: async (token: string, text: string) => narrow(await call('POST', '/api/admin/announce', token, { text }), isReached),
+  restartCountdown: async (token: string, seconds: number) => narrow(await call('POST', '/api/admin/restart-countdown', token, { seconds }), isReached),
   grant: async (token: string, req: GrantRequest) => narrow(await call('POST', '/api/admin/grant', token, req), isGrantResponse),
   tokens: async (token: string) => narrow(await call('GET', '/api/admin/tokens', token), isTokenList),
   createToken: async (token: string, req: NewAdminToken) => narrow(await call('POST', '/api/admin/tokens', token, req), isCreatedToken),

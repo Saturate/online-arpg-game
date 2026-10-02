@@ -1,9 +1,20 @@
 import { CharacterSelect } from './CharacterSelect.js';
 import { GameView } from './GameView.js';
 import { Login } from './Login.js';
+import { RestartOverlay } from './RestartOverlay.js';
 import { useUi } from './store.js';
 
 export function App() {
+  // Above every phase: an update reload passes through the character list on its way back in.
+  return (
+    <>
+      <Screen />
+      <RestartOverlay />
+    </>
+  );
+}
+
+function Screen() {
   const phase = useUi((s) => s.phase);
   const token = useUi((s) => s.token);
   const character = useUi((s) => s.character);

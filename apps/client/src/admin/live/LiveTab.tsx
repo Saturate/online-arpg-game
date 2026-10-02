@@ -6,6 +6,9 @@ import { nextPollDelay, RegionCache } from './poll.js';
 import { HealthPanel, LogTail, PlayersTable, RoomsTable, WorldMinimap, type PlayerActions } from './parts.js';
 import './live.css';
 
+/** Long enough to finish a fight and step into town, short enough to keep the deploy moving. */
+const RESTART_WARNING_SECONDS = 60;
+
 /** Often enough to feel live, rare enough that two open pages stay far under the 120 a minute limit. */
 const POLL_MS = 3000;
 
@@ -125,6 +128,12 @@ export function LiveTab({ token, role, notify, openPlayer }: { token: string; ro
     if (r.ok) setText('');
   };
 
+  const countdown = async () => {
+    if (!confirm('Warn everyone online that the server restarts for an update in 60 seconds? It only warns; the deploy does the restart.')) return;
+    const r = await adminApi.restartCountdown(token, RESTART_WARNING_SECONDS);
+    notify(r.ok ? `Restart countdown sent to ${r.data.reached} players` : r.error);
+  };
+
   if (stopped) return <p className="muted">{stopped}</p>;
   if (!data) return <p className="muted">Loading the live view</p>;
 
@@ -151,6 +160,9 @@ export function LiveTab({ token, role, notify, openPlayer }: { token: string; ro
           <input value={text} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Announce to everyone online" aria-label="Announcement" />
           <button type="submit" className="primary" disabled={!text.trim()}>
             Announce
+          </button>
+          <button type="button" onClick={() => void countdown()} title="Before a deploy while people are online: a banner, a countdown and chat reminders">
+            Restart countdown ({RESTART_WARNING_SECONDS} s)
           </button>
         </form>
       )}

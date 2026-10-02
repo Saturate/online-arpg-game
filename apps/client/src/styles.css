@@ -1914,6 +1914,120 @@ kbd {
   z-index: 20;
 }
 
+/* Seamless restart: the admin's countdown, then the full-screen wait while the server updates. */
+.restart-countdown {
+  position: absolute;
+  /* Between the target frame (top centre) and the notices below it. */
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 24;
+  padding: 4px 14px;
+  background: rgba(10, 8, 6, 0.86);
+  border: 1px solid #4a3a24;
+  border-radius: 3px;
+  color: #b9ac94;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.restart-countdown b {
+  color: var(--gold);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.restart-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  /* Lamp light dying into the dark at the edges, with the panels' grain over it. */
+  background:
+    var(--grain),
+    radial-gradient(ellipse at 50% 46%, rgba(46, 32, 18, 0.55) 0%, rgba(12, 9, 6, 0.92) 46%, #030202 100%),
+    #050404;
+  color: var(--text);
+  cursor: var(--cur);
+  animation: restart-fade 600ms ease-out both;
+}
+.restart-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 420px;
+  text-align: center;
+}
+.restart-overlay h1 {
+  margin: 6px 0 0;
+  font: 600 24px Cinzel, Georgia, serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c9a964;
+  text-shadow: 0 0 18px rgba(224, 135, 58, 0.18), 0 2px 3px #000;
+}
+.restart-overlay p {
+  margin: 0;
+  color: #a39883;
+  font-size: 15px;
+}
+.restart-overlay .restart-step {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* An ember in an iron ring that breathes slowly: alive, never busy. */
+.restart-sigil {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 2px solid #3d2e1b;
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #000, inset 0 0 14px rgba(0, 0, 0, 0.9);
+}
+.restart-sigil::after {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #f0a656 0%, #b4541e 45%, rgba(110, 40, 12, 0) 72%);
+  animation: restart-breathe 2.8s ease-in-out infinite;
+}
+@keyframes restart-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.12);
+  }
+}
+@keyframes restart-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restart-overlay {
+    animation: none;
+  }
+  .restart-sigil::after {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 /* Waypoints */
 .panel.waypoints {
   top: 90px;

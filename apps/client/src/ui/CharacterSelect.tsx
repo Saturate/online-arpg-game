@@ -171,6 +171,8 @@ export function CharacterSelect() {
           play(again);
           return;
         }
+        // Back from an update reload but not into the game: the overlay has nothing left to wait for.
+        if (useUi.getState().restart.overlay === 'resuming') useUi.getState().restartEvent({ e: 'done', now: performance.now() });
         useUi.setState({ username: res.data.username });
         setIsStaff(can(res.data.role, 'viewAdmin'));
         setIsGuest(res.data.guest);

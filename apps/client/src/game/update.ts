@@ -1,4 +1,5 @@
 import { allowLeave } from './leaveGuard.js';
+import { markUpdating } from './restart.js';
 
 /**
  * Stale tabs after a deploy: the server restarts, the tab reconnects, sees a different build in the
@@ -42,6 +43,8 @@ export function reloadForUpdate(serverBuild: string, resume: Resume): boolean {
   write(ATTEMPT_KEY, serverBuild);
   // A background tab only picks up the new build; resuming would take the game from the tab in use.
   write(RESUME_KEY, document.hidden ? null : JSON.stringify(resume));
+  // The new page keeps the "Updating game server" overlay up until the game is back.
+  if (!document.hidden) markUpdating();
   allowLeave();
   location.reload();
   return true;

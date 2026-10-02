@@ -24,6 +24,7 @@ import { PartyFrames, TeleportBar } from './PartyFrames.js';
 import { GameTooltip } from './Tip.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
 import { useWorldMap, WorldMapView } from './WorldMap.js';
+import { RestartCountdown } from './RestartOverlay.js';
 
 export function GameView({ token, character }: { token: string; character: CharacterSummary }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -34,7 +35,8 @@ export function GameView({ token, character }: { token: string; character: Chara
   const roomName = useUi((s) => s.roomName);
   const uiScale = useSettings((s) => s.options.uiScale);
   const reconnectKey = useUi((s) => s.reconnectKey);
-  const reconnecting = useUi((s) => s.reconnectAttempt > 0);
+  // The restart overlay says it better while the server updates.
+  const reconnecting = useUi((s) => s.reconnectAttempt > 0 && s.restart.overlay === 'hidden');
 
   useEffect(() => {
     const host = hostRef.current;
@@ -85,6 +87,7 @@ export function GameView({ token, character }: { token: string; character: Chara
         <Notices />
         <ChatBox />
         <Banner />
+        <RestartCountdown />
         <RecordingBadge />
         <TargetFrame />
         <Hud />

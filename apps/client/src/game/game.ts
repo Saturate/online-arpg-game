@@ -259,8 +259,10 @@ export class Game {
       url: netSettings.serverUrl,
       oneWayLagMs: netSettings.addedRttMs / 2,
       onMessage: (msg) => this.onMessage(msg),
-      onClose: () => {
-        if (!this.destroyed && !this.ended) useUi.getState().connectionLost('Disconnected from server');
+      onClose: (code) => {
+        if (this.destroyed || this.ended) return;
+        useUi.getState().restartEvent({ e: 'closed', code, now: performance.now() });
+        useUi.getState().connectionLost('Disconnected from server');
       },
     });
     void this.loadTryOns();
@@ -577,9 +579,13 @@ export class Game {
     switch (msg.t) {
       case 'welcome':
         if (this.session.kind === 'live' && isOutdated(msg.build)) {
-          if (reloadForUpdate(msg.build, { characterId: this.session.character.id })) return;
+          if (reloadForUpdate(msg.build, { characterId: this.session.character.id })) {
+            useUi.getState().restartEvent({ e: 'welcome', outdated: true, now: performance.now() });
+            return;
+          }
           useUi.getState().notify('A new version is out. Reload the page to update.');
         }
+        useUi.getState().restartEvent({ e: 'welcome', outdated: false, now: performance.now() });
         if (useUi.getState().reconnectAttempt > 0) useUi.getState().notify('Reconnected');
         useUi.getState().connected();
         this.playerId = msg.playerId;
@@ -600,6 +606,9 @@ export class Game {
           }
         }
         useUi.setState({ playerId: msg.playerId, canPause: msg.canPause, editorAllowed: msg.editor, devTools: msg.devTools });
+        return;
+      case 'restart':
+        useUi.getState().restartEvent({ e: 'notice', seconds: msg.seconds, now: performance.now() });
         return;
       case 'sessionEnded':
         this.ended = true;
