@@ -343,7 +343,7 @@ function dropGold(room: Room, x: number, y: number): void {
   const id = w.create('loot');
   w.position.set(id, { x, y });
   w.radius.set(id, 16);
-  w.loot.set(id, { items: [], gold: 77, lifetime: 900, dropper: null });
+  w.loot.set(id, { items: [], gold: 77, lifetime: 900, maxLife: 900, droppers: new Map(), rev: 0 });
 }
 
 function goldBag(room: Room): Vec2 {
