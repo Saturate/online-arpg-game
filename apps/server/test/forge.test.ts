@@ -42,7 +42,7 @@ describe('inscribe on the server', () => {
     const fire = createRune(90_003, 'fire', 3);
     const layout = emptyStash();
     layout.runes.list.push(rolled.uid, fire.uid);
-    const stash: StashSave = { ...layout, items: [rolled, fire], runeFormat: 2, runeTiers: 6 };
+    const stash: StashSave = { ...layout, items: [rolled, fire], runeFormat: 2, runeTiers: 6, runeImplicits: 1 };
     store.saveCharacterAndStash(characterId, save, accountId, stash);
 
     const socket = join1(rooms, store, accountId, characterId);

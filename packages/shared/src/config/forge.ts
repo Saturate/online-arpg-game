@@ -26,4 +26,11 @@ export const FORGE = {
    * above every old roll; the old three tiers were worth 4, 10 and 25.
    */
   runeAffixValue: [4, 6, 9, 13, 20, 60],
+  /**
+   * Sell value a rune's implicit adds, by tier index from T6 to T1. Nothing up to T4, the neutral
+   * roll every rune had before implicits, so converting old runes moves no gold and a weak implicit
+   * costs no more than none; T3 and up are worth finding. Kept under half a common rune's worth up
+   * to T2, so a rune bought at 3x never sells back for profit.
+   */
+  runeImplicitValue: [0, 0, 0, 1, 2, 8],
 } as const;

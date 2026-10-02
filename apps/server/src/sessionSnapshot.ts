@@ -1,4 +1,4 @@
-import { convertItemRolls, emptyRuneRollsReport, isClassId, isEnemyTypeId, isRuneFormat2, isRuneTiers6, resolveWorldGen, runeRollsChanged, worldGenOverrides, type ClassId, type GroundPile, type Item, type Vec2, type WorldGenValues, type WorldMemory } from '@rune/shared';
+import { convertItemImplicits, convertItemRolls, emptyImplicitsReport, emptyRuneRollsReport, isClassId, isEnemyTypeId, isRuneFormat2, isRuneImplicits1, isRuneTiers6, resolveWorldGen, runeRollsChanged, worldGenOverrides, type ClassId, type GroundPile, type Item, type Vec2, type WorldGenValues, type WorldMemory } from '@rune/shared';
 import type { DatabaseSync } from 'node:sqlite';
 import { isStoredItem } from './accounts.js';
 
@@ -53,11 +53,13 @@ export interface SnapshotParty {
 export interface SessionSnapshot {
   format: typeof SNAPSHOT_FORMAT;
   /**
-   * The item format markers a character save carries (`runeFormat`, `runeTiers`), for the ground
-   * loot: a later build that converts items on load converts these too, by the same markers.
+   * The item format markers a character save carries (`runeFormat`, `runeTiers`, `runeImplicits`),
+   * for the ground loot: a later build that converts items on load converts these too, by the same
+   * markers, so a deploy that changes items keeps the format and the loot.
    */
   runeFormat: 2;
   runeTiers: 6;
+  runeImplicits: 1;
   takenAt: number;
   build: string;
   nextInstanceId: number;
@@ -154,7 +156,7 @@ function readParty(v: unknown): SnapshotParty | null {
 /**
  * Ground items through the same load-time conversion a save's go through, by the snapshot's own
  * markers: from before the six rune tiers, the rune roll pass (runes a sigil hands back stay in its
- * pile); from before the rune rework, nothing (that conversion needs a whole character), so the loot
+ * pile); from before implicits, the implicit pass; from before the rune rework, nothing (that conversion needs a whole character), so the loot
  * is dropped, which costs what a restart cost before. `note` says what happened, for the boot log.
  */
 function convertLoot(raw: Record<string, unknown>, instances: SnapshotInstance[]): string | null {
@@ -166,19 +168,28 @@ function convertLoot(raw: Record<string, unknown>, instances: SnapshotInstance[]
     }
     return items > 0 ? `${items} ground items from before the rune rework dropped` : null;
   }
-  if (isRuneTiers6(raw)) return null;
-  const report = emptyRuneRollsReport();
-  for (const i of instances) {
-    for (const p of i.loot) {
-      const items: Item[] = [];
-      for (const it of p.items) {
-        const r = convertItemRolls(it, report);
-        items.push(r.item, ...r.returned);
+  const notes: string[] = [];
+  if (!isRuneTiers6(raw)) {
+    const report = emptyRuneRollsReport();
+    for (const i of instances) {
+      for (const p of i.loot) {
+        const items: Item[] = [];
+        for (const it of p.items) {
+          const r = convertItemRolls(it, report);
+          items.push(r.item, ...r.returned);
+        }
+        p.items = items;
       }
-      p.items = items;
     }
+    if (runeRollsChanged(report)) notes.push(`rune roll pass on ground loot: ${report.runesRetiered.length} runes retiered, ${report.affixesRemoved.length} sigil affixes removed, ${report.startersRebuilt.length} starters rebuilt`);
   }
-  return runeRollsChanged(report) ? `rune roll pass on ground loot: ${report.runesRetiered.length} runes retiered, ${report.affixesRemoved.length} sigil affixes removed, ${report.startersRebuilt.length} starters rebuilt` : null;
+  // From before implicits: every rune on the ground gets the neutral roll, as a save's do.
+  if (!isRuneImplicits1(raw)) {
+    const report = emptyImplicitsReport();
+    for (const i of instances) for (const p of i.loot) p.items = p.items.map((it) => convertItemImplicits(it, report));
+    if (report.runesGiven.length > 0) notes.push(`implicit pass on ground loot: ${report.runesGiven.length} runes given the neutral implicit`);
+  }
+  return notes.length > 0 ? notes.join('; ') : null;
 }
 
 /**
@@ -203,7 +214,7 @@ export function parseSnapshot(json: string): { snapshot: SessionSnapshot; note: 
   if (!parties) return 'bad parties';
   if (!players) return 'bad players';
   const note = convertLoot(v, instances);
-  return { snapshot: { format: SNAPSHOT_FORMAT, runeFormat: 2, runeTiers: 6, takenAt: v.takenAt, build: v.build, nextInstanceId: v.nextInstanceId, nextPartyId: v.nextPartyId, instances, parties, players }, note };
+  return { snapshot: { format: SNAPSHOT_FORMAT, runeFormat: 2, runeTiers: 6, runeImplicits: 1, takenAt: v.takenAt, build: v.build, nextInstanceId: v.nextInstanceId, nextPartyId: v.nextPartyId, instances, parties, players }, note };
 }
 
 /** One row at most: the snapshot of the last shutdown, until the next boot takes it. */

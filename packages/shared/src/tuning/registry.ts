@@ -4,7 +4,7 @@ import { AFFIX_IDS, AFFIXES, affixText, RUNE_AFFIX_TIERS, type AffixId } from '.
 import { SIGIL_MAX_SLOTS } from '../items/items.js';
 import { betterOf } from '../items/runeRolls.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
-import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
+import { IMPLICIT_QUALITY_RANGE, MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE, SPLIT_EXTRA_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
 import { WORLD_GEN_DEFAULTS, WORLD_GEN_KEYS, WORLD_GEN_SPECS, worldGenProblem, type WorldGenKey } from '../world/worldGen.js';
 import type { TunableValues } from './values.js';
@@ -252,6 +252,18 @@ const AFFIX_LIMITS: Partial<Record<AffixId, { min: number; max: number }>> = {
   // Rule-breaking rolls stay small; compiling still checks every spell against depth and the entity cap.
   max_depth: { min: 0, max: 3 },
   multicast: { min: 0, max: 3 },
+  // Implicits divide some live numbers (a fuse, a pulse, Concentrated's loss), so the grammar keeps them well above 0.
+  implicit_base: IMPLICIT_QUALITY_RANGE,
+  implicit_aura: IMPLICIT_QUALITY_RANGE,
+  implicit_bond: IMPLICIT_QUALITY_RANGE,
+  implicit_conversion: IMPLICIT_QUALITY_RANGE,
+  implicit_split: SPLIT_EXTRA_RANGE,
+  implicit_fuse: IMPLICIT_QUALITY_RANGE,
+  implicit_pulse: IMPLICIT_QUALITY_RANGE,
+  implicit_payload: IMPLICIT_QUALITY_RANGE,
+  implicit_effect: IMPLICIT_QUALITY_RANGE,
+  implicit_modifier: IMPLICIT_QUALITY_RANGE,
+  implicit_focus: IMPLICIT_QUALITY_RANGE,
 };
 
 /** Monster levels stop at 50; dungeon caches drop a level above, so gates may sit a little past it. */
@@ -262,12 +274,14 @@ export function affixTierPath(id: AffixId, tier: number, key: 'min' | 'max' | 'w
 }
 
 function affixGroup(id: AffixId): string {
-  return `${capital(affixText(AFFIXES[id], '#', '#'))} (${id})`;
+  const text = capital(affixText(AFFIXES[id], '#', '#'));
+  return AFFIXES[id].targets.includes('implicit') ? `Implicit of ${(AFFIXES[id].runes ?? []).map((r) => runeName(r)).join(', ')}: ${text} (${id})` : `${text} (${id})`;
 }
 
 for (const id of AFFIX_IDS) {
   const def = AFFIXES[id];
-  const rune = def.targets.includes('rune');
+  // Implicits are rune tables too (docs/features/runes.md, "Implicits"), tuned beside the affixes.
+  const rune = def.targets.includes('rune') || def.targets.includes('implicit');
   if ((!rune && !def.targets.includes('sigil')) || FLAG_AFFIXES.has(id)) continue;
   const category: TuningCategory = rune ? 'runes' : 'sigils';
   const top = Math.max(...def.tiers.map((t) => t.max));

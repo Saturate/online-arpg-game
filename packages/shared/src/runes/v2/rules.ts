@@ -74,6 +74,12 @@ export const RULES = {
    * size, and once the size hit its floor every further one was free damage.
    */
   CONCENTRATED_ONCE: { id: 'concentrated-once', text: 'A shape takes one Concentrated rune.' },
+  /** An implicit divides some live numbers (a fuse, a pulse, Concentrated's size loss), so it must stay well above 0. */
+  IMPLICIT_RANGE: {
+    id: 'implicit-range',
+    text: "A rune's implicit is 10 to 400% of what the rune does; Split's is 0 to 4 extra copies.",
+  },
+  RANGED_ROLL: { id: 'ranged-roll', text: 'A ranged roll ("+20 to 60% damage") needs its high end above its low end.' },
   PLAIN_MODIFIER_OFF: {
     id: 'plain-modifier-off',
     text: 'Swift and Large are affixes; as plain runes they only work when plainModifierRunes is on (open question 1).',
@@ -112,4 +118,7 @@ export const DEFAULT_CONTEXT: GrammarContext = {
 export const MAX_COPIES = 12;
 
 export const SPLIT_COUNT_RANGE = { min: 2, max: 6 } as const;
+/** What the grammar accepts as an implicit (IMPLICIT_RANGE); the drop tables sit well inside it. */
+export const IMPLICIT_QUALITY_RANGE = { min: 10, max: 400 } as const;
+export const SPLIT_EXTRA_RANGE = { min: 0, max: 4 } as const;
 export const MIN_RELEASE_SECONDS = 0.1;

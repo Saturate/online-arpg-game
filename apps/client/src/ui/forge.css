@@ -467,6 +467,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.forge-rune-implicit {
+  font-size: 10.5px;
+  color: #b3a78f;
+}
+
 .forge-rune-desc {
   font-size: 10.5px;
   line-height: 1.3;

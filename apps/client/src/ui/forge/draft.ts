@@ -5,13 +5,16 @@ import {
   rollLosses,
   isCastableRune,
   isPlainRune,
+  neutralImplicit,
   RUNE_STACK,
+  runeImplicit,
   type AffixRoll,
   type InventoryMessage,
   type ItemUid,
   type RuneId,
   type RuneItem,
   type RuneRef,
+  type RuneRefImplicit,
   type SigilItem,
 } from '@rune/shared';
 
@@ -64,7 +67,7 @@ export function sameDraft(a: readonly RuneRef[], b: readonly RuneRef[]): boolean
 export function refKey(r: RuneRef | undefined): string {
   if (!r) return '';
   if (r.from === 'keep') return `k${r.index}`;
-  if (r.from === 'plain') return `p${r.rune}`;
+  if (r.from === 'plain') return `p${r.rune}${r.implicit ? `:${r.implicit.tier}:${r.implicit.value}` : ''}`;
   return `r${r.uid}`;
 }
 
@@ -99,10 +102,20 @@ export interface Resolution {
  * then stacks in general tabs (runeStock lists the stash in that order). Mirrored
  * here so the price and the stash marker show what will really be taken.
  */
-function plainSources(stock: RuneStock, rune: RuneId): RuneItem[] {
-  const bag = stock.bag.filter((r) => r.rune === rune && isPlainRune(r));
-  const stash = stock.stash.filter((r) => r.rune === rune && isPlainRune(r));
+function plainSources(stock: RuneStock, rune: RuneId, implicit: RuneRefImplicit | undefined): RuneItem[] {
+  const matches = (r: RuneItem): boolean => r.rune === rune && isPlainRune(r) && (implicit === undefined || sameImplicit(runeImplicit(r), implicit));
+  const bag = stock.bag.filter(matches);
+  const stash = stock.stash.filter(matches);
   return [...bag.filter((r) => r.bound), ...bag.filter((r) => !r.bound), ...stash];
+}
+
+function sameImplicit(a: AffixRoll | null, b: RuneRefImplicit | undefined): boolean {
+  return a === null ? b === undefined : b !== undefined && a.tier === b.tier && a.value === b.value;
+}
+
+/** Plain runes pool by rune and implicit, since they stack by both. */
+function plainKey(rune: RuneId, implicit: RuneRefImplicit | null | undefined): string {
+  return implicit ? `${rune}:${implicit.tier}:${implicit.value}` : rune;
 }
 
 export function resolveDraft(sigil: SigilItem, draft: readonly RuneRef[], stock: RuneStock, priceOf: PriceOf): Resolution {
@@ -135,12 +148,13 @@ export function resolveDraft(sigil: SigilItem, draft: readonly RuneRef[], stock:
       continue;
     }
     if (stock.bench) {
+      // The bench makes its runes fresh, with the neutral implicit.
       const item = { ...createRune(-1, ref.rune), bound: true, bench: true };
       slots.push({ ref, item, origin: 'bag', price: 0 });
       valid.push(ref);
       continue;
     }
-    const source = plainSources(stock, ref.rune).find((r) => (taken.get(r.uid) ?? 0) < r.count);
+    const source = plainSources(stock, ref.rune, ref.implicit).find((r) => (taken.get(r.uid) ?? 0) < r.count);
     if (!source) continue;
     const used = (taken.get(source.uid) ?? 0) + 1;
     taken.set(source.uid, used);
@@ -158,6 +172,10 @@ export function resolveDraft(sigil: SigilItem, draft: readonly RuneRef[], stock:
 
 export interface PlainEntry {
   rune: RuneId;
+  /** The implicit every rune of this entry carries: plain runes stack, and so pool, by it. */
+  implicit: AffixRoll | null;
+  /** The rune and implicit, unique per entry. */
+  key: string;
   /** Plain runes of this id taken out of the sigil in this draft; putting one back is free. */
   loose: number;
   bag: number;
@@ -180,42 +198,55 @@ export interface Pool {
 /** What is left to add: owned runes minus the draft, plus whatever the draft took out of the sigil. */
 export function buildPool(sigil: SigilItem, draft: readonly RuneRef[], stock: RuneStock): Pool {
   const kept = new Set(draft.flatMap((r) => (r.from === 'keep' ? [r.index] : [])));
-  const plainUsed = new Map<RuneId, number>();
-  for (const r of draft) if (r.from === 'plain') plainUsed.set(r.rune, (plainUsed.get(r.rune) ?? 0) + 1);
+  const plainUsed = new Map<string, number>();
+  for (const r of draft) if (r.from === 'plain') plainUsed.set(plainKey(r.rune, r.implicit), (plainUsed.get(plainKey(r.rune, r.implicit)) ?? 0) + 1);
   const rolledUsed = new Set(draft.flatMap((r) => (r.from === 'rolled' ? [r.uid] : [])));
 
-  const loose = new Map<RuneId, number>();
+  // Each pool entry is a rune with one implicit; `kinds` keeps its rune and implicit by key.
+  const kinds = new Map<string, { rune: RuneId; implicit: AffixRoll | null }>();
+  const keyOf = (r: RuneItem): string => {
+    const implicit = runeImplicit(r);
+    const key = plainKey(r.rune, implicit);
+    if (!kinds.has(key)) kinds.set(key, { rune: r.rune, implicit });
+    return key;
+  };
+  const loose = new Map<string, number>();
   const rolled: RolledEntry[] = [];
   sigil.slots.forEach((item, index) => {
     if (kept.has(index)) return;
-    if (isPlainRune(item)) loose.set(item.rune, (loose.get(item.rune) ?? 0) + 1);
+    if (isPlainRune(item)) loose.set(keyOf(item), (loose.get(keyOf(item)) ?? 0) + 1);
     else rolled.push({ item, origin: 'sigil', ref: { from: 'keep', index } });
   });
 
-  const counts = new Map<RuneId, { bag: number; stash: number }>();
+  const counts = new Map<string, { bag: number; stash: number }>();
   const add = (r: RuneItem, where: 'bag' | 'stash'): void => {
     if (isPlainRune(r)) {
-      const c = counts.get(r.rune) ?? { bag: 0, stash: 0 };
+      const key = keyOf(r);
+      const c = counts.get(key) ?? { bag: 0, stash: 0 };
       c[where] += r.count;
-      counts.set(r.rune, c);
+      counts.set(key, c);
     } else if (!rolledUsed.has(r.uid)) rolled.push({ item: r, origin: where, ref: { from: 'rolled', uid: r.uid } });
   };
   for (const r of stock.bag) add(r, 'bag');
   for (const r of stock.stash) add(r, 'stash');
 
-  const ids: readonly RuneId[] = stock.bench ? CASTABLE_RUNES : [...new Set([...counts.keys(), ...loose.keys()])];
+  // The bench makes every castable rune fresh, with the neutral implicit.
+  if (stock.bench) for (const rune of CASTABLE_RUNES) kinds.set(plainKey(rune, neutralImplicit(rune)), { rune, implicit: neutralImplicit(rune) });
+  const keys: readonly string[] = stock.bench ? CASTABLE_RUNES.map((r) => plainKey(r, neutralImplicit(r))) : [...new Set([...counts.keys(), ...loose.keys()])];
   const plain: PlainEntry[] = [];
-  for (const rune of ids) {
-    if (!isCastableRune(rune)) continue;
-    const c = counts.get(rune) ?? { bag: 0, stash: 0 };
+  for (const key of keys) {
+    const kind = kinds.get(key);
+    if (!kind || !isCastableRune(kind.rune)) continue;
+    const c = counts.get(key) ?? { bag: 0, stash: 0 };
     // Bag first, as the server takes them; whatever the draft uses comes off the bag count first.
-    let used = plainUsed.get(rune) ?? 0;
+    let used = plainUsed.get(key) ?? 0;
     const fromBag = Math.min(c.bag, used);
     used -= fromBag;
-    const entry: PlainEntry = { rune, loose: loose.get(rune) ?? 0, bag: c.bag - fromBag, stash: Math.max(0, c.stash - used), unlimited: stock.bench };
+    const entry: PlainEntry = { rune: kind.rune, implicit: kind.implicit, key, loose: loose.get(key) ?? 0, bag: c.bag - fromBag, stash: Math.max(0, c.stash - used), unlimited: stock.bench };
     if (entry.unlimited || entry.loose + entry.bag + entry.stash > 0) plain.push(entry);
   }
-  plain.sort((a, b) => (POOL_ORDER.get(a.rune) ?? 0) - (POOL_ORDER.get(b.rune) ?? 0));
+  // By rune, then the better implicit first.
+  plain.sort((a, b) => (POOL_ORDER.get(a.rune) ?? 0) - (POOL_ORDER.get(b.rune) ?? 0) || (b.implicit?.value ?? 0) - (a.implicit?.value ?? 0));
   return { plain, rolled };
 }
 
@@ -224,9 +255,11 @@ const POOL_ORDER = new Map<string, number>(CASTABLE_RUNES.map((id, i) => [id, i]
 /** Adding a plain rune puts back one the draft took out of this sigil first (free), then draws from the stock. */
 export function plainRef(sigil: SigilItem, draft: readonly RuneRef[], entry: PlainEntry): RuneRef | null {
   const kept = new Set(draft.flatMap((r) => (r.from === 'keep' ? [r.index] : [])));
-  const index = sigil.slots.findIndex((item, i) => !kept.has(i) && item.rune === entry.rune && isPlainRune(item));
+  const index = sigil.slots.findIndex((item, i) => !kept.has(i) && item.rune === entry.rune && isPlainRune(item) && plainKey(item.rune, runeImplicit(item)) === entry.key);
   if (index >= 0) return { from: 'keep', index };
-  if (entry.unlimited || entry.bag + entry.stash > 0) return { from: 'plain', rune: entry.rune };
+  if (entry.unlimited) return { from: 'plain', rune: entry.rune };
+  // The ref names the implicit, so the server takes from the stacks the player picked.
+  if (entry.bag + entry.stash > 0) return entry.implicit ? { from: 'plain', rune: entry.rune, implicit: { tier: entry.implicit.tier, value: entry.implicit.value } } : { from: 'plain', rune: entry.rune };
   return null;
 }
 
@@ -258,14 +291,16 @@ export function refundOverflow(inv: InventoryMessage, stock: RuneStock, res: Res
   if (res.refunds.length === 0) return 0;
   let free = inv.inventory.filter((c) => c === null).length + res.freedBagCells;
   const room = new Map<string, number>();
+  // Plain runes stack by rune, binding and implicit, as the server tops them up.
+  const stackKey = (r: RuneItem): string => `${plainKey(r.rune, runeImplicit(r))}:${r.bound ? 1 : 0}`;
   for (const r of stock.bag) {
     if (!isPlainRune(r)) continue;
-    const key = `${r.rune}:${r.bound ? 1 : 0}`;
+    const key = stackKey(r);
     room.set(key, (room.get(key) ?? 0) + Math.max(0, RUNE_STACK - r.count));
   }
   let overflow = 0;
   for (const r of res.refunds) {
-    const key = `${r.rune}:${r.bound ? 1 : 0}`;
+    const key = stackKey(r);
     const left = room.get(key) ?? 0;
     if (isPlainRune(r) && left > 0) room.set(key, left - 1);
     else if (free > 0) free--;

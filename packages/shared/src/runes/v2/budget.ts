@@ -8,7 +8,8 @@ import { SHAPES, type ShapeId } from './runes.js';
  * A pulsing orb that fires 10 times but whose shards live for 5 pulses only ever has 5 volleys up.
  * The model is deliberately simple and errs high where timing is fuzzy (on-hit releases count as
  * simultaneous). Lifetimes are the engine's (`formLifetime`), speed and duration affixes included;
- * shapes the engine cannot run yet fall back to SHAPES.
+ * shapes the engine cannot run yet fall back to SHAPES. Ranged rolls count at their most (copies,
+ * pierce), since any cast may roll them.
  */
 
 // Float division like 1 / 0.2 must not round up to an extra overlapping volley.
@@ -53,7 +54,7 @@ function fires(node: SpellNode): number {
     const l = lifetime(node);
     return Number.isFinite(l) ? Math.max(1, Math.floor(l / r.seconds + EPS)) : 1;
   }
-  if (r.kind === 'onhit') return 1 + node.stats.pierce + node.stats.bounce + shaperValue(node, 'chain');
+  if (r.kind === 'onhit') return 1 + node.stats.pierceMax + node.stats.bounce + shaperValue(node, 'chain');
   return 1;
 }
 
@@ -125,7 +126,7 @@ function instancePeak(node: SpellNode): number {
 }
 
 function groupPeak(group: readonly SpellNode[]): number {
-  return group.reduce((sum, n) => sum + n.copies * instancePeak(n) + (n.linked ? n.copies - 1 : 0), 0);
+  return group.reduce((sum, n) => sum + n.copiesMax * instancePeak(n) + (n.linked ? n.copiesMax - 1 : 0), 0);
 }
 
 function instanceLifetime(node: SpellNode): number {
@@ -134,7 +135,7 @@ function instanceLifetime(node: SpellNode): number {
 }
 
 function groupLifetime(group: readonly SpellNode[]): number {
-  return group.reduce((sum, n) => sum + n.copies * instanceLifetime(n) + (n.linked ? n.copies - 1 : 0), 0);
+  return group.reduce((sum, n) => sum + n.copiesMax * instanceLifetime(n) + (n.linked ? n.copiesMax - 1 : 0), 0);
 }
 
 export function measureBudget(tree: SpellTree): { peak: number; lifetime: number } {

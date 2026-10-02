@@ -53,12 +53,17 @@ export function parseChatLinkUids(value: unknown): ItemUid[] | null {
   return out;
 }
 
+function copyAffix(a: AffixRoll): AffixRoll {
+  return a.max === undefined ? { id: a.id, tier: a.tier, value: a.value } : { id: a.id, tier: a.tier, value: a.value, max: a.max };
+}
+
 function copyAffixes(affixes: readonly AffixRoll[]): AffixRoll[] {
-  return affixes.map((a) => ({ id: a.id, tier: a.tier, value: a.value }));
+  return affixes.map(copyAffix);
 }
 
 function copyRune(r: RuneItem, uid: number): RuneItem {
   const out: RuneItem = { uid, kind: 'rune', tier: r.tier, name: r.name, ilvl: r.ilvl, rune: r.rune, count: r.count, affixes: copyAffixes(r.affixes) };
+  if (r.implicit) out.implicit = copyAffix(r.implicit);
   if (r.bound) out.bound = true;
   if (r.bench) out.bench = true;
   return out;
@@ -103,12 +108,19 @@ function isLevel(v: unknown): v is number {
   return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 1000;
 }
 
+function isAffixRoll(a: unknown): a is AffixRoll {
+  if (!isRecord(a) || typeof a.id !== 'string' || !isAffixId(a.id) || !isLevel(a.tier) || typeof a.value !== 'number' || !Number.isFinite(a.value)) return false;
+  // A ranged roll's high end, above its low end.
+  return a.max === undefined || (typeof a.max === 'number' && Number.isFinite(a.max) && a.max > a.value);
+}
+
 function isAffixList(v: unknown): v is AffixRoll[] {
-  return Array.isArray(v) && v.length <= CHAT_LINKS.maxAffixes && v.every((a) => isRecord(a) && typeof a.id === 'string' && isAffixId(a.id) && isLevel(a.tier) && typeof a.value === 'number' && Number.isFinite(a.value));
+  return Array.isArray(v) && v.length <= CHAT_LINKS.maxAffixes && v.every(isAffixRoll);
 }
 
 function isLinkedRune(v: unknown): v is RuneItem {
   if (!isRecord(v) || v.kind !== 'rune' || typeof v.rune !== 'string' || !isRuneId(v.rune) || !isLevel(v.count) || v.count < 1) return false;
+  if (v.implicit !== undefined && !isAffixRoll(v.implicit)) return false;
   return (v.bound === undefined || typeof v.bound === 'boolean') && (v.bench === undefined || typeof v.bench === 'boolean');
 }
 

@@ -1,6 +1,6 @@
 # Items and the inventory
 
-Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28); gear, the grid inventory, the trader and bound items since 2026-09-28 and 2026-09-29; rune items and the v1 to v2 conversion pushed to `main` on 2026-09-30.
+Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28); gear, the grid inventory, the trader and bound items since 2026-09-28 and 2026-09-29; rune items and the v1 to v2 conversion pushed to `main` on 2026-09-30. Implicits, ranged rolls and the implicit pass built on `feat/damage-phase2` (2026-10-02), not deployed.
 
 ## What it does
 
@@ -8,7 +8,7 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
   - **Gear** fills nine slots: weapon, helmet, body, gloves, boots, belt, amulet and two rings. 27 bases, each with a minimum level, implicit stats and sometimes a class restriction.
   - **Sigils** hold runes and cast the spell they spell out; they are the wands of the rune system ([runes.md](runes.md)).
   - **Vessels** hold one minion ([minions.md](minions.md)).
-  - **Runes** are the parts of a spell, inscribed at the forge ([forge.md](forge.md)). Plain runes stack 20 to a cell; rolled runes carry rune affixes and never stack. A Concentrated rune always drops rolled (its amount is its roll), so it never stacks.
+  - **Runes** are the parts of a spell, inscribed at the forge ([forge.md](forge.md)). Plain runes stack 20 to a cell, only with runes of the same implicit; rolled runes carry rune affixes and never stack. A Concentrated rune always drops rolled (its amount is its roll), so it never stacks. Every rune carries an implicit, and some rune affixes roll a range ([runes.md](runes.md), "Implicits and ranged rolls").
 - **Tiers:** common, magic, rare, relic. Rares and relics get random two-word names; common and magic items are named from their affixes.
 - **Named (unique) items:** an item with `fixedName` keeps a hand-given name and shows it in the unique colour, a worn bronze gold (0xc9a15c, `UNIQUE_COLOR` in `render/config.ts`) set apart from rare yellow and relic orange, in the bag, stash, trader, tooltips and ground labels (the loot snapshot marks it `u`). Its `lore` line shows in italics under the name. So far only vessels carry the fields, and only one item uses them:
   - **Brothers Creation**, the owner's brothers' Hound vessel: relic, the full pack (a Leader and 6 packmates, [minions.md](minions.md)), "Relic Unique Soul Vessel", lore "Made by the brothers.", fixed affixes at the top tier (50% movement speed, 100% life, 35% attack speed, respawns 40% faster; no behaviour affix), 50 spirit, vessel level = item level + 4. Unbound: it can be stashed, traded, dropped and sold like any relic. It exists only through the owner's Grant item tool ([accounts-admin.md](accounts-admin.md)); it never drops.
@@ -35,6 +35,23 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 
 - Three rune affixes, "Adds X to 2X fire / cold / lightning damage" (`rune_added_fire`, `rune_added_cold`, `rune_added_lightning`), roll on orb, bolt, nova, zone and dash runes with the six rune tiers (low end 1 to 2 at T6 up to 7 to 9 at T1), the rune tier weights and item-level gates, and price like every rune affix by tier. Each is its own affix group, so a rune may carry a damage roll and any of the adds. Together with the damage roll they keep the damage roll's old drop share: the damage roll drops at half its tier weights and each add at a sixth (`dropShare`, [runes.md](runes.md), "Damage packets").
 - **Saves do not change:** a roll still stores one value (the low end; the high end is twice it), so old items load as they are and the rune roll pass, `runes:convert-check` and the seamless-restart snapshot format are unchanged. `runes:convert-check` on a fresh copy of `rune.db.live-pre-restart-20261002` prints the same report before and after the change, all checks passed. A save holding one of the new affixes fails an older build's affix check, so roll back past it with the database copy.
+
+### Implicits and ranged rolls (2026-10-02, `feat/damage-phase2`, not deployed)
+
+- **Every castable rune carries an implicit** (`RuneItem.implicit`, one affix roll of target `implicit`), rolled at drop in six tiers and priced by tier: nothing up to T4, then 1, 2 and 8 gold of sell value for T3, T2 and T1 (`FORGE.runeImplicitValue`). What each one does, the tiers and why are in [runes.md](runes.md), "Implicits and ranged rolls".
+- **Plain runes stack by implicit:** a stack holds runes of one rune, binding and implicit (`stacksWith`, `implicitKey`). Plain drops take their tier's middle value, so plain runes of one tier still stack.
+- **Ranged rolls** store their low end as the value and their high end as `AffixRoll.max`; the roll prices at the tier it was rolled in, which is the tier of its average.
+- **Kits and the builders' bench** carry the neutral roll (the middle of T4).
+
+### Implicit pass (2026-10-02)
+
+Runes stored before implicits carry none. Each row is converted once on load:
+
+- **It runs once per row:** when a character (bag, equipment, sigils, pending items), an account stash (every tab) or the trader shelf loads without `runeImplicits: 1`, after the v1, stash tab and rune roll passes, and the row is written back with the marker. A row with the marker loads exactly as stored. Every write carries the marker (`runeImplicits` is required on `PlayerSave`, `StashSave` and `TraderShelfSave`; the `Stored*` types allow it missing). An admin grant into an offline save from before the marker writes the save as its load converts it, marked, with the new item untouched. Ground loot in a session snapshot goes through it by the snapshot's own marker ([seamless-restart.md](seamless-restart.md)).
+- **Every castable rune, loose or in a sigil, gets the neutral roll** (the middle of T4, `neutralImplicit`): what it did before, so it casts, stacks and prices exactly as before. Plain stacks get it whole. Nothing else changes: uids, counts, rolls, names, binding, order, and no item is added or removed. A rune that already has an implicit (written by this build) is left alone, so a second pass changes nothing. Runes the engine cannot run (no implicit table) are left as they are.
+- **No gold moves:** the neutral tier adds nothing to a price.
+- **Any new kind of storage** (the guild stash being built) must run it on load too: `loadImplicits(raw, items)` from `items/convertImplicits.ts`, after `convertRuneRolls` when the row lacks `runeTiers: 6`, and write `runeImplicits: 1` back.
+- `pnpm runes:convert-check <db>` runs the pass on every unmarked row after the earlier passes and checks it: the same items in the same order; every castable rune given the neutral roll and nothing but that field added; the uid multiset and rune counts kept; sell value unchanged; a second pass changing nothing; the server's own load path giving the same items; a marked row loading as stored. On a fresh copy of `rune.db.live-pre-damage-20261002` (no tuning stored): 10 rows, none marked; 228 runes given the neutral roll (184 in sigils, 44 loose items holding 53 runes), after which every rune carries it (counting each rune of a stack: 134 base, 51 conversion, 31 effect, 21 Split, 12 aura, 7 bond, 5 modifier, 2 payload, 1 fuse); sell value of every row 25194 gold before and after; the rune roll pass on the 6 rows not yet at six tiers as before (6 old kits rebuilt, 22 runes re-tiered); all checks passed.
 
 ### Grid inventory
 
@@ -105,7 +122,7 @@ Code:
 - Grid: `packages/shared/src/items/grid.ts` (`BAG`, `STASH`, footprints, `findSpot`).
 - Inventory rules: `packages/shared/src/sim/inventory.ts` (`addItem`, `takeFromGround`, `addOrPend`, `layOut`, `placePending`, `settlePending`, `sortInventory`, `discard`, `moveItem`, `sellItem`, `buyItem`, equip functions, the starter kit).
 - Trader shelf: `Market` in `apps/server/src/accounts.ts`, trades in `apps/server/src/manager.ts` (`sell`, `buy`, `saveTrade`), the rollback of a failed trade in `apps/server/src/tradeRollback.ts`.
-- Conversion: `packages/shared/src/items/convertV2.ts` (v1 to v2), `items/convertRuneRolls.ts` (the rune roll pass), `scripts/runes-convert-check.ts` (both).
+- Conversion: `packages/shared/src/items/convertV2.ts` (v1 to v2), `items/convertRuneRolls.ts` (the rune roll pass), `items/convertImplicits.ts` (the implicit pass), `scripts/runes-convert-check.ts` (all three).
 - Client: `apps/client/src/ui/Inventory.tsx` (bag, stash window, `PendingStrip`, drop and sell prompts), `ui/itemActions.ts`, `ui/parts.tsx` (tooltips), 3D item icons in `ui/itemIconRenderer.ts`.
 
 ```ts
@@ -114,7 +131,8 @@ type Item = SigilItem | VesselItem | GearItem | RuneItem;
 // SigilItem:  slots: RuneItem[]; corrupted: boolean; starter?: string
 // VesselItem: minion: MinionTypeId; level: number; pack?: number (Hound packmates); fixedName?: boolean; lore?: string
 // GearItem:   base: string; category: GearCategory
-// RuneItem:   rune: RuneId; count: number; bench?: boolean
+// RuneItem:   rune: RuneId; count: number; bench?: boolean; implicit?: AffixRoll (every castable rune once converted)
+// AffixRoll:  max?: number (a ranged roll's high end; `value` is the low end)
 ```
 
 The new vessel fields are optional, so every existing vessel, save, stash and shelf reads as before; a Hound vessel without `pack` counts as one packmate. The v1 conversion never meets them (v1 had no Hounds), and saves carry them through untouched since items are stored as written.
@@ -137,6 +155,7 @@ Tests:
 - `packages/shared/test/sortInventory.test.ts`, `trader.test.ts`: sort order; selling to the shared shelf, starter items refused, stall reach, buying a fresh copy at 3x.
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass: no drop rolls the retired affix, a "Primed" name is rebuilt, rebuilt sigils keep uids and binding and get honest tiers, an unbound extra rune (the player's own split(3) too) comes back and a bound one goes, edited sigils left alone, the uid multiset is kept except the bound removed runes, a second pass changes nothing, and characters (returned runes in the bag), pending items, stashes (rune tab) and the shelf (a new entry) convert on load and are written back converted; an old kit sigil keeps its values, uids, binding and order and only its tiers move, a range tuned before the load does not move them, and a save written back with `runeTiers: 6` loads byte-identical, even with tiers that disagree with their values.
+- `packages/shared/test/convertImplicits.test.ts`, `apps/server/test/implicitsLoad.test.ts`: the implicit pass: every castable rune (loose, in sigils, plain stacks) gets the neutral roll and nothing else changes, no gold moves, a second pass and runes that have one are left alone, old kits are still rebuilt first; characters, stashes and the shelf convert on load and are written back marked, a marked row loads as stored, a grant into an old save writes it converted with the grant untouched. `packages/shared/test/implicits.test.ts`: implicit prices and stacks ([runes.md](runes.md)).
 - `apps/server/test/addedDamageRunes.test.ts`: a save with old runes and runes with added damage loads, casts and saves back with every roll unchanged; `packages/shared/test/damagePackets.test.ts`: the affixes drop on shape runes, never beside a damage roll, and read back as the grammar sets them.
 - `packages/shared/test/affixTuning.test.ts`: the six rune tiers and the re-tier by value, with the 3x gold check over every old roll.
 - `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.

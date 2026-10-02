@@ -48,8 +48,14 @@ function parseRuneRef(value: unknown): RuneRef | null {
   switch (value.from) {
     case 'keep':
       return isNonNegativeInt(value.index) && value.index < SIGIL_MAX_SLOTS ? { from: 'keep', index: value.index } : null;
-    case 'plain':
-      return typeof value.rune === 'string' && isRuneId(value.rune) ? { from: 'plain', rune: value.rune } : null;
+    case 'plain': {
+      if (typeof value.rune !== 'string' || !isRuneId(value.rune)) return null;
+      if (value.implicit === undefined) return { from: 'plain', rune: value.rune };
+      const imp: unknown = value.implicit;
+      // The tier and value only pick among the player's own stacks, so a shape check is enough.
+      if (!isRecord(imp) || !isNonNegativeInt(imp.tier) || imp.tier > 9 || typeof imp.value !== 'number' || !Number.isFinite(imp.value)) return null;
+      return { from: 'plain', rune: value.rune, implicit: { tier: imp.tier, value: imp.value } };
+    }
     case 'rolled':
       return isNonNegativeInt(value.uid) ? { from: 'rolled', uid: value.uid } : null;
     default:

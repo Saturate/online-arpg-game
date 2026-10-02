@@ -1,6 +1,6 @@
 import { AURA, LINK } from '../config/sim.js';
 import { vesselSpirit } from '../items/items.js';
-import type { EffectId, ElementId, SpellNode, SpellProgram } from './program.js';
+import { effectPower, type EffectId, type ElementId, type SpellNode, type SpellProgram } from './program.js';
 import { dealDamage, healEntity, isTargetable, knockback } from './combat.js';
 import { packetOf } from './damage.js';
 import { emptyBuffs, type EntityId, type PlayerComp } from './ecs.js';
@@ -103,7 +103,7 @@ export function updateAuras(sim: Simulation, dt: number): void {
           if (!isTargetable(sim, aid)) continue;
           const apos = w.position.get(aid);
           if (!apos || distSq(pos.x, pos.y, apos.x, apos.y) > r2) continue;
-          for (const t of node.effects) raiseBest(allyBest, aid, t, strength);
+          for (const t of node.effects) raiseBest(allyBest, aid, t, strength * effectPower(node, t));
         }
         // Only the elements deal damage, so only they take the damage tuning (Concentrated).
         const damage = strength * node.tuning.damage;
@@ -112,10 +112,12 @@ export function updateAuras(sim: Simulation, dt: number): void {
           if (!epos || distSq(pos.x, pos.y, epos.x, epos.y) > r2) continue;
           for (const t of auraTypes(node)) {
             if (t === 'impact') {
+              const push = strength * effectPower(node, 'impact');
               const prev = pushFrom.get(eid);
-              if (!prev || prev.strength < strength) pushFrom.set(eid, { x: pos.x, y: pos.y, strength });
+              if (!prev || prev.strength < push) pushFrom.set(eid, { x: pos.x, y: pos.y, strength: push });
             } else if (t !== 'ward' && t !== 'restore') {
-              raiseBest(enemyBest, eid, t, damage);
+              // An infusion's implicit is its element's share here too, as on a cast spell.
+              raiseBest(enemyBest, eid, t, damage * (node.conversion?.[t] ?? 1));
             }
           }
         }
@@ -175,7 +177,7 @@ function updateLink(sim: Simulation, pid: EntityId, p: PlayerComp, slot: number,
   const b = w.buffs.get(link.targetId);
   if (!b) return;
   const strength = node.damageScale;
-  if (node.effects.includes('restore')) b.regenPerSecond += LINK.restoreRegenPerSecond * strength;
-  if (node.effects.includes('ward')) b.damageReduction += LINK.wardReduction * strength;
+  if (node.effects.includes('restore')) b.regenPerSecond += LINK.restoreRegenPerSecond * strength * effectPower(node, 'restore');
+  if (node.effects.includes('ward')) b.damageReduction += LINK.wardReduction * strength * effectPower(node, 'ward');
   b.elementDamageBonus += node.elements.length * LINK.elementDamageBonus * strength;
 }

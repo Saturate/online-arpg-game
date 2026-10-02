@@ -70,9 +70,26 @@ function rollRange(id: AffixId): Range | null {
   return live;
 }
 
+/** A roll's strength: its value, or the average of a ranged roll (what Force prices it at). */
+export function rollAverage(a: AffixRoll): number {
+  return a.max !== undefined && a.max > a.value ? (a.value + a.max) / 2 : a.value;
+}
+
 function clampInto(a: AffixRoll, range: Range | null): AffixRoll {
   if (!range) return a;
   const better = betterOf(a.id);
+  if (a.max !== undefined && a.max > a.value) {
+    // A ranged roll keeps its spread and moves down until its average is the best a drop can have.
+    // Neither end goes below the affix's floor (pierce 0, Split 2, never negative); a spread the floor
+    // squeezes shut leaves a single number.
+    const over = rollAverage(a) - range.max.value;
+    if (better !== 'higher' || over <= 0) return a;
+    const floor = Math.max(0, AFFIXES[a.id].ranged?.min ?? 0);
+    const tier = Math.min(a.tier, range.max.tier);
+    const lo = Math.max(floor, a.value - over);
+    const hi = Math.max(lo, a.max - over);
+    return hi > lo ? { id: a.id, tier, value: lo, max: hi } : { id: a.id, tier, value: lo };
+  }
   // The tier only ever goes down: sell value and forge price count tiers, so a rune never comes out
   // worth more than it was inside.
   if ((better === 'higher' || better === 'either') && a.value > range.max.value) return { id: a.id, tier: Math.min(a.tier, range.max.tier), value: range.max.value };
@@ -88,22 +105,26 @@ export function clampRoll(a: AffixRoll): AffixRoll {
 /** Whether `after` is no stronger than `before` for this affix; `either` affixes only count when they moved into the table. */
 export function isNoStronger(before: AffixRoll, after: AffixRoll): boolean {
   const better = betterOf(before.id);
-  if (better === 'higher') return after.value <= before.value;
+  if (better === 'higher') return after.value <= before.value && (after.max ?? after.value) <= (before.max ?? before.value);
   if (better === 'lower') return after.value >= before.value;
   return after.value === before.value || after.value === clampRoll(before).value;
 }
 
-/** The rune as it comes out of a sigil. Returns the same object when no roll changes. */
+/**
+ * The rune as it comes out of a sigil, its implicit included (a table tuned down clamps it like an
+ * affix). Returns the same object when no roll changes.
+ */
 export function clampRuneRolls(item: RuneItem): RuneItem {
   const affixes = item.affixes.map(clampRoll);
-  if (affixes.every((a, i) => a === item.affixes[i])) return item;
-  return { ...item, affixes };
+  const implicit = item.implicit ? clampRoll(item.implicit) : undefined;
+  if (affixes.every((a, i) => a === item.affixes[i]) && implicit === item.implicit) return item;
+  return { ...item, affixes, ...(implicit ? { implicit } : {}) };
 }
 
 /** What taking the rune out of a sigil would cost it: each roll that changes, before and after. */
 export function rollLosses(item: RuneItem): { before: AffixRoll; after: AffixRoll }[] {
   const out: { before: AffixRoll; after: AffixRoll }[] = [];
-  for (const before of item.affixes) {
+  for (const before of item.implicit ? [item.implicit, ...item.affixes] : item.affixes) {
     const after = clampRoll(before);
     if (after !== before) out.push({ before, after });
   }
@@ -168,6 +189,8 @@ export function kitRoll(a: AffixRoll): AffixRoll {
   const tiers = AFFIXES[a.id].tiers;
   const upTo = tiers.length === RUNE_AFFIX_TIERS ? RUNE_AFFIX_TIERS - 2 : Infinity;
   const clamped = clampInto(a, rangeOf(tiers, upTo));
-  const tier = honestTier(a.id, clamped.value);
-  return clamped.value === a.value && tier === a.tier ? a : { id: a.id, tier, value: clamped.value };
+  // A ranged roll keeps its spread and counts as the tier of its average.
+  const tier = honestTier(a.id, rollAverage(clamped));
+  if (clamped.value === a.value && clamped.max === a.max && tier === a.tier) return a;
+  return clamped.max === undefined ? { id: a.id, tier, value: clamped.value } : { id: a.id, tier, value: clamped.value, max: clamped.max };
 }

@@ -49,11 +49,13 @@ export interface StashSave extends StashLayout {
    * (StoredStash) and goes through convertRuneRolls once.
    */
   runeTiers: 6;
+  /** Runes carry implicits (2026-10-02); a stash without it goes through the implicit pass once (convertImplicits). */
+  runeImplicits: 1;
   items: Item[];
 }
 
-/** A stash as read from storage, before the one-time rune roll pass: it may predate the six tiers. */
-export type StoredStash = Omit<StashSave, 'runeTiers'> & { runeTiers?: 6 };
+/** A stash as read from storage, before the one-time passes: it may predate the six tiers and implicits. */
+export type StoredStash = Omit<StashSave, 'runeTiers' | 'runeImplicits'> & { runeTiers?: 6; runeImplicits?: 1 };
 
 /** The stash before tabs: one grid. Only ever read, to be converted. */
 export interface StashSaveV1 {
@@ -259,7 +261,7 @@ export function parseStashSave(raw: unknown): StoredStash {
   if (!isRecord(raw) || raw.runeFormat !== 2) fail('not rune format 2');
   if (!Array.isArray(raw.items)) fail('items is not a list');
   const items = raw.items.map((it: unknown) => (isItemShape(it) ? it : fail(`item ${isRecord(it) ? String(it.uid) : '?'} is damaged`)));
-  return { ...parseStashLayout(raw), runeFormat: 2, ...(raw.runeTiers === 6 ? { runeTiers: 6 } : {}), items };
+  return { ...parseStashLayout(raw), runeFormat: 2, ...(raw.runeTiers === 6 ? { runeTiers: 6 } : {}), ...(raw.runeImplicits === 1 ? { runeImplicits: 1 } : {}), items };
 }
 
 export function isStashFormat2(raw: unknown): boolean {

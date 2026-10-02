@@ -1,7 +1,7 @@
 import { isStashColorId, isStashTabName, STASH_TABS, stashTabPrice, type StashColorId } from '../config/stash.js';
 import type { AffixId } from '../data/affixes.js';
 import { BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
-import { isPlainRune, RUNE_STACK, type Item, type ItemUid, type RuneItem } from '../items/items.js';
+import { isPlainRune, RUNE_STACK, stacksWith, type Item, type ItemUid, type RuneItem } from '../items/items.js';
 import {
   compareRunes,
   compareSigils,
@@ -73,7 +73,7 @@ function tabStackSpace(p: PlayerComp, item: RuneItem): number {
   let room = 0;
   for (const u of p.stash.runes.list) {
     const it = p.items.get(u);
-    if (it?.kind === 'rune' && isPlainRune(it) && it.rune === item.rune && it.uid !== item.uid && it.bound !== true) room += Math.max(0, RUNE_STACK - it.count);
+    if (it?.kind === 'rune' && it.uid !== item.uid && it.bound !== true && stacksWith(it, item)) room += Math.max(0, RUNE_STACK - it.count);
   }
   return room;
 }
@@ -145,7 +145,7 @@ function generalSpot(p: PlayerComp, item: Item, first: number | null): GridDest 
 
 /** Why the bag cannot take this item whole (a plain rune may fill up stacks first), or null. */
 function bagRefuses(p: PlayerComp, item: Item): string | null {
-  if (item.kind === 'rune' && isPlainRune(item) && item.count <= stackSpace(p, item.rune, item.bound === true)) return null;
+  if (item.kind === 'rune' && isPlainRune(item) && item.count <= stackSpace(p, item)) return null;
   return findSpot(p.inventory, BAG, itemSize(item)) ? null : 'No room in your bag';
 }
 
@@ -202,7 +202,8 @@ export function takeRunes(sim: Simulation, pid: EntityId, uid: ItemUid, count: n
   if (item.kind !== 'rune' || !isPlainRune(item)) return 'Only plain rune stacks can be split';
   if (!Number.isInteger(count) || count < 1 || count > item.count) return `That stack holds ${item.count}`;
   if (count === item.count) return to === null ? quickMove(sim, pid, uid, null) : moveItem(sim, pid, uid, to);
-  const part: RuneItem = { ...item, uid: sim.newItemUid(), count, affixes: [] };
+  // The part shares nothing mutable with the stack it leaves, as a rune split off at the forge.
+  const part: RuneItem = { ...item, uid: sim.newItemUid(), count, affixes: [], ...(item.implicit ? { implicit: { ...item.implicit } } : {}) };
   if (to === null) {
     // addItem is all or nothing, so a part that does not fit leaves the bag untouched.
     if (!addItem(p, part)) return 'No room in your bag';

@@ -109,4 +109,23 @@ export const BALANCE_SPELLS: readonly { text: string; multicast?: number; classI
   { text: 'zone[every 0.15s, adds 9 fire] lightning bolt[adds 9 cold, +100% damage]', classId: 'ranger' },
   { text: 'nova[onexpire] zone[after 0.3s, +100% damage, adds 9 fire] fire cold concentrated(60) nova[+100% damage, adds 9 lightning, adds 9 fire, +75% size] lightning concentrated(60)' },
   { text: 'dash[onland, adds 9 fire, +100% damage] nova[adds 9 lightning, +75% size]', classId: 'warrior' },
+  // Implicits at their T1 best (125%, Split's two extra copies) and ranged rolls rolled on every cast
+  // (docs/features/runes.md, "Implicits" and "Ranged rolls"): on their own, beside the worst payload
+  // chains above, on triggers, effects and modifiers, and ranged damage, pierce and Split counts.
+  { text: 'bolt{125}', classId: 'ranger' },
+  { text: 'nova{125} lightning{125}' },
+  { text: 'bolt{125}[adds 9 lightning, +100% damage] lightning{125}', classId: 'ranger' },
+  { text: 'nova{125}[+100% damage] lightning{125} lightning{125} concentrated(60){125}' },
+  { text: 'bolt onhit{125} nova{125}[+100% damage, +75% size] lightning{125} lightning{125}', classId: 'ranger' },
+  { text: 'zone{125} pulse{125} lightning{125} bolt{125}', classId: 'ranger' },
+  { text: 'orb[every 0.2s] cold{125} split(3 to 5){1} bolt{125}' },
+  { text: 'nova{125} impact{125}', classId: 'warrior' },
+  { text: 'bolt{125}[+100% damage, +70% speed] lightning{125} swift{125} large{125}', classId: 'ranger' },
+  { text: 'nova{125}[onexpire] zone{125}[after 0.3s, +100% damage] fire{125} cold{125} concentrated(60){125} nova{125}[+100% damage, +75% size] lightning{125} concentrated(60){125}' },
+  { text: 'nova{125}[onexpire] zone{125}[after 0.3s, +100% damage, adds 9 fire] fire{125} cold{125} concentrated(60){125} nova{125}[+100% damage, adds 9 lightning, adds 9 fire, +75% size] lightning{125} concentrated(60){125}' },
+  { text: 'bolt[+50 to 150% damage]', classId: 'ranger' },
+  { text: 'bolt{125}[+50 to 150% damage, pierce 3 to 5] lightning{125} lightning{125}', classId: 'ranger' },
+  { text: 'nova{125}[+50 to 150% damage, +75% size] lightning{125} concentrated(60){125}' },
+  { text: 'bolt split(5 to 6){2}', classId: 'ranger' },
+  { text: 'orb{125}[onhit, +50 to 150% damage] fire{125} split(4 to 6){2} nova{125}[+50 to 150% damage] concentrated(60){125}' },
 ];

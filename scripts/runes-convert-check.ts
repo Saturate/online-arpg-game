@@ -10,7 +10,10 @@
  * pass (convertRuneRolls: "first rune is free" removed, old Multishot and Flame Cleave rebuilt,
  * every rune affix roll re-tiered by value among the six tiers), which is checked for lost or
  * doubled items, for values that moved, for gold a re-tier could mint, and against what the
- * server's own load path gives; rows already marked must load exactly as stored. It never
+ * server's own load path gives; rows already marked must load exactly as stored. Last, every row
+ * without `runeImplicits: 1` goes through the implicit pass (convertImplicits: each rune gets the
+ * neutral implicit), checked for lost or doubled items, for anything but the implicit changing,
+ * for sell value moving, for idempotence and against the server's load path. It never
  * writes the given file: it is copied to a temp directory first and only the copy is opened.
  * Exits non-zero when any check fails.
  */
@@ -22,6 +25,9 @@ import { AccountStore } from '../apps/server/src/accounts.js';
 import {
   compileSigilItem,
   convertRuneRolls,
+  convertImplicits,
+  isRuneImplicits1,
+  neutralImplicit,
   createStarterSigil,
   OLD_STARTER_RUNES,
   RETIRED_SIGIL_AFFIXES,
@@ -420,19 +426,22 @@ function goldProblems(before: readonly RuneItem[], after: readonly RuneItem[]): 
  * the server's load path (`loaded`) gives the same result. Only sigils (name, affixes, slots) and
  * rune roll tiers may change; rebuilt old starters hand back their unbound extra runes.
  */
-function reportRolls(title: string, before: readonly Item[], loaded: readonly Item[] | null, classId: ClassId, opts: { shelf?: boolean; marked?: boolean } = {}): void {
+function reportRolls(title: string, before: readonly Item[], loaded: readonly Item[] | null, classId: ClassId, opts: { shelf?: boolean; marked?: boolean; implicitsMarked?: boolean } = {}): Item[] {
   rollTotals.containers++;
   const problems: string[] = [];
+  // The server's load path runs the implicit pass after this one, which reportImplicits checks;
+  // here its output is compared after the same pass.
+  const implicitsOf = (items: readonly Item[]): Item[] => (opts.implicitsMarked ? [...items] : convertImplicits(items).items);
   if (opts.marked) {
     // Already six tiers: the server must load it exactly as stored.
     rollTotals.marked++;
     console.log('  rune rolls: already runeTiers 6; the pass does not run');
-    if (loaded !== null) check(problems, stable(loaded) === stable(opts.shelf ? before.map((x) => ({ ...x, uid: 0 })) : before), 'the server load path changed a row already marked runeTiers 6');
+    if (loaded !== null) check(problems, stable(loaded) === stable(implicitsOf(opts.shelf ? before.map((x) => ({ ...x, uid: 0 })) : before)), 'the server load path changed a row already marked runeTiers 6');
     if (problems.length > 0) {
       failures += problems.length;
       for (const p of problems) console.log(`  FAIL rolls: ${p}`);
     } else console.log('  roll checks: ok');
-    return;
+    return [...before];
   }
   const { items: after, returned, report: r } = convertRuneRolls(before);
   const oldRolls = runeRolls(before);
@@ -526,13 +535,91 @@ function reportRolls(title: string, before: readonly Item[], loaded: readonly It
   check(problems, !runeRollsChanged(twice.report) && twice.returned.length === 0 && stable(twice.items) === stable([...after, ...returned]), 'a second pass changes something');
   if (loaded !== null) {
     const expected = opts.shelf ? [...after, ...returned.map((x) => ({ ...x, uid: 0 }))] : [...after, ...returned];
-    check(problems, stable(loaded) === stable(expected), 'the server load path gives other items than the pass');
+    check(problems, stable(loaded) === stable(implicitsOf(expected)), 'the server load path gives other items than the pass');
   }
 
   if (problems.length > 0) {
     failures += problems.length;
     for (const p of problems) console.log(`  FAIL rolls: ${p}`);
   } else console.log('  roll checks: ok');
+  return [...after, ...returned];
+}
+
+const implicitTotals = { containers: 0, marked: 0, given: 0, givenInSigils: 0, stacks: 0, units: 0, goldBefore: 0, goldAfter: 0, byImplicit: new Map<string, number>() };
+
+/** A rune without its implicit, to hold the pass to adding that one field. */
+const withoutImplicit = (r: RuneItem): string => {
+  const { implicit: _i, ...rest } = r;
+  return stable(rest);
+};
+
+/**
+ * Checks the implicit pass on one container's items as the rune roll pass left them, and that the
+ * server's load path gives the same: the same items in the same order, every castable rune given
+ * the neutral implicit (the middle of T4) and nothing else changed, the uid multiset and rune counts
+ * kept, no gold moved, and a second pass changing nothing. A marked row must load as stored.
+ */
+function reportImplicits(before: readonly Item[], loaded: readonly Item[] | null, opts: { shelf?: boolean; marked?: boolean } = {}): void {
+  implicitTotals.containers++;
+  const problems: string[] = [];
+  const shelfView = (items: readonly Item[]): Item[] => (opts.shelf ? items.map((x) => ({ ...x, uid: 0 })) : [...items]);
+  if (opts.marked) {
+    implicitTotals.marked++;
+    console.log('  implicits: already runeImplicits 1; the pass does not run');
+    if (loaded !== null) check(problems, stable(loaded) === stable(shelfView(before)), 'the server load path changed a row already marked runeImplicits 1');
+  } else {
+    const { items: after, report } = convertImplicits(before);
+    const runesBefore = runeRolls(before);
+    const runesAfter = runeRolls(after);
+    const inSigils = before.reduce((n, i) => n + (i.kind === 'sigil' ? i.slots.filter((r) => r.implicit === undefined && neutralImplicit(r.rune) !== null).length : 0), 0);
+    implicitTotals.given += report.runesGiven.length;
+    implicitTotals.givenInSigils += inSigils;
+    for (const r of before) if (r.kind === 'rune' && r.implicit === undefined && neutralImplicit(r.rune) !== null) {
+      implicitTotals.stacks++;
+      implicitTotals.units += r.count;
+    }
+    for (const r of runesAfter) if (r.implicit) add(implicitTotals.byImplicit, `${r.implicit.id} ${r.implicit.value} T${6 - r.implicit.tier}`, r.count);
+    const goldBefore = before.reduce((n, i) => n + sellPrice(i), 0);
+    const goldAfter = after.reduce((n, i) => n + sellPrice(i), 0);
+    implicitTotals.goldBefore += goldBefore;
+    implicitTotals.goldAfter += goldAfter;
+    console.log(`  implicits: ${report.runesGiven.length} runes given the neutral implicit (${inSigils} in sigils); sell value ${goldBefore} -> ${goldAfter}`);
+    check(problems, after.length === before.length, `item count ${before.length} -> ${after.length}`);
+    before.forEach((b, i) => {
+      const a = after[i];
+      if (!a) return;
+      if (b.kind === 'rune' && a.kind === 'rune') {
+        check(problems, withoutImplicit(a) === withoutImplicit(b), `rune ${b.uid} changed beyond its implicit`);
+        return;
+      }
+      if (b.kind === 'sigil' && a.kind === 'sigil') {
+        const { slots: _s1, ...restA } = a;
+        const { slots: _s2, ...restB } = b;
+        check(problems, stable(restA) === stable(restB), `sigil ${b.uid} changed beyond its runes' implicits`);
+        check(problems, a.slots.length === b.slots.length && a.slots.every((r, j) => b.slots[j] !== undefined && withoutImplicit(r) === withoutImplicit(b.slots[j] ?? r)), `sigil ${b.uid} slots changed beyond their implicits`);
+        return;
+      }
+      check(problems, stable(a) === stable(b), `item ${b.uid} (${b.kind}) changed`);
+    });
+    runesAfter.forEach((r, i) => {
+      const was = runesBefore[i];
+      const neutral = neutralImplicit(r.rune);
+      if (!was || neutral === null) return;
+      if (was.implicit !== undefined) check(problems, stable(r.implicit) === stable(was.implicit), `rune ${r.uid} had an implicit and it changed`);
+      else check(problems, stable(r.implicit) === stable(neutral), `rune ${r.uid} did not get the neutral implicit`);
+    });
+    check(problems, same(uidCounts(before, opts.shelf === true), uidCounts(after, opts.shelf === true)), 'uids do not add up after the implicit pass');
+    const units = (items: readonly Item[]): number => runeRolls(items).reduce((n, r) => n + r.count, 0);
+    check(problems, units(after) === units(before), `rune units ${units(before)} -> ${units(after)}`);
+    check(problems, goldAfter === goldBefore, `sell value moved: ${goldBefore} -> ${goldAfter}`);
+    const again = convertImplicits(after);
+    check(problems, again.report.runesGiven.length === 0 && stable(again.items) === stable(after), 'a second implicit pass changes something');
+    if (loaded !== null) check(problems, stable(loaded) === stable(shelfView(after)), 'the server load path gives other items than the implicit pass');
+  }
+  if (problems.length > 0) {
+    failures += problems.length;
+    for (const p of problems) console.log(`  FAIL implicits: ${p}`);
+  } else console.log('  implicit checks: ok');
 }
 
 function rows(db: DatabaseSync, sql: string): Record<string, unknown>[] {
@@ -587,7 +674,8 @@ function main(): void {
           failures++;
           console.log('  FAIL rolls: the server cannot load this save');
         }
-        reportRolls(title, save.items, loaded?.items ?? null, classId, { marked: isRuneTiers6(raw) });
+        const rolled = reportRolls(title, save.items, loaded?.items ?? null, classId, { marked: isRuneTiers6(raw), implicitsMarked: isRuneImplicits1(raw) });
+        reportImplicits(rolled, loaded?.items ?? null, { marked: isRuneImplicits1(raw) });
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -614,7 +702,9 @@ function main(): void {
           failures++;
           console.log('  FAIL rolls: the server cannot load this stash');
         }
-        reportRolls(title, convertStashTabs(tabbed).stash.items, loaded === null || loaded === 'unreadable' ? null : loaded.stash.items, classId, { marked: isRuneTiers6(raw) });
+        const loadedItems = loaded === null || loaded === 'unreadable' ? null : loaded.stash.items;
+        const rolled = reportRolls(title, convertStashTabs(tabbed).stash.items, loadedItems, classId, { marked: isRuneTiers6(raw), implicitsMarked: isRuneImplicits1(raw) });
+        reportImplicits(rolled, loadedItems, { marked: isRuneImplicits1(raw) });
       } catch (err) {
         failures++;
         console.log(`\n${title}\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -627,7 +717,9 @@ function main(): void {
         const { shelf, report: r } = convertTraderShelf(raw);
         const rawItems = isRecord(raw) && Array.isArray(raw.stock) ? raw.stock.map((e: unknown) => (isRecord(e) ? e.item : undefined)) : [];
         report(`trader shelf (${shelf.stock.length} entries)`, rawItems, 0, null, shelf.stock.map((e) => e.item), r, 'mage', { shelf: true, alreadyV2: isRuneFormat2(raw) });
-        reportRolls('trader shelf', shelf.stock.map((e) => e.item), store.loadMarket().stock.map((e) => e.item), 'mage', { shelf: true, marked: isRuneTiers6(raw) });
+        const loadedShelf = store.loadMarket().stock.map((e) => e.item);
+        const rolled = reportRolls('trader shelf', shelf.stock.map((e) => e.item), loadedShelf, 'mage', { shelf: true, marked: isRuneTiers6(raw), implicitsMarked: isRuneImplicits1(raw) });
+        reportImplicits(rolled, loadedShelf, { shelf: true, marked: isRuneImplicits1(raw) });
       } catch (err) {
         failures++;
         console.log(`\ntrader shelf\n  FAIL: ${err instanceof Error ? err.message : String(err)}`);
@@ -653,6 +745,9 @@ function main(): void {
   }
   console.log(
     `\nrune rolls: ${rollTotals.containers} rows, ${rollTotals.sigils} sigils; "first rune is free" removed from ${rollTotals.affixesRemoved} (${rollTotals.renamed} renamed); starters rebuilt: ${show(rollTotals.rebuilt)} (${rollTotals.runesRemoved} bound runes removed, ${rollTotals.runesReturned} unbound returned); ${rollTotals.retiered} runes re-tiered (${show(rollTotals.tierMoves)}); sell value of every row ${rollTotals.goldBefore} gold before, ${rollTotals.goldAfter} after; ${rollTotals.kitRetiered} unbound old kit rolls rose to their tier once (+${rollTotals.kitGold} gold of sell value); ${rollTotals.marked} rows already runeTiers 6; ${rollTotals.edited} buffed starters changed at the forge and left alone; ${rollTotals.unchanged} items untouched`,
+  );
+  console.log(
+    `implicits: ${implicitTotals.containers} rows (${implicitTotals.marked} already runeImplicits 1); ${implicitTotals.given} runes given the neutral implicit (${implicitTotals.givenInSigils} in sigils, ${implicitTotals.stacks} loose items holding ${implicitTotals.units} runes); sell value of every row ${implicitTotals.goldBefore} gold before, ${implicitTotals.goldAfter} after; runes by implicit: ${show(implicitTotals.byImplicit)}`,
   );
   console.log(
     `summary: ${totals.containers} rows, ${totals.v1Runes} loose or hand-inscribed v1 runes -> ${totals.v2Runes} v2 runes + ${totals.refunded} to gold (${totals.gold} gold paid), ${totals.starters} starter sigils (${totals.replaced} v1 skill-sigil runes replaced by ${totals.starterRunes} starter runes), ${totals.compiled}/${totals.sigils} sigils compile, ${totals.warnings} warnings, ${failures === 0 ? 'all checks passed' : `${failures} FAILED`}`,

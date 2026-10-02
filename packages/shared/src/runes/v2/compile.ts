@@ -1,10 +1,10 @@
 import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
 import { affixValue, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
-import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
+import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type EffectId, type ElementId, type PerCastRolls, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
 import { hasAdded, noAdded, rangeMean, shapeBaseRange, shapeDamage, type AddedDamage, type ShapeDamage } from '../../sim/damage.js';
 import { engineForm, lifetime } from './budget.js';
-import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
+import { implicitOf, parseSpell, type SpellNode, type SpellTree } from './parse.js';
 import { DEFAULT_CONTEXT, RULES, type GrammarError, type RuleKey } from './rules.js';
 import {
   ADDED_DAMAGE_SPREAD,
@@ -188,11 +188,27 @@ function runeNodes(runes: readonly RuneInstance[], tree: SpellTree | null): (Spe
   });
 }
 
+/** A Split's copies: the fewest a cast rolls (what the engine node is built at), or their average (what Force prices). */
+function splitCopies(s: { value: number; max: number }, at: 'min' | 'average'): number {
+  return at === 'min' ? s.value : (s.value + s.max) / 2;
+}
+
+/** A node's copies at the fewest or on average over its ranged Splits. */
+function nodeCopies(node: SpellNode, at: 'min' | 'average'): number {
+  if (at === 'min') return node.copies;
+  return node.shapers.reduce((n, s) => (s.id === 'split' ? n * splitCopies(s, at) : n), 1);
+}
+
+/** A node's pierce at its least or on average over a ranged roll. */
+function nodePierce(node: SpellNode, at: 'min' | 'average'): number {
+  return at === 'min' ? node.stats.pierce : (node.stats.pierce + node.stats.pierceMax) / 2;
+}
+
 /** Damage multiplier of a node from its Splits (each conserves damage on its own, as v1 did) and doubled infusions. */
-function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
+function nodeScale(node: SpellNode, splitEfficiencyBonus: number, at: 'min' | 'average' = 'min'): number {
   const efficiency = SPELL.splitEfficiency + splitEfficiencyBonus;
   let scale = 1;
-  for (const s of node.shapers) if (s.id === 'split') scale *= efficiency / s.value;
+  for (const s of node.shapers) if (s.id === 'split') scale *= efficiency / splitCopies(s, at);
   const extra = node.effectiveInfusions.length - new Set(node.effectiveInfusions).size;
   return scale * (1 + extra * SPELL.stackedInfusionBonus);
 }
@@ -202,21 +218,27 @@ function nodeScale(node: SpellNode, splitEfficiencyBonus: number): number {
  * of Ward and Restore auras leave it out; at damageScale a Concentrated Ward aura, with Large to win
  * back the area, gave a party 51% damage reduction.
  */
-function damageTuning(node: SpellNode): number {
-  return affixMultiplier(node.stats.damage) * (1 + node.stats.concentration / 100);
+function damageTuning(node: SpellNode, at: 'min' | 'average' = 'min'): number {
+  const damage = at === 'min' ? node.stats.damage : (node.stats.damage + node.stats.damageMax) / 2;
+  return affixMultiplier(damage) * (1 + node.stats.concentration / 100);
 }
 
 function isProjectileShape(node: SpellNode): boolean {
   return node.shape === 'bolt' || node.shape === 'orb';
 }
 
-/** How many times one copy of a parse node releases its payload, by the engine's lifetimes. */
+/** How many times one copy of a parse node releases its payload on average, by the engine's lifetimes. */
 function nodeReleases(node: SpellNode): number {
   const r = node.release;
   if (!r || node.payload.length === 0) return 0;
   const trigger = TRIGGER_FOR_RELEASE[r.kind];
   const form = engineForm(node.shape) ?? 'bolt';
-  return releaseCount(form, { kind: trigger ?? 'onexpire', seconds: r.seconds }, lifetime(node), node.stats.pierce);
+  return releaseCount(form, { kind: trigger ?? 'onexpire', seconds: r.seconds }, lifetime(node), nodePierce(node, 'average'));
+}
+
+/** A trigger rune's implicit: how hard the payload it releases hits, 1 for a release affix. */
+function payloadDamage(node: SpellNode): number {
+  return (node.release?.quality ?? 100) / 100;
 }
 
 /**
@@ -227,9 +249,10 @@ function nodeReleases(node: SpellNode): number {
  * stays put (a Zone on the pack) the ring starts inside the target and every copy lands.
  */
 function releaseWeight(node: SpellNode, parent: SpellNode, splitEfficiencyBonus: number): number {
-  const ringed = parent.release?.kind === 'every' && node.copies > 1 && isProjectileShape(node) && isProjectileShape(parent);
-  const aimed = ringed ? (node.copies * SPELL.splitSpreadRadians) / (2 * Math.PI) : node.copies;
-  return nodeScale(node, splitEfficiencyBonus) * damageTuning(node) * aimed;
+  const copies = nodeCopies(node, 'average');
+  const ringed = parent.release?.kind === 'every' && copies > 1 && isProjectileShape(node) && isProjectileShape(parent);
+  const aimed = ringed ? (copies * SPELL.splitSpreadRadians) / (2 * Math.PI) : copies;
+  return nodeScale(node, splitEfficiencyBonus, 'average') * damageTuning(node, 'average') * payloadDamage(parent) * aimed;
 }
 
 /**
@@ -244,7 +267,7 @@ function releaseWeight(node: SpellNode, parent: SpellNode, splitEfficiencyBonus:
 function nodeShares(tree: SpellTree | null, ctx: SigilCompileContext): Map<SpellNode, number> {
   const shares = new Map<SpellNode, number>();
   const visit = (node: SpellNode, spawns: number): void => {
-    const perRelease = spawns * node.copies * nodeReleases(node);
+    const perRelease = spawns * nodeCopies(node, 'average') * nodeReleases(node);
     const repeatShare = isProjectileShape(node) ? HEAT.payloadRepeatShare : 1;
     for (const child of node.payload) {
       const extra = Math.max(0, perRelease - 1) * repeatShare * releaseWeight(child, node, ctx.splitEfficiencyBonus);
@@ -292,11 +315,14 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
   const st = SPELL.affixSteps;
   const own = affinity(rune.id);
   let force = 0;
+  // Ranged rolls are priced at their average (docs/features/runes.md, "Ranged rolls").
+  const damage = a.damage === undefined ? undefined : (a.damage + Math.max(a.damage, a.damageMax ?? a.damage)) / 2;
+  const pierce = a.pierce === undefined ? undefined : (a.pierce + Math.max(a.pierce, a.pierceMax ?? a.pierce)) / 2;
   if (a.speed !== undefined) force += steps(a.speed, rune.id === 'dash' ? st.dashSpeed : st.speed) * affinity('swift');
   if (a.size !== undefined) force += steps(a.size, st.size) * affinity('large');
   if (a.duration !== undefined) force += steps(a.duration, st.duration) * own;
-  if (a.damage !== undefined) force += steps(a.damage, st.damage) * own;
-  if (a.pierce !== undefined && a.pierce > 0) force += (Math.log(1 + a.pierce / st.pierce) / Math.LN2) * own;
+  if (damage !== undefined) force += steps(damage, st.damage) * own;
+  if (pierce !== undefined && pierce > 0) force += (Math.log(1 + pierce / st.pierce) / Math.LN2) * own;
   // Concentrated's damage is priced like a damage roll of the same size, on top of its base cost.
   // Its area loss gives nothing back: on a Bolt or a lone target it costs the spell almost nothing.
   if (rune.id === 'concentrated') force += steps(a.concentration ?? CONCENTRATED.defaultMore, st.damage) * own;
@@ -307,6 +333,36 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
  * Force of a shape's "Adds" rolls, before depth: each pays a step (HEAT.affixStepForce) per
  * SPELL.affixSteps.added multiple of its shape's average base hit, on a log scale like a damage roll.
  */
+/**
+ * Force of a rune's implicit above or below the neutral roll, before depth (docs/features/runes.md,
+ * "Implicits"). A shape's base damage, an infusion's conversion (its share of the base), an
+ * effect's strength and a trigger's payload damage price like a damage roll of the same size, on
+ * the same log scale (a weaker roll refunds half, as a drawback does). Swift and Large cost their
+ * listed Force times the roll, as they give that much of their effect. A Timer's fuse and
+ * Concentrated's focus cost nothing; a Pulse's rate prices itself through the releases it adds, and
+ * a Split's extra copies through its price per copy. Persistent shapes price spirit, not Force.
+ */
+function implicitForce(rune: RuneInstance, node: SpellNode | undefined, affinity: (id: RuneId) => number): number {
+  const q = implicitOf(rune);
+  if (rune.implicit === undefined || q === 100) return 0;
+  const own = affinity(rune.id);
+  const asDamage = steps(q - 100, SPELL.affixSteps.damage) * own * HEAT.affixStepForce;
+  switch (runeKind(rune.id)) {
+    case 'shape':
+      return isPersistentShape(isShapeId(rune.id) ? rune.id : 'orb') ? 0 : asDamage;
+    case 'infusion':
+      return asDamage / Math.max(1, new Set(node?.effectiveInfusions ?? []).size);
+    case 'effect':
+      return asDamage;
+    case 'trigger':
+      return rune.id === 'onhit' || rune.id === 'onexpire' || rune.id === 'onland' ? asDamage : 0;
+    case 'modifier':
+      return rune.id === 'swift' || rune.id === 'large' ? (RUNE_FORCE[rune.id] * (q - 100) * own) / 100 : 0;
+    case 'shaper':
+      return 0;
+  }
+}
+
 function addedForce(rune: RuneInstance, affinity: (id: RuneId) => number): number {
   let force = 0;
   for (const el of INFUSION_IDS) {
@@ -335,29 +391,44 @@ export function runeForce(runes: readonly RuneInstance[], tree: SpellTree | null
   const shares = nodeShares(tree, ctx);
   let force = 0;
   runes.forEach((rune, i) => {
-    let cost = rune.id === 'split' ? RUNE_PRICE.splitForcePerCopy * (rune.affixes.count ?? DEFAULTS.splitCount) : RUNE_FORCE[rune.id];
-    if (rune.affixes.release) cost += RUNE_FORCE[RELEASE_RUNE[rune.affixes.release.kind]];
     const node = nodes[i];
+    // A Split pays per copy it makes on average: a ranged count and its implicit extra copies included.
+    const split = node?.shapers.find((s) => s.runeIndex === i && s.id === 'split');
+    const copies = split ? splitCopies(split, 'average') : (rune.affixes.count ?? DEFAULTS.splitCount);
+    let cost = rune.id === 'split' ? RUNE_PRICE.splitForcePerCopy * copies : RUNE_FORCE[rune.id];
+    if (rune.affixes.release) cost += RUNE_FORCE[RELEASE_RUNE[rune.affixes.release.kind]];
     const share = rune.id === 'split' || !node ? 1 : (shares.get(node) ?? 1);
     const affixes = affixForce(rune, affinity);
     const raised = Math.max(share, HEAT.payloadAffixShare);
+    // An implicit pays where it acts (a trigger's payload damage at its payload's share), and a gain
+    // on a payload at least its full price, like added damage: implicits multiply everything else on
+    // the shape, and at the riders' half every rune of the worst payload chain at T1 reached 4.7x the
+    // best kit's damage per Force (4.5x at the full price).
+    const implicitAt = runeKind(rune.id) === 'trigger' && node?.payload[0] ? (shares.get(node.payload[0]) ?? 1) : share;
+    const implicit = implicitForce(rune, node, affinity);
+    const implicitShare = implicit > 0 ? Math.max(implicitAt, HEAT.payloadAddedShare) : implicitAt;
     // Added damage on a payload pays at least HEAT.payloadAddedShare: at the riders' half it stacked
     // with Concentrated and doubled infusions to about 4x the best kit's damage per Force.
     const added = addedForce(rune, affinity) * Math.max(share, HEAT.payloadAddedShare);
     const baseShare = RIDER_KINDS.has(runeKind(rune.id)) ? raised : share;
     // Only gains pay the higher share; a drawback on a payload gives back at the payload's own share.
     const affixShare = affixes > 0 ? raised : share;
-    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare + added);
+    force += Math.max(0, cost * affinity(rune.id) * baseShare + affixes * affixShare + implicit * implicitShare + added);
   });
   return Math.max(HEAT.minForcePerCast, round1(force * ctx.forceMultiplier));
 }
 
+/**
+ * Spirit reserved: each rune's price, times its implicit for the runes whose implicit is a strength
+ * (the aura's area, the bond's strength, an element's share, an effect's strength, Swift and Large),
+ * so a stronger rune reserves as much more as it gives. Concentrated's share follows the rest.
+ */
 function runeSpirit(runes: readonly RuneInstance[], mult: number): number {
   let rest = 0;
   let concentrated = 0;
   for (const r of runes) {
     if (r.id === 'concentrated') concentrated++;
-    else rest += RUNE_SPIRIT[r.id] ?? 0;
+    else rest += (RUNE_SPIRIT[r.id] ?? 0) * (r.id === 'split' ? 1 : implicitOf(r) / 100);
   }
   const each = Math.max(RUNE_SPIRIT.concentrated ?? 0, rest * RUNE_PRICE.concentratedSpiritShare);
   return Math.round((rest + concentrated * each) * mult);
@@ -383,7 +454,36 @@ function engineGaps(runes: readonly RuneInstance[], tree: SpellTree): GrammarErr
   return out;
 }
 
-function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): EngineNode {
+/** Each element's conversion from its infusions' implicits, averaged where an element is doubled; neutral elements are left out. */
+function nodeConversion(node: SpellNode): Partial<Record<ElementId, number>> {
+  const out: Partial<Record<ElementId, number>> = {};
+  for (const el of new Set(node.effectiveInfusions)) {
+    const q = node.effectiveInfusions.flatMap((e, i) => (e === el ? [node.effectiveQuality[i] ?? 100] : []));
+    const k = q.reduce((a, b) => a + b, 0) / Math.max(1, q.length) / 100;
+    if (k !== 1) out[el] = k;
+  }
+  return out;
+}
+
+function nodeEffectPower(node: SpellNode): Partial<Record<EffectId, number>> {
+  const out: Partial<Record<EffectId, number>> = {};
+  for (const e of node.effects) {
+    const q = node.effectQuality[e] ?? 100;
+    if (q !== 100) out[e] = q / 100;
+  }
+  return out;
+}
+
+/** The ranged rolls a cast of this node rolls, or null when every number is fixed. */
+function perCastRolls(node: SpellNode): PerCastRolls | null {
+  const splits = node.shapers.filter((s) => s.id === 'split' && s.max > s.value).map((s) => ({ min: s.value, max: s.max }));
+  const damage = node.stats.damageMax > node.stats.damage ? { min: node.stats.damage, max: node.stats.damageMax } : undefined;
+  const pierce = node.stats.pierceMax > node.stats.pierce ? { min: node.stats.pierce, max: node.stats.pierceMax } : undefined;
+  if (splits.length === 0 && !damage && !pierce) return null;
+  return { splits, ...(damage ? { damage } : {}), ...(pierce ? { pierce } : {}) };
+}
+
+function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[], payloadScale = 1): EngineNode {
   const form = engineForm(node.shape) ?? 'bolt';
   const elements = [...new Set(node.effectiveInfusions)];
   const attached = new Set<RuneId>([...elements, ...node.effects]);
@@ -401,7 +501,12 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
   if (hasAdded(added) && !damages) {
     notes.push(`${runeName(node.shape)} (rune ${node.runeIndex + 1}) deals no damage, so its added damage does nothing.`);
   }
-  const payload = trigger ? node.payload.map((child) => buildNode(child, ctx, notes)) : [];
+  const payload = trigger ? node.payload.map((child) => buildNode(child, ctx, notes, payloadDamage(node))) : [];
+  // The shape rune's implicit: an aura's area, a bond's strength, every other shape's base damage.
+  const quality = node.stats.base / 100;
+  const conversion = nodeConversion(node);
+  const power = nodeEffectPower(node);
+  const perCast = perCastRolls(node);
   return {
     form,
     elements,
@@ -413,16 +518,20 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
     payload,
     depth: node.depth,
     combos,
-    damageScale: ctx.damageMultiplier * nodeScale(node, ctx.splitEfficiencyBonus),
+    damageScale: ctx.damageMultiplier * nodeScale(node, ctx.splitEfficiencyBonus) * (form === 'bond' ? quality : 1),
     areaScale: ctx.areaMultiplier,
     tuning: {
       ...NEUTRAL_TUNING,
       speed: affixMultiplier(node.stats.speed),
-      radius: affixMultiplier(node.stats.size),
+      radius: affixMultiplier(node.stats.size) * (form === 'aura' ? quality : 1),
       range: affixMultiplier(node.stats.duration),
-      damage: damageTuning(node),
+      damage: damageTuning(node) * payloadScale,
       phase: phase ? 1 : 0,
     },
+    ...(form !== 'aura' && form !== 'bond' && quality !== 1 ? { baseScale: quality } : {}),
+    ...(Object.keys(conversion).length > 0 ? { conversion } : {}),
+    ...(Object.keys(power).length > 0 ? { effectPower: power } : {}),
+    ...(perCast ? { perCast } : {}),
   };
 }
 

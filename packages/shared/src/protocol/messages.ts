@@ -28,7 +28,15 @@ import type { GuildRank, GuildStashView, ManagedRank, TabPerms } from '../guild/
  * - `rolled`: that rolled rune item, from the bag or the stash; each uid at most once.
  * Every current slot not kept is refunded to the bag, else pending.
  */
-export type RuneRef = { from: 'keep'; index: number } | { from: 'plain'; rune: RuneId } | { from: 'rolled'; uid: ItemUid };
+/**
+ * Which plain runes of an id a forge ref takes: those whose implicit has this tier and value (plain
+ * runes stack by implicit). Without it, the first stack in source order.
+ */
+export interface RuneRefImplicit {
+  tier: number;
+  value: number;
+}
+export type RuneRef = { from: 'keep'; index: number } | { from: 'plain'; rune: RuneId; implicit?: RuneRefImplicit } | { from: 'rolled'; uid: ItemUid };
 
 /** A cell of the bag or of a general stash tab, for an item's top-left corner. */
 export type GridDest = { at: 'bag'; x: number; y: number } | { at: 'tab'; tab: number; x: number; y: number };

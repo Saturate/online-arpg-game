@@ -1,4 +1,4 @@
-import { ADDED_DAMAGE_SPREAD, ADDED_KEYS, COUNT_AFFIX, INFUSION_IDS, isInfusionId, isRuneId, runeName, type Release, type RuneAffixes, type RuneId, type RuneInstance } from './runes.js';
+import { ADDED_DAMAGE_SPREAD, ADDED_KEYS, COUNT_AFFIX, INFUSION_IDS, isInfusionId, isRuneId, neutralImplicitValue, runeName, type Release, type RuneAffixes, type RuneId, type RuneInstance } from './runes.js';
 import { RULES, type GrammarError } from './rules.js';
 
 export interface RuneToken {
@@ -95,6 +95,30 @@ function applyAffix(raw: string, a: RuneAffixes): boolean {
     word(a);
     return true;
   }
+  // A ranged roll, rolled inside on every cast: "+20 to 60% damage", "pierce 0 to 3".
+  const pctRange = new RegExp(String.raw`^${NUM}\s*%?\s+to\s+${NUM}\s*%\s*damage$`).exec(item);
+  if (pctRange?.[1] && pctRange[2]) {
+    const low = Number(pctRange[1]);
+    const high = Number(pctRange[2]);
+    if (!(high > low)) return false;
+    a.damage = low;
+    a.damageMax = high;
+    return true;
+  }
+  const countRange = new RegExp(String.raw`^(pierce|count|copies)\s*[:=]?\s*${NUM}\s+to\s+${NUM}$`).exec(item);
+  if (countRange?.[1] && countRange[2] && countRange[3]) {
+    const low = Number(countRange[2]);
+    const high = Number(countRange[3]);
+    if (!(high > low)) return false;
+    if (countRange[1] === 'pierce') {
+      a.pierce = low;
+      a.pierceMax = high;
+    } else {
+      a.count = low;
+      a.countMax = high;
+    }
+    return true;
+  }
   // "+30% damage", "-15% speed"
   const pctFirst = new RegExp(String.raw`^${NUM}\s*%\s*(\w+)$`).exec(item);
   if (pctFirst?.[1] && pctFirst[2] && isPercentWord(pctFirst[2])) {
@@ -137,8 +161,8 @@ export function tokenizeSpell(text: string): TokenizeResult {
     errors.push({ rule: RULES[rule].id, runeIndex: i, message });
   };
 
-  // Word, then any mix of (n) and [..] groups, or a bare number standing alone.
-  const re = /([a-zA-Z_-]+)(\d+(?:\.\d+)?)?((?:\s*(?:\([^)]*\)|\[[^\]]*\]))*)|(\d+(?:\.\d+)?)/g;
+  // Word, then any mix of (n), [..] and {implicit} groups, or a bare number standing alone.
+  const re = /([a-zA-Z_-]+)(\d+(?:\.\d+)?)?((?:\s*(?:\([^)]*\)|\[[^\]]*\]|\{[^}]*\}))*)|(\d+(?:\.\d+)?)/g;
   const setCount = (index: number, id: RuneId, value: number, affixes: RuneAffixes): void => {
     const key = COUNT_AFFIX[id];
     if (!key || key === 'release') {
@@ -191,11 +215,22 @@ export function tokenizeSpell(text: string): TokenizeResult {
       continue;
     }
     const affixes: RuneAffixes = {};
+    let implicit: number | undefined;
     if (digits) setCount(index, id, Number(digits), affixes);
-    for (const g of (groups ?? '').matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)) {
-      if (g[1] !== undefined) {
+    for (const g of (groups ?? '').matchAll(/\(([^)]*)\)|\[([^\]]*)\]|\{([^}]*)\}/g)) {
+      if (g[3] !== undefined) {
+        // The implicit: "{104}" or "{104%}" is 104% of the rune's base; Split's "{1}" is one extra copy at most.
+        const n = Number(g[3].trim().replace(/%$/, ''));
+        if (g[3].trim() === '' || !Number.isFinite(n)) at(index, 'BAD_COUNT', `{${g[3]}} on ${runeName(id)} is not a number.`);
+        else implicit = n;
+      } else if (g[1] !== undefined) {
+        // "(4)", or a ranged count "(2 to 4)" rolled on every cast.
+        const range = /^\s*(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\s*$/.exec(g[1]);
         const n = Number(g[1].trim());
-        if (g[1].trim() === '' || !Number.isFinite(n)) at(index, 'BAD_COUNT', `(${g[1]}) on ${runeName(id)} is not a number.`);
+        if (range?.[1] && range[2] && COUNT_AFFIX[id] === 'count' && Number(range[2]) > Number(range[1])) {
+          affixes.count = Number(range[1]);
+          affixes.countMax = Number(range[2]);
+        } else if (g[1].trim() === '' || !Number.isFinite(n)) at(index, 'BAD_COUNT', `(${g[1]}) on ${runeName(id)} is not a number.`);
         else setCount(index, id, n, affixes);
       } else if (g[2] !== undefined) {
         for (const item of g[2].split(',')) {
@@ -206,7 +241,7 @@ export function tokenizeSpell(text: string): TokenizeResult {
       }
     }
     // Only add the rune when this token produced one, so runes and tokens stay aligned.
-    if (runes.length === index) runes.push({ id, affixes });
+    if (runes.length === index) runes.push(implicit === undefined ? { id, affixes } : { id, affixes, implicit });
   }
   if (pendingOn) {
     tokens.push(pendingOn);
@@ -227,7 +262,9 @@ export function formatRunes(runes: readonly RuneInstance[]): string {
       }
       for (const key of PERCENT_WORDS) {
         const v = a[key];
-        if (v !== undefined) items.push(`${v > 0 ? '+' : ''}${v}% ${key}`);
+        if (v === undefined) continue;
+        const high = key === 'damage' ? a.damageMax : undefined;
+        items.push(high !== undefined && high > v ? `${v > 0 ? '+' : ''}${v} to ${high}% ${key}` : `${v > 0 ? '+' : ''}${v}% ${key}`);
       }
       for (const el of INFUSION_IDS) {
         const v = a[ADDED_KEYS[el]];
@@ -238,10 +275,13 @@ export function formatRunes(runes: readonly RuneInstance[]): string {
       for (const key of ['count', 'pierce', 'bounce', 'homing', 'chain', 'stackLimit', 'chargeStages', 'seconds', 'concentration'] as const) {
         const v = a[key];
         if (v === undefined) continue;
-        if (key === count) suffix = `(${v})`;
-        else items.push(`${key === 'stackLimit' ? 'stack' : key === 'chargeStages' ? 'stages' : key} ${v}`);
+        const high = key === 'count' ? a.countMax : key === 'pierce' ? a.pierceMax : undefined;
+        const shown = high !== undefined && high > v ? `${v} to ${high}` : `${v}`;
+        if (key === count) suffix = `(${shown})`;
+        else items.push(`${key === 'stackLimit' ? 'stack' : key === 'chargeStages' ? 'stages' : key} ${shown}`);
       }
-      return `${r.id}${suffix}${items.length ? `[${items.join(', ')}]` : ''}`;
+      const implicit = r.implicit !== undefined && r.implicit !== neutralImplicitValue(r.id) ? `{${r.implicit}}` : '';
+      return `${r.id}${suffix}${implicit}${items.length ? `[${items.join(', ')}]` : ''}`;
     })
     .join(' ');
 }

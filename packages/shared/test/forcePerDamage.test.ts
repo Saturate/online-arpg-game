@@ -8,6 +8,8 @@ import {
   createRune,
   createStarterSigil,
   DEFAULT_SIGIL_CONTEXT,
+  implicitIdFor,
+  isRuneId,
   measureSkill,
   measureStarter,
   perForce,
@@ -79,12 +81,35 @@ function span(id: AffixId, top = false): [number, number] {
  * runes (40 to 60%, at most one on a shape) and sometimes a Large beside them. With `top`, every
  * number affix rolls in its T1 range.
  */
-function randomSpell(rnd: () => number, concentrated = false, top = false, added = false): { text: string; multicast: number } {
+function randomSpell(rnd: () => number, concentrated = false, top = false, added = false, rolls: { implicits?: boolean; ranged?: boolean } = {}): { text: string; multicast: number } {
   const pick = <T,>(list: readonly T[], fallback: T): T => list[Math.floor(rnd() * list.length)] ?? fallback;
   const between = (lo: number, hi: number): number => lo + rnd() * (hi - lo);
-  const pct = (id: AffixId): string => `+${Math.round(between(...span(id, top)))}%`;
+  // A ranged roll (rolled on every cast) is centred on a roll of the table, as drops make them.
+  const rangedPct = (centre: number): string => {
+    const half = Math.round(centre * (AFFIXES.rune_damage.ranged?.spread ?? 0));
+    return half > 0 ? `+${centre - half} to ${centre + half}%` : `+${centre}%`;
+  };
+  const pct = (id: AffixId): string => {
+    const v = Math.round(between(...span(id, top)));
+    return id === 'rune_damage' && rolls.ranged && rnd() < 0.5 ? rangedPct(v) : `+${v}%`;
+  };
   const [pierceLo, pierceHi] = span('rune_pierce', top);
-  const pierce = (): string => `pierce ${pierceLo + Math.floor(rnd() * (pierceHi - pierceLo + 1))}`;
+  const pierce = (): string => {
+    const v = pierceLo + Math.floor(rnd() * (pierceHi - pierceLo + 1));
+    return rolls.ranged && rnd() < 0.5 && v > 0 ? `pierce ${v - 1} to ${v + 1}` : `pierce ${v}`;
+  };
+  // Every rune its implicit, anywhere in its table (T1 with `top`).
+  const implicitOf = (rune: string): string => {
+    if (!rolls.implicits) return '';
+    const id = implicitIdFor(isRuneId(rune) ? rune : 'orb');
+    if (!id) return '';
+    const [lo, hi] = span(id, top);
+    return `{${Math.round(between(lo, hi))}}`;
+  };
+  const withImplicit = (word: string): string => {
+    const m = /^([a-z]+)(.*)$/.exec(word);
+    return m?.[1] ? `${m[1]}${implicitOf(m[1])}${m[2] ?? ''}` : word;
+  };
   const numbers: Record<string, (() => string)[]> = {
     orb: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_duration')} duration`, () => `${pct('rune_size')} size`, () => `${pct('rune_speed')} speed`, pierce],
     bolt: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_duration')} duration`, () => `${pct('rune_size')} size`, () => `${pct('rune_speed')} speed`, pierce],
@@ -135,11 +160,14 @@ function randomSpell(rnd: () => number, concentrated = false, top = false, added
       words.push(`concentrated(${Math.round(between(40, 60))})`);
       if (rnd() < 0.25) words.push('large');
     }
-    if (rnd() < 0.3) words.push(`split(${2 + Math.floor(rnd() * 5)})`);
+    if (rnd() < 0.3) {
+      const n = 2 + Math.floor(rnd() * 5);
+      words.push(rolls.ranged && n > 2 && n < 6 && rnd() < 0.5 ? `split(${n - 1} to ${n + 1})` : `split(${n})`);
+    }
     if (!release) break;
     shape = pick(['nova', 'zone', 'bolt', 'orb', 'nova'], 'nova');
   }
-  return { text: words.join(' '), multicast: rnd() < 0.25 ? 2 : 1 };
+  return { text: words.map(withImplicit).join(' '), multicast: rnd() < 0.25 ? 2 : 1 };
 }
 
 /** The class a spell is cheapest on, since a player would cast it there. */
@@ -188,6 +216,7 @@ const RANDOM_SEED = 20260930;
 const CONCENTRATED_SEED = 20261001;
 const T1_SEED = 20261002;
 const ADDED_SEED = 20261003;
+const IMPLICIT_SEED = 20261005;
 
 describe('damage per Force', () => {
   const starters = STARTER_SIGILS.map((def) => ({ id: def.id, r: measureStarter(def) })).filter((s) => s.r.kind === 'damage');
@@ -256,13 +285,15 @@ describe('damage per Force', () => {
     { what: 'random spells of T1 rolls only', seed: T1_SEED, concentrated: true, top: true },
     { what: 'random spells with added damage', seed: ADDED_SEED, concentrated: true, added: true },
     { what: 'random spells with T1 added damage', seed: ADDED_SEED + 1, concentrated: false, top: true, added: true },
+    { what: 'random spells with implicits and ranged rolls', seed: IMPLICIT_SEED, concentrated: true, added: true, implicits: true, ranged: true },
+    { what: 'random spells with T1 implicits and ranged rolls', seed: IMPLICIT_SEED + 1, concentrated: true, top: true, added: true, implicits: true, ranged: true },
   ]) {
     it(`${RANDOM_SPELLS} ${search.what} with in-table affixes stay within ${LIMIT}x on their cheapest class`, () => {
       const rnd = seeded(search.seed);
       let measured = 0;
       let worst = { text: '', ratio: 0 };
       for (let i = 0; i < RANDOM_SPELLS; i++) {
-        const { text, multicast } = randomSpell(rnd, search.concentrated, search.top === true, search.added === true);
+        const { text, multicast } = randomSpell(rnd, search.concentrated, search.top === true, search.added === true, { implicits: search.implicits === true, ranged: search.ranged === true });
         const found = cheapest(text, multicast);
         if (!found) continue;
         measured++;

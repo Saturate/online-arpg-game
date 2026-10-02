@@ -11,6 +11,9 @@ import {
   isBound,
   isPlainRune,
   matchingStarter,
+  implicitKey,
+  runeImplicit,
+  stacksWith,
   ITEM_TIERS,
   reissueUids,
   RUNE_STACK,
@@ -25,7 +28,7 @@ import {
 } from '../items/items.js';
 import { compileSigilItem } from '../runes/v2/compile.js';
 import { isCastableRune, RUNE_IDS, runeName, type RuneId } from '../runes/v2/runes.js';
-import type { RuneRef } from '../protocol/messages.js';
+import type { RuneRef, RuneRefImplicit } from '../protocol/messages.js';
 import { rollDrops } from '../items/drops.js';
 import { forgeInsertPrice, sellPrice, TRADER } from '../items/prices.js';
 import { anchorOf, BAG, canPlace, emptyGrid, findSpot, itemSize, place, placements, removeFrom, STASH, type GridSize } from '../items/grid.js';
@@ -136,25 +139,26 @@ export function fitsInBag(p: PlayerComp, item: Item): boolean {
 
 /**
  * Stacks in a grid (the bag unless told otherwise) a plain rune can top up. Bound runes keep their
- * own stacks, so they never make sellable ones, and rolled runes never stack at all.
+ * own stacks, so they never make sellable ones; runes with different implicits keep theirs, so a
+ * stack never changes what a rune put in it rolled; and rolled runes never stack at all.
  */
-function matchingStacks(p: PlayerComp, rune: RuneId, bound: boolean, cells: readonly (ItemUid | null)[] = p.inventory): RuneItem[] {
+function matchingStacks(p: PlayerComp, item: RuneItem, cells: readonly (ItemUid | null)[] = p.inventory): RuneItem[] {
   const out: RuneItem[] = [];
   for (const uid of new Set(cells)) {
     const stack = uid === null ? undefined : p.items.get(uid);
-    if (stack?.kind === 'rune' && isPlainRune(stack) && stack.rune === rune && (stack.bound === true) === bound && stack.count < RUNE_STACK) out.push(stack);
+    if (stack?.kind === 'rune' && stack.uid !== item.uid && stacksWith(stack, item) && stack.count < RUNE_STACK) out.push(stack);
   }
   return out;
 }
 
-export function stackSpace(p: PlayerComp, rune: RuneId, bound: boolean): number {
-  return matchingStacks(p, rune, bound).reduce((n, s) => n + RUNE_STACK - s.count, 0);
+export function stackSpace(p: PlayerComp, item: RuneItem): number {
+  return matchingStacks(p, item).reduce((n, s) => n + RUNE_STACK - s.count, 0);
 }
 
 /** Moves as much of a plain rune item as fits into existing stacks of a grid. `item` shrinks by what moved. */
 export function topUpStacks(p: PlayerComp, item: RuneItem, cells: readonly (ItemUid | null)[] = p.inventory): void {
   if (!isPlainRune(item)) return;
-  for (const stack of matchingStacks(p, item.rune, item.bound === true, cells)) {
+  for (const stack of matchingStacks(p, item, cells)) {
     const moved = Math.min(item.count, RUNE_STACK - stack.count);
     stack.count += moved;
     item.count -= moved;
@@ -169,7 +173,7 @@ export function topUpStacks(p: PlayerComp, item: RuneItem, cells: readonly (Item
  */
 export function addItem(p: PlayerComp, item: Item): boolean {
   if (item.kind === 'rune' && isPlainRune(item)) {
-    if (item.count > stackSpace(p, item.rune, item.bound === true) && !fitsInBag(p, item)) return false;
+    if (item.count > stackSpace(p, item) && !fitsInBag(p, item)) return false;
     topUpStacks(p, item);
     if (item.count === 0) return true;
   }
@@ -360,14 +364,17 @@ function runeSource(p: PlayerComp, uid: ItemUid): RuneSource | null {
  * Where the forge takes a plain rune from, in order: bag stacks (bound ones first), then the rune
  * tab's stacks, then stacks in general tabs.
  */
-function plainSources(p: PlayerComp, rune: RuneId): RuneItem[] {
+function plainSources(p: PlayerComp, rune: RuneId, implicit: RuneRefImplicit | undefined): RuneItem[] {
   const stacksIn = (cells: readonly (ItemUid | null)[]): RuneItem[] => {
     const here: RuneItem[] = [];
     for (const uid of new Set(cells)) {
       const it = uid === null ? undefined : p.items.get(uid);
-      if (it?.kind === 'rune' && isPlainRune(it) && it.rune === rune && it.count > 0) here.push(it);
+      if (it?.kind === 'rune' && isPlainRune(it) && it.rune === rune && it.count > 0 && implicitMatches(it, implicit)) here.push(it);
     }
-    return here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true));
+    // A ref naming no implicit (an older client) takes the neutral roll first, so it never spends a
+    // better stack the player did not pick.
+    const neutralFirst = (r: RuneItem): number => (implicit === undefined && implicitKey(r) !== implicitKey(createRune(0, r.rune)) ? 1 : 0);
+    return here.sort((a, b) => Number(b.bound === true) - Number(a.bound === true) || neutralFirst(a) - neutralFirst(b));
   };
   return [...stacksIn(p.inventory), ...stacksIn(p.stash.runes.list), ...p.stash.general.flatMap((tab) => stacksIn(tab.cells))];
 }
@@ -378,9 +385,21 @@ function unplace(p: PlayerComp, uid: ItemUid): void {
   removeFromStash(p.stash, uid);
 }
 
-/** One rune for a sigil slot, split off a plain stack: same rune, tier and binding, count 1. */
+/**
+ * Whether a plain stack holds the implicit a forge ref names. A ref without one (an older client)
+ * takes the first stack in source order, whatever its implicit.
+ */
+function implicitMatches(stack: RuneItem, implicit: RuneRefImplicit | undefined): boolean {
+  if (!implicit) return true;
+  const own = runeImplicit(stack);
+  return own !== null && own.tier === implicit.tier && own.value === implicit.value;
+}
+
+/** One rune for a sigil slot, split off a plain stack: same rune, tier, binding and implicit, count 1. */
 function oneOf(uid: ItemUid, stack: RuneItem): RuneItem {
   const one: RuneItem = { uid, kind: 'rune', tier: stack.tier, name: stack.name, ilvl: stack.ilvl, rune: stack.rune, count: 1, affixes: [] };
+  const implicit = runeImplicit(stack);
+  if (implicit) one.implicit = { ...implicit };
   if (stack.bound === true) one.bound = true;
   return one;
 }
@@ -449,7 +468,7 @@ export function inscribe(sim: Simulation, pid: EntityId, uid: ItemUid, refs: rea
         slots.push(made);
         continue;
       }
-      const source = plainSources(p, r.rune).find((stack) => stack.count > (spend.get(stack.uid) ?? 0));
+      const source = plainSources(p, r.rune, r.implicit).find((stack) => stack.count > (spend.get(stack.uid) ?? 0));
       if (!source) return `You need a ${runeName(r.rune)} Rune`;
       spend.set(source.uid, (spend.get(source.uid) ?? 0) + 1);
       const one = oneOf(sim.newItemUid(), source);
@@ -675,6 +694,9 @@ export function compareForSort(a: Item, b: Item): number {
     if (rune !== 0) return rune;
     const rolled = Number(isPlainRune(a)) - Number(isPlainRune(b));
     if (rolled !== 0) return rolled;
+    // Plain stacks of one rune differ only by implicit: the better one first.
+    const implicit = (runeImplicit(b)?.value ?? 0) - (runeImplicit(a)?.value ?? 0);
+    if (isPlainRune(a) && implicit !== 0) return implicit;
   }
   const tier = ITEM_TIERS.indexOf(b.tier) - ITEM_TIERS.indexOf(a.tier);
   if (tier !== 0) return tier;
@@ -1092,7 +1114,7 @@ export function splitStash(save: PlayerSave): { character: PlayerSave; stash: St
   const inStash = new Set(stashItemUids(save.stash));
   return {
     character: { ...save, items: save.items.filter((i) => !inStash.has(i.uid)), stash: emptyStash() },
-    stash: { ...cloneLayout(save.stash), runeFormat: 2, runeTiers: 6, items: save.items.filter((i) => inStash.has(i.uid)) },
+    stash: { ...cloneLayout(save.stash), runeFormat: 2, runeTiers: 6, runeImplicits: 1, items: save.items.filter((i) => inStash.has(i.uid)) },
   };
 }
 

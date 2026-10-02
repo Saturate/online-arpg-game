@@ -4,6 +4,7 @@ import {
   affixText,
   describeTree,
   formatAffix,
+  formatImplicit,
   generalTab,
   isRuneAffixId,
   ITEM_TIERS,
@@ -305,7 +306,7 @@ function runeMatches(r: RuneItem, view: ReturnType<typeof useStashView.getState>
   if (view.kindFilter !== 'all' && runeKind(r.rune) !== view.kindFilter) return false;
   if (view.runeTierFilter !== 'all' && r.tier !== view.runeTierFilter) return false;
   const q = view.affixSearch.trim().toLowerCase();
-  return q === '' || r.affixes.some((a) => formatAffix(a).toLowerCase().includes(q));
+  return q === '' || r.affixes.some((a) => formatAffix(a).toLowerCase().includes(q)) || (formatImplicit(r)?.toLowerCase().includes(q) ?? false);
 }
 
 function SplitRow({ item, onClose }: { item: RuneItem; onClose: () => void }) {
@@ -441,7 +442,7 @@ function RuneTabView({ inv }: { inv: InventoryMessage }) {
               {r.name}
               {r.affixes.length === 0 && <span className="stash-count"> x{r.count}</span>}
             </span>
-            <span className="stash-row-affixes">{r.affixes.length === 0 ? 'Plain' : r.affixes.map(formatAffix).join(' · ')}</span>
+            <span className="stash-row-affixes">{[formatImplicit(r), ...(r.affixes.length === 0 ? ['Plain'] : r.affixes.map(formatAffix))].filter((x) => x !== null).join(' · ')}</span>
             <span className="stash-row-ilvl">ilvl {r.ilvl}</span>
           </ListRow>
         ))}

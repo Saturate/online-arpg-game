@@ -89,10 +89,33 @@ describe('forge draft', () => {
     const entry = pool.plain.find((p) => p.rune === 'fire');
     expect(entry?.loose).toBe(1);
     expect(entry && plainRef(sigil, [], entry)).toEqual({ from: 'keep', index: 0 });
-    expect(entry && plainRef(sigil, [{ from: 'keep', index: 0 }], entry)).toEqual({ from: 'plain', rune: 'fire' });
+    // A plain ref names the implicit of the stacks it draws from.
+    expect(entry && plainRef(sigil, [{ from: 'keep', index: 0 }], entry)).toEqual({ from: 'plain', rune: 'fire', implicit: { tier: 2, value: 100 } });
     // A rolled rune taken out shows in the pool as its keep.
     const orb = rolled(12, 'orb');
     expect(buildPool(sigilWith([orb]), [], stock).rolled.map((r) => r.ref)).toEqual([{ from: 'keep', index: 0 }]);
+  });
+
+  it('pools plain runes by implicit, names it in the ref, and prices and refunds by it', () => {
+    const strong: RuneItem = { ...createRune(1, 'fire', 2), implicit: { id: 'implicit_conversion', tier: 5, value: 120 } };
+    const plain = createRune(2, 'fire', 3);
+    const stock = runeStock(inventory([plain, strong]));
+    const pool = buildPool(sigilWith([]), [], stock);
+    const fires = pool.plain.filter((p) => p.rune === 'fire');
+    // The better implicit first, each entry its own count.
+    expect(fires.map((p) => [p.implicit?.value, p.bag])).toEqual([[120, 2], [100, 3]]);
+    const best = fires[0];
+    if (!best) throw new Error('no entry');
+    const ref = plainRef(sigilWith([]), [], best);
+    expect(ref).toEqual({ from: 'plain', rune: 'fire', implicit: { tier: 5, value: 120 } });
+    if (!ref) throw new Error('no ref');
+    const res = resolveDraft(sigilWith([]), [ref, ref], stock, priceOf);
+    expect(res.slots.map((s) => s.item.implicit?.value)).toEqual([120, 120]);
+    // Two taken, so that entry is empty and the neutral one untouched.
+    const after = buildPool(sigilWith([]), [ref, ref], stock).plain.filter((p) => p.rune === 'fire');
+    expect(after.map((p) => [p.implicit?.value, p.bag])).toEqual([[100, 3]]);
+    // A third from that entry has nothing left to draw from.
+    expect(resolveDraft(sigilWith([]), [ref, ref, ref], stock, priceOf).valid).toHaveLength(2);
   });
 
   it('never offers one rolled rune twice', () => {

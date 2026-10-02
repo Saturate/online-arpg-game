@@ -1,6 +1,6 @@
 # Forge
 
-Status: Pushed to `main` on 2026-09-30 with the rune rework (commits `0f1ec98`, `733906b`, `7dd03eb`, `d5700c0`, `d4e3282`). The first forge (plain runes into sigils) went live on 2026-09-29.
+Status: Pushed to `main` on 2026-09-30 with the rune rework (commits `0f1ec98`, `733906b`, `7dd03eb`, `d5700c0`, `d4e3282`). The first forge (plain runes into sigils) went live on 2026-09-29. Implicits and ranged rolls at the forge built on `feat/damage-phase2` (2026-10-02), not deployed (below, "Implicits and ranged rolls").
 
 ## What it does
 
@@ -40,6 +40,15 @@ Kit sigils made before 2026-10-01 hold rolls no drop can have (Multishot's Bolt 
 - Values inside the table, or weaker than it (the negative speeds of slow orbs), are left alone.
 - Example: an old Multishot's `bolt[+300% damage]` comes out as +100%, the top of the T1 `rune_damage` range (56 to 100), and keeps T1. An old Fireball's +100% is inside T1 and comes out as it is.
 
+### Implicits and ranged rolls (2026-10-02, `feat/damage-phase2`, not deployed)
+
+Every rune carries an implicit and some affixes roll a range ([runes.md](runes.md), "Implicits and ranged rolls").
+
+- **The pool lists plain runes by implicit:** plain runes stack only with the same implicit, so each rune shows one row per implicit it is held with, the better implicit first, each with its line and tier ("Converts at 106% to fire T3") and its own count. The tooltip of a rune, in the pool or a slot, shows its implicit above its affixes, and ranged rolls as "+20 to 60% damage".
+- **A plain ref names the implicit:** `{ from: 'plain', rune, implicit: { tier, value } }` takes from stacks with that implicit only, in the usual source order (bag first, bound stacks first, then the rune tab, then general tabs), and is refused when none is left ("You need a Fire Rune"). A ref without it (an older client) takes the neutral roll first within each source, so it never spends a better stack the player did not pick. The rune in the slot keeps the implicit, and prices by it (its tier adds to the sell value from T3 up).
+- **Rolls clamp on the way out as before, the implicit too:** an implicit above its live table clamps like an affix roll, and a ranged roll moves down, keeping its spread, until its average is the best a drop can have; the tier only goes down. The forge's weakening warning names both.
+- **The builders' bench** makes plain runes with the neutral implicit.
+
 ### The builders' bench
 
 The free test bench left the Arena, where it would be cheating ([arena.md](arena.md)). Builders open a private flat room with `/sandbox` (again, or the town portal, to leave) that has the bench and the F3 dev tools, with no waves, so it is not a private farm.
@@ -64,7 +73,7 @@ The protocol, from `packages/shared/src/protocol/messages.ts`:
 ```ts
 type RuneRef =
   | { from: 'keep'; index: number }      // the rune now in slot `index`; each index once
-  | { from: 'plain'; rune: RuneId }      // bag first (bound stacks first), then the stash
+  | { from: 'plain'; rune: RuneId; implicit?: { tier: number; value: number } }  // bag first (bound stacks first), then the stash; only stacks with that implicit
   | { from: 'rolled'; uid: ItemUid };    // from the bag or the stash; each uid once
 
 { t: 'inscribe'; uid: ItemUid; base: ItemUid[]; slots: RuneRef[]; attempt: number }
@@ -92,7 +101,8 @@ Tests:
 - `packages/shared/test/itemSafety.test.ts`: source order, rolled runes once each, another character's stash refused, refunds never to the stash, all or nothing, prices, the stash sigil and reach refusals, bench behaviour, a found rune leaving a bound starter sigil comes back unbound, a spirit refusal changes nothing, 0 gold can still put a bound starter rune back.
 - `packages/shared/test/forge.test.ts`: bag then stash, refunds, refusals away from the forge, bench only on test maps, bound starter runes handed back, rolled runes come out whole, an unchanged save is free anywhere.
 - `apps/server/test/forge.test.ts`: taking runes from the account stash charges exactly the insert prices and saves stash and character together; inventory is sent before the reply, and a resend drafted from old slots is refused.
-- `apps/client/test/forgeDraft.test.ts`: the client's draft mirrors the server (pool counts, source order, prices, refunds, overflow, clamped refunds, bench runes left out).
+- `apps/client/test/forgeDraft.test.ts`: the client's draft mirrors the server (pool counts, source order, prices, refunds, overflow, clamped refunds, bench runes left out), and pools plain runes by implicit with the ref naming it.
+- `packages/shared/test/implicits.test.ts`: the forge takes the stack a ref names by its implicit at its price, refuses an implicit nobody holds and changes nothing, takes the first stack for a ref without one, and a rune taken out tops up its own implicit's stack; implicits clamp on the way out. `rangedRolls.test.ts`: ranged rolls clamp by their average.
 
 ## Limits and open questions
 

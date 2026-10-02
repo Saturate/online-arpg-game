@@ -180,8 +180,26 @@ function rollProblem(rune: RuneInstance, word: number): string | null {
     if (def.runes && !def.runes.includes(rune.id)) return `${said}: no ${rune.id} rune rolls "${affixText(def, fmtRoll(roll.value), fmtRoll(roll.value * (def.spread ?? 1)))}".`;
     const lo = Math.min(...def.tiers.map((t) => t.min));
     const hi = Math.max(...def.tiers.map((t) => t.max));
+    // A ranged roll is centred on a roll of the table: its average must be one, and its spread no
+    // wider than a drop's.
+    const ranged = roll.max !== undefined && roll.max > roll.value;
+    const centre = ranged ? (roll.value + (roll.max ?? roll.value)) / 2 : roll.value;
+    const shown = ranged ? `${fmtRoll(roll.value)} to ${fmtRoll(roll.max ?? roll.value)}` : fmtRoll(roll.value);
     // Rolls are stored rounded, so a value a hair past the end from the text form still fits.
-    if (roll.value < lo - 1e-9 || roll.value > hi + 1e-9) return `${said}: "${affixText(def, fmtRoll(roll.value), fmtRoll(roll.value * (def.spread ?? 1)))}" is outside what any rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
+    if (centre < lo - 1e-9 || centre > hi + 1e-9) return `${said}: "${affixText(def, shown, fmtRoll(roll.value * (def.spread ?? 1)))}" is outside what any rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
+    if (ranged) {
+      const r = def.ranged;
+      if (!r) return `${said}: "${affixText(def, shown, shown)}" never rolls as a range.`;
+      const widest = r.absolute ? r.spread : Math.round(centre * r.spread) + 0.5;
+      if ((roll.max ?? roll.value) - centre > widest + 1e-9) return `${said}: "${affixText(def, shown, shown)}" is wider than a ranged roll gets (${fmtRoll(widest)} either side).`;
+    }
+  }
+  if (item.implicit) {
+    const def = AFFIXES[item.implicit.id];
+    const lo = Math.min(...def.tiers.map((t) => t.min));
+    const hi = Math.max(...def.tiers.map((t) => t.max));
+    const v = item.implicit.value;
+    if (v < lo - 1e-9 || v > hi + 1e-9) return `${said}: its implicit ${fmtRoll(v)} is outside what any ${rune.id} rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
   }
   return null;
 }
@@ -253,7 +271,7 @@ function storedAffixes(v: unknown): AffixRoll[] | null {
   const out: AffixRoll[] = [];
   for (const a of v) {
     if (!isRecord(a) || !isAffixId(a.id) || typeof a.tier !== 'number' || typeof a.value !== 'number' || !Number.isFinite(a.value)) return null;
-    out.push({ id: a.id, tier: a.tier, value: a.value });
+    out.push(typeof a.max === 'number' && Number.isFinite(a.max) && a.max > a.value ? { id: a.id, tier: a.tier, value: a.value, max: a.max } : { id: a.id, tier: a.tier, value: a.value });
   }
   return out;
 }
@@ -261,7 +279,12 @@ function storedAffixes(v: unknown): AffixRoll[] | null {
 function storedRune(v: unknown): RuneItem | null {
   if (!isRecord(v) || v.kind !== 'rune' || typeof v.rune !== 'string' || !isRuneId(v.rune)) return null;
   const affixes = storedAffixes(v.affixes);
-  return affixes ? { uid: 0, kind: 'rune', tier: 'common', name: '', ilvl: 1, rune: v.rune, count: 1, affixes } : null;
+  if (!affixes) return null;
+  const rune: RuneItem = { uid: 0, kind: 'rune', tier: 'common', name: '', ilvl: 1, rune: v.rune, count: 1, affixes };
+  // A save from before implicits has none; the rune then reads as the neutral roll.
+  const implicit = storedAffixes([v.implicit])?.[0];
+  if (v.implicit !== undefined && implicit) rune.implicit = implicit;
+  return rune;
 }
 
 /** An equipped sigil's rune text and multicast, or null when the save holds something unreadable there. */

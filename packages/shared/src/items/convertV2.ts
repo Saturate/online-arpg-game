@@ -79,10 +79,12 @@ export interface TraderShelfSave {
   runeFormat: 2;
   /** Rune affix rolls count six tiers (2026-10-01). Required on what is written; see StoredTraderShelf for what is read. */
   runeTiers: 6;
+  /** Runes carry implicits (2026-10-02); a shelf without it goes through the implicit pass once. */
+  runeImplicits: 1;
 }
 
-/** A shelf as read from storage, before the one-time rune roll pass. */
-export type StoredTraderShelf = Omit<TraderShelfSave, 'runeTiers'> & { runeTiers?: 6 };
+/** A shelf as read from storage, before the one-time passes. */
+export type StoredTraderShelf = Omit<TraderShelfSave, 'runeTiers' | 'runeImplicits'> & { runeTiers?: 6; runeImplicits?: 1 };
 
 export interface TraderShelfConversion {
   shelf: StoredTraderShelf;

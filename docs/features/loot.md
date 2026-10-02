@@ -1,6 +1,6 @@
 # Loot
 
-Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles built on `feat/loot-piles` (2026-10-02), not yet deployed.
+Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles built on `feat/loot-piles` (2026-10-02), not yet deployed. Rune implicits and ranged rolls on drops built on `feat/damage-phase2` (2026-10-02), not deployed.
 
 ## What it does
 
@@ -32,7 +32,7 @@ Status: Live (ground bags, click pickup and gold since 2026-09-29). Loot piles b
 | boss | 4 | 0 | 30 | 60 | 10 |
 | dungeon cache | 3 | 0 | 0 | 70 | 30 |
 
-- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled; their rune affixes roll six tiers gated by item level (T6 from 1 up to T1 from 12, T1 about one number affix in 90 at the top), and common and magic runes stop at T4 ([runes.md](runes.md), "Rolled runes"). Gear, sigil and vessel affixes keep three tiers. A Concentrated rune is always rolled, whichever way it drops, since its amount is its roll ([runes.md](runes.md), "Concentrated rune"). The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random kit's runes, unbound, with the kit's in-table rolls.
+- **Kind mix:** 25% of drops are runes (the forge's currency), and 20% of those are rolled; their rune affixes roll six tiers gated by item level (T6 from 1 up to T1 from 12, T1 about one number affix in 90 at the top), and common and magic runes stop at T4 ([runes.md](runes.md), "Rolled runes"). A quarter of their damage, pierce and Split count rolls come as a range rolled on every cast. Every rune, plain or rolled, also rolls its implicit, its tier gated by the monster's level (T6 and T5 at level 1, T1 from 12, about one drop in 70 there): a rolled rune inside its tier, a plain one at the tier's middle so plain runes of one tier still stack ([runes.md](runes.md), "Implicits and ranged rolls"). Plain runes keep item level 1, as their price never followed the monster's level. Gear, sigil and vessel affixes keep three tiers. A Concentrated rune is always rolled, whichever way it drops, since its amount is its roll ([runes.md](runes.md), "Concentrated rune"). The rest split gear 50%, sigils 35%, vessels 15%, which makes gear 37.5%, sigils 26.25% and vessels 11.25% of all drops. 30% of sigil drops carry a random kit's runes, unbound, with the kit's in-table rolls.
 - **The dungeon cache** is richer per item than a boss drop (30% relic against 10%) because clearing the whole run earns it; 70% of it is gear, the rest sigils.
 - **Gold** drops from 35% of normal kills and always from rares and bosses: 2 to 6 gold per monster level, times 4 for rares and 15 for bosses.
 - **Summons, raised corpses and dev-spawned monsters drop nothing,** so they cannot be farmed ([monsters.md](monsters.md)).
@@ -62,6 +62,7 @@ Admin tunables: `lootMergeRadius` (ServerSettings, 0 to 200 world units, default
 Tests:
 
 - `packages/shared/test/drops.test.ts`: `rollDrops` matches the simulation item for item, is deterministic, and handles loot rates of 1, 0, scaled and capped.
+- `packages/shared/test/implicits.test.ts`, `rangedRolls.test.ts`: every loose rune a monster drops carries an implicit inside its tier and level gate, plain ones at the tier's middle; a quarter of damage, pierce and split rolls ranged.
 - `packages/shared/test/progression.test.ts`: dropped bags scatter so they never stack on one spot.
 - `packages/shared/test/itemSafety.test.ts`: no pickup through walls; dev monsters, splitter children and raised monsters pay nothing; the dropper cannot click their own drop back until they step away, another player can take it at once, and gold still goes on walk-over.
 - `packages/shared/test/systems.test.ts`: rare enemies drop items to click up and gold to walk over.
