@@ -5,6 +5,7 @@ import { MIN_PROJECTILE_SPEED } from '../data/tuning.js';
 import { affixValue, behaviourOf, vesselPackmates, type VesselItem } from '../items/items.js';
 import { hurtGap, withinHurt } from './body.js';
 import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
+import { packetOf } from './damage.js';
 import { emptyBuffs, emptyStatus, type EntityId, type MinionComp, type PackRole, type PlayerComp } from './ecs.js';
 import { knockbackImmune } from './enemies.js';
 import { distSq, type Vec2 } from './math.js';
@@ -865,7 +866,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
               speed: Math.max(MIN_PROJECTILE_SPEED, def.projectileSpeed),
               radius: MINIONS.arrowRadius,
               range: def.attackRange * MINIONS.arrowRangeMultiplier,
-              damage: m.damage,
+              damage: packetOf('physical', m.damage),
             });
           }
         }
@@ -881,7 +882,7 @@ export function updateMinions(sim: Simulation, dt: number): void {
           m.attackCooldown = m.attackCooldownBase;
           sim.emit({ e: 'attack', id }, pos.x, pos.y);
           const hit = biteDamage(owner, m);
-          const dealt = dealDamage(sim, target, hit, id, []);
+          const dealt = dealDamage(sim, target, packetOf('physical', hit), id);
           if (dealt > 0 && m.pack?.role === 'mate') applyPoison(sim, target, hit, id);
         }
       }
@@ -1017,7 +1018,7 @@ function advanceLeap(sim: Simulation, id: EntityId, m: MinionComp, pos: Vec2, ra
   const hit = l.damage * (m.howled > 0 ? 1 + HOUND_PACK.howl.damageBonus : 1);
   for (const [eid, e, ep] of w.query(w.enemy, w.position)) {
     if (!withinHurt(ep.x, ep.y, w.radius.get(eid) ?? 0, e.body, e.facing, pos.x, pos.y, l.radius)) continue;
-    const dealt = dealDamage(sim, eid, hit, id, []);
+    const dealt = dealDamage(sim, eid, packetOf('physical', hit), id);
     if (dealt <= 0) continue;
     applyPoison(sim, eid, hit, id);
     if (!e.boss && !knockbackImmune(e) && !e.leap && !e.dash) e.pinned = Math.max(e.pinned, HOUND_PACK.pinSeconds);

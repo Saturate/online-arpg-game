@@ -2,15 +2,20 @@ import { HEAT, SPELL } from '../../config/sim.js';
 import { CLASSES, type ClassId } from '../../data/classes.js';
 import { affixValue, sigilCapacity, toRuneInstance, type SigilItem } from '../../items/items.js';
 import { affixMultiplier, NEUTRAL_TUNING, releaseCount, type ElementId, type ReleaseTrigger, type SpellNode as EngineNode, type SpellProgram } from '../../sim/program.js';
+import { hasAdded, noAdded, rangeMean, shapeBaseRange, shapeDamage, type AddedDamage, type ShapeDamage } from '../../sim/damage.js';
 import { engineForm, lifetime } from './budget.js';
 import { parseSpell, type SpellNode, type SpellTree } from './parse.js';
 import { DEFAULT_CONTEXT, RULES, type GrammarError, type RuleKey } from './rules.js';
 import {
+  ADDED_DAMAGE_SPREAD,
+  ADDED_KEYS,
   COMBOS,
   CONCENTRATED,
+  INFUSION_IDS,
   DEFAULTS,
   isCastableRune,
   isPersistentShape,
+  isShapeId,
   runeKind,
   runeName,
   type ReleaseKind,
@@ -260,6 +265,24 @@ function steps(value: number, step: number): number {
   return value >= 0 ? up : -HEAT.affixRefundShare * up;
 }
 
+/** An "Adds X to Y" roll as the damage percent it equals on its shape's base hit (a phase 4 shape prices as a Bolt). */
+export function addedPercent(rune: RuneInstance, low: number): number {
+  const base = shapeBaseRange((isShapeId(rune.id) ? engineForm(rune.id) : null) ?? 'bolt');
+  const mean = base ? rangeMean(base) : 0;
+  const average = (low * (1 + ADDED_DAMAGE_SPREAD)) / 2;
+  return mean > 0 ? (100 * average) / mean : 0;
+}
+
+/** The engine's added damage from the parse node's low ends. */
+function addedDamage(node: SpellNode): AddedDamage {
+  const out = noAdded();
+  for (const el of INFUSION_IDS) {
+    const low = node.stats.added[el];
+    if (low > 0) out[el] = { min: low, max: low * ADDED_DAMAGE_SPREAD };
+  }
+  return out;
+}
+
 /**
  * Force of a shape's number affixes, before depth. Speed and size are priced at the affinity of the
  * plain rune they stand for (Swift, Large), everything else at the shape's own.
@@ -277,6 +300,12 @@ function affixForce(rune: RuneInstance, affinity: (id: RuneId) => number): numbe
   // Concentrated's damage is priced like a damage roll of the same size, on top of its base cost.
   // Its area loss gives nothing back: on a Bolt or a lone target it costs the spell almost nothing.
   if (rune.id === 'concentrated') force += steps(a.concentration ?? CONCENTRATED.defaultMore, st.damage) * own;
+  // Added damage is priced like the damage roll it equals on that shape: its average as a share of the
+  // shape's average base hit. Every multiplier scales both alike, so the share holds wherever it lands.
+  for (const el of INFUSION_IDS) {
+    const low = a[ADDED_KEYS[el]];
+    if (low !== undefined && low > 0) force += steps(addedPercent(rune, low), st.damage) * own;
+  }
   return force * HEAT.affixStepForce;
 }
 
@@ -358,10 +387,15 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
   if (node.concentratedAt !== null && !damages) {
     notes.push(`Concentrated (rune ${node.concentratedAt + 1}) only adds damage, and ${runeName(node.shape)} (rune ${node.runeIndex + 1}) deals none: it only shrinks it.`);
   }
+  const added = addedDamage(node);
+  if (hasAdded(added) && !damages) {
+    notes.push(`${runeName(node.shape)} (rune ${node.runeIndex + 1}) deals no damage, so its added damage does nothing.`);
+  }
   const payload = trigger ? node.payload.map((child) => buildNode(child, ctx, notes)) : [];
   return {
     form,
     elements,
+    added,
     effects: [...node.effects],
     copies: node.copies,
     pierce: node.stats.pierce,
@@ -380,6 +414,16 @@ function buildNode(node: SpellNode, ctx: SigilCompileContext, notes: string[]): 
       phase: phase ? 1 : 0,
     },
   };
+}
+
+/**
+ * What one shape of a parsed spell deals on a plain sigil (no sigil affixes), for the sentence: its
+ * rolls, Splits, doubled infusions and Frostfire, as the engine would run it. Null when it deals none
+ * or is not in the engine yet.
+ */
+export function parsedShapeDamage(node: SpellNode): ShapeDamage | null {
+  if (!engineForm(node.shape)) return null;
+  return shapeDamage({ ...buildNode(node, { ...DEFAULT_SIGIL_CONTEXT, classId: 'mage' }, []), payload: [] });
 }
 
 /** Compiles a rune list for a sigil. `force` is filled in on failure too: a dud still costs to cast. */

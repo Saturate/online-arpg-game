@@ -108,10 +108,15 @@ export const SPELL = {
   stackedInfusionBonus: 0.25,
   /** Split payloads released every X s spray outward, rotating this much between releases. */
   pulseRotation: 0.7,
-  bolt: { damage: 16, speed: 520, range: 560, radius: 8 },
+  /**
+   * Each shape's base damage is a physical range rolled on every hit (its implicit, "Deals 12 to 20
+   * physical damage"); infusions convert it. Each range is centred on the single number the shape
+   * dealt before damage packets, so the average hit and every kit's balance stay where they were.
+   */
+  bolt: { damageMin: 12, damageMax: 20, speed: 520, range: 560, radius: 8 },
   /** Slow and big, and it rolls through enemies unless it bursts on hit. */
-  orb: { damage: 16, speed: 286, range: 728, radius: 16 },
-  nova: { damage: 14, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
+  orb: { damageMin: 12, damageMax: 20, speed: 286, range: 728, radius: 16 },
+  nova: { damageMin: 10, damageMax: 18, radius: 130, durationSeconds: 0.3, heal: 25, shield: 30 },
   /**
    * Live spell entities, weighted by what they cost the server each tick: a projectile or a nova
    * checks every enemy, player and minion each tick, a zone only on its damage tick. `max` is per
@@ -121,8 +126,8 @@ export const SPELL = {
    */
   liveCap: { max: 40, roomMax: 320, projectile: 1, nova: 1, zone: 0.35 },
   // One caster's zones do not stack on a target, so a single zone carries the damage by itself.
-  zone: { damage: 14, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
-  dash: { damage: 12, distance: 190, ticks: 4, hitRadius: 26 },
+  zone: { damageMin: 10, damageMax: 18, radius: 95, durationSeconds: 3, tickSeconds: 0.5, heal: 5, shield: 8 },
+  dash: { damageMin: 9, damageMax: 15, distance: 190, ticks: 4, hitRadius: 26 },
   /**
    * What one plain-rune step of each number affix is worth, for pricing affixes (HEAT.affixStepForce).
    * Speed is x1.5 on a projectile and x1.3 on a dash (the v1 Swift rune), size x1.5 (Large),

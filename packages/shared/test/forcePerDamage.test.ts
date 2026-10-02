@@ -79,7 +79,7 @@ function span(id: AffixId, top = false): [number, number] {
  * runes (40 to 60%, at most one on a shape) and sometimes a Large beside them. With `top`, every
  * number affix rolls in its T1 range.
  */
-function randomSpell(rnd: () => number, concentrated = false, top = false): { text: string; multicast: number } {
+function randomSpell(rnd: () => number, concentrated = false, top = false, added = false): { text: string; multicast: number } {
   const pick = <T,>(list: readonly T[], fallback: T): T => list[Math.floor(rnd() * list.length)] ?? fallback;
   const between = (lo: number, hi: number): number => lo + rnd() * (hi - lo);
   const pct = (id: AffixId): string => `+${Math.round(between(...span(id, top)))}%`;
@@ -92,6 +92,15 @@ function randomSpell(rnd: () => number, concentrated = false, top = false): { te
     nova: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_size')} size`],
     dash: [() => `${pct('rune_damage')} damage`, () => `${pct('rune_speed')} speed`],
   };
+  if (added) {
+    // "Adds X to Y" rolls: whole low ends anywhere in their tables, the high end twice it.
+    const adds = (el: 'fire' | 'cold' | 'lightning'): (() => string) => () => {
+      const [lo, hi] = span(`rune_added_${el}`, top);
+      return `adds ${lo + Math.floor(rnd() * (hi - lo + 1))} ${el}`;
+    };
+    // One damage affix per shape: the damage roll or one added element, as drops roll them.
+    for (const pool of Object.values(numbers)) pool[0] = pick([pool[0] ?? adds('fire'), adds('fire'), adds('cold'), adds('lightning')], adds('fire'));
+  }
   const every = (): string => `every ${between(...span('release_every', top)).toFixed(2)}s`;
   const after = (): string => `after ${between(...span('release_after')).toFixed(1)}s`;
   const releases: Record<string, readonly string[]> = {
@@ -179,6 +188,7 @@ const RANDOM_SPELLS = 300;
 const RANDOM_SEED = 20260930;
 const CONCENTRATED_SEED = 20261001;
 const T1_SEED = 20261002;
+const ADDED_SEED = 20261003;
 
 describe('damage per Force', () => {
   const starters = STARTER_SIGILS.map((def) => ({ id: def.id, r: measureStarter(def) })).filter((s) => s.r.kind === 'damage');
@@ -245,13 +255,15 @@ describe('damage per Force', () => {
     { what: 'random spells', seed: RANDOM_SEED, concentrated: false },
     { what: 'random spells with Concentrated', seed: CONCENTRATED_SEED, concentrated: true },
     { what: 'random spells of T1 rolls only', seed: T1_SEED, concentrated: true, top: true },
+    { what: 'random spells with added damage', seed: ADDED_SEED, concentrated: true, added: true },
+    { what: 'random spells with T1 added damage', seed: ADDED_SEED + 1, concentrated: false, top: true, added: true },
   ]) {
     it(`${RANDOM_SPELLS} ${search.what} with in-table affixes stay within ${LIMIT}x on their cheapest class`, () => {
       const rnd = seeded(search.seed);
       let measured = 0;
       let worst = { text: '', ratio: 0 };
       for (let i = 0; i < RANDOM_SPELLS; i++) {
-        const { text, multicast } = randomSpell(rnd, search.concentrated, search.top === true);
+        const { text, multicast } = randomSpell(rnd, search.concentrated, search.top === true, search.added === true);
         const found = cheapest(text, multicast);
         if (!found) continue;
         measured++;

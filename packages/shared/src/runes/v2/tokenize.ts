@@ -1,4 +1,4 @@
-import { COUNT_AFFIX, isRuneId, runeName, type Release, type RuneAffixes, type RuneId, type RuneInstance } from './runes.js';
+import { ADDED_DAMAGE_SPREAD, ADDED_KEYS, COUNT_AFFIX, INFUSION_IDS, isInfusionId, isRuneId, runeName, type Release, type RuneAffixes, type RuneId, type RuneInstance } from './runes.js';
 import { RULES, type GrammarError } from './rules.js';
 
 export interface RuneToken {
@@ -79,6 +79,15 @@ function applyAffix(raw: string, a: RuneAffixes): boolean {
   const release = parseRelease(item);
   if (release) {
     a.release = release;
+    return true;
+  }
+  // "adds 4 fire" or "adds 4 to 8 fire": the high end is fixed by the low (ADDED_DAMAGE_SPREAD).
+  const added = new RegExp(String.raw`^adds?\s+${NUM}(?:\s+to\s+${NUM})?\s+(\w+)(?:\s+damage)?$`).exec(item);
+  if (added?.[1] && added[3] && isInfusionId(added[3])) {
+    const low = Number(added[1]);
+    if (added[2] !== undefined && Math.abs(Number(added[2]) - low * ADDED_DAMAGE_SPREAD) > 1e-9) return false;
+    const key = ADDED_KEYS[added[3]];
+    a[key] = (a[key] ?? 0) + low;
     return true;
   }
   const word = WORD_AFFIXES[item];
@@ -219,6 +228,10 @@ export function formatRunes(runes: readonly RuneInstance[]): string {
       for (const key of PERCENT_WORDS) {
         const v = a[key];
         if (v !== undefined) items.push(`${v > 0 ? '+' : ''}${v}% ${key}`);
+      }
+      for (const el of INFUSION_IDS) {
+        const v = a[ADDED_KEYS[el]];
+        if (v !== undefined) items.push(`adds ${v} to ${Number((v * ADDED_DAMAGE_SPREAD).toFixed(6))} ${el}`);
       }
       const count = COUNT_AFFIX[r.id];
       let suffix = '';

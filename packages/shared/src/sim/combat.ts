@@ -3,6 +3,7 @@ import { CLASSES } from '../data/classes.js';
 import { ENEMIES } from '../data/enemies.js';
 import { MINION_DEFS } from '../data/minions.js';
 import type { ElementId } from './program.js';
+import { hitElement, packetOf, packetTotal, type DamagePacket } from './damage.js';
 import { affixValue } from '../items/items.js';
 import type { EntityId, Team } from './ecs.js';
 import { alertPack, knockbackImmune, onEnemyDeath } from './enemies.js';
@@ -50,17 +51,31 @@ export interface DamageOptions {
   /** DoT and aura ticks: no floating number, no ailment re-application. */
   quiet?: boolean;
   ignoreArmor?: boolean;
+  /**
+   * Ailments the hit applies, from the infusions it carries (or a monster attack's element). Added
+   * damage and burn, poison and aura ticks bring none, so they are not taken from the packet's types.
+   */
+  ailments?: readonly ElementId[];
 }
 
-export function dealDamage(
-  sim: Simulation,
-  targetId: EntityId,
-  raw: number,
-  sourceId: EntityId,
-  elements: readonly ElementId[],
-  opts: DamageOptions = {},
-): number {
+/** One hit as `dealDamage` saw it, for `Simulation.damageTap`. */
+export interface DamageRecord {
+  targetId: EntityId;
+  sourceId: EntityId;
+  /** The packet as it arrived, before curse, shock, armour, wards and shields. */
+  packet: Readonly<DamagePacket>;
+  /** Life it took (after everything), the number `dealDamage` returns. */
+  dealt: number;
+  quiet: boolean;
+}
+
+/**
+ * Lands a hit. Every modifier still applies to the packet's total, since nothing resists a type yet;
+ * the packet's types colour the floating number and reach `Simulation.damageTap`.
+ */
+export function dealDamage(sim: Simulation, targetId: EntityId, packet: Readonly<DamagePacket>, sourceId: EntityId, opts: DamageOptions = {}): number {
   const w = sim.world;
+  const raw = packetTotal(packet);
   if (sim.mapDef.safe || raw <= 0 || !isTargetable(sim, targetId)) return 0;
   const h = w.health.get(targetId);
   const pos = w.position.get(targetId);
@@ -94,10 +109,14 @@ export function dealDamage(
     attacker.focusTarget = targetId;
     attacker.focusTick = sim.tick;
   }
+  const ailments = opts.ailments ?? [];
   if (!opts.quiet) {
-    sim.emit({ e: 'dmg', id: targetId, amt: Math.round(amount), x: pos.x, y: pos.y, el: elements[0] ?? null }, pos.x, pos.y);
-    if (elements.length > 0) applyAilments(sim, targetId, raw, elements, sourceId);
+    sim.emit({ e: 'dmg', id: targetId, amt: Math.round(amount), x: pos.x, y: pos.y, el: hitElement(packet) }, pos.x, pos.y);
+    // Ailment strength follows the whole hit, as it did with one number per hit; with resistances it
+    // may move to the element's own share.
+    if (ailments.length > 0) applyAilments(sim, targetId, raw, ailments, sourceId);
   }
+  sim.damageTap?.({ targetId, sourceId, packet, dealt: amount, quiet: opts.quiet === true });
 
   const src = w.minion.get(sourceId);
   if (src && amount > 0) {
@@ -236,7 +255,7 @@ function kill(sim: Simulation, id: EntityId, sourceId: EntityId | null = null): 
       const r2 = MINIONS.explodeRadius * MINIONS.explodeRadius;
       for (const [eid] of w.enemy) {
         const ep = w.position.get(eid);
-        if (ep && distSq(pos.x, pos.y, ep.x, ep.y) <= r2) dealDamage(sim, eid, dmg, id, ['fire']);
+        if (ep && distSq(pos.x, pos.y, ep.x, ep.y) <= r2) dealDamage(sim, eid, packetOf('fire', dmg), id, { ailments: ['fire'] });
       }
     }
     const owner = w.player.get(m.ownerId);
@@ -256,13 +275,13 @@ export function updateStatuses(sim: Simulation, dt: number): void {
   for (const [id, st] of w.status) {
     if (!w.isAlive(id)) continue;
     if (st.burn) {
-      dealDamage(sim, id, st.burn.dps * dt, st.burn.sourceId, ['fire'], { quiet: true });
+      dealDamage(sim, id, packetOf('fire', st.burn.dps * dt), st.burn.sourceId, { quiet: true });
       st.burn.t -= dt;
       if (st.burn.t <= 0) st.burn = null;
     }
     if (st.poison.length > 0) {
       for (const s of st.poison) {
-        dealDamage(sim, id, s.dps * dt, s.sourceId, [], { quiet: true });
+        dealDamage(sim, id, packetOf('poison', s.dps * dt), s.sourceId, { quiet: true });
         s.t -= dt;
       }
       st.poison = st.poison.filter((s) => s.t > 0);

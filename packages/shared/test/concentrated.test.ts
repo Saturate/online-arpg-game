@@ -132,7 +132,7 @@ describe('Concentrated in the grammar', () => {
   it('reads back in the sentence, the bracket view and the text form', () => {
     const r = parseSpellText('nova concentrated(55) lightning');
     if (!r.tree) throw new Error('no tree');
-    expect(describeTree(r.tree)).toBe('Casts a small lightning nova, concentrated for 55% more damage.');
+    expect(describeTree(r.tree)).toBe('Casts a small lightning nova, concentrated for 55% more damage. Deals 16 to 28 lightning damage.');
     expect(bracketTree(r.tree)).toBe('Nova[small, lightning, 55% more damage]');
     const half = parseSpellText('zone concentrated(40.5)');
     if (!half.tree) throw new Error('no tree');

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addXp, createGear, createVessel, levelRequirement, monsterXp, PROGRESSION, Simulation, xpToNext, type GearItem } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 
 function player(sim: Simulation, id: number) {
@@ -57,7 +58,7 @@ describe('progression', () => {
     sim.world.position.set(stranger, { x: pos.x - 50, y: pos.y });
     sim.world.position.set(far, { x: pos.x + PROGRESSION.partyRange + 400, y: pos.y });
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1e9, a, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), a);
     const each = (base() * (1 + PROGRESSION.partyBonusPerMember)) / 2;
     expect(player(sim, a).xp).toBeCloseTo(each);
     expect(player(sim, b).xp).toBeCloseTo(each);
@@ -73,7 +74,7 @@ describe('progression', () => {
     const pos = at(sim, a);
     sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1e9, a, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), a);
     expect(player(sim, a).xp).toBeCloseTo(base());
     expect(player(sim, b).xp).toBe(0);
   });
@@ -86,7 +87,7 @@ describe('progression', () => {
     player(sim, b).respawnIn = 3;
     const pos = at(sim, a);
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1e9, a, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), a);
     expect(player(sim, a).xp).toBeCloseTo(base());
     expect(player(sim, b).xp).toBe(0);
   });
@@ -108,7 +109,7 @@ describe('progression', () => {
     sim.world.position.set(bystander, { x: pos.x + 40, y: pos.y });
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
     const before = p.xp;
-    dealDamage(sim, eid, 1e9, minion, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), minion);
     expect(p.xp - before).toBeCloseTo(base());
     expect(player(sim, bystander).xp).toBe(0);
   });
@@ -121,16 +122,16 @@ describe('progression', () => {
     sim.world.position.set(b, { x: pos.x + 50, y: pos.y });
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
     const other = spawnEnemy(sim, 'chaser', pos.x + 120, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1, a, []);
-    dealDamage(sim, eid, 3, b, []);
+    dealDamage(sim, eid, packetOf('physical', 1), a);
+    dealDamage(sim, eid, packetOf('physical', 3), b);
     // Another monster lands the killing blow, as a monster's hazard or a reflected shot would.
-    dealDamage(sim, eid, 1e9, other, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), other);
     expect(sim.world.isAlive(eid)).toBe(false);
     expect(player(sim, b).xp).toBeCloseTo(base());
     expect(player(sim, a).xp).toBe(0);
 
     const untouched = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, untouched, 1e9, other, []);
+    dealDamage(sim, untouched, packetOf('physical', 1e9), other);
     expect(player(sim, b).xp).toBeCloseTo(base());
     expect(player(sim, a).xp).toBe(0);
   });
@@ -142,7 +143,7 @@ describe('progression', () => {
     const pos = sim.world.position.get(a);
     if (!pos) throw new Error('no pos');
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1e9, a, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), a);
     expect(sim.world.player.get(a)?.xp).toBeCloseTo(monsterXp({ level: 1, rare: false, boss: false }) * 3);
   });
 
@@ -154,7 +155,7 @@ describe('progression', () => {
     if (!p || !pos) throw new Error('no player');
     p.level = 30;
     const eid = spawnEnemy(sim, 'chaser', pos.x + 80, pos.y, { rare: false, level: 1, aggro: false });
-    dealDamage(sim, eid, 1e9, pid, []);
+    dealDamage(sim, eid, packetOf('physical', 1e9), pid);
     expect(p.xp).toBeCloseTo(monsterXp({ level: 1, rare: false, boss: false }) * PROGRESSION.grayFloor);
   });
 

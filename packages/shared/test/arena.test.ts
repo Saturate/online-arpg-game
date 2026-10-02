@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ARENA, arenaOver, arenaWave, killScore, monsterXp, partyLevel, seasonOf, Simulation, startArena, waveClearBonus, SIM } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { enemySpawnPoint, spawnEnemy } from '../src/sim/enemies.js';
 
 describe('Arena wave scaling', () => {
@@ -55,15 +56,15 @@ describe('Arena scoring', () => {
     const a = spawnEnemy(arena, 'chaser', 900, 900, { rare: false, level: 1, aggro: false });
     const b = spawnEnemy(normal, 'chaser', 900, 900, { rare: false, level: 1, aggro: false });
     const before = arena.world.player.get(pid)?.xp ?? 0;
-    dealDamage(arena, a, 1e9, pid, []);
-    dealDamage(normal, b, 1e9, other, []);
+    dealDamage(arena, a, packetOf('physical', 1e9), pid);
+    dealDamage(normal, b, packetOf('physical', 1e9), other);
     const gained = (arena.world.player.get(pid)?.xp ?? 0) - before;
     expect(gained).toBeCloseTo((normal.world.player.get(other)?.xp ?? 0) * ARENA.xpMultiplier, 6);
     arena.step();
     expect(arena.world.loot.size).toBe(0);
 
     expect(arenaOver(arena)).toBe(false);
-    dealDamage(arena, pid, 1e9, pid, []);
+    dealDamage(arena, pid, packetOf('physical', 1e9), pid);
     for (let i = 0; i < (SIM.playerRespawnSeconds + 2) * SIM.tickRate; i++) arena.step();
     expect(arena.world.player.get(pid)?.respawnIn).not.toBeNull();
     expect(arenaOver(arena)).toBe(true);
@@ -72,7 +73,7 @@ describe('Arena scoring', () => {
   it('still respawns outside Arena runs', () => {
     const sim = new Simulation(3, { kind: 'arena' });
     const pid = sim.addPlayer('c', 'warrior');
-    dealDamage(sim, pid, 1e9, pid, []);
+    dealDamage(sim, pid, packetOf('physical', 1e9), pid);
     for (let i = 0; i < (SIM.playerRespawnSeconds + 1) * SIM.tickRate; i++) sim.step();
     expect(sim.world.player.get(pid)?.respawnIn).toBeNull();
   });

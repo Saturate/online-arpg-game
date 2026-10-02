@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { freshWorld, gateBoss, gateSeal, gateTimers, loadMap, NET, PROGRESSION, rememberWorld, respawnGateBoss, restoreWorld, respawnTicks, setRespawnTimes, SIM, Simulation, stepPlayer, type GateInfo, type MoveState, type Vec2 } from '../src/index.js';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 
 const DESC = { kind: 'world', seed: 3 } as const;
 
@@ -151,7 +152,7 @@ describe('gate bosses', () => {
     expect(e?.typeId).toBe(g.boss);
     expect(e?.level).toBe(g.level);
     sim.takeEvents();
-    dealDamage(sim, boss, 1e9, a, []);
+    dealDamage(sim, boss, packetOf('physical', 1e9), a);
     sim.step();
     expect(player(sim, a).gates).toEqual([g.id]);
     expect(player(sim, b).gates).toEqual([g.id]);
@@ -172,7 +173,7 @@ describe('gate bosses', () => {
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
     if (first === null) throw new Error('no gate boss');
-    dealDamage(sim, first, 1e9, a, []);
+    dealDamage(sim, first, packetOf('physical', 1e9), a);
     for (let i = 0; i < 50; i++) sim.step();
     expect(gateBoss(sim, g.id)).toBeNull();
     // Due, but a newcomer the gate is sealed to stands within view of the boss's spot: it waits rather
@@ -190,7 +191,7 @@ describe('gate bosses', () => {
     expect(second).not.toBe(first);
     // Killed again by someone who already has the gate: it opens nothing new and comes back the same way.
     if (second === null) return;
-    dealDamage(sim, second, 1e9, a, []);
+    dealDamage(sim, second, packetOf('physical', 1e9), a);
     expect(player(sim, a).gates).toEqual([g.id]);
     setRespawnTimes(sim, { respawnMinutes: 10, bossRespawnMinutes: 240, gateRespawnMinutes: 30 });
     respawnGateBoss(sim, g.id);
@@ -211,7 +212,7 @@ describe('gate bosses', () => {
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
     if (first === null) throw new Error('no gate boss');
-    dealDamage(sim, first, 1e9, a, []);
+    dealDamage(sim, first, packetOf('physical', 1e9), a);
     expect(player(sim, a).gates).toEqual([g.id]);
     // Well past the region bosses' three seconds (60 ticks).
     for (let i = 0; i < 200; i++) sim.step();
@@ -274,7 +275,7 @@ describe('gate bosses', () => {
     for (let i = 0; i < 6; i++) sim.step();
     const first = gateBoss(sim, g.id);
     if (first === null) throw new Error('no gate boss');
-    dealDamage(sim, first, 1e9, a, []);
+    dealDamage(sim, first, packetOf('physical', 1e9), a);
     for (let i = 0; i < 100; i++) sim.step();
     const memory = rememberWorld(sim);
     expect(memory.gates).toEqual([expect.objectContaining({ id: g.id, boss: g.boss })]);

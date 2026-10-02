@@ -56,7 +56,7 @@ function child(node: SpellNode, i = 0): SpellNode {
 describe('plan examples', () => {
   it('winter orb: slow cold orb pulsing four small bolts', () => {
     const r = ok('Orb[slow, every 0.2s] Cold Split(4) Bolt[small]');
-    expect(r.sentence).toBe('Fires a slow cold orb. Every 0.2 s it releases 4 small bolts.');
+    expect(r.sentence).toBe('Fires a slow cold orb. Deals 12 to 20 cold damage. Every 0.2 s it releases 4 small bolts. Each bolt deals 4 to 6 cold damage.');
     expect(r.bracket).toBe('Orb[slow, cold] { every 0.2s: Split4 Bolt[small] }');
     const orb = r.tree.roots[0];
     expect(orb?.copies).toBe(1);
@@ -80,7 +80,7 @@ describe('plan examples', () => {
   it('linked balls: split and link stay on the orb', () => {
     const r = ok('Orb Lightning Split(3) Link');
     expect(r.bracket).toBe('Split3 Orb[lightning, link]');
-    expect(r.sentence).toBe('Fires 3 lightning orbs, linked by beams.');
+    expect(r.sentence).toBe('Fires 3 lightning orbs, linked by beams. Each deals 5 to 8 lightning damage.');
     expect(r.tree.roots[0]?.linked).toBe(true);
     expect(r.stats.peakEntities).toBe(5);
   });
@@ -90,7 +90,7 @@ describe('plan examples', () => {
     const r = ok(text, { multicast: 2 });
     expect(r.bracket).toBe('Orb[fire] { on expire: Split6 Orb[homing] { on hit: Nova + Zone[long] } }');
     expect(r.sentence).toBe(
-      'Fires a fire orb. When it expires it releases 6 homing orbs. On hit each releases a nova and a long-lasting zone at once.',
+      'Fires a fire orb. Deals 12 to 20 fire damage. When it expires it releases 6 homing orbs. Each orb deals 2 to 4 fire damage. On hit each releases a nova and a long-lasting zone at once. The nova deals 10 to 18 fire damage. The zone deals 10 to 18 fire damage every 0.5 s.',
     );
     expect(r.stats.depth).toBe(2);
     const zone = child(child(first(r.tree.roots)), 1);
@@ -104,7 +104,7 @@ describe('plan examples', () => {
     const r = ok('Orb[onhit, -15% speed, +30% damage] Fire Nova[after 0.5s] Zone[long]');
     expect(r.bracket).toBe('Orb[slow, fire, +30% damage] { on hit: Nova { after 0.5s: Zone[long] } }');
     expect(r.sentence).toBe(
-      'Fires a slow fire orb, with +30% damage. On hit it releases a nova. After 0.5 s it releases a long-lasting zone.',
+      'Fires a slow fire orb, with +30% damage. Deals 16 to 26 fire damage. On hit it releases a nova. The nova deals 10 to 18 fire damage. After 0.5 s it releases a long-lasting zone. The zone deals 10 to 18 fire damage every 0.5 s.',
     );
   });
 
@@ -122,7 +122,7 @@ describe('plan examples', () => {
 
   it('frost trap: the nova inherits cold', () => {
     const r = ok('Trap[onhit] Cold Nova[large]');
-    expect(r.sentence).toBe('Sets a cold trap. When triggered it releases a large nova.');
+    expect(r.sentence).toBe('Sets a cold trap. When triggered it releases a large nova. The nova deals 10 to 18 cold damage.');
     const nova = child(first(r.tree.roots));
     expect(nova.infusions).toEqual([]);
     expect(nova.effectiveInfusions).toEqual(['cold']);
@@ -131,7 +131,7 @@ describe('plan examples', () => {
   it('beam + charge: charge stays on the beam, split goes to the bolts', () => {
     const r = ok('Beam[onrelease] Charge(3) Split(3) Bolt');
     expect(r.bracket).toBe('Beam[charge3] { on release: Split3 Bolt }');
-    expect(r.sentence).toBe('Hold to charge (3 stages), then release: channels a charged beam. When you let go it releases 3 bolts.');
+    expect(r.sentence).toBe('Hold to charge (3 stages), then release: channels a charged beam. When you let go it releases 3 bolts. Each bolt deals 5 to 8 physical damage.');
   });
 
   it('every example spell parses as its note says', () => {
@@ -209,7 +209,7 @@ describe('ambiguous cases', () => {
 
   it('Dash mid-list: cast together counts against multicast, and never as a payload', () => {
     errorAt('Bolt Dash', 'multicast', 1);
-    expect(ok('Bolt Dash', { multicast: 2 }).sentence).toBe('Fires a bolt and performs a dash at once.');
+    expect(ok('Bolt Dash', { multicast: 2 }).sentence).toBe('Fires a bolt and performs a dash at once. The bolt deals 12 to 20 physical damage. The dash deals 9 to 15 physical damage.');
     errorAt('Orb[onhit] Dash', 'dash-root-only', 1);
   });
 
@@ -229,7 +229,7 @@ describe('ambiguous cases', () => {
 
   it('charge works on a nova', () => {
     const r = ok('Nova Charge');
-    expect(r.sentence).toBe('Hold to charge (3 stages), then release: casts a charged nova.');
+    expect(r.sentence).toBe('Hold to charge (3 stages), then release: casts a charged nova. Deals 10 to 18 physical damage.');
   });
 
   it('chain does not work on a zone', () => {

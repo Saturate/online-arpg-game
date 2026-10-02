@@ -1,5 +1,5 @@
 import type { GearCategory } from './gear.js';
-import { CASTABLE_SHAPES, isPersistentShape, PROJECTILE_SHAPES, TRIGGERS_FOR_SHAPE, type ReleaseKind, type RuneId, type ShapeId } from '../runes/v2/runes.js';
+import { ADDED_DAMAGE_SPREAD, CASTABLE_SHAPES, isPersistentShape, PROJECTILE_SHAPES, TRIGGERS_FOR_SHAPE, type InfusionId, type ReleaseKind, type RuneId, type ShapeId } from '../runes/v2/runes.js';
 
 export type AffixTarget = 'sigil' | 'vessel' | 'enemy' | 'gear' | 'rune';
 export type AffixSlot = 'prefix' | 'suffix';
@@ -36,6 +36,8 @@ export interface AffixDef {
   runes?: readonly RuneId[];
   /** Shown with a sign ("-64% speed"), because old kit runes from saves go below zero. */
   signed?: boolean;
+  /** `{v2}` in the text is the value times this: the high end of an "Adds {v} to {v2}" roll. */
+  spread?: number;
 }
 
 export const AFFIX_IDS = [
@@ -85,6 +87,9 @@ export const AFFIX_IDS = [
   'rune_pierce',
   'split_count',
   'rune_concentrated',
+  'rune_added_fire',
+  'rune_added_cold',
+  'rune_added_lightning',
 ] as const;
 export type AffixId = (typeof AFFIX_IDS)[number];
 
@@ -438,6 +443,13 @@ function buildAffixes(): Record<AffixId, AffixDef> {
       // The grammar stops at 60% (CONCENTRATED.maxMore), so T1 cannot go past T2's best.
       tiers: runeTiers([[40, 43], [44, 47], [48, 51], [52, 55], [56, 60], [60, 60]]),
     },
+    // Flat elemental damage on every hit, on top of the shape's base range and without converting it
+    // (docs/features/runes.md, "Damage packets"). The roll is the low end; the high end is twice it.
+    // Its average, 1.5x the roll, is about the share of a 16-damage Bolt hit the damage affix's tier
+    // gives (T6 1 to 2 is +9 to 19%, T1 7 to 9 is +66 to 84%); Force prices it per shape.
+    rune_added_fire: addedAffix('rune_added_fire', 'fire', 'Smouldering'),
+    rune_added_cold: addedAffix('rune_added_cold', 'cold', 'Rimed'),
+    rune_added_lightning: addedAffix('rune_added_lightning', 'lightning', 'Crackling'),
     coward: {
       id: 'coward',
       text: 'Coward: retreats at low life to heal',
@@ -516,6 +528,22 @@ function runeAffix(id: AffixId, text: string, nameWord: string, runes: readonly 
     signed: true,
     tiers: runeTiers(ranges),
   };
+}
+
+function addedAffix(id: AffixId, element: InfusionId, nameWord: string): AffixDef {
+  return {
+    ...runeAffix(id, `Adds {v} to {v2} ${element} damage`, nameWord, shapesWhere((s) => !isPersistentShape(s)), [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [7, 9]]),
+    // One damage affix per rune: a damage roll or one added element (the grammar holds a shape to
+    // the same). Stacked with a damage roll, adds doubled the most a shape could hit per Force.
+    group: 'rune_damage',
+    signed: false,
+    spread: ADDED_DAMAGE_SPREAD,
+  };
+}
+
+/** An affix's line with its value filled in, both ends for an "Adds X to Y" roll. */
+export function affixText(def: AffixDef, value: string, high: string): string {
+  return def.text.replace('{v}', value).replace('{v2}', high);
 }
 
 /** A roll's tier as players read it, counted from the best: the top tier is T1. */

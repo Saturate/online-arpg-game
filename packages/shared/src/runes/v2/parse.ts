@@ -1,7 +1,9 @@
 import { SPELL } from '../../config/sim.js';
 import { measureBudget } from './budget.js';
 import {
+  ADDED_KEYS,
   AFFIX_KEYS,
+  INFUSION_IDS,
   affixesFor,
   CONCENTRATED,
   DEFAULTS,
@@ -57,6 +59,8 @@ export interface NodeStats {
   homing: number;
   /** Percent more damage from the shape's Concentrated rune, 0 without one. */
   concentration: number;
+  /** Low ends of the shape's "Adds X to Y" rolls per element, 0 without one (ADDED_DAMAGE_SPREAD gives the high end). */
+  added: Record<InfusionId, number>;
 }
 
 export interface SpellNode {
@@ -117,7 +121,7 @@ function newNode(runeIndex: number, shape: ShapeId, depth: number): SpellNode {
     effectiveInfusions: [],
     effects: [],
     shapers: [],
-    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0 },
+    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0, added: { fire: 0, cold: 0, lightning: 0 } },
     copies: 1,
     linked: false,
     concentratedAt: null,
@@ -332,6 +336,19 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         // Matches the drop table (rune_damage never rolls on Aura or Bond): spirit does not price damage.
         if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry a damage affix.`);
         else node.stats.damage += a.damage;
+      }
+      // A shape takes one damage affix: a damage roll or one added element, as a drop rolls at most one
+      // (they share an affix group). Stacked, T1 adds and a T1 damage roll put a Bolt near 4x the best
+      // kit's damage per Force, twice the old ceiling.
+      const damageAffixes = (a.damage !== undefined ? 1 : 0) + INFUSION_IDS.filter((el) => a[ADDED_KEYS[el]] !== undefined).length;
+      if (damageAffixes > 1) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} carries ${damageAffixes} damage affixes; a shape takes one: a damage roll or one added element.`);
+      for (const el of INFUSION_IDS) {
+        const v = a[ADDED_KEYS[el]];
+        if (v === undefined) continue;
+        // Like a damage affix: spirit prices no damage, so persistent shapes take none.
+        if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry added ${el} damage.`);
+        else if (v < 0) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} cannot add less than no ${el} damage.`);
+        else node.stats.added[el] += v;
       }
       if (a.pierce !== undefined) {
         if (PROJECTILE_SHAPES.includes(shape)) node.stats.pierce += a.pierce;

@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dealDamage } from '../../../packages/shared/src/sim/combat.js';
+import { packetOf } from '../../../packages/shared/src/sim/damage.js';
 import { AccountStore } from '../src/accounts.js';
 import { AccountApi } from '../src/http.js';
 import { RoomManager } from '../src/manager.js';
@@ -124,7 +125,7 @@ describe('Arena runs', () => {
     untilWave(rooms, room, 1);
     const killed: EnemyComp[] = [...sim.world.enemy.values()].map((e) => ({ ...e }));
     expect(killed.length).toBeGreaterThanOrEqual(ARENA.baseCount);
-    for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, 1e9, pid, []);
+    for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, packetOf('physical', 1e9), pid);
     rooms.tick();
     expect(sim.world.loot.size).toBe(0);
     expect(p.gold).toBe(goldBefore);
@@ -146,11 +147,11 @@ describe('Arena runs', () => {
     const sim = room.sim;
     const pid = welcome(a).playerId;
     untilWave(rooms, room, 1);
-    for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, 1e9, pid, []);
+    for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, packetOf('physical', 1e9), pid);
     untilWave(rooms, room, 2);
     const score = sim.arena?.score ?? 0;
     const xp = sim.world.player.get(pid)?.xp ?? 0;
-    dealDamage(sim, pid, 1e9, pid, []);
+    dealDamage(sim, pid, packetOf('physical', 1e9), pid);
     ticks(rooms, SIM.playerRespawnSeconds + 1);
     // Still down, well past the normal respawn.
     expect(sim.world.player.get(pid)?.respawnIn).not.toBeNull();
@@ -183,7 +184,7 @@ describe('Arena runs', () => {
     expect(welcome(b).map.kind).toBe('world');
     rooms.tick();
     expect(a.last('arenaResult')).toBeUndefined();
-    dealDamage(room.sim, welcome(a).playerId, 1e9, welcome(a).playerId, []);
+    dealDamage(room.sim, welcome(a).playerId, packetOf('physical', 1e9), welcome(a).playerId);
     rooms.tick();
     expect(a.last('arenaResult')).toMatchObject({ board: 'party', wave: 1 });
     expect(store.leaderboard(seasonOf(Date.now())).party).toEqual([expect.objectContaining({ names: ['Hero0', 'Hero1'], partySize: 2 })]);
@@ -199,7 +200,7 @@ describe('Arena runs', () => {
     const warband = (): number => [...room.sim.world.minion.values()].filter((m) => m.ownerId === pid).length;
     untilWave(rooms, room, 1);
     expect(warband()).toBeGreaterThan(0);
-    dealDamage(room.sim, pid, 1e9, pid, []);
+    dealDamage(room.sim, pid, packetOf('physical', 1e9), pid);
     rooms.tick();
     expect(warband()).toBe(0);
     ticks(rooms, SIM.playerRespawnSeconds + 1);

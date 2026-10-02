@@ -25,6 +25,7 @@ import { distSq, type Vec2 } from './math.js';
 import { despawnMinion } from './minions.js';
 import { gateSeal } from './gates.js';
 import { stepPlayer } from './movement.js';
+import type { DamageRecord } from './combat.js';
 import { Rng } from './rng.js';
 import { castSkill, updateDashSpell } from './spells.js';
 import { computeStats, baseStats } from './stats.js';
@@ -128,7 +129,9 @@ export class Simulation {
   readonly world = new World();
   readonly rng: Rng;
   /** Per-system random streams; see `Rng.stream`. */
-  readonly rand: { loot: Rng; combat: Rng; world: Rng };
+  readonly rand: { loot: Rng; combat: Rng; world: Rng; damage: Rng };
+  /** Sees every hit `dealDamage` lands, with its packet; tests and tools set it, the game never does. */
+  damageTap: ((hit: DamageRecord) => void) | null = null;
   readonly seed: number;
   readonly map: GameMap;
   readonly mapDef: WorldMap;
@@ -176,7 +179,7 @@ export class Simulation {
     this.rates = { ...rates };
     this.rules = { bench: mapDesc.kind === 'flat', waves: true, ...rules };
     this.rng = new Rng(seed);
-    this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world') };
+    this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world'), damage: Rng.stream(seed, 'damage') };
     this.mapDesc = mapDesc;
     const loaded = loadMap(mapDesc);
     this.map = loaded.game;

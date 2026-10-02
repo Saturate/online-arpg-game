@@ -1,23 +1,21 @@
 import { HEAT, MINIONS, SIM, SPELL } from '../config/sim.js';
 import { castCooldownSeconds, misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
-import { projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
+import { isOffensive, projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
 import { acquireLink } from './auras.js';
 import { withinCollider, withinHurt, withinHurtOf } from './body.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
+import { emptyPacket, hitRanges, meanPacket, packetTotal, rollHit, scalePacket, shapeBaseRange, type DamagePacket } from './damage.js';
 import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
 import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
 
+export { isOffensive };
+
 /** Reflected projectiles hit players for at most this much, so a big spell bounced back is not a one-shot. */
 const REFLECT_DAMAGE_CAP = 12;
 const REFLECT_LIFETIME = 1.5;
-
-export function isOffensive(node: SpellNode): boolean {
-  if (node.elements.length > 0 || node.effects.includes('impact')) return true;
-  return !node.effects.includes('restore') && !node.effects.includes('ward');
-}
 
 export function spellFx(node: SpellNode): SpellFx {
   const offensive = isOffensive(node);
@@ -31,11 +29,26 @@ export function spellFx(node: SpellNode): SpellFx {
 /** Float slack for timers counted down in 0.05 s ticks, so 0.5 s is ten ticks and not eleven. */
 const TIME_EPS = 1e-6;
 
-function spellDamage(sim: Simulation, node: SpellNode, casterId: EntityId, base: number): number {
+/** Everything that multiplies a spell's whole packet: the node's scale and damage tuning, Frostfire, Bond elements and gear. */
+function spellScale(sim: Simulation, node: SpellNode, casterId: EntityId): number {
   const combo = node.combos.includes('frostfire') ? 1 + SPELL.comboDamageBonus : 1;
   const bonus = 1 + (sim.world.buffs.get(casterId)?.elementDamageBonus ?? 0);
   const gear = sim.world.player.get(casterId)?.stats.damageMult ?? 1;
-  return base * node.damageScale * node.tuning.damage * combo * bonus * gear;
+  return node.damageScale * node.tuning.damage * combo * bonus * gear;
+}
+
+/** One hit of a spell node: its shape's base range rolled and converted, its added damage, every multiplier. */
+function spellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
+  const base = shapeBaseRange(node.form);
+  if (!base) return emptyPacket();
+  return scalePacket(rollHit(sim.rand.damage, base, node.elements, node.added), spellScale(sim, node, casterId));
+}
+
+/** A node's average hit, for what a projectile carries once it stops being a spell (a reflect). */
+function averageSpellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
+  const base = shapeBaseRange(node.form);
+  if (!base) return emptyPacket();
+  return scalePacket(meanPacket(hitRanges(base, node.elements, node.added)), spellScale(sim, node, casterId));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -112,7 +125,7 @@ export interface ProjectileSpec {
   speed: number;
   radius: number;
   range: number;
-  damage: number;
+  damage: DamagePacket;
   partial?: Partial<ProjectileComp>;
 }
 
@@ -356,7 +369,7 @@ function spawnForm(
         speed: base.speed * t.speed,
         radius: base.radius * node.areaScale * t.radius,
         range: base.range * t.range,
-        damage: spellDamage(sim, node, casterId, base.damage),
+        damage: averageSpellHit(sim, node, casterId),
         partial: {
           elements: [...node.elements],
           pierceLeft: t.phase > 0 ? Infinity : node.pierce,
@@ -510,8 +523,8 @@ function endSpell(sim: Simulation, inst: SpellInst, x: number, y: number, angle:
 // ---------------------------------------------------------------------------------------------
 // Applying spell effects to targets
 
+/** Heal and shield one touch of the shape gives an ally; its damage is rolled from the node. */
 interface HitAmounts {
-  damage: number;
   heal: number;
   shield: number;
 }
@@ -531,7 +544,7 @@ function applySpellHit(sim: Simulation, inst: SpellInst, targetId: EntityId, fro
     return;
   }
   if (!isOffensive(node)) return;
-  dealDamage(sim, targetId, spellDamage(sim, node, inst.casterId, amounts.damage), inst.casterId, node.elements);
+  dealDamage(sim, targetId, spellHit(sim, node, inst.casterId), inst.casterId, { ailments: node.elements });
   if (node.effects.includes('impact')) knockback(sim, targetId, fromX, fromY, SPELL.forceKnockback);
 }
 
@@ -621,8 +634,8 @@ function hitEnemies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numb
     }
     if (proj.offensive) {
       const inst = proj.spell;
-      if (inst) applySpellHit(sim, inst, eid, x, y, { damage: projectileBase(inst.node.form === 'orb' ? 'orb' : 'bolt').damage, heal: 0, shield: 0 });
-      else dealDamage(sim, eid, proj.damage, proj.ownerId, proj.elements);
+      if (inst) applySpellHit(sim, inst, eid, x, y, { heal: 0, shield: 0 });
+      else dealDamage(sim, eid, proj.damage, proj.ownerId, { ailments: proj.elements });
       if (!inst && proj.knockback > 0) knockback(sim, eid, x, y, proj.knockback);
     }
     if (proj.spell) release(sim, proj.spell, 'onhit', onCollider ? epos.x : x, onCollider ? epos.y : y, angle, proj.hitIds);
@@ -643,7 +656,7 @@ function hitAllies(sim: Simulation, id: EntityId, proj: ProjectileComp, x: numbe
     const reach = r + (w.radius.get(aid) ?? 0);
     if (distSq(x, y, apos.x, apos.y) > reach * reach) continue;
     proj.hitIds.add(aid);
-    applySpellHit(sim, inst, aid, x, y, { damage: 0, heal: SPELL.nova.heal * 0.6, shield: SPELL.nova.shield * 0.6 });
+    applySpellHit(sim, inst, aid, x, y, { heal: SPELL.nova.heal * 0.6, shield: SPELL.nova.shield * 0.6 });
     consumeOrPierce(sim, id, proj, x, y, angle);
     return;
   }
@@ -674,7 +687,7 @@ function hitPlayersSide(sim: Simulation, id: EntityId, proj: ProjectileComp, x: 
     // Distance first: isTargetable is the costlier check and most targets are far from the bullet.
     if (distSq(x, y, tpos.x, tpos.y) > reach * reach) continue;
     if (!isTargetable(sim, tid)) continue;
-    dealDamage(sim, tid, proj.damage, proj.ownerId, proj.elements);
+    dealDamage(sim, tid, proj.damage, proj.ownerId, { ailments: proj.elements });
     w.destroy(id);
     return;
   }
@@ -689,7 +702,9 @@ function reflect(sim: Simulation, id: EntityId, proj: ProjectileComp, enemyId: E
   }
   w.team.set(id, 'enemies');
   proj.ownerId = enemyId;
-  proj.damage = Math.min(proj.damage, REFLECT_DAMAGE_CAP);
+  // Capped on the total, keeping the spell's mix of types.
+  const total = packetTotal(proj.damage);
+  if (total > REFLECT_DAMAGE_CAP) proj.damage = scalePacket(proj.damage, REFLECT_DAMAGE_CAP / total);
   proj.hitIds.clear();
   proj.spell = null;
   proj.heal = 0;
@@ -712,7 +727,7 @@ export function updateNovas(sim: Simulation, dt: number): void {
       if (nova.hitIds.has(tid)) continue;
       if (!withinHurtOf(sim, tid, pos.x, pos.y, radius)) continue;
       nova.hitIds.add(tid);
-      applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.nova.damage, heal: SPELL.nova.heal, shield: SPELL.nova.shield });
+      applySpellHit(sim, inst, tid, pos.x, pos.y, { heal: SPELL.nova.heal, shield: SPELL.nova.shield });
     }
 
     checkTimer(sim, inst, pos.x, pos.y, inst.angle, nova.hitIds);
@@ -774,7 +789,7 @@ export function updateZones(sim: Simulation, dt: number): void {
       for (const tid of areaTargets(sim)) {
         if (!withinHurtOf(sim, tid, pos.x, pos.y, radius)) continue;
         if (!takeZoneTick(sim, tid, kind, zone.tickInterval)) continue;
-        applySpellHit(sim, inst, tid, pos.x, pos.y, { damage: SPELL.zone.damage, heal: SPELL.zone.heal, shield: SPELL.zone.shield });
+        applySpellHit(sim, inst, tid, pos.x, pos.y, { heal: SPELL.zone.heal, shield: SPELL.zone.shield });
       }
     }
     checkTimer(sim, inst, pos.x, pos.y, inst.angle, null);
@@ -803,7 +818,7 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
     if (!withinHurt(epos.x, epos.y, er, enemy.body, enemy.facing, pos.x, pos.y, SPELL.dash.hitRadius)) continue;
     const onCollider = withinCollider(epos.x, epos.y, er, pos.x, pos.y, SPELL.dash.hitRadius);
     ds.hitIds.add(eid);
-    applySpellHit(sim, inst, eid, pos.x, pos.y, { damage: SPELL.dash.damage, heal: 0, shield: 0 });
+    applySpellHit(sim, inst, eid, pos.x, pos.y, { heal: 0, shield: 0 });
     if (!ds.hitFired) {
       ds.hitFired = true;
       release(sim, inst, 'onhit', onCollider ? epos.x : pos.x, onCollider ? epos.y : pos.y, inst.angle, ds.hitIds);

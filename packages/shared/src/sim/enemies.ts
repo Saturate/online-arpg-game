@@ -4,6 +4,7 @@ import { BIOMES, bossFor, monsterPool } from '../data/monsterPools.js';
 import type { ElementId } from './program.js';
 import { affixValue, rollAffixes } from '../items/items.js';
 import { applyPoison, dealDamage, healEntity, isTargetable } from './combat.js';
+import { hitPacket, packetOf, type DamageType } from './damage.js';
 import { sizeBody } from './body.js';
 import { emptyStatus, type EnemyComp, type EntityId } from './ecs.js';
 import { angleDiff, clamp, distSq, type Vec2 } from './math.js';
@@ -238,7 +239,7 @@ function fireBullets(sim: Simulation, id: EntityId, def: EnemyDef, e: EnemyComp,
       speed: def.bulletSpeed,
       radius: def.bulletRadius,
       range: def.bulletRange,
-      damage: def.bulletDamage * e.damageMult,
+      damage: packetOf('physical', def.bulletDamage * e.damageMult),
     });
   }
 }
@@ -420,10 +421,10 @@ function contactHit(sim: Simulation, id: EntityId, e: EnemyComp, def: EnemyDef, 
   e.contactCooldown = def.contactCooldown;
   sim.emit({ e: 'attack', id }, pos.x, pos.y);
   const hit = def.contactDamage * e.damageMult;
-  const dealt = dealDamage(sim, target, hit, id, elements);
+  const dealt = dealDamage(sim, target, hitPacket(hit, elements[0]), id, { ailments: elements });
   if (dealt > 0 && def.behaviour === 'monster' && def.traits.poisonBite) applyPoison(sim, target, hit, id);
   const shield = w.status.get(target)?.shield;
-  if (shield?.burning) dealDamage(sim, id, SPELL.burningWardDamage, target, ['fire']);
+  if (shield?.burning) dealDamage(sim, id, packetOf('fire', SPELL.burningWardDamage), target, { ailments: ['fire'] });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -445,7 +446,7 @@ function targetsInCircle(sim: Simulation, x: number, y: number, r: number): Enti
 
 function hitCircle(sim: Simulation, sourceId: EntityId, x: number, y: number, r: number, damage: number, element: ElementId | undefined, poison = false): void {
   for (const tid of targetsInCircle(sim, x, y, r)) {
-    const dealt = dealDamage(sim, tid, damage, sourceId, element ? [element] : []);
+    const dealt = dealDamage(sim, tid, hitPacket(damage, element), sourceId, { ailments: element ? [element] : [] });
     if (poison && dealt > 0) applyPoison(sim, tid, damage, sourceId);
   }
 }
@@ -463,6 +464,9 @@ function addHazard(sim: Simulation, ownerId: EntityId, x: number, y: number, r: 
   sim.emit({ e: 'hazard', x: Math.round(x), y: Math.round(y), r: Math.round(r), t: duration, kind }, x, y);
 }
 
+/** What a hazard's ground deals; the frost pool chills by itself (below) rather than as a cold hit's ailment. */
+const HAZARD_TYPE: Record<HazardKind, DamageType> = { fire: 'fire', frost: 'cold', poison: 'poison' };
+
 function updateHazards(sim: Simulation, dt: number): void {
   const s = state(sim);
   for (const h of s.hazards) {
@@ -471,7 +475,7 @@ function updateHazards(sim: Simulation, dt: number): void {
     if (h.tick > 0) continue;
     h.tick += HAZARD_TICK;
     for (const tid of targetsInCircle(sim, h.x, h.y, h.r)) {
-      dealDamage(sim, tid, h.dps * HAZARD_TICK, h.ownerId, h.kind === 'fire' ? ['fire'] : []);
+      dealDamage(sim, tid, packetOf(HAZARD_TYPE[h.kind], h.dps * HAZARD_TICK), h.ownerId, { ailments: h.kind === 'fire' ? ['fire'] : [] });
       if (h.kind === 'frost') {
         const st = sim.world.status.get(tid);
         if (st) st.chill = AILMENTS.chill.seconds;
@@ -555,7 +559,7 @@ function advanceMonster(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       for (const tid of targetsInCircle(sim, pos.x, pos.y, radius + d.width / 2)) {
         if (d.hitIds.has(tid)) continue;
         d.hitIds.add(tid);
-        dealDamage(sim, tid, d.damage * e.damageMult, id, []);
+        dealDamage(sim, tid, packetOf('physical', d.damage * e.damageMult), id);
       }
       if (sim.map.pointBlocked(pos.x, pos.y, radius * 0.8, 'move')) {
         d.t = 0;
@@ -758,7 +762,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
           speed: a.speed,
           radius: a.radius,
           range: a.range * 1.2,
-          damage: a.damage * dmg,
+          damage: hitPacket(a.damage * dmg, a.element),
           partial: { elements: a.element ? [a.element] : [] },
         });
         if (a.homing && target !== null) state(sim).homing.set(pid, { targetId: target, turn: a.homing });
@@ -777,7 +781,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
           speed: a.speed,
           radius: a.radius,
           range: a.range,
-          damage: a.damage * dmg,
+          damage: hitPacket(a.damage * dmg, a.element),
           partial: { elements: a.element ? [a.element] : [] },
         });
       }
@@ -811,7 +815,7 @@ function resolveAbility(sim: Simulation, id: EntityId, e: EnemyComp, def: Monste
       sim.emit({ e: 'explode', x: pos.x, y: pos.y, r: a.radius }, pos.x, pos.y);
       e.detonated = true;
       const h = w.health.get(id);
-      if (h) dealDamage(sim, id, h.life + 1, id, [], { ignoreArmor: true, quiet: true });
+      if (h) dealDamage(sim, id, packetOf('physical', h.life + 1), id, { ignoreArmor: true, quiet: true });
       break;
     }
     case 'heal':

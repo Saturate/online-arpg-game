@@ -28,6 +28,7 @@ export { countEntities, NEUTRAL_TUNING, nodeLifetime, type ElementId, type FormI
 export * from './sim/arena.js';
 export * from './sim/auras.js';
 export * from './sim/body.js';
+export * from './sim/damage.js';
 export * from './sim/progression.js';
 export * from './sim/ecs.js';
 export * from './sim/math.js';

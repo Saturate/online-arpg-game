@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createVessel, loadMap, MINIONS, SIM, Simulation, spiritReservedFor, startArena, type EntityId, type VesselItem } from '../src/index.js';
 import { dealDamage, isTargetable } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { findNavPath } from '../src/sim/minionPath.js';
 import { pathBudgetStats } from '../src/sim/minions.js';
 
@@ -35,7 +36,7 @@ describe('minions while their master is dead', () => {
     // Park the minion right next to the enemy, then kill the master.
     mpos.x = pos.x + 90;
     mpos.y = pos.y + 20;
-    dealDamage(sim, id, 1_000_000, enemy, []);
+    dealDamage(sim, id, packetOf('physical', 1_000_000), enemy);
     expect(p.respawnIn).not.toBeNull();
     expect(isTargetable(sim, m)).toBe(false);
     const corpse = { x: pos.x, y: pos.y };
@@ -75,7 +76,7 @@ describe('minions while their master is dead', () => {
     mh.life = 5;
     st.burn = { dps: 1000, t: 5, sourceId: id };
     const enemy = sim.spawnEnemy('chaser', 0, 0);
-    dealDamage(sim, id, 1_000_000, enemy, []);
+    dealDamage(sim, id, packetOf('physical', 1_000_000), enemy);
     for (let i = 0; i < 20; i++) sim.step();
     expect(sim.world.isAlive(m)).toBe(true);
   });
@@ -121,7 +122,7 @@ describe('minions of a fallen Arena member', () => {
     const xp = a.p.xp;
     sim.takeEvents();
 
-    dealDamage(sim, a.id, 1_000_000, enemy, []);
+    dealDamage(sim, a.id, packetOf('physical', 1_000_000), enemy);
     expect(a.p.respawnIn).not.toBeNull();
     sim.step();
     expect(minionsOf(sim, a.id)).toEqual([]);
@@ -158,7 +159,7 @@ describe('minions of a fallen Arena member', () => {
     const run = new Simulation(10, { kind: 'testground' });
     startArena(run, 1);
     const a = packBinder(run, 'a');
-    dealDamage(run, a.id, 1_000_000, a.id, []);
+    dealDamage(run, a.id, packetOf('physical', 1_000_000), a.id);
     run.step();
     expect(minionsOf(run, a.id)).toEqual([]);
     // The whole party is down: the run is over, and the score screen keeps the warband away.
@@ -178,7 +179,7 @@ describe('minions of a fallen Arena member', () => {
   it('outside the Arena the warband still stands down instead', () => {
     const sim = new Simulation(12, { kind: 'testground' });
     const a = packBinder(sim, 'a');
-    dealDamage(sim, a.id, 1_000_000, a.id, []);
+    dealDamage(sim, a.id, packetOf('physical', 1_000_000), a.id);
     sim.step();
     const left = minionsOf(sim, a.id);
     expect(left).toHaveLength(5);

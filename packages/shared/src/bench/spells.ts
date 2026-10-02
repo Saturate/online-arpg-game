@@ -95,4 +95,15 @@ export const BALANCE_SPELLS: readonly { text: string; multicast?: number; classI
   { text: 'zone[every 0.15s, +100% duration, +100% damage] fire lightning bolt', classId: 'ranger' },
   { text: 'orb[every 0.15s] cold split(5) bolt' },
   { text: 'zone[every 0.15s] lightning nova' },
+  // Added damage (phase 1 of damage packets): flat elemental damage on top of the base range, in
+  // place of the damage roll as drops roll it, at T1, on converted shapes and repeating payloads.
+  { text: 'bolt[adds 9 fire]', classId: 'ranger' },
+  { text: 'bolt[adds 9 cold, pierce 4, +70% speed] lightning lightning', classId: 'ranger' },
+  { text: 'nova[adds 9 fire] lightning concentrated(60)' },
+  { text: 'nova[adds 9 lightning, +75% size] fire cold' },
+  { text: 'orb[onhit, adds 9 fire] fire nova[adds 9 lightning, +75% size] lightning' },
+  { text: 'bolt[onhit, adds 9 lightning] nova[adds 9 cold, +75% size] lightning lightning concentrated(60)', classId: 'ranger' },
+  { text: 'zone[every 0.15s, adds 9 fire] lightning bolt[adds 9 cold]', classId: 'ranger' },
+  { text: 'nova[onexpire] zone[after 0.3s, adds 9 fire] fire cold concentrated(60) nova[adds 9 lightning, +75% size] lightning concentrated(60)' },
+  { text: 'dash[onland, adds 9 fire] nova[adds 9 lightning, +75% size]', classId: 'warrior' },
 ];

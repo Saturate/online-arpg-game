@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyDev } from '../src/sim/dev.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { addItem, discard, pickupLoot, spawnBag, spawnGold, updateLoot } from '../src/sim/inventory.js';
 import { moveItem } from '../src/sim/stash.js';
@@ -155,7 +156,7 @@ describe('item safety', () => {
     applyDev(sim, pid, { c: 'spawn', enemy: 'ooze', count: 1, level: 20, rare: false, x: 900, y: 900 });
     const xp = p.xp;
     for (let round = 0; round < 4; round++) {
-      for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, 1e9, pid, []);
+      for (const id of [...sim.world.enemy.keys()]) dealDamage(sim, id, packetOf('physical', 1e9), pid);
       sim.step();
       sim.step();
     }
@@ -176,7 +177,7 @@ describe('item safety', () => {
     const [id] = [...sim.world.enemy.keys()];
     if (id === undefined) throw new Error('no enemy');
     const xp = p.xp;
-    dealDamage(sim, id, 1e9, pid, []);
+    dealDamage(sim, id, packetOf('physical', 1e9), pid);
     sim.step();
     expect(sim.world.loot.size).toBe(0);
     expect(p.xp).toBe(xp);
@@ -190,7 +191,7 @@ describe('item safety', () => {
     if (!e) throw new Error('no enemy');
     e.raised = true;
     e.rewards = false;
-    dealDamage(sim, id, 1e9, pid, []);
+    dealDamage(sim, id, packetOf('physical', 1e9), pid);
     sim.step();
     expect(sim.world.loot.size).toBe(0);
   });

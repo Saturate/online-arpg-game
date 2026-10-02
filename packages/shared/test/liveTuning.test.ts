@@ -95,7 +95,7 @@ describe('the live tuning registry', () => {
     expect(paths.size).toBe(TUNABLES.length);
     const expected = [...leaves('spell', SPELL), ...leaves('aura', AURA), ...leaves('bond', LINK), ...leaves('ailment', AILMENTS)];
     for (const p of expected) expect(paths.has(p), p).toBe(true);
-    expect(tunableSpec('spell.bolt.damage')?.default).toBe(16);
+    expect(tunableSpec('spell.bolt.damageMax')?.default).toBe(20);
     expect(tunableSpec('spell.orb.radius')?.default).toBe(16);
     expect(tunableSpec('spell.nova.radius')?.default).toBe(130);
     for (const t of TUNABLES) {
@@ -123,29 +123,29 @@ describe('the live tuning registry', () => {
     expect(tunableSpec('spell.bolt.speed')?.min).toBeGreaterThan(0);
     expect(tunableSpec('spell.affixSteps.damage')?.min).toBeGreaterThan(1);
     expect(tunableSpec('ailment.chill.slow')?.max).toBe(1);
-    expect(tunableSpec('spell.bolt.damage')).toMatchObject({ min: 0, max: 160 });
+    expect(tunableSpec('spell.bolt.damageMax')).toMatchObject({ min: 0, max: 200 });
   });
 });
 
 describe('validating a change', () => {
   it('accepts numbers in range and null for the code default', () => {
-    expect(parseTunablePatch({ 'spell.bolt.damage': 30, 'force.rune.nova': null })).toEqual({ 'spell.bolt.damage': 30, 'force.rune.nova': null });
-    expect(parseTunablePatch({ 'spell.bolt.damage': 0 })).toEqual({ 'spell.bolt.damage': 0 });
+    expect(parseTunablePatch({ 'spell.bolt.damageMax': 30, 'force.rune.nova': null })).toEqual({ 'spell.bolt.damageMax': 30, 'force.rune.nova': null });
+    expect(parseTunablePatch({ 'spell.bolt.damageMax': 0 })).toEqual({ 'spell.bolt.damageMax': 0 });
   });
 
   it('refuses the whole patch for one bad entry', () => {
     for (const bad of [
-      { 'spell.bolt.damage': 30, 'spell.bolt.nope': 1 },
-      { 'spell.bolt.damage': -1 },
-      { 'spell.bolt.damage': 161 },
-      { 'spell.bolt.damage': '20' },
-      { 'spell.bolt.damage': Number.NaN },
+      { 'spell.bolt.damageMax': 30, 'spell.bolt.nope': 1 },
+      { 'spell.bolt.damageMax': -1 },
+      { 'spell.bolt.damageMax': 201 },
+      { 'spell.bolt.damageMax': '20' },
+      { 'spell.bolt.damageMax': Number.NaN },
       { 'spell.dash.ticks': 2.5 },
       { 'spell.zone.tickSeconds': 0 },
       {},
       null,
       [1],
-      'spell.bolt.damage',
+      'spell.bolt.damageMax',
     ]) {
       expect(typeof parseTunablePatch(bad), JSON.stringify(bad)).toBe('string');
     }
@@ -153,15 +153,15 @@ describe('validating a change', () => {
 
   it('keeps the good entries of stored or received values and drops the rest', () => {
     const dropped: string[] = [];
-    expect(parseTunableValues({ 'spell.bolt.damage': 30, 'spell.gone': 3, 'spell.orb.radius': -5, 'spell.nova.radius': 130 }, (why) => dropped.push(why))).toEqual({ 'spell.bolt.damage': 30 });
+    expect(parseTunableValues({ 'spell.bolt.damageMax': 30, 'spell.gone': 3, 'spell.orb.radius': -5, 'spell.nova.radius': 130 }, (why) => dropped.push(why))).toEqual({ 'spell.bolt.damageMax': 30 });
     // An unknown path (a retired one, or a newer server's) goes without a report; a bad value is reported.
     expect(dropped).toHaveLength(1);
     expect(parseTunableValues('nope')).toEqual({});
   });
 
   it('checks the change message on the client side of the wire', () => {
-    expect(isServerMessage({ t: 'tunables', values: { 'spell.bolt.damage': 30 } })).toBe(true);
-    expect(isServerMessage({ t: 'tunables', values: { 'spell.bolt.damage': 'x' } })).toBe(false);
+    expect(isServerMessage({ t: 'tunables', values: { 'spell.bolt.damageMax': 30 } })).toBe(true);
+    expect(isServerMessage({ t: 'tunables', values: { 'spell.bolt.damageMax': 'x' } })).toBe(false);
     expect(isServerMessage({ t: 'tunables' })).toBe(false);
   });
 });
@@ -169,31 +169,32 @@ describe('validating a change', () => {
 describe('applying overrides', () => {
   it('sets the config in place and a reset brings back every code default', () => {
     const before = tunablesVersion();
-    applyTunables({ 'spell.bolt.damage': 30, 'aura.radius': 200, 'force.rune.fire': 9, 'spirit.rune.aura': 40, 'rune.large.size': 80 });
-    expect(SPELL.bolt.damage).toBe(30);
+    applyTunables({ 'spell.bolt.damageMax': 30, 'aura.radius': 200, 'force.rune.fire': 9, 'spirit.rune.aura': 40, 'rune.large.size': 80 });
+    expect(SPELL.bolt.damageMax).toBe(30);
     expect(AURA.radius).toBe(200);
     expect(RUNE_FORCE.fire).toBe(9);
     expect(RUNE_SPIRIT.aura).toBe(40);
     expect(tunablesVersion()).toBeGreaterThan(before);
-    expect(activeTunables()).toEqual({ 'spell.bolt.damage': 30, 'aura.radius': 200, 'force.rune.fire': 9, 'spirit.rune.aura': 40, 'rune.large.size': 80 });
+    expect(activeTunables()).toEqual({ 'spell.bolt.damageMax': 30, 'aura.radius': 200, 'force.rune.fire': 9, 'spirit.rune.aura': 40, 'rune.large.size': 80 });
     resetTunables();
     for (const t of TUNABLES) expect(tunableValue(t.path), t.path).toBe(t.default);
     expect(activeTunables()).toEqual({});
   });
 
   it('gives the same numbers for the same overrides whatever was applied before', () => {
-    const set: TunableValues = { 'spell.orb.damage': 40, 'spell.nova.radius': 90 };
+    const set: TunableValues = { 'spell.orb.damageMin': 30, 'spell.orb.damageMax': 40, 'spell.nova.radius': 90 };
     applyTunables(set);
     const first = castAtDummy('orb[onhit] fire nova');
-    applyTunables({ 'spell.orb.damage': 5, 'spell.zone.damage': 60, 'force.rune.orb': 30 });
+    applyTunables({ 'spell.orb.damageMin': 5, 'spell.orb.damageMax': 5, 'spell.zone.damageMax': 60, 'force.rune.orb': 30 });
     applyTunables(set);
     expect(castAtDummy('orb[onhit] fire nova')).toEqual(first);
-    expect(SPELL.zone.damage).toBe(14);
+    expect(SPELL.zone.damageMax).toBe(18);
   });
 
   it('reaches the next cast: damage, size and Force', () => {
     const plain = castAtDummy('orb');
-    applyTunables({ 'spell.orb.damage': 32, 'spell.orb.radius': 40, 'force.rune.orb': 20 });
+    // Both ends doubled: the same seed rolls the same share of the range, so every hit is twice as hard.
+    applyTunables({ 'spell.orb.damageMin': 24, 'spell.orb.damageMax': 40, 'spell.orb.radius': 40, 'force.rune.orb': 20 });
     const tuned = castAtDummy('orb');
     expect(tuned.damage).toBeCloseTo(plain.damage * 2, 5);
     expect(tuned.radius).toBeCloseTo(40, 5);

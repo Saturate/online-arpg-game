@@ -2,6 +2,7 @@ import { AURA, LINK } from '../config/sim.js';
 import { vesselSpirit } from '../items/items.js';
 import type { EffectId, ElementId, SpellNode, SpellProgram } from './program.js';
 import { dealDamage, healEntity, isTargetable, knockback } from './combat.js';
+import { packetOf } from './damage.js';
 import { emptyBuffs, type EntityId, type PlayerComp } from './ecs.js';
 import { angleDiff, distSq } from './math.js';
 import type { Simulation } from './simulation.js';
@@ -135,7 +136,7 @@ export function updateAuras(sim: Simulation, dt: number): void {
   for (const [eid, types] of enemyBest) {
     for (const [t, strength] of types) {
       if (t !== 'fire' && t !== 'cold' && t !== 'lightning') continue;
-      dealDamage(sim, eid, AURA.elementDps * strength * dt, eid, [t], { quiet: true });
+      dealDamage(sim, eid, packetOf(t, AURA.elementDps * strength * dt), eid, { quiet: true });
       if (t !== 'fire') {
         const st = w.status.get(eid);
         if (st && t === 'cold') st.chill = Math.max(st.chill, AURA_AILMENT_SECONDS);

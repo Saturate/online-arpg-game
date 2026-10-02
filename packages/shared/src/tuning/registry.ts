@@ -1,5 +1,5 @@
 import { AILMENTS, AURA, HEAT, LINK, SPELL, WORLD_GEN } from '../config/sim.js';
-import { AFFIX_IDS, AFFIXES, RUNE_AFFIX_TIERS, type AffixId } from '../data/affixes.js';
+import { AFFIX_IDS, AFFIXES, affixText, RUNE_AFFIX_TIERS, type AffixId } from '../data/affixes.js';
 import { SIGIL_MAX_SLOTS } from '../items/items.js';
 import { betterOf } from '../items/runeRolls.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
@@ -122,6 +122,16 @@ const SPECIAL: Record<string, Range> = {
   'force.affixRefundShare': { max: 1 },
   'force.minForcePerCast': { max: 40 },
 };
+
+const SHAPE_NAMES = { bolt: 'Bolt', orb: 'Orb', nova: 'Nova', zone: 'Zone', dash: 'Dash' } as const;
+type DamageShape = keyof typeof SHAPE_NAMES;
+const DAMAGE_SHAPES: readonly DamageShape[] = ['bolt', 'orb', 'nova', 'zone', 'dash'];
+for (const shape of DAMAGE_SHAPES) {
+  const name = SHAPE_NAMES[shape];
+  const note = 'Physical damage it rolls on every hit; infusions convert it. Its lowest at most its highest.';
+  SPECIAL[`spell.${shape}.damageMin`] = { label: `${name}: lowest base damage`, note };
+  SPECIAL[`spell.${shape}.damageMax`] = { label: `${name}: highest base damage`, note };
+}
 
 const slots: Slot[] = [];
 const byPath = new Map<string, Slot>();
@@ -248,7 +258,7 @@ export function affixTierPath(id: AffixId, tier: number, key: 'min' | 'max' | 'w
 }
 
 function affixGroup(id: AffixId): string {
-  return `${capital(AFFIXES[id].text.replace('{v}', '#'))} (${id})`;
+  return `${capital(affixText(AFFIXES[id], '#', '#'))} (${id})`;
 }
 
 for (const id of AFFIX_IDS) {
@@ -462,6 +472,11 @@ function affixTableProblem(id: AffixId, values: Readonly<TunableValues>): string
 
 /** Why a whole set of overrides cannot be applied though each number is in range, or null. */
 export function tunableSetProblem(values: Readonly<TunableValues>): string | null {
+  for (const shape of DAMAGE_SHAPES) {
+    const min = valueIn(values, `spell.${shape}.damageMin`);
+    const max = valueIn(values, `spell.${shape}.damageMax`);
+    if (min !== undefined && max !== undefined && min > max) return `${SHAPE_NAMES[shape]}: its lowest base damage ${min} is above its highest ${max}`;
+  }
   for (const id of AFFIX_IDS) {
     const problem = affixTableProblem(id, values);
     if (problem !== null) return problem;

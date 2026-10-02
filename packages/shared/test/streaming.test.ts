@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyDev, buildMap, NET, SKILL_BUTTONS, SIM, Simulation, startArena, STREAMING, type EntityId, type MapDescriptor } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { chunkAwake, isAsleep, setStreaming, sleepingEnemies, spawnEverywhere, streamingStats } from '../src/sim/streaming.js';
 
 // A standalone Wilds, about the size of a zone of before the world.
@@ -158,7 +159,7 @@ describe('world streaming: sleep and wake', () => {
     if (id === undefined || !pos) throw new Error('no sleeper');
     const home = { x: pos.x, y: pos.y };
     // A long shot from far away: the hit aggroes it though its chunk sleeps.
-    dealDamage(sim, id, 1, pid, []);
+    dealDamage(sim, id, packetOf('physical', 1), pid);
     const e = sim.world.enemy.get(id);
     expect(e?.aggro).toBe(true);
     let movedWhileAway = false;

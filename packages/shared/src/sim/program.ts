@@ -1,5 +1,6 @@
 import { SIM, SPELL } from '../config/sim.js';
 import type { EffectId, InfusionId } from '../runes/v2/runes.js';
+import type { AddedDamage } from './damage.js';
 
 /**
  * The engine contract: what `runes/v2/compile.ts` produces and what `sim/spells.ts` and
@@ -34,6 +35,8 @@ export interface SpellNode {
   payload: SpellNode[];
   depth: number;
   combos: string[];
+  /** Flat elemental damage on top of the shape's base range, from "Adds X to Y" affixes; converts nothing. */
+  added: AddedDamage;
   /** Damage, heal and shield multiplier after split conservation, stacked infusions and the sigil. */
   damageScale: number;
   /** Radius multiplier from sigil affixes. */
@@ -62,8 +65,14 @@ export interface SpellProgram {
   form: FormId;
 }
 
+/** Damages enemies: it carries an element or Impact, or neither a heal nor a shield. */
+export function isOffensive(node: SpellNode): boolean {
+  if (node.elements.length > 0 || node.effects.includes('impact')) return true;
+  return !node.effects.includes('restore') && !node.effects.includes('ward');
+}
+
 /** Base numbers of a flying form. */
-export function projectileBase(form: 'orb' | 'bolt'): { damage: number; speed: number; range: number; radius: number } {
+export function projectileBase(form: 'orb' | 'bolt'): { damageMin: number; damageMax: number; speed: number; range: number; radius: number } {
   return form === 'orb' ? SPELL.orb : SPELL.bolt;
 }
 

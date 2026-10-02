@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BIOMES, bossFor, DEFAULT_RATES, DEFAULT_SERVER_SETTINGS, ENEMIES, ENEMY_LEVEL, ENEMY_TYPE_IDS, familyOf, monsterPool, packScale, parseSettingsPatch, SETTINGS_LIMITS, SIM, Simulation, WAVES, type EnemyTypeId } from '../src/index.js';
 import { affixValue } from '../src/items/items.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { activeHazards, spawnEnemy } from '../src/sim/enemies.js';
 import { spawnProjectile } from '../src/sim/spells.js';
 
@@ -81,7 +82,7 @@ describe('monster behaviours', () => {
   it('splitters split into smaller ones when killed', () => {
     const { sim, pid, pos } = setup(4);
     const ooze = spawn(sim, 'ooze', pos.x + 200, pos.y);
-    dealDamage(sim, ooze, 1e6, pid, []);
+    dealDamage(sim, ooze, packetOf('physical', 1e6), pid);
     run(sim, 2);
     const lings = [...sim.world.enemy.values()].filter((e) => e.typeId === 'oozeling');
     expect(lings).toHaveLength(3);
@@ -127,7 +128,7 @@ describe('monster behaviours', () => {
     const e = sim.world.enemy.get(worm);
     expect(e?.burrowed).toBe(true);
     const before = lifeOf(sim, worm);
-    dealDamage(sim, worm, 50, pid, []);
+    dealDamage(sim, worm, packetOf('physical', 50), pid);
     expect(lifeOf(sim, worm)).toBe(before);
     let surfaced = false;
     run(sim, 10 * SIM.tickRate, () => {
@@ -144,7 +145,7 @@ describe('monster behaviours', () => {
     const gpos = sim.world.position.get(guard);
     if (!gpos) throw new Error('no guard');
     const shoot = (fromX: number, angle: number) =>
-      spawnProjectile(sim, { ownerId: pid, team: 'players', x: fromX, y: gpos.y, angle, speed: 900, radius: 6, range: 400, damage: 20 });
+      spawnProjectile(sim, { ownerId: pid, team: 'players', x: fromX, y: gpos.y, angle, speed: 900, radius: 6, range: 400, damage: packetOf('physical', 20) });
     const full = lifeOf(sim, guard);
     shoot(gpos.x - 80, 0);
     run(sim, 3, () => sim.takeEvents());
@@ -158,7 +159,7 @@ describe('monster behaviours', () => {
     const { sim, pid, pos } = setup(10);
     spawn(sim, 'fallen_shaman', pos.x + 300, pos.y);
     const imp = spawn(sim, 'chaser', pos.x + 260, pos.y + 40);
-    dealDamage(sim, imp, 1e6, pid, []);
+    dealDamage(sim, imp, packetOf('physical', 1e6), pid);
     let raised: number | null = null;
     run(sim, 12 * SIM.tickRate, () => {
       sim.takeEvents();
@@ -185,7 +186,7 @@ describe('monster behaviours', () => {
     const boss = spawnEnemy(sim, 'butcher', pos.x + 300, pos.y, { rare: true, level: 3, aggro: true, boss: true });
     const h = sim.world.health.get(boss);
     if (!h) throw new Error('no boss');
-    dealDamage(sim, boss, h.maxLife * 0.6, pid, []);
+    dealDamage(sim, boss, packetOf('physical', h.maxLife * 0.6), pid);
     run(sim, 2, () => sim.takeEvents());
     expect(sim.world.enemy.get(boss)?.enraged).toBe(true);
   });

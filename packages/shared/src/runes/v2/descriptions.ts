@@ -20,9 +20,9 @@ export const RUNE_DESCRIPTIONS: Record<RuneId, string> = {
   trap: 'A trap set on the ground that springs when an enemy steps on it. Not in the game yet.',
   aura: 'Held around you while the sigil is equipped. Reserves spirit instead of costing Force.',
   bond: 'A tether to an ally or minion, held while the sigil is equipped. Reserves spirit.',
-  fire: 'The shape before it deals fire damage and sets enemies burning.',
-  cold: 'The shape before it deals cold damage and slows enemies.',
-  lightning: 'The shape before it deals lightning damage and shocks enemies.',
+  fire: "Turns the physical damage of the shape before it into fire damage and sets enemies burning. With another infusion, each takes an equal share.",
+  cold: "Turns the physical damage of the shape before it into cold damage and slows enemies. With another infusion, each takes an equal share.",
+  lightning: "Turns the physical damage of the shape before it into lightning damage and shocks enemies. With another infusion, each takes an equal share.",
   split: 'The shape before it becomes several copies that fan out, each dealing less damage.',
   link: 'Joins split copies with beams that hurt what crosses them. Not in the game yet.',
   orbit: 'Copies circle you instead of flying off. Not in the game yet.',
@@ -57,7 +57,10 @@ type RuneAffixId =
   | 'rune_damage'
   | 'rune_pierce'
   | 'split_count'
-  | 'rune_concentrated';
+  | 'rune_concentrated'
+  | 'rune_added_fire'
+  | 'rune_added_cold'
+  | 'rune_added_lightning';
 
 /** What each rune affix means, beside its rolled line ("Releases its payload on hit"). */
 export const RUNE_AFFIX_DESCRIPTIONS = {
@@ -73,6 +76,9 @@ export const RUNE_AFFIX_DESCRIPTIONS = {
   rune_pierce: 'The shape flies through this many enemies before it stops.',
   split_count: 'How many copies the Split makes.',
   rune_concentrated: 'How much more damage the Concentrated rune gives the shape on its left.',
+  rune_added_fire: 'Fire damage on every hit, on top of the shape\'s own; it converts nothing and does not burn. Takes the place of a damage roll.',
+  rune_added_cold: 'Cold damage on every hit, on top of the shape\'s own; it converts nothing and does not chill. Takes the place of a damage roll.',
+  rune_added_lightning: 'Lightning damage on every hit, on top of the shape\'s own; it converts nothing and does not shock. Takes the place of a damage roll.',
 } as const satisfies Record<RuneAffixId, string> & Partial<Record<AffixId, string>>;
 
 export function runeDescription(id: RuneId): string {

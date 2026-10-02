@@ -105,6 +105,13 @@ export interface RuneAffixes {
   seconds?: number;
   /** Concentrated: percent more damage (not healing or shielding), a multiplier of its own on top of the damage affix. */
   concentration?: number;
+  /**
+   * Shapes: flat elemental damage on every hit, written as its low end X ("Adds X to 2X fire
+   * damage", ADDED_DAMAGE_SPREAD); it adds to the hit without converting anything.
+   */
+  addedFire?: number;
+  addedCold?: number;
+  addedLightning?: number;
 }
 export type AffixKey = keyof RuneAffixes;
 export const AFFIX_KEYS: readonly AffixKey[] = [
@@ -122,7 +129,21 @@ export const AFFIX_KEYS: readonly AffixKey[] = [
   'chargeStages',
   'seconds',
   'concentration',
+  'addedFire',
+  'addedCold',
+  'addedLightning',
 ];
+
+/** The added-damage key of each element, and back. */
+export const ADDED_KEYS = { fire: 'addedFire', cold: 'addedCold', lightning: 'addedLightning' } as const satisfies Record<InfusionId, AffixKey>;
+export type AddedKey = (typeof ADDED_KEYS)[InfusionId];
+
+/**
+ * An "Adds X to Y" roll stores one number, its low end; the high end is this many times it. One
+ * number keeps rune items as they are (an affix roll holds one value), and a fixed spread keeps
+ * the roll's tier and price a matter of that one number.
+ */
+export const ADDED_DAMAGE_SPREAD = 2;
 
 export interface RuneInstance {
   id: RuneId;
@@ -236,7 +257,7 @@ export const TRIGGER_RELEASE: Record<TriggerId, ReleaseKind> = {
 
 /** Which affix keys each rune may carry. Anything else is an error. */
 export function affixesFor(id: RuneId): readonly AffixKey[] {
-  if (isShapeId(id)) return ['release', 'speed', 'size', 'duration', 'damage', 'pierce', 'bounce', 'homing'];
+  if (isShapeId(id)) return ['release', 'speed', 'size', 'duration', 'damage', 'pierce', 'bounce', 'homing', 'addedFire', 'addedCold', 'addedLightning'];
   switch (id) {
     case 'split':
       return ['count'];

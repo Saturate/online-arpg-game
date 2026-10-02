@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BIOMES, bossFor, CURSE, ENEMIES, ENEMY_TYPE_IDS, familyOf, monsterPool, SIM, Simulation, type EnemyTypeId } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { spawnProjectile } from '../src/sim/spells.js';
 
@@ -158,7 +159,7 @@ describe('new monster behaviours', () => {
     refPlayer.god = false;
     for (let i = 0; i < tele.tick + ticks; i++) ref.sim.step();
     const refBefore = ref.sim.world.health.get(ref.pid)?.life ?? 0;
-    dealDamage(ref.sim, ref.pid, ability.damage * e.damageMult, ref.pid, []);
+    dealDamage(ref.sim, ref.pid, packetOf('physical', ability.damage * e.damageMult), ref.pid);
     const expected = refBefore - (ref.sim.world.health.get(ref.pid)?.life ?? 0);
     return { tele, lifeAfter: sim.world.health.get(pid)?.life ?? -1, expected };
   }
@@ -190,7 +191,7 @@ describe('new monster behaviours', () => {
       if (!e || !epos) throw new Error('no charger');
       e.facing = facing;
       const before = sim.world.health.get(id)?.life ?? 0;
-      spawnProjectile(sim, { ownerId: pid, team: 'players', x: epos.x + offset, y: epos.y + 120, angle: -Math.PI / 2, speed: 900, radius: 6, range: 300, damage: 20 });
+      spawnProjectile(sim, { ownerId: pid, team: 'players', x: epos.x + offset, y: epos.y + 120, angle: -Math.PI / 2, speed: 900, radius: 6, range: 300, damage: packetOf('physical', 20) });
       for (let i = 0; i < 10; i++) sim.step();
       return before - (sim.world.health.get(id)?.life ?? 0);
     };
@@ -221,18 +222,18 @@ describe('new monster behaviours', () => {
   it('a dormant mimic wakes when hit, even from far away', () => {
     const { sim, pid, pos } = setup(5);
     const id = spawnEnemy(sim, 'mimic', pos.x + 400, pos.y, { rare: false, level: 4, aggro: false });
-    dealDamage(sim, id, 5, pid, []);
+    dealDamage(sim, id, packetOf('physical', 5), pid);
     expect(sim.world.enemy.get(id)?.aggro).toBe(true);
   });
 
   it("a mummy's curse weakens nearby players' hits, and fades after they leave", () => {
     const { sim, pid, pos } = setup(6);
     const dummy = spawnEnemy(sim, 'earth_golem', pos.x + 600, pos.y, { rare: false, level: 1, aggro: false });
-    const before = dealDamage(sim, dummy, 100, pid, [], { ignoreArmor: true, quiet: true });
+    const before = dealDamage(sim, dummy, packetOf('physical', 100), pid, { ignoreArmor: true, quiet: true });
     spawnEnemy(sim, 'mummy', pos.x + 80, pos.y, { rare: false, level: 3, aggro: true });
     sim.step();
     expect(sim.world.status.get(pid)?.curse).toBeGreaterThan(0);
-    const after = dealDamage(sim, dummy, 100, pid, [], { ignoreArmor: true, quiet: true });
+    const after = dealDamage(sim, dummy, packetOf('physical', 100), pid, { ignoreArmor: true, quiet: true });
     expect(after).toBeCloseTo(before * (1 - CURSE.damageReduction), 5);
     for (const [eid, e] of sim.world.enemy) if (e.typeId === 'mummy') sim.world.destroy(eid);
     sim.world.flushDestroyed();

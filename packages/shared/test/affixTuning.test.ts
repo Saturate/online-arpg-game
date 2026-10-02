@@ -228,7 +228,7 @@ describe('affix ranges in live tuning', () => {
 
   it('drop unknown stored paths without a report', () => {
     const reports: string[] = [];
-    const v = parseTunableValues({ 'starter.bone_spear.0.damage': 140, [affixTierPath('rune_damage', 5, 'max')]: 70, 'spell.bolt.damage': -1 }, (why) => reports.push(why));
+    const v = parseTunableValues({ 'starter.bone_spear.0.damage': 140, [affixTierPath('rune_damage', 5, 'max')]: 70, 'spell.bolt.damageMax': -1 }, (why) => reports.push(why));
     expect(v).toEqual({ [affixTierPath('rune_damage', 5, 'max')]: 70 });
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatch(/spell\.bolt\.damage/);

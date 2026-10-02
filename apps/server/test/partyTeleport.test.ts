@@ -1,6 +1,7 @@
 import { DUNGEON, INSTANCE_CAPACITY, loadMap, SIM, type PartyMemberStatus, type ServerMessage } from '@rune/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { dealDamage } from '../../../packages/shared/src/sim/combat.js';
+import { packetOf } from '../../../packages/shared/src/sim/damage.js';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
 import { channelBreak, TELEPORT_CHANNEL_SECONDS, type ChannelWatch } from '../src/partyTravel.js';
@@ -357,7 +358,7 @@ describe('party XP', () => {
     expect(stranger.p.party).toBeNull();
     const xp = [me, mate, stranger].map((x) => x.p.xp);
     const eid = room.sim.spawnEnemy('chaser', me.pos.x + 60, me.pos.y);
-    dealDamage(room.sim, eid, 1e9, welcome(a).playerId, []);
+    dealDamage(room.sim, eid, packetOf('physical', 1e9), welcome(a).playerId);
     expect(me.p.xp).toBeGreaterThan(xp[0] ?? 0);
     expect(mate.p.xp).toBeGreaterThan(xp[1] ?? 0);
     expect(stranger.p.xp).toBe(xp[2]);

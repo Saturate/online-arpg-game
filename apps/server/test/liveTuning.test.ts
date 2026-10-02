@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activeTunables, applyTunables, isTunableHistoryEntry, isTunablesState, resetTunables, SKILL_BUTTONS, SPELL, TUNABLES, type ServerMessage, type TunableHistoryEntry, type TunablesState } from '@rune/shared';
+import { activeTunables, applyTunables, isTunableHistoryEntry, isTunablesState, packetTotal, resetTunables, SKILL_BUTTONS, SPELL, TUNABLES, type ServerMessage, type TunableHistoryEntry, type TunablesState } from '@rune/shared';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
@@ -122,24 +122,24 @@ describe('live tuning API', () => {
     }
     expect((await call('GET', '/api/admin/tuning', 'pleb1')).status).toBe(404);
     for (const who of ['build1', 'mod1', 'unscoped']) {
-      expect((await call('PATCH', '/api/admin/tuning', who, { 'spell.bolt.damage': 20 })).status, who).toBe(403);
+      expect((await call('PATCH', '/api/admin/tuning', who, { 'spell.bolt.damageMax': 26 })).status, who).toBe(403);
       expect((await call('POST', '/api/admin/tuning/revert', who, { id: 1 })).status, who).toBe(403);
     }
     expect(activeTunables()).toEqual({});
-    const s = await stateOf(await call('PATCH', '/api/admin/tuning', 'scoped', { 'spell.bolt.damage': 20 }));
-    expect(s.values).toEqual({ 'spell.bolt.damage': 20 });
-    expect((await history())[0]).toMatchObject({ path: 'spell.bolt.damage', old: null, new: 20, account: 'boss', token: 'tuner' });
-    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.bolt.damage': null }));
+    const s = await stateOf(await call('PATCH', '/api/admin/tuning', 'scoped', { 'spell.bolt.damageMax': 26 }));
+    expect(s.values).toEqual({ 'spell.bolt.damageMax': 26 });
+    expect((await history())[0]).toMatchObject({ path: 'spell.bolt.damageMax', old: null, new: 26, account: 'boss', token: 'tuner' });
+    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.bolt.damageMax': null }));
   });
 
   it('refuses a patch with any bad entry and changes nothing', async () => {
-    for (const bad of [{ 'spell.bolt.damage': 20, 'spell.nope': 1 }, { 'spell.bolt.damage': -2 }, { 'spell.dash.ticks': 1.5 }, {}, [1]]) {
+    for (const bad of [{ 'spell.bolt.damageMax': 26, 'spell.nope': 1 }, { 'spell.bolt.damageMax': -2 }, { 'spell.dash.ticks': 1.5 }, {}, [1]]) {
       expect((await call('PATCH', '/api/admin/tuning', 'boss', bad)).status, JSON.stringify(bad)).toBe(400);
     }
-    expect((await call('PUT', '/api/admin/tuning', 'boss', { 'spell.bolt.damage': 20 })).status).toBe(405);
+    expect((await call('PUT', '/api/admin/tuning', 'boss', { 'spell.bolt.damageMax': 26 })).status).toBe(405);
     expect((await call('GET', '/api/admin/tuning/history?limit=abc', 'boss')).status).toBe(400);
     expect(activeTunables()).toEqual({});
-    expect(SPELL.bolt.damage).toBe(16);
+    expect(SPELL.bolt.damageMax).toBe(20);
   });
 
   it('reaches a running room on the next cast and every client at once', async () => {
@@ -162,23 +162,23 @@ describe('live tuning API', () => {
   });
 
   it('records history newest first and reverts any change, recording the revert', async () => {
-    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.nova.damage': 20 }));
-    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.nova.damage': 25 }));
+    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.nova.damageMax': 20 }));
+    await stateOf(await call('PATCH', '/api/admin/tuning', 'admin1', { 'spell.nova.damageMax': 25 }));
     const [second, first] = await history();
-    expect(second).toMatchObject({ path: 'spell.nova.damage', old: 20, new: 25, account: 'admin1', token: null, revertOf: null });
-    expect(first).toMatchObject({ path: 'spell.nova.damage', old: null, new: 20 });
+    expect(second).toMatchObject({ path: 'spell.nova.damageMax', old: 20, new: 25, account: 'admin1', token: null, revertOf: null });
+    expect(first).toMatchObject({ path: 'spell.nova.damageMax', old: null, new: 20 });
     if (!second || !first) throw new Error('no history');
     expect(second.id).toBeGreaterThan(first.id);
 
     const back = await stateOf(await call('POST', '/api/admin/tuning/revert', 'admin1', { id: second.id }));
-    expect(back.values).toEqual({ 'spell.nova.damage': 20 });
-    expect(SPELL.nova.damage).toBe(20);
-    expect((await history())[0]).toMatchObject({ path: 'spell.nova.damage', old: 25, new: 20, revertOf: second.id });
+    expect(back.values).toEqual({ 'spell.nova.damageMax': 20 });
+    expect(SPELL.nova.damageMax).toBe(20);
+    expect((await history())[0]).toMatchObject({ path: 'spell.nova.damageMax', old: 25, new: 20, revertOf: second.id });
     // Already in place: refused rather than logged twice.
     expect((await call('POST', '/api/admin/tuning/revert', 'admin1', { id: second.id })).status).toBe(409);
     const cleared = await stateOf(await call('POST', '/api/admin/tuning/revert', 'admin1', { id: first.id }));
     expect(cleared.values).toEqual({});
-    expect(SPELL.nova.damage).toBe(14);
+    expect(SPELL.nova.damageMax).toBe(18);
     expect((await call('POST', '/api/admin/tuning/revert', 'admin1', { id: 99999 })).status).toBe(404);
     expect((await call('POST', '/api/admin/tuning/revert', 'admin1', { id: 'x' })).status).toBe(400);
   });
@@ -260,12 +260,12 @@ describe('live tuning writes', () => {
 
   it('limits how many changes one account makes a minute', async () => {
     const { server, call } = await setup({ tuningWrites: 2 });
-    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 20 })).status).toBe(200);
-    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 21 })).status).toBe(200);
-    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 22 })).status).toBe(429);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damageMax': 26 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damageMax': 27 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damageMax': 28 })).status).toBe(429);
     expect((await call('POST', '/api/admin/tuning/revert', { id: 1 })).status).toBe(429);
     expect((await call('GET', '/api/admin/tuning')).status).toBe(200);
-    expect(SPELL.bolt.damage).toBe(21);
+    expect(SPELL.bolt.damageMax).toBe(27);
     server.close();
   });
 
@@ -274,25 +274,25 @@ describe('live tuning writes', () => {
     rooms.tunablesChanged = () => {
       throw new Error('room blew up');
     };
-    const res = await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 20 });
+    const res = await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damageMax': 26 });
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
     expect(isTunablesState(body) && body.warning).toMatch(/Saved and applied/);
-    expect(SPELL.bolt.damage).toBe(20);
-    expect(store.tunables.load()).toEqual({ 'spell.bolt.damage': 20 });
+    expect(SPELL.bolt.damageMax).toBe(26);
+    expect(store.tunables.load()).toEqual({ 'spell.bolt.damageMax': 26 });
     server.close();
   });
 
   it('reverts to a code default stored as a number as no override', async () => {
     const { server, call, store } = await setup();
-    const [row] = store.tunables.commit([{ path: 'spell.bolt.damage', old: 16, new: 30 }], { account: 'boss', token: null });
+    const [row] = store.tunables.commit([{ path: 'spell.bolt.damageMax', old: 20, new: 30 }], { account: 'boss', token: null });
     if (!row) throw new Error('no row');
     applyTunables(store.tunables.load());
     const res = await call('POST', '/api/admin/tuning/revert', { id: row.id });
     const body: unknown = await res.json();
     expect(isTunablesState(body) && body.values).toEqual({});
     expect(store.tunables.load()).toEqual({});
-    expect(SPELL.bolt.damage).toBe(16);
+    expect(SPELL.bolt.damageMax).toBe(20);
     server.close();
   });
 
@@ -368,12 +368,12 @@ describe('live tuning writes', () => {
       socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: SKILL_BUTTONS[slot] ?? 0 });
       rooms.tick();
       socket.emit({ t: 'input', seq: ++seq, moveDir: { x: 0, y: 0 }, aimAngle: 0, buttons: 0 });
-      for (const [id, proj] of room.sim.world.projectile) if (proj.ownerId === w.playerId && !before.has(id)) return proj.damage;
+      for (const [id, proj] of room.sim.world.projectile) if (proj.ownerId === w.playerId && !before.has(id)) return packetTotal(proj.damage);
       throw new Error('no spear');
     };
     const rolls = JSON.stringify(p.items.get(p.sigils[slot]?.uid ?? -1));
     const plain = spear();
-    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damage': 24 })).status).toBe(200);
+    expect((await call('PATCH', '/api/admin/tuning', { 'spell.bolt.damageMin': 18, 'spell.bolt.damageMax': 30 })).status).toBe(200);
     expect(spear()).toBeCloseTo(plain * 1.5, 5);
     expect(JSON.stringify(p.items.get(p.sigils[slot]?.uid ?? -1))).toBe(rolls);
     server.close();

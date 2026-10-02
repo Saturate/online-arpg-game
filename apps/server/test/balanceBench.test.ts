@@ -231,7 +231,7 @@ describe('bench write limit', () => {
       expect((await post('bolt fire')).status).toBe(201);
       expect((await post('bolt cold')).status).toBe(201);
       expect((await post('bolt lightning')).status).toBe(429);
-      const patch = await fetch(`http://127.0.0.1:${addr.port}/api/admin/tuning`, { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ 'spell.bolt.damage': 17 }) });
+      const patch = await fetch(`http://127.0.0.1:${addr.port}/api/admin/tuning`, { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ 'spell.bolt.damageMax': 17 }) });
       expect(patch.status).toBe(200);
     } finally {
       resetTunables();

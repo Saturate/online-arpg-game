@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyDev, DUNGEON, enemyDisplayName, GameMap, generateDungeon, loadMap, NET, serializeEntities, Simulation, snapshotFor, stagingMap, type EntityId, type Portal, type WorldMap } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 
 /** Walkable nav cells reachable from a point, by flood fill. */
 function reach(map: WorldMap, x: number, y: number): { gm: GameMap; seen: Set<number> } {
@@ -77,7 +78,7 @@ describe('dungeon boss', () => {
     const boss = [...sim.world.enemy].find(([, e]) => e.boss);
     if (!boss) throw new Error('no boss');
     const bagsBefore = sim.world.loot.size;
-    dealDamage(sim, boss[0], 1e9, pid, []);
+    dealDamage(sim, boss[0], packetOf('physical', 1e9), pid);
     sim.step();
     expect(sim.cleared).toBe(true);
     const items = [...sim.world.loot.values()].flatMap((b) => b.items);
@@ -89,7 +90,7 @@ describe('dungeon boss', () => {
     const sim = new Simulation(3, { kind: 'wilds', seed: 5 });
     const pid = sim.addPlayer('c', 'mage');
     const boss = [...sim.world.enemy].find(([, e]) => e.boss);
-    if (boss) dealDamage(sim, boss[0], 1e9, pid, []);
+    if (boss) dealDamage(sim, boss[0], packetOf('physical', 1e9), pid);
     sim.step();
     expect(sim.cleared).toBe(false);
   });
@@ -123,7 +124,7 @@ describe('dungeon exit', () => {
   function killBoss(sim: Simulation, pid: EntityId): void {
     const boss = [...sim.world.enemy].find(([, e]) => e.boss);
     if (!boss) throw new Error('no boss');
-    dealDamage(sim, boss[0], 1e9, pid, []);
+    dealDamage(sim, boss[0], packetOf('physical', 1e9), pid);
     sim.step();
   }
 
@@ -169,7 +170,7 @@ describe('dungeon exit', () => {
     const boss = [...sim.world.enemy].find(([, e]) => e.boss);
     if (!boss) throw new Error('no boss');
     sim.world.position.set(boss[0], { x: exit.x, y: exit.y });
-    dealDamage(sim, boss[0], 1e9, pid, []);
+    dealDamage(sim, boss[0], packetOf('physical', 1e9), pid);
     sim.step();
     const bags = [...sim.world.loot.keys()].flatMap((id) => {
       const pos = sim.world.position.get(id);

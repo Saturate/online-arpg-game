@@ -25,11 +25,11 @@ describe('balance bench preview', () => {
 
   it('shows a proposed override in the after numbers without saving it or touching the saved set', () => {
     const specs = new Map(TUNABLES.map((s) => [s.path, s]));
-    useTuningDraft.setState({ server: { schema: [...TUNABLES], values: {} }, edits: { 'spell.bolt.damage': { text: '40', base: null } } });
+    useTuningDraft.setState({ server: { schema: [...TUNABLES], values: {} }, edits: { 'spell.bolt.damageMax': { text: '40', base: null } } });
     const { server, edits } = useTuningDraft.getState();
     const live = server?.values ?? {};
     const pending = pendingPatch(edits, specs, live);
-    expect(pending.patch).toEqual({ 'spell.bolt.damage': 40 });
+    expect(pending.patch).toEqual({ 'spell.bolt.damageMax': 40 });
     const proposed = proposedValues(live, pending.patch);
     expect(tuningKey(proposed)).not.toBe(tuningKey(live));
     expect(tuningKey({ b: 1, a: 2 })).toBe(tuningKey({ a: 2, b: 1 }));
@@ -45,7 +45,7 @@ describe('balance bench preview', () => {
     expect(ok(new BenchMeasurer().measure(tuningKey(live), live, row.spec)).single).toBe(before.single);
     // Nothing was saved: the draft still holds the edit and no override is stored as live.
     expect(useTuningDraft.getState().server?.values).toEqual({});
-    expect(useTuningDraft.getState().edits).toEqual({ 'spell.bolt.damage': { text: '40', base: null } });
+    expect(useTuningDraft.getState().edits).toEqual({ 'spell.bolt.damageMax': { text: '40', base: null } });
     // The measurer leaves the last set it measured applied; here that was the saved one.
     expect(activeTunables()).toEqual({});
   });
@@ -65,56 +65,56 @@ describe('balance bench preview', () => {
 
   it('pending edits out of range are counted and left out; a default is sent as null', () => {
     const specs = new Map(TUNABLES.map((s) => [s.path, s]));
-    const dmg = specs.get('spell.bolt.damage');
+    const dmg = specs.get('spell.bolt.damageMax');
     if (!dmg) throw new Error('no bolt damage');
     const e = (text: string) => ({ text, base: null });
-    const p = pendingPatch({ 'spell.bolt.damage': e(String(dmg.max + 1)), 'spell.bolt.speed': e('') }, specs, {});
+    const p = pendingPatch({ 'spell.bolt.damageMax': e(String(dmg.max + 1)), 'spell.bolt.speed': e('') }, specs, {});
     expect(p).toEqual({ patch: {}, count: 0, bad: 2 });
-    expect(pendingPatch({ 'spell.bolt.damage': e(String(dmg.default)) }, specs, { 'spell.bolt.damage': 30 }).patch).toEqual({ 'spell.bolt.damage': null });
-    expect(proposedValues({ 'spell.bolt.damage': 30, x: 1 }, { 'spell.bolt.damage': null, y: 2 })).toEqual({ x: 1, y: 2 });
+    expect(pendingPatch({ 'spell.bolt.damageMax': e(String(dmg.default)) }, specs, { 'spell.bolt.damageMax': 30 }).patch).toEqual({ 'spell.bolt.damageMax': null });
+    expect(proposedValues({ 'spell.bolt.damageMax': 30, x: 1 }, { 'spell.bolt.damageMax': null, y: 2 })).toEqual({ x: 1, y: 2 });
   });
 });
 
 describe('tuning draft', () => {
-  const spec = TUNABLES.find((s) => s.path === 'spell.bolt.damage');
+  const spec = TUNABLES.find((s) => s.path === 'spell.bolt.damageMax');
   if (!spec) throw new Error('no bolt damage');
   const specs = new Map(TUNABLES.map((s) => [s.path, s]));
   const state = (values: Record<string, number>) => ({ schema: [...TUNABLES], values });
 
   it('drops an edit once it equals the saved value', () => {
-    useTuningDraft.setState({ server: state({ 'spell.bolt.damage': 20 }), edits: {} });
+    useTuningDraft.setState({ server: state({ 'spell.bolt.damageMax': 26 }), edits: {} });
     const { edit } = useTuningDraft.getState();
     edit(spec, '25');
-    expect(useTuningDraft.getState().edits['spell.bolt.damage']).toEqual({ text: '25', base: 20 });
-    edit(spec, '20');
+    expect(useTuningDraft.getState().edits['spell.bolt.damageMax']).toEqual({ text: '25', base: 26 });
+    edit(spec, '26');
     expect(useTuningDraft.getState().edits).toEqual({});
   });
 
   it('drops an edit another admin saved over, so Save cannot put back the old number', () => {
-    // Admin A sees 20 saved and types the code default back in; it is pending, a revert to default.
-    useTuningDraft.setState({ server: state({ 'spell.bolt.damage': 20 }), edits: {} });
+    // Admin A sees 26 saved and types the code default back in; it is pending, a revert to default.
+    useTuningDraft.setState({ server: state({ 'spell.bolt.damageMax': 26 }), edits: {} });
     useTuningDraft.getState().edit(spec, String(spec.default));
-    expect(pendingPatch(useTuningDraft.getState().edits, specs, { 'spell.bolt.damage': 20 }).patch).toEqual({ 'spell.bolt.damage': null });
+    expect(pendingPatch(useTuningDraft.getState().edits, specs, { 'spell.bolt.damageMax': 26 }).patch).toEqual({ 'spell.bolt.damageMax': null });
     // Admin B saves 24. When A's page next reads the saved values, A's edit is gone and named.
-    const dropped = useTuningDraft.getState().receive(state({ 'spell.bolt.damage': 24 }));
-    expect(dropped).toEqual(['spell.bolt.damage']);
+    const dropped = useTuningDraft.getState().receive(state({ 'spell.bolt.damageMax': 24 }));
+    expect(dropped).toEqual(['spell.bolt.damageMax']);
     const after = useTuningDraft.getState();
     expect(after.edits).toEqual({});
     expect(pendingPatch(after.edits, specs, after.server?.values ?? {}).count).toBe(0);
     // An edit whose saved value did not move stays.
     useTuningDraft.getState().edit(spec, '30');
-    expect(useTuningDraft.getState().receive(state({ 'spell.bolt.damage': 24 }))).toEqual([]);
-    expect(useTuningDraft.getState().edits['spell.bolt.damage']?.text).toBe('30');
+    expect(useTuningDraft.getState().receive(state({ 'spell.bolt.damageMax': 24 }))).toEqual([]);
+    expect(useTuningDraft.getState().edits['spell.bolt.damageMax']?.text).toBe('30');
   });
 
   it('keeps a half-set affix table at its saved numbers in the preview and says why', () => {
     const t1min = affixTierPath('rune_damage', 5, 'min');
     const live = { [affixTierPath('rune_damage', 5, 'max')]: 110 };
-    const { proposed, brokenTables } = previewSet(live, { [t1min]: 0, 'spell.bolt.damage': 30 });
+    const { proposed, brokenTables } = previewSet(live, { [t1min]: 0, 'spell.bolt.damageMax': 30 });
     expect(brokenTables).toHaveLength(1);
     expect(brokenTables[0]).toContain('rune_damage');
-    expect(proposed).toEqual({ ...live, 'spell.bolt.damage': 30 });
-    expect(previewSet({}, { 'spell.bolt.damage': 30 }).brokenTables).toEqual([]);
+    expect(proposed).toEqual({ ...live, 'spell.bolt.damageMax': 30 });
+    expect(previewSet({}, { 'spell.bolt.damageMax': 30 }).brokenTables).toEqual([]);
   });
 });
 
@@ -206,7 +206,7 @@ describe('bench isolation', () => {
     await import('../src/admin/bench/measure.worker.js');
     const send: unknown = onMessage;
     if (typeof send !== 'function') throw new Error('the worker did not listen');
-    send({ data: { t: 'job', sets: { a: {}, b: { 'spell.bolt.damage': 40 } }, tasks: [{ setKey: 'a', spec: { kind: 'spell', text: 'bolt fire', classId: 'ranger', multicast: 1 } }, { setKey: 'b', spec: { kind: 'spell', text: 'bolt fire', classId: 'ranger', multicast: 1 } }] } });
+    send({ data: { t: 'job', sets: { a: {}, b: { 'spell.bolt.damageMax': 40 } }, tasks: [{ setKey: 'a', spec: { kind: 'spell', text: 'bolt fire', classId: 'ranger', multicast: 1 } }, { setKey: 'b', spec: { kind: 'spell', text: 'bolt fire', classId: 'ranger', multicast: 1 } }] } });
     send({ data: 'not a job' });
     await vi.waitFor(() => expect(replies.at(-1)).toEqual({ t: 'idle' }), { timeout: 5000 });
     const results = replies.filter(isWorkerReply).flatMap((r) => (r.t === 'result' && r.measure.ok ? [r.measure.single ?? 0] : []));
@@ -215,8 +215,8 @@ describe('bench isolation', () => {
   });
 
   it('puts the code defaults back when the Watch panel closes', () => {
-    watchWith({ 'spell.bolt.damage': 40 });
-    expect(activeTunables()).toEqual({ 'spell.bolt.damage': 40 });
+    watchWith({ 'spell.bolt.damageMax': 40 });
+    expect(activeTunables()).toEqual({ 'spell.bolt.damageMax': 40 });
     endWatch();
     expect(activeTunables()).toEqual({});
   });

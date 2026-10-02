@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gateBoss, loadMap, setRespawnTimes, Simulation, GATES, SIM, type Vec2 } from '../src/index.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 
 const DESC = { kind: 'world', seed: 3 } as const;
 
@@ -24,7 +25,7 @@ function setup() {
   for (let i = 0; i < 6; i++) sim.step();
   const boss = gateBoss(sim, g.id);
   if (boss === null) throw new Error('no boss');
-  dealDamage(sim, boss, 1e9, killer, []);
+  dealDamage(sim, boss, packetOf('physical', 1e9), killer);
   return { sim, g, wp, killer, put };
 }
 

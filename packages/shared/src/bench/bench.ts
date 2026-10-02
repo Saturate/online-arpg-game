@@ -1,4 +1,4 @@
-import { AFFIXES, isAffixId } from '../data/affixes.js';
+import { AFFIXES, affixText, isAffixId } from '../data/affixes.js';
 import { CLASS_IDS, isClassId, type ClassId } from '../data/classes.js';
 import { createStarterSigil, STARTER_SIGILS, type StarterSigilDef } from '../data/starterSigils.js';
 import { affixValue, runeItemFromInstance, SIGIL_MAX_SLOTS, sigilCastDelayShare, sigilMisfireMultiplier, toRuneInstance, type AffixRoll, type RuneItem } from '../items/items.js';
@@ -177,11 +177,11 @@ function rollProblem(rune: RuneInstance, word: number): string | null {
   }
   for (const roll of item.affixes) {
     const def = AFFIXES[roll.id];
-    if (def.runes && !def.runes.includes(rune.id)) return `${said}: no ${rune.id} rune rolls "${def.text.replace('{v}', fmtRoll(roll.value))}".`;
+    if (def.runes && !def.runes.includes(rune.id)) return `${said}: no ${rune.id} rune rolls "${affixText(def, fmtRoll(roll.value), fmtRoll(roll.value * (def.spread ?? 1)))}".`;
     const lo = Math.min(...def.tiers.map((t) => t.min));
     const hi = Math.max(...def.tiers.map((t) => t.max));
     // Rolls are stored rounded, so a value a hair past the end from the text form still fits.
-    if (roll.value < lo - 1e-9 || roll.value > hi + 1e-9) return `${said}: "${def.text.replace('{v}', fmtRoll(roll.value))}" is outside what any rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
+    if (roll.value < lo - 1e-9 || roll.value > hi + 1e-9) return `${said}: "${affixText(def, fmtRoll(roll.value), fmtRoll(roll.value * (def.spread ?? 1)))}" is outside what any rune rolls (${fmtRoll(lo)} to ${fmtRoll(hi)}).`;
   }
   return null;
 }

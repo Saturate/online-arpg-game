@@ -1,3 +1,5 @@
+import { formatDamageParts, type ShapeDamage } from '../../sim/damage.js';
+import { parsedShapeDamage } from './compile.js';
 import type { NodeRelease, SpellNode, SpellTree } from './parse.js';
 import { SHAPES } from './runes.js';
 
@@ -99,16 +101,42 @@ function groupNouns(group: readonly SpellNode[]): string {
   return group.length > 1 ? `${list} at once` : list;
 }
 
+function cadenceWords(d: ShapeDamage): string {
+  if (d.cadence.per === 'tick') return ` every ${fmtSeconds(d.cadence.seconds)} s`;
+  if (d.cadence.per === 'second') return ' a second to enemies in range';
+  return '';
+}
+
+/**
+ * "Deals 12 to 20 fire damage.", one per damaging shape. A lone cast shape needs no name; shapes cast
+ * together and payloads are named, and copies deal it each.
+ */
+function damageSentence(node: SpellNode, named: boolean): string | null {
+  const d = parsedShapeDamage(node);
+  if (!d) return null;
+  const def = SHAPES[node.shape];
+  const subject = named ? (node.copies > 1 ? `Each ${def.noun} deals` : `The ${def.noun} deals`) : node.copies > 1 ? 'Each deals' : 'Deals';
+  return `${subject} ${formatDamageParts(d.parts)}${cadenceWords(d)}.`;
+}
+
+function pushDamage(group: readonly SpellNode[], named: boolean, out: string[]): void {
+  for (const node of group) {
+    const line = damageSentence(node, named || group.length > 1);
+    if (line) out.push(line);
+  }
+}
+
 function describeRelease(node: SpellNode, inGroup: boolean, out: string[]): void {
   if (!node.release || node.payload.length === 0) return;
   const subject = node.copies > 1 ? 'each' : 'it';
   const prefix = inGroup ? `The ${SHAPES[node.shape].noun}: ` : '';
   const when = whenPhrase(node, node.release);
   out.push(`${prefix}${prefix ? when.toLowerCase() : when} ${subject} releases ${groupNouns(node.payload)}.`);
+  pushDamage(node.payload, true, out);
   for (const child of node.payload) describeRelease(child, node.payload.length > 1, out);
 }
 
-/** Plain-English reading of a spell tree, one sentence per cast and per release. */
+/** Plain-English reading of a spell tree: one sentence per cast and per release, each followed by what its shapes deal. */
 export function describeTree(tree: SpellTree): string {
   const roots = tree.roots;
   if (roots.length === 0) return '';
@@ -121,6 +149,7 @@ export function describeTree(tree: SpellTree): string {
     first = `Hold to charge (${stages} stages), then release: ${lower(first)}`;
   }
   out.push(`${first}.`);
+  pushDamage(roots, false, out);
   for (const root of roots) describeRelease(root, roots.length > 1, out);
   return out.join(' ');
 }

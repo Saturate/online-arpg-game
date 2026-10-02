@@ -3,6 +3,7 @@ import type { ClassId } from '../data/classes.js';
 import type { EnemyDef, EnemyTypeId } from '../data/enemies.js';
 import type { MinionDef, MinionTypeId, Stance } from '../data/minions.js';
 import type { ElementId } from './program.js';
+import type { DamagePacket } from './damage.js';
 import type { AffixRoll, Item, ItemUid } from '../items/items.js';
 import type { StashLayout } from '../items/stash.js';
 import type { SigilCompile } from '../runes/v2/compile.js';
@@ -257,7 +258,12 @@ export interface MinionComp {
 
 export interface ProjectileComp {
   ownerId: EntityId;
-  damage: number;
+  /**
+   * The hit it lands when it has no spell (a monster's or minion's shot, a reflected spell). A
+   * spell's projectile rolls each hit from its node instead; this is then its average hit.
+   */
+  damage: DamagePacket;
+  /** Ailments it applies, and its colour on the client. */
   elements: ElementId[];
   lifetime: number;
   pierceLeft: number;

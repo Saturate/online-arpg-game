@@ -1,12 +1,12 @@
 import { HEAT, HOUND_PACK, LOOT, SIM, SPIRIT } from '../config/sim.js';
-import { AFFIXES, AFFIX_IDS, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
+import { AFFIXES, AFFIX_IDS, affixText, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
 import { clampRuneRolls, honestTier } from './runeRolls.js';
-import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
+import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AddedKey, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
 export { clampRoll, clampRuneRolls, honestTier, isNoStronger, kitRoll, rollLosses, sixTierRoll } from './runeRolls.js';
@@ -157,6 +157,9 @@ const RUNE_AFFIX_KEY: Partial<Record<AffixId, AffixKey>> = {
   rune_pierce: 'pierce',
   split_count: 'count',
   rune_concentrated: 'concentration',
+  rune_added_fire: 'addedFire',
+  rune_added_cold: 'addedCold',
+  rune_added_lightning: 'addedLightning',
 };
 
 /** Whether `rune` may roll this affix: the affix lists the rune and the grammar reads its key there. */
@@ -201,7 +204,7 @@ export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: n
  */
 export function toRuneInstance(item: RuneItem): RuneInstance {
   const a: RuneAffixes = {};
-  const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count' | 'concentration', v: number): void => {
+  const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count' | 'concentration' | AddedKey, v: number): void => {
     a[key] = (a[key] ?? 0) + v;
   };
   for (const roll of item.affixes) {
@@ -242,6 +245,15 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
       case 'rune_concentrated':
         add('concentration', roll.value);
         break;
+      case 'rune_added_fire':
+        add('addedFire', roll.value);
+        break;
+      case 'rune_added_cold':
+        add('addedCold', roll.value);
+        break;
+      case 'rune_added_lightning':
+        add('addedLightning', roll.value);
+        break;
       default:
         break;
     }
@@ -257,6 +269,9 @@ const AFFIX_FOR_KEY = {
   pierce: 'rune_pierce',
   count: 'split_count',
   concentration: 'rune_concentrated',
+  addedFire: 'rune_added_fire',
+  addedCold: 'rune_added_cold',
+  addedLightning: 'rune_added_lightning',
 } as const;
 const AFFIX_FOR_RELEASE = { onhit: 'release_onhit', onexpire: 'release_onexpire', onland: 'release_onland', after: 'release_after', every: 'release_every' } as const;
 
@@ -278,7 +293,18 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
       item.affixes.push({ id, tier: honestTier(id, value), value });
       continue;
     }
-    if (key !== 'speed' && key !== 'size' && key !== 'duration' && key !== 'damage' && key !== 'pierce' && key !== 'count' && key !== 'concentration') {
+    if (
+      key !== 'speed' &&
+      key !== 'size' &&
+      key !== 'duration' &&
+      key !== 'damage' &&
+      key !== 'pierce' &&
+      key !== 'count' &&
+      key !== 'concentration' &&
+      key !== 'addedFire' &&
+      key !== 'addedCold' &&
+      key !== 'addedLightning'
+    ) {
       throw new Error(`${rune.id}: no rune affix sets ${key}`);
     }
     const v = a[key];
@@ -439,7 +465,7 @@ export function behaviourOf(affixes: readonly AffixRoll[]): BehaviourAffixId | n
 export function formatAffix(a: AffixRoll): string {
   const def = AFFIXES[a.id];
   const n = formatNumber(a.value, def.decimals ?? 0);
-  return def.text.replace('{v}', def.signed && a.value > 0 ? `+${n}` : n);
+  return affixText(def, def.signed && a.value > 0 ? `+${n}` : n, formatNumber(a.value * (def.spread ?? 1), def.decimals ?? 0));
 }
 
 export function vesselSpirit(item: VesselItem): number {

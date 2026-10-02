@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, planChecksum, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, WORLD_GEN_DEFAULTS, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
 import { dealDamage, inSafeZone, isTargetable } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { chestKey, openedChests } from '../src/sim/chests.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { placeTown, townExits } from '../src/world/worldMap.js';
@@ -192,7 +193,7 @@ describe('world map', () => {
     expect(inSafeZone(sim, pos.x, pos.y)).toBe(true);
     expect(isTargetable(sim, pid)).toBe(false);
     const eid = spawnEnemy(sim, 'chaser', pos.x + 40, pos.y, { rare: false, level: 1, aggro: true });
-    expect(dealDamage(sim, pid, 50, eid, [])).toBe(0);
+    expect(dealDamage(sim, pid, packetOf('physical', 50), eid)).toBe(0);
     const town = sim.mapDef.safeZones?.[0];
     if (!town) throw new Error('no town');
     // Out past the gate, the same player is fair game.

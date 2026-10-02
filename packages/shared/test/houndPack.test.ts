@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { HOUND_PACK, ITEM_TIERS, MINION_DEFS, MINIONS, SIM, Simulation, createBrothersCreation, createVessel, vesselSpirit, type EntityId, type VesselItem } from '../src/index.js';
 import { spiritReservedFor } from '../src/sim/auras.js';
 import { dealDamage } from '../src/sim/combat.js';
+import { packetOf } from '../src/sim/damage.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
 import { Rng } from '../src/sim/rng.js';
 
@@ -134,8 +135,8 @@ describe('the Hound pack', () => {
     const deadMate = pack.mates[0]!;
     const mates = [...pack.mates];
     for (const m of mates) sim.world.minion.get(m)!.howled = 5;
-    dealDamage(sim, deadMate, 1e6, id, []);
-    dealDamage(sim, leaderId, 1e6, id, []);
+    dealDamage(sim, deadMate, packetOf('physical', 1e6), id);
+    dealDamage(sim, leaderId, packetOf('physical', 1e6), id);
     sim.step();
     expect(p.minions[1]).toBeNull();
     expect(pack.mates).toHaveLength(2);
