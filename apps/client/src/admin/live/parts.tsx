@@ -224,7 +224,7 @@ export function LogTail({ entries, empty, label }: { entries: readonly ServerEve
 /** Dark, desaturated tints, one per region; the grid only says which region a cell is in. */
 const REGION_TINTS = ['#353222', '#352c26', '#243024', '#36281c', '#2a2b34', '#33291f', '#22302f', '#352529'];
 
-export function WorldMinimap({ world }: { world: LiveWorld }) {
+export function WorldMinimap({ world, children }: { world: LiveWorld; children?: ReactNode }) {
   const { width, height, regions } = world;
   // About 4 px on the side panel's 300 px map, whatever the world's size.
   const dot = Math.max(width, height) / 75;
@@ -262,6 +262,15 @@ export function WorldMinimap({ world }: { world: LiveWorld }) {
       </svg>
       <figcaption>
         <b>{world.name}</b> <span className="muted mono">{world.game}</span> <span className="muted">· {world.dots.length} in the world</span>
+        <span className="muted small live-map-seed">
+          seed <span className="mono">{world.seed}</span>
+          {!world.genCurrent && (
+            <span className="badge" title={`Built with ${Object.entries(world.gen).map(([k, v]) => `${k} ${v}`).join(', ') || 'the code defaults'}; a rebuild takes the numbers in force now`}>
+              older generation numbers
+            </span>
+          )}
+        </span>
+        {children}
       </figcaption>
     </figure>
   );

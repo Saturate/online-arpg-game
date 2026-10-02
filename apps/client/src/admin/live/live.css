@@ -190,6 +190,23 @@
 }
 .live-map figcaption {
   font-size: 12px;
+  display: grid;
+  gap: 4px;
+}
+.live-map-seed {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.live-world-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.live-world-actions .live-seed {
+  width: 7em;
 }
 .live-map-bg {
   fill: #0d0b09;

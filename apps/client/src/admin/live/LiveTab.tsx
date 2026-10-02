@@ -1,13 +1,68 @@
-import { can, type AdminLive, type LivePlayer, type Role } from '@rune/shared';
+import { can, SETTINGS_LIMITS, type AdminLive, type LivePlayer, type LiveWorld, type Role } from '@rune/shared';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { adminApi } from '../../net/api.js';
-import { liveApi } from './liveApi.js';
+import { liveApi, rebuildSummary } from './liveApi.js';
 import { nextPollDelay, RegionCache } from './poll.js';
 import { HealthPanel, LogTail, PlayersTable, RoomsTable, WorldMinimap, type PlayerActions } from './parts.js';
 import './live.css';
 
 /** Often enough to feel live, rare enough that two open pages stay far under the 120 a minute limit. */
 const POLL_MS = 3000;
+
+/**
+ * Rebuild and reroll for one world copy. Both move everyone in it onto the new map, so each asks
+ * first; a public copy takes every public copy on its seed with it, as the server does.
+ */
+function WorldActions({ world, token, role, notify, done }: { world: LiveWorld; token: string; role: Role; notify: (t: string) => void; done: () => void }) {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const scope = world.kind === 'public' ? 'every public world copy on this seed' : world.name;
+  const run = async (ask: string, call: () => ReturnType<typeof liveApi.rebuild>, verb: string) => {
+    if (!confirm(ask)) return;
+    setBusy(true);
+    const r = await call();
+    setBusy(false);
+    notify(r.ok ? rebuildSummary(r.data, verb) : r.error);
+    if (r.ok) {
+      setPin('');
+      done();
+    }
+  };
+  const pinned = /^\d{1,6}$/.test(pin.trim()) ? Number(pin.trim()) : null;
+  const pinOk = pinned !== null && pinned <= SETTINGS_LIMITS.seedMax;
+  return (
+    <div className="live-world-actions">
+      {can(role, 'tuning') && (
+        <button
+          type="button"
+          className="small"
+          disabled={busy}
+          title="Rebuild with the generation numbers in force now, carrying everyone in it to open ground"
+          onClick={() => void run(`Rebuild ${scope} with the generation numbers in force now? Everyone inside is carried to open ground; if the plan changes, its dead bosses and opened chests are forgotten.`, () => liveApi.rebuild(token, world.game), 'Rebuilt')}
+        >
+          Rebuild
+        </button>
+      )}
+      {can(role, 'settings') && (
+        <>
+          <button
+            type="button"
+            className="small"
+            disabled={busy}
+            title={world.kind === 'public' ? 'A random seed for the public world: sets the world seed setting too' : 'A random seed for this party world'}
+            onClick={() => void run(`Reroll the seed of ${scope}? It becomes a new world at once, with fresh bosses and chests.`, () => liveApi.reroll(token, world.game), 'Rerolled')}
+          >
+            Reroll seed
+          </button>
+          <input className="live-seed" inputMode="numeric" placeholder="seed" value={pin} onChange={(e) => setPin(e.target.value)} aria-label={`Seed to pin for ${world.name}`} />
+          <button type="button" className="small" disabled={busy || !pinOk} title={`Pin a seed from 0 to ${SETTINGS_LIMITS.seedMax}`} onClick={() => pinned !== null && void run(`Put ${scope} on seed ${pinned}?`, () => liveApi.reroll(token, world.game, pinned), 'Pinned')}>
+            Pin
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * The Live view (docs/features/admin-ui.md): who is online and where, the rooms and their tick time,
@@ -113,7 +168,31 @@ export function LiveTab({ token, role, notify, openPlayer }: { token: string; ro
         </section>
         <aside className="live-side">
           <h2>World copies</h2>
-          {data.worlds.length === 0 ? <p className="muted">No world copy is open.</p> : data.worlds.map((w) => <WorldMinimap key={w.game} world={w} />)}
+          {can(role, 'tuning') && data.worlds.length > 0 && (
+            <button
+              type="button"
+              className="small"
+              title="Every world copy takes the generation numbers in force now"
+              onClick={() => {
+                if (!confirm('Rebuild every world copy with the generation numbers in force now? Everyone is carried to open ground; copies whose plan changes forget their dead bosses and opened chests.')) return;
+                void liveApi.rebuild(token).then((r) => {
+                  notify(r.ok ? rebuildSummary(r.data, 'Rebuilt') : r.error);
+                  void load();
+                });
+              }}
+            >
+              Rebuild every copy
+            </button>
+          )}
+          {data.worlds.length === 0 ? (
+            <p className="muted">No world copy is open.</p>
+          ) : (
+            data.worlds.map((w) => (
+              <WorldMinimap key={w.game} world={w}>
+                <WorldActions world={w} token={token} role={role} notify={notify} done={() => void load()} />
+              </WorldMinimap>
+            ))
+          )}
         </aside>
       </div>
 

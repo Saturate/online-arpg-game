@@ -34,6 +34,8 @@ import {
   type Role,
   type ServerSettings,
   type TownLayout,
+  SETTINGS_LIMITS,
+  type WorldRebuildResult,
 } from '@rune/shared';
 import { randomInt } from 'node:crypto';
 import { createReadStream, rmSync, statSync } from 'node:fs';
@@ -150,6 +152,22 @@ export interface AdminHooks extends TuningHooks, TunablesHooks {
   roleChanged(accountId: number, role: Role): void;
   /** Whether the account has a session in the game (any character, in any room or between rooms). */
   accountOnline(accountId: number): boolean;
+  /**
+   * Rebuilds world copies (every one, or `game` and the copies sharing its world) with the generation
+   * numbers in force now; 'wait' inside the cooldown, or why not.
+   */
+  rebuildWorlds(accountId: number, game: string | null): WorldRebuildResult | string;
+  /** A new seed (random, or `seed`) for a world copy, rebuilt at once; 'wait' inside the cooldown, or why not. */
+  rerollWorld(accountId: number, game: string, seed: number | null): WorldRebuildResult | string;
+}
+
+/** World copy ids as the Live view lists them (`i12`). */
+const GAME_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+function rebuildLine(r: WorldRebuildResult): string {
+  const gen = Object.entries(r.gen).map(([k, v]) => `${k}=${v}`).join(' ') || 'code defaults';
+  const copies = r.copies.map((c) => `${c.name} (${c.game}, seed ${c.seed}${c.open ? `, ${c.players} players` : ', closed'}${c.planChanged ? ', new plan, memory dropped' : ''})`).join('; ');
+  return `${copies || 'no world copies'}; numbers ${gen}`;
 }
 
 const GRANT_ERRORS = {
@@ -589,6 +607,22 @@ export class AccountApi {
     if (tunables) return tunables;
     const bench = await benchRoute({ method, path, body: () => readJson(req), canEdit: allowed('tuning'), allowWrite: () => this.benchWriteLimit.allow(String(account.id)), by, log }, this.store.bench);
     if (bench) return bench;
+    if (method === 'POST' && (path === '/api/admin/worlds/rebuild' || path === '/api/admin/worlds/reroll')) {
+      const reroll = path.endsWith('/reroll');
+      // A reroll of the public world sets the world seed, a setting; a rebuild applies tuned numbers.
+      need(reroll ? 'settings' : 'tuning');
+      const body = await readJson(req);
+      const game = isRecord(body) ? body.game : undefined;
+      const gameOk = typeof game === 'string' ? GAME_ID.test(game) : game === undefined && !reroll;
+      if (!gameOk) throw new HttpError(400, reroll ? 'game is required: a world copy id from the Live view' : 'game must be a world copy id, or left out for every copy');
+      const seed = isRecord(body) ? body.seed : undefined;
+      if (seed !== undefined && (!reroll || typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0 || seed > SETTINGS_LIMITS.seedMax)) throw new HttpError(400, `seed must be a whole number from 0 to ${SETTINGS_LIMITS.seedMax}, on a reroll`);
+      const result = reroll && typeof game === 'string' ? this.admin.rerollWorld(account.id, game, typeof seed === 'number' ? seed : null) : this.admin.rebuildWorlds(account.id, typeof game === 'string' ? game : null);
+      if (result === 'wait') throw new HttpError(429, 'Wait a few seconds between world rebuilds');
+      if (typeof result === 'string') throw new HttpError(404, result);
+      log(`${reroll ? 'world reroll' : 'world rebuild'}: ${rebuildLine(result)}`);
+      return [200, result];
+    }
     if (method === 'POST' && path === '/api/admin/announce') {
       need('announce');
       const body = await readJson(req);

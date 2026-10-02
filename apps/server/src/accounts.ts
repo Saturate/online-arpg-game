@@ -9,6 +9,7 @@ import { events } from './eventLog.js';
 import { TuningStore } from './tuningStore.js';
 import { BenchStore } from './benchStore.js';
 import { TunablesStore } from './tunablesStore.js';
+import { WorldGenStore } from './worldGenStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
@@ -831,6 +832,13 @@ export class AccountStore {
   get tunables(): TunablesStore {
     this.tunablesStore ??= new TunablesStore(this.db);
     return this.tunablesStore;
+  }
+
+  private worldGenStore: WorldGenStore | null = null;
+  /** The public world's generation numbers by seed, in worldGenStore.ts. */
+  get worldGen(): WorldGenStore {
+    this.worldGenStore ??= new WorldGenStore(this.db);
+    return this.worldGenStore;
   }
 
   private benchStore: BenchStore | null = null;

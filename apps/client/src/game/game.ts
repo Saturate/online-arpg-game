@@ -31,6 +31,8 @@ import {
   parseModelOverrides,
   placeName,
   planChecksum,
+  mapKey,
+  worldGenHash,
   enemyDisplayName,
 } from '@rune/shared';
 import { Connection } from '../net/connection.js';
@@ -352,13 +354,14 @@ export class Game {
   }
 
   /**
-   * Where the world's explored map is remembered: per character and world seed, in this browser.
-   * The server keeps no fog, so another browser starts dark; a dungeon is fresh every run anyway.
+   * Where the world's explored map is remembered: per character, world seed and generation numbers,
+   * in this browser. The server keeps no fog, so another browser starts dark; a dungeon is fresh
+   * every run anyway.
    */
   private fogStore(desc: MapDescriptor): { storage: FogStorage; key: string } | null {
     if (desc.kind !== 'world' || this.session.kind !== 'live') return null;
     const storage = browserStorage();
-    return storage ? { storage, key: fogKey(this.session.character.id, desc.seed) } : null;
+    return storage ? { storage, key: fogKey(this.session.character.id, desc.seed, worldGenHash(desc.gen)) } : null;
   }
 
   private teardownRoom(): void {
@@ -418,7 +421,7 @@ export class Game {
       spells: new SpellTable(),
       mover: new ClickMover(game),
       zone: loaded.zone,
-      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}`, loaded.zone, { large: this.mounts.worldMap ?? null, persist: this.fogStore(desc) }) : null,
+      minimap: this.mounts.minimap ? new Minimap(this.mounts.minimap, def, `${id}:${def.width}x${def.height}:${def.spawn.x},${def.spawn.y}${desc.kind === 'world' ? worldGenHash(desc.gen) : ''}`, loaded.zone, { large: this.mounts.worldMap ?? null, persist: this.fogStore(desc) }) : null,
       sealed,
       exits: [],
       gateSeals: def.gates && def.gates.length > 0 ? new GateSeals(world.scene, fx.vfx, def.gates) : null,
@@ -559,7 +562,8 @@ export class Game {
         this.townEditorAllowed = msg.townEditor;
         // A role change resends the welcome; an open editor would otherwise linger with saves refused.
         if (!msg.townEditor && this.editor) this.toggleTownEditor();
-        if (this.room?.id !== msg.roomId) {
+        // A world rebuilt in place (a town save, a forced rebuild, a reroll) keeps its room id with a new map.
+        if (this.room?.id !== msg.roomId || mapKey(this.room.desc) !== mapKey(msg.map)) {
           this.enterRoom(msg.roomId, msg.map);
           this.checkPlan(msg.roomId, msg.planHash);
           if (this.reopenEditor) {

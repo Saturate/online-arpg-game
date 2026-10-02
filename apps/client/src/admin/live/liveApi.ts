@@ -1,4 +1,4 @@
-import { isClassId, isRole, type AdminLive, type AdminSearch, type LiveHealth, type LivePlayer, type LiveRoom, type LiveRoomKind, type LiveWorld, type SearchAccount, type ServerEvent, type ServerLogResponse } from '@rune/shared';
+import { isClassId, isRole, isWorldGenValues, type AdminLive, type WorldRebuildCopy, type WorldRebuildResult, type AdminSearch, type LiveHealth, type LivePlayer, type LiveRoom, type LiveRoomKind, type LiveWorld, type SearchAccount, type ServerEvent, type ServerLogResponse } from '@rune/shared';
 import { call, narrow } from '../../net/api.js';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -39,7 +39,8 @@ function isWorld(v: unknown): v is LiveWorld {
   const r = v.regions;
   const regionsOk = r === null || (isRecord(r) && num(r.cols) && num(r.rows) && numList(r.cells) && Array.isArray(r.names) && r.names.every(str));
   const dotsOk = Array.isArray(v.dots) && v.dots.every((d) => isRecord(d) && num(d.x) && num(d.y) && str(d.name) && typeof d.inParty === 'boolean');
-  return str(v.game) && str(v.name) && num(v.width) && num(v.height) && (v.town === null || isRect(v.town)) && (v.planHash === null || str(v.planHash)) && regionsOk && dotsOk;
+  const kindOk = v.kind === 'public' || v.kind === 'party';
+  return str(v.game) && str(v.name) && kindOk && num(v.seed) && isWorldGenValues(v.gen) && typeof v.genCurrent === 'boolean' && num(v.width) && num(v.height) && (v.town === null || isRect(v.town)) && (v.planHash === null || str(v.planHash)) && regionsOk && dotsOk;
 }
 
 const eventsOrNull = (v: unknown): boolean => v === null || listOf(v, isServerEvent);
@@ -60,8 +61,32 @@ function isLogResponse(v: unknown): v is ServerLogResponse {
   return isRecord(v) && num(v.startedAt) && num(v.next) && typeof v.missed === 'boolean' && listOf(v.entries, isServerEvent);
 }
 
+function isRebuildCopy(v: unknown): v is WorldRebuildCopy {
+  return isRecord(v) && str(v.game) && str(v.name) && num(v.seed) && typeof v.open === 'boolean' && num(v.players) && typeof v.planChanged === 'boolean';
+}
+
+export function isWorldRebuildResult(v: unknown): v is WorldRebuildResult {
+  return isRecord(v) && listOf(v.copies, isRebuildCopy) && isWorldGenValues(v.gen);
+}
+
 export const liveApi = {
   live: async (token: string, have = '') => narrow(await call('GET', `/api/admin/live${have ? `?have=${encodeURIComponent(have)}` : ''}`, token), isAdminLive),
   search: async (token: string, q: string) => narrow(await call('GET', `/api/admin/search?q=${encodeURIComponent(q)}`, token), isSearch),
   log: async (token: string, since: number) => narrow(await call('GET', `/api/admin/log?since=${since}`, token), isLogResponse),
+  /** Every copy without `game`; a public copy brings every public copy on its seed. */
+  rebuild: async (token: string, game?: string) => narrow(await call('POST', '/api/admin/worlds/rebuild', token, game === undefined ? {} : { game }), isWorldRebuildResult),
+  /** A random seed, or `seed` pinned. */
+  reroll: async (token: string, game: string, seed?: number) => narrow(await call('POST', '/api/admin/worlds/reroll', token, seed === undefined ? { game } : { game, seed }), isWorldRebuildResult),
 };
+
+/** One line for the admin after a rebuild or reroll: what moved, and which copies forgot their bosses and chests. */
+export function rebuildSummary(r: WorldRebuildResult, verb: string): string {
+  if (r.copies.length === 0) return 'No world copy to rebuild';
+  const players = r.copies.reduce((n, c) => n + c.players, 0);
+  const fresh = r.copies.filter((c) => c.planChanged).map((c) => c.name);
+  const closed = r.copies.filter((c) => !c.open).length;
+  const parts = [`${verb} ${r.copies.length} world cop${r.copies.length === 1 ? 'y' : 'ies'}, ${players} player${players === 1 ? '' : 's'} carried over`];
+  if (closed > 0) parts.push(`${closed} closed, built anew when next entered`);
+  parts.push(fresh.length > 0 ? `a new plan in ${fresh.join(', ')}: dead bosses and opened chests there are forgotten` : 'the plan is unchanged, so bosses and chests stay as they were');
+  return parts.join('; ');
+}

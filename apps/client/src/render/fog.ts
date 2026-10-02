@@ -124,8 +124,12 @@ const INDEX_KEY = 'rune.fog.index';
  */
 export const FOG_KEEP = 16;
 
-export function fogKey(characterId: number, seed: number): string {
-  return `${PREFIX}${characterId}.${seed}`;
+/**
+ * `gen`: the world copy's `worldGenHash`, '' on the default numbers (which keeps the keys stored
+ * before generation settings), so a world rebuilt on other numbers under the same seed starts dark.
+ */
+export function fogKey(characterId: number, seed: number, gen = ''): string {
+  return `${PREFIX}${characterId}.${seed}${gen === '' ? '' : `-${gen}`}`;
 }
 
 function isStringArray(v: unknown): v is string[] {

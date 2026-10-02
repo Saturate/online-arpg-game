@@ -2,12 +2,12 @@ import type { AdminLive, LiveRoom, LiveWorld } from '@rune/shared';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { isAdminLive } from '../src/admin/live/liveApi.js';
+import { isAdminLive, isWorldRebuildResult, rebuildSummary } from '../src/admin/live/liveApi.js';
 import { MAX_POLL_MS, nextPollDelay, RegionCache } from '../src/admin/live/poll.js';
 import { duration, HealthPanel, LogTail, PlayersTable, RoomsTable, Sparkline, tickClass, WorldMinimap, type PlayerActions } from '../src/admin/live/parts.js';
 
 const worldRoom: LiveRoom = { id: 'i1-world', name: 'The World', kind: 'world', game: 'i1', players: 2, monsters: 140, minions: 3, spells: 12, tickMs: 2.1, tickMaxMs: 9 };
-const world: LiveWorld = { game: 'i1', name: 'Public world 1', width: 1000, height: 800, town: { x: 400, y: 300, w: 200, h: 200 }, planHash: '0a1b2c3d', regions: { cols: 4, rows: 2, cells: [0, 0, 1, 1, 0, 2, 2, 1], names: ['Mossy Barrens', 'Gloomvale', 'Ashen Steppe'] }, dots: [{ x: 500, y: 400, name: 'Ashcaller', inParty: true }] };
+const world: LiveWorld = { game: 'i1', name: 'Public world 1', kind: 'public', seed: 1, gen: {}, genCurrent: true, width: 1000, height: 800, town: { x: 400, y: 300, w: 200, h: 200 }, planHash: '0a1b2c3d', regions: { cols: 4, rows: 2, cells: [0, 0, 1, 1, 0, 2, 2, 1], names: ['Mossy Barrens', 'Gloomvale', 'Ashen Steppe'] }, dots: [{ x: 500, y: 400, name: 'Ashcaller', inParty: true }] };
 
 const live: AdminLive = {
   health: { build: 'abcdef1234', uptimeSeconds: 3700, memoryMb: 210, heapMb: 90, tickMs: 3.2, tickMaxMs: 61, tickHistory: { mean: [2, 3, 4], max: [5, 61, 8] }, connections: 3, inGame: 2, messagesIn: 40, messagesOut: 380 },
@@ -106,5 +106,31 @@ describe('Live view polling', () => {
     // A copy that closed is forgotten.
     cache.resolve([]);
     expect(cache.have()).toBe('');
+    // A rebuild changes the plan hash, so the next reply's grid replaces the held one.
+    const rebuilt = { cols: 2, rows: 1, cells: [0, 1], names: ['Mossy Barrens', 'Thornwood'] };
+    cache.resolve([world]);
+    expect(cache.resolve([{ ...world, planHash: '12345678', regions: rebuilt }])[0]?.regions).toBe(rebuilt);
+    expect(cache.have()).toBe('i1:12345678');
+  });
+
+  it('shows a copy\'s seed and flags one built with older generation numbers', () => {
+    const current = renderToStaticMarkup(createElement(WorldMinimap, { world }));
+    expect(current).toContain('seed <span class="mono">1</span>');
+    expect(current).not.toContain('older generation numbers');
+    const older = renderToStaticMarkup(createElement(WorldMinimap, { world: { ...world, gen: { packs: 300 }, genCurrent: false } }));
+    expect(older).toContain('older generation numbers');
+    expect(older).toContain('packs 300');
+    expect(isAdminLive({ ...live, worlds: [{ ...world, gen: { packs: 99999 } }] })).toBe(false);
+    expect(isAdminLive({ ...live, worlds: [{ ...world, kind: 'secret' }] })).toBe(false);
+  });
+
+  it('reads a rebuild reply and sums it up, naming the copies that forgot their bosses and chests', () => {
+    const copy = { game: 'i1', name: 'Public world 1', seed: 7, open: true, players: 3, planChanged: true };
+    const reply = { copies: [copy, { ...copy, game: 'i4', name: "Bob's party world", open: false, players: 0, planChanged: false }], gen: { size: 12000 } };
+    expect(isWorldRebuildResult(reply)).toBe(true);
+    expect(isWorldRebuildResult({ copies: [{ ...copy, players: 'x' }], gen: {} })).toBe(false);
+    expect(rebuildSummary(reply, 'Rebuilt')).toBe('Rebuilt 2 world copies, 3 players carried over; 1 closed, built anew when next entered; a new plan in Public world 1: dead bosses and opened chests there are forgotten');
+    expect(rebuildSummary({ copies: [{ ...copy, planChanged: false, players: 1 }], gen: {} }, 'Rebuilt')).toBe('Rebuilt 1 world copy, 1 player carried over; the plan is unchanged, so bosses and chests stay as they were');
+    expect(rebuildSummary({ copies: [], gen: {} }, 'Rebuilt')).toBe('No world copy to rebuild');
   });
 });

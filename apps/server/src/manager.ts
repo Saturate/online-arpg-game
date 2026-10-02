@@ -19,7 +19,10 @@ import {
   splitStash,
   WILDS,
   carryGroundLoot,
+  currentWorldGen,
   entranceArrival,
+  mapKey,
+  worldGenKey,
   GATES,
   rememberWorld,
   restoreWorld,
@@ -65,6 +68,9 @@ import {
   type GateInfo,
   type WorldInfo,
   type WorldMemory,
+  type WorldGenValues,
+  type WorldRebuildCopy,
+  type WorldRebuildResult,
 } from '@rune/shared';
 import { boardOf, type AccountStore, type CharacterSaveRow, type Market } from './accounts.js';
 import { ArenaRun } from './arena.js';
@@ -126,6 +132,12 @@ interface Instance {
    * In memory only; a restart starts every copy fresh.
    */
   memory: WorldMemory | null;
+  /**
+   * The generation numbers the copy was made with (off the code defaults), fixed for its life so the
+   * world never changes under its players; only a forced rebuild or a reroll gives it others. The
+   * public world's are stored by seed (WorldGenStore), so a restart builds the same world.
+   */
+  gen: WorldGenValues;
 }
 
 /** Players who travel together. Kept by account, in memory, so a reconnect stays in the party. */
@@ -163,6 +175,8 @@ export class RoomManager implements AdminHooks {
   private townLayout: TownLayout;
   /** When each account last saved the town, for the save cooldown. */
   private readonly lastTownSave = new Map<number, number>();
+  /** When each account last forced a world rebuild or reroll, under the town save's cooldown. */
+  private readonly lastRebuild = new Map<number, number>();
   private nextClientId = 1;
   private nextInstanceId = 1;
   private nextArenaRun = 1;
@@ -443,6 +457,7 @@ export class RoomManager implements AdminHooks {
       return { id: r.id, name: r.name, kind: this.roomKind(r), game: r.instanceId, players: r.members.size, monsters: w.enemy.size, minions: w.minion.size, spells: w.projectile.size + w.nova.size + w.zone.size, ...roomTiming(r.tickTimes) };
     });
     const worlds: LiveWorld[] = [];
+    const current = worldGenKey(currentWorldGen());
     for (const inst of this.instances.values()) {
       const room = this.rooms.get(this.worldRoomId(inst));
       if (!room) continue;
@@ -457,7 +472,7 @@ export class RoomManager implements AdminHooks {
       const town = def.safeZones?.[0];
       const planHash = room.planHash ?? null;
       const held = planHash !== null && have.get(inst.id) === planHash;
-      worlds.push({ game: inst.id, name: inst.name, width: def.width, height: def.height, town: town ? { x: town.x, y: town.y, w: town.w, h: town.h } : null, planHash, regions: held ? null : this.regionGrid(room), dots });
+      worlds.push({ game: inst.id, name: inst.name, kind: inst.kind, seed: inst.seed, gen: inst.gen, genCurrent: worldGenKey(inst.gen) === current, width: def.width, height: def.height, town: town ? { x: town.x, y: town.y, w: town.w, h: town.h } : null, planHash, regions: held ? null : this.regionGrid(room), dots });
     }
     const mem = process.memoryUsage();
     let inGame = 0;
@@ -527,8 +542,8 @@ export class RoomManager implements AdminHooks {
 
   // -------------------------------------------------------------------------------------------
 
-  private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null = null): Instance {
-    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId, memory: null };
+  private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null, gen: WorldGenValues): Instance {
+    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId, memory: null, gen };
     this.instances.set(inst.id, inst);
     return inst;
   }
@@ -539,7 +554,19 @@ export class RoomManager implements AdminHooks {
     const open = [...this.instances.values()].find((i) => i.kind === 'public' && i.seed === seed && this.membersOf(i).length < INSTANCE_CAPACITY);
     if (open) return open;
     const n = [...this.instances.values()].filter((i) => i.kind === 'public').length + 1;
-    return this.newInstance('public', seed, `Public world ${n}`);
+    return this.newInstance('public', seed, `Public world ${n}`, null, this.publicGen(seed));
+  }
+
+  /**
+   * Every public copy on a seed is the same world, so they share the numbers stored for it; a seed
+   * nothing is stored for takes the numbers in force now, and keeps them from then on.
+   */
+  private publicGen(seed: number): WorldGenValues {
+    const stored = this.store.worldGen.publicGen(seed);
+    if (stored) return stored;
+    const gen = currentWorldGen();
+    this.store.worldGen.savePublic(seed, gen);
+    return gen;
   }
 
   private partyInstance(party: Party): Instance | null {
@@ -549,7 +576,7 @@ export class RoomManager implements AdminHooks {
   private worldDesc(inst: Instance): Extract<MapDescriptor, { kind: 'world' }> {
     // From the instance seed, so a world copy is the same world each time it opens.
     const seed = (Math.imul(inst.seed + 1, 2654435761) >>> 0) % 1_000_000;
-    return { kind: 'world', seed, layout: this.townLayout };
+    return { kind: 'world', seed, layout: this.townLayout, ...(worldGenKey(inst.gen) === '' ? {} : { gen: inst.gen }) };
   }
 
   private worldRoomId(inst: Instance): string {
@@ -1086,7 +1113,7 @@ export class RoomManager implements AdminHooks {
       if (party.leader !== client.accountId) return this.system(client, 'Only the party leader can open a party world');
       // Random, from the server: seeds are never chosen by players.
       const seed = (Math.imul(this.seedCounter++, 2654435761) >>> 0) % (SETTINGS_LIMITS.seedMax + 1);
-      world = this.newInstance('party', seed, `${party.members.get(party.leader) ?? 'Party'}'s party world`, party.id);
+      world = this.newInstance('party', seed, `${party.members.get(party.leader) ?? 'Party'}'s party world`, party.id, currentWorldGen());
       party.instanceId = world.id;
       for (const c of this.onlineMembers(party)) this.enterInstance(c, world);
       this.sendParty(party);
@@ -1135,19 +1162,112 @@ export class RoomManager implements AdminHooks {
       // What lies on the ground and which chests were opened stay as they were; only the town changed.
       // Gate and region boss timers and opened chests came over through the instance's memory, which
       // `close` took and `worldRoom` restored.
-      carryGroundLoot(old.sim, next.sim);
-      for (const m of [...old.members.values()]) {
-        const at = old.playerState(m.client);
-        const save = old.remove(m.client);
-        if (!save) continue;
-        next.add(m.client, save.classId, save.name, save, at ? { x: at.x, y: at.y } : undefined);
-        // The new world's seals may lie elsewhere: someone left standing behind one goes back out.
-        this.keepOutOfSeal(m.client, next);
-        players++;
-      }
+      players += this.carryInto(old, next);
       rooms++;
     }
     return { rooms, players };
+  }
+
+  /**
+   * Everyone in a world room that was just closed goes into its rebuilt room, each to where they
+   * stood on open ground, with the loot on the ground. A spot the new map lacks (a smaller world) or
+   * cannot reach from the town (inside a new ridge) gives the town spawn instead.
+   */
+  private carryInto(old: Room, next: Room): number {
+    carryGroundLoot(old.sim, next.sim);
+    const { width, height } = next.sim.mapDef;
+    const zone = next.sim.zone;
+    let players = 0;
+    for (const m of [...old.members.values()]) {
+      const at = old.playerState(m.client);
+      const save = old.remove(m.client);
+      if (!save) continue;
+      const inside = at && at.x > 0 && at.y > 0 && at.x < width && at.y < height;
+      const open = inside ? next.sim.map.findOpen(at.x, at.y, SIM.playerRadius + 6) : null;
+      const spot = open && (!zone || zone.reachable(open.x, open.y)) ? open : undefined;
+      next.add(m.client, save.classId, save.name, save, spot);
+      // The new world's seals may lie elsewhere: someone left standing behind one goes back out.
+      this.keepOutOfSeal(m.client, next);
+      players++;
+    }
+    return players;
+  }
+
+  /** A per-account cooldown shared by forced rebuilds and rerolls, as town saves have one. */
+  private rebuildAllowed(accountId: number): boolean {
+    const now = Date.now();
+    const last = this.lastRebuild.get(accountId);
+    if (last !== undefined && now - last < TOWN_SAVE_COOLDOWN_MS) return false;
+    for (const [id, at] of this.lastRebuild) if (now - at >= TOWN_SAVE_COOLDOWN_MS) this.lastRebuild.delete(id);
+    this.lastRebuild.set(accountId, now);
+    return true;
+  }
+
+  /**
+   * The copies one admin action acts on: every copy, or the one named; a public copy brings every
+   * public copy on its seed, since they are one world and share its stored numbers.
+   */
+  private rebuildTargets(game: string | null): Instance[] | string {
+    if (game === null) return [...this.instances.values()];
+    const inst = this.instances.get(game);
+    if (!inst) return 'No such world copy';
+    return inst.kind === 'public' ? [...this.instances.values()].filter((i) => i.kind === 'public' && i.seed === inst.seed) : [inst];
+  }
+
+  /**
+   * Force rebuild (admin): world copies take the generation numbers in force now and their open world
+   * rooms are rebuilt at once, as a town save does. A copy whose plan changes forgets its dead bosses
+   * and opened chests, since they belonged to spots and chunks of the old plan; one whose plan is the
+   * same keeps them. `game` null rebuilds every copy.
+   */
+  rebuildWorlds(accountId: number, game: string | null): WorldRebuildResult | string {
+    const targets = this.rebuildTargets(game);
+    if (typeof targets === 'string') return targets;
+    if (!this.rebuildAllowed(accountId)) return 'wait';
+    const gen = currentWorldGen();
+    const copies = targets.map((inst) => this.rebuildCopy(inst, inst.seed, gen));
+    for (const seed of new Set(targets.filter((i) => i.kind === 'public').map((i) => i.seed))) this.store.worldGen.savePublic(seed, gen);
+    return { copies, gen };
+  }
+
+  /**
+   * A new seed for a world copy (random, or `seed` to pin one), with the numbers in force now. The
+   * public world is one world on the `worldSeed` setting, so rerolling a public copy sets the setting
+   * and moves every public copy on the old seed to the new one.
+   */
+  rerollWorld(accountId: number, game: string, seed: number | null): WorldRebuildResult | string {
+    const targets = this.rebuildTargets(game);
+    if (typeof targets === 'string') return targets;
+    if (!this.rebuildAllowed(accountId)) return 'wait';
+    const next = seed ?? (Math.imul(this.seedCounter++, 2654435761) >>> 0) % (SETTINGS_LIMITS.seedMax + 1);
+    const gen = currentWorldGen();
+    if (targets.some((i) => i.kind === 'public')) {
+      this.store.worldGen.savePublic(next, gen);
+      this.updateSettings({ worldSeed: next });
+    }
+    return { copies: targets.map((inst) => this.rebuildCopy(inst, next, gen)), gen };
+  }
+
+  private rebuildCopy(inst: Instance, seed: number, gen: WorldGenValues): WorldRebuildCopy {
+    const before = mapKey(this.worldDesc(inst));
+    inst.seed = seed;
+    inst.gen = gen;
+    const planChanged = mapKey(this.worldDesc(inst)) !== before;
+    const result = (open: boolean, players: number): WorldRebuildCopy => ({ game: inst.id, name: inst.name, seed, open, players, planChanged });
+    const old = this.rooms.get(this.worldRoomId(inst));
+    if (!old) {
+      if (planChanged) inst.memory = null;
+      return result(false, 0);
+    }
+    this.close(old);
+    // `close` kept the room's memory; it belongs to the old plan's spots and chunks.
+    if (planChanged) inst.memory = null;
+    const next = this.worldRoom(inst);
+    const players = this.carryInto(old, next);
+    const text = planChanged ? 'An admin rebuilt this world: new ground, its bosses and chests are back' : 'An admin rebuilt this world: fresh monsters, bosses and chests as they were';
+    for (const m of next.members.values()) this.system(m.client, text);
+    events.log('server', `[world] ${inst.name} rebuilt on seed ${seed}${planChanged ? ', a new plan: dead bosses and opened chests forgotten' : ''}; ${players} players carried over`);
+    return result(true, players);
   }
 
   private usePortal(client: Client, from: Room, request: PortalRequest): void {

@@ -95,6 +95,9 @@ describe('fog memory', () => {
     expect(back?.waypoints).toEqual(['steppe-1']);
     expect(readFog(s, fogKey(8, 904226), 30, 20, 80)).toBeNull();
     expect(readFog(s, fogKey(7, 1), 30, 20, 80)).toBeNull();
+    // The same seed rebuilt on other generation numbers is another world, and starts dark.
+    expect(fogKey(7, 904226, '')).toBe(fogKey(7, 904226));
+    expect(readFog(s, fogKey(7, 904226, '0a1b2c3d'), 30, 20, 80)).toBeNull();
   });
 
   it('ignores a record of another grid shape or a corrupt one', () => {

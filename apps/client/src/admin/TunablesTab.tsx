@@ -13,6 +13,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { call, type ApiResult } from '../net/api.js';
 import { searchId, type Jump } from './tabs.js';
+import { liveApi, rebuildSummary } from './live/liveApi.js';
 import { droppedNotice, parsed, pendingPatch, useTuningDraft } from './tuningDraft.js';
 import './tunables.css';
 
@@ -153,8 +154,18 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
 
   const save = async () => {
     setBusy(true);
-    applied(await tunablesApi.patch(token, pending.patch), `Saved ${pending.count} value${pending.count === 1 ? '' : 's'}; the next cast uses them`);
+    const world = Object.keys(pending.patch).some((p) => p.startsWith('worldgen.'));
+    applied(await tunablesApi.patch(token, pending.patch), `Saved ${pending.count} value${pending.count === 1 ? '' : 's'}; ${world ? 'new world copies are built with them, running ones after a rebuild' : 'the next cast uses them'}`);
   };
+
+  const rebuild = async () => {
+    if (!confirm('Rebuild every world copy with the generation numbers in force now? Everyone is carried to open ground; copies whose plan changes forget their dead bosses and opened chests.')) return;
+    setBusy(true);
+    const r = await liveApi.rebuild(token);
+    setBusy(false);
+    notify(r.ok ? rebuildSummary(r.data, 'Rebuilt') : r.error);
+  };
+  const worldView = q === '' && view === 'worldgen';
 
   const revert = async (h: TunableHistoryEntry) => {
     setBusy(true);
@@ -198,9 +209,21 @@ export function TunablesTab({ token, role, notify, focus }: { token: string; rol
           )}
         </header>
         <p className="muted small">
-          {editable ? 'Saved numbers reach every room on the next cast or spawn, and every player’s tooltips at once. Nothing is refused for balance.' : 'Your role can look but not change numbers; that takes the tuning permission.'}
+          {!editable
+            ? 'Your role can look but not change numbers; that takes the tuning permission.'
+            : worldView
+              ? 'Saved numbers apply to new world copies only (new party worlds, the public world after a reroll), so nobody sees the world change under them. A running copy keeps the numbers it was built with until it is rebuilt; ranges keep every world buildable.'
+              : 'Saved numbers reach every room on the next cast or spawn, and every player’s tooltips at once. Nothing is refused for balance.'}
           {pending.bad > 0 && <span className="badge red">{pending.bad} out of range</span>}
         </p>
+        {editable && worldView && (
+          <p className="tun-world">
+            <button type="button" disabled={busy} title="Every world copy takes the saved numbers at once, as a town save rebuilds them" onClick={() => void rebuild()}>
+              Force rebuild every world copy
+            </button>
+            <span className="muted small">Each copy can also be rebuilt or given a new seed from the Live tab.</span>
+          </p>
+        )}
         {shown.length === 0 ? (
           <p className="muted">Nothing here.</p>
         ) : (
