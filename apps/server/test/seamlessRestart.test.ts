@@ -462,6 +462,193 @@ describe('item conservation across a restart', () => {
 
 });
 
+/** Rewrites the stored snapshot as raw JSON, the way an older or newer build might have left it. */
+function editSnapshot(store: AccountStore, edit: (raw: Record<string, unknown>) => void): void {
+  const json = store.snapshots.take();
+  if (json === null) throw new Error('no snapshot');
+  const v: unknown = JSON.parse(json);
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error('bad snapshot');
+  const raw: Record<string, unknown> = Object.fromEntries(Object.entries(v));
+  edit(raw);
+  store.snapshots.writeJson(JSON.stringify(raw), 1, Number(raw.takenAt));
+}
+
+/** The snapshot's world copies as plain records, for edits. */
+function rawInstances(raw: Record<string, unknown>): Record<string, unknown>[] {
+  const list = raw.instances;
+  if (!Array.isArray(list)) throw new Error('no instances');
+  return list.flatMap((i: unknown) => (typeof i === 'object' && i !== null && !Array.isArray(i) ? [Object.fromEntries(Object.entries(i))] : []));
+}
+
+/** One player out on the road with a bag of rings beside them. */
+async function onTheRoad(count = 1) {
+  const t = await setup(count);
+  const [a] = t.sockets;
+  if (!a) throw new Error('setup');
+  ticks(t.rooms, 1);
+  const room = roomOf(t.rooms, a);
+  const spawn = room.sim.playerSpawnPoint();
+  const spot = room.sim.map.findOpen(spawn.x + 700, spawn.y, SIM.playerRadius + 6);
+  a.emit({ t: 'dev', cmd: { c: 'teleport', x: spot.x, y: spot.y } });
+  ticks(t.rooms, 0.5);
+  const stood = { ...at(t.rooms, a) };
+  spawnBag(room.sim, stood.x + 100, stood.y, rings(room, 2), LOOT.bagRadius, null);
+  return { ...t, a, room, stood };
+}
+
+describe('restart edge cases', () => {
+  it('stores the item format markers and drops ground loot from before the rune rework', async () => {
+    const { store, rooms, owners, clock, room } = await onTheRoad();
+    rooms.shutdown();
+    const json = store.snapshots.take();
+    if (!json) throw new Error('no snapshot');
+    expect(json).toContain('"runeFormat":2');
+    expect(json).toContain('"runeTiers":6');
+    store.snapshots.writeJson(json, 1, clock.now());
+    editSnapshot(store, (raw) => {
+      delete raw.runeFormat;
+      delete raw.runeTiers;
+    });
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(next.roomById(room.id)?.sim.world.loot.size ?? 0).toBe(0);
+  });
+
+  it('runs the rune roll pass on ground loot from before the six rune tiers', async () => {
+    const { store, rooms, owners, clock, room } = await onTheRoad();
+    rooms.shutdown();
+    editSnapshot(store, (raw) => {
+      delete raw.runeTiers;
+    });
+    const { rooms: next } = reboot(store, owners, clock);
+    const piles = [...(next.roomById(room.id)?.sim.world.loot.values() ?? [])];
+    expect(piles.flatMap((l) => l.items).length).toBe(2);
+  });
+
+  it('checks the memory of a copy whose world room was closed against the ground it opens on', async () => {
+    const { store, rooms, owners, clock, room, a, players: ps0 } = await onTheRoad();
+    const chest = room.sim.mapDef.chests?.[0];
+    if (!chest) throw new Error('no chest');
+    markChestsOpened(room.sim, [chestKey(chest)]);
+    a.close();
+    // Empty past the idle time: the room closes and its memory goes onto the copy.
+    ticks(rooms, WILDS.idleCloseSeconds + 2);
+    expect(rooms.roomById(room.id)).toBeUndefined();
+    rooms.shutdown();
+    editSnapshot(store, (raw) => {
+      raw.instances = rawInstances(raw).map((i) => ({ ...i, layout: 'ground of another build' }));
+    });
+    const { rooms: next } = reboot(store, owners, clock);
+    const back = join(next, store, nth(ps0, 0));
+    expect(openedChests(roomOf(next, back).sim).has(chestKey(chest))).toBe(false);
+  });
+
+  it('keeps no ground loot once a character write has failed in this run', async () => {
+    const { store, rooms, owners, clock, room, sockets } = await onTheRoad(2);
+    const b = nth(sockets, 1);
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(store, 'saveCharacterAndStash').mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+    expect(() => b.close()).toThrow('disk full');
+    expect(rooms.shutdown().piles).toBe(0);
+    silence.mockRestore();
+    const { rooms: next } = reboot(store, owners, clock);
+    expect(next.roomById(room.id)?.sim.world.loot.size ?? 0).toBe(0);
+  });
+
+  it('keeps the place of a player not yet back through a second restart inside the window', async () => {
+    const { store, rooms, owners, clock, players: ps, stood } = await onTheRoad();
+    rooms.shutdown();
+    const first = reboot(store, owners, clock).rooms;
+    clock.advance(60_000);
+    first.shutdown();
+    clock.advance(60_000);
+    const { rooms: second } = reboot(store, owners, clock);
+    const back = join(second, store, nth(ps, 0));
+    expect(Math.hypot(at(second, back).x - stood.x, at(second, back).y - stood.y)).toBeLessThan(40);
+  });
+
+  it('moves piles and places with the town when the new build centres it elsewhere', async () => {
+    const { store, rooms, owners, clock, room, players: ps, stood } = await onTheRoad();
+    const pile = [...room.sim.world.loot.keys()][0];
+    const was = pile === undefined ? undefined : room.sim.world.position.get(pile);
+    if (!was) throw new Error('no pile');
+    const pileAt = { ...was };
+    rooms.shutdown();
+    editSnapshot(store, (raw) => {
+      raw.instances = rawInstances(raw).map((i) => {
+        const t: unknown = i.townAt;
+        if (typeof t !== 'object' || t === null) throw new Error('no townAt');
+        // As if the old build's town lay 120 units further east: everything moves 120 west.
+        return { ...i, townAt: { x: Number(Reflect.get(t, 'x')) + 120, y: Number(Reflect.get(t, 'y')) } };
+      });
+    });
+    const { rooms: next } = reboot(store, owners, clock);
+    const restored = [...(next.roomById(room.id)?.sim.world.loot.keys() ?? [])][0];
+    const now = restored === undefined ? undefined : next.roomById(room.id)?.sim.world.position.get(restored);
+    if (!now) throw new Error('no restored pile');
+    expect(Math.hypot(now.x - (pileAt.x - 120), now.y - pileAt.y)).toBeLessThan(60);
+    const back = join(next, store, nth(ps, 0));
+    expect(Math.hypot(at(next, back).x - (stood.x - 120), at(next, back).y - stood.y)).toBeLessThan(40);
+  });
+
+  it('costs a copy that cannot be read only its own loot, and still tells every client', async () => {
+    const { rooms, room, a } = await onTheRoad();
+    const zone = room.sim.zone;
+    if (!zone) throw new Error('no zone');
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // The plan is shared by every room built on it, so the spy goes as soon as the shutdown is done.
+    const broken = vi.spyOn(zone, 'memoryLayout').mockImplementation(() => {
+      throw new Error('broken plan');
+    });
+    const r = rooms.shutdown();
+    broken.mockRestore();
+    silence.mockRestore();
+    expect(r.piles).toBe(0);
+    expect(r.players).toBe(1);
+    expect(a.last('restart')).toEqual({ t: 'restart', seconds: 0 });
+  });
+
+  it('restores nothing from a snapshot older than the window, parties included', async () => {
+    const { store, rooms, owners, clock, sockets, room, players: ps0 } = await onTheRoad(2);
+    nth(sockets, 0).emit({ t: 'chat', text: '/invite Hero1' });
+    nth(sockets, 1).emit({ t: 'partyAnswer', accept: true });
+    rooms.shutdown();
+    clock.advance(RESUME_WINDOW_MS + 1000);
+    const { rooms: next, summary } = reboot(store, owners, clock);
+    expect(summary).toContain('not restored');
+    expect(next.roomById(room.id)).toBeUndefined();
+    const back = join(next, store, nth(ps0, 0));
+    expect(back.party()).toBeUndefined();
+  });
+
+  it('ends a restored party for members who never came back once the window closes', async () => {
+    const { store, rooms, owners, clock, sockets, players: ps0 } = await onTheRoad(2);
+    nth(sockets, 0).emit({ t: 'chat', text: '/invite Hero1' });
+    nth(sockets, 1).emit({ t: 'partyAnswer', accept: true });
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    const back = join(next, store, nth(ps0, 0));
+    expect(back.party()?.members.map((m) => m.name)).toEqual(['Hero0', 'Hero1']);
+    clock.advance(RESUME_WINDOW_MS);
+    next.tick();
+    expect(back.party()).toBeNull();
+  });
+
+  it('resumes a character once: a relog after the reload grace goes by the normal rules', async () => {
+    const { store, rooms, owners, clock, players: ps, stood } = await onTheRoad();
+    rooms.shutdown();
+    const { rooms: next } = reboot(store, owners, clock);
+    const first = join(next, store, nth(ps, 0));
+    expect(Math.hypot(at(next, first).x - stood.x, at(next, first).y - stood.y)).toBeLessThan(40);
+    clock.advance(25_000);
+    first.close();
+    const again = join(next, store, nth(ps, 0));
+    const spawn = roomOf(next, again).sim.playerSpawnPoint();
+    expect(Math.hypot(at(next, again).x - spawn.x, at(next, again).y - spawn.y)).toBeLessThan(Math.hypot(stood.x - spawn.x, stood.y - spawn.y) - 200);
+  });
+});
+
 describe('snapshot format', () => {
   it('drops a snapshot of another format or a damaged one instead of reading it wrong', async () => {
     const { rooms } = await setup(1);

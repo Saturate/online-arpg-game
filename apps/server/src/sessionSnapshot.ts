@@ -1,4 +1,4 @@
-import { isClassId, isEnemyTypeId, resolveWorldGen, worldGenOverrides, type ClassId, type GroundPile, type WorldGenValues, type WorldMemory } from '@rune/shared';
+import { convertItemRolls, emptyRuneRollsReport, isClassId, isEnemyTypeId, isRuneFormat2, isRuneTiers6, resolveWorldGen, runeRollsChanged, worldGenOverrides, type ClassId, type GroundPile, type Item, type Vec2, type WorldGenValues, type WorldMemory } from '@rune/shared';
 import type { DatabaseSync } from 'node:sqlite';
 import { isStoredItem } from './accounts.js';
 
@@ -35,8 +35,10 @@ export interface SnapshotInstance {
   partyId: string | null;
   gen: WorldGenValues;
   memory: WorldMemory | null;
-  /** `ZoneWorld.memoryLayout()` of the world room the memory was taken from, or null if it was closed. */
+  /** `ZoneWorld.memoryLayout()` of the ground the memory belongs to, or null when none is known. */
   layout: string | null;
+  /** Where the world room's town lay (`MapDef.townAt`): a new build may centre it elsewhere, and everything moves with it. */
+  townAt: Vec2 | null;
   loot: GroundPile[];
 }
 
@@ -50,6 +52,12 @@ export interface SnapshotParty {
 
 export interface SessionSnapshot {
   format: typeof SNAPSHOT_FORMAT;
+  /**
+   * The item format markers a character save carries (`runeFormat`, `runeTiers`), for the ground
+   * loot: a later build that converts items on load converts these too, by the same markers.
+   */
+  runeFormat: 2;
+  runeTiers: 6;
   takenAt: number;
   build: string;
   nextInstanceId: number;
@@ -119,12 +127,15 @@ function readInstance(v: unknown): SnapshotInstance | null {
   if (!isRecord(v) || typeof v.id !== 'string' || !isInt(v.seed) || (v.kind !== 'public' && v.kind !== 'party') || typeof v.name !== 'string') return null;
   if (v.partyId !== null && typeof v.partyId !== 'string') return null;
   if (v.layout !== null && typeof v.layout !== 'string') return null;
+  const town: unknown = v.townAt;
+  const townAt = isRecord(town) && isNum(town.x) && isNum(town.y) ? { x: town.x, y: town.y } : null;
+  if (town !== null && townAt === null) return null;
   const memory = readMemory(v.memory);
   const loot = list(v.loot, readPile);
   if (memory === undefined || !loot) return null;
   // The numbers go through the ranges of this build, as the stored public numbers do.
   const gen = worldGenOverrides(resolveWorldGen(v.gen));
-  return { id: v.id, seed: v.seed, kind: v.kind, name: v.name, partyId: v.partyId, gen, memory, layout: v.layout, loot };
+  return { id: v.id, seed: v.seed, kind: v.kind, name: v.name, partyId: v.partyId, gen, memory, layout: v.layout, townAt, loot };
 }
 
 function readParty(v: unknown): SnapshotParty | null {
@@ -141,11 +152,41 @@ function readParty(v: unknown): SnapshotParty | null {
 }
 
 /**
+ * Ground items through the same load-time conversion a save's go through, by the snapshot's own
+ * markers: from before the six rune tiers, the rune roll pass (runes a sigil hands back stay in its
+ * pile); from before the rune rework, nothing (that conversion needs a whole character), so the loot
+ * is dropped, which costs what a restart cost before. `note` says what happened, for the boot log.
+ */
+function convertLoot(raw: Record<string, unknown>, instances: SnapshotInstance[]): string | null {
+  if (!isRuneFormat2(raw)) {
+    let items = 0;
+    for (const i of instances) {
+      for (const p of i.loot) items += p.items.length;
+      i.loot = [];
+    }
+    return items > 0 ? `${items} ground items from before the rune rework dropped` : null;
+  }
+  if (isRuneTiers6(raw)) return null;
+  const report = emptyRuneRollsReport();
+  for (const i of instances) {
+    for (const p of i.loot) {
+      const items: Item[] = [];
+      for (const it of p.items) {
+        const r = convertItemRolls(it, report);
+        items.push(r.item, ...r.returned);
+      }
+      p.items = items;
+    }
+  }
+  return runeRollsChanged(report) ? `rune roll pass on ground loot: ${report.runesRetiered.length} runes retiered, ${report.affixesRemoved.length} sigil affixes removed, ${report.startersRebuilt.length} starters rebuilt` : null;
+}
+
+/**
  * The snapshot as stored, or why it cannot be used. This server wrote it moments before, so the
  * check is for a snapshot from another build (or a damaged row), not a hostile one; anything off
  * drops the whole snapshot rather than restoring half of it.
  */
-export function parseSnapshot(json: string): SessionSnapshot | string {
+export function parseSnapshot(json: string): { snapshot: SessionSnapshot; note: string | null } | string {
   let v: unknown;
   try {
     v = JSON.parse(json);
@@ -161,7 +202,8 @@ export function parseSnapshot(json: string): SessionSnapshot | string {
   if (!instances) return 'bad world copies';
   if (!parties) return 'bad parties';
   if (!players) return 'bad players';
-  return { format: SNAPSHOT_FORMAT, takenAt: v.takenAt, build: v.build, nextInstanceId: v.nextInstanceId, nextPartyId: v.nextPartyId, instances, parties, players };
+  const note = convertLoot(v, instances);
+  return { snapshot: { format: SNAPSHOT_FORMAT, runeFormat: 2, runeTiers: 6, takenAt: v.takenAt, build: v.build, nextInstanceId: v.nextInstanceId, nextPartyId: v.nextPartyId, instances, parties, players }, note };
 }
 
 /** One row at most: the snapshot of the last shutdown, until the next boot takes it. */
@@ -179,8 +221,12 @@ export class SnapshotStore {
 
   /** Only inside the shutdown's transaction, with the character saves of the same moment (AccountStore.saveShutdown). */
   write(snapshot: SessionSnapshot): number {
-    const json = JSON.stringify(snapshot);
-    this.db.prepare('INSERT INTO session_snapshot (id, format, taken_at, json) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET format = excluded.format, taken_at = excluded.taken_at, json = excluded.json').run(snapshot.format, snapshot.takenAt, json);
+    return this.writeJson(JSON.stringify(snapshot), snapshot.format, snapshot.takenAt);
+  }
+
+  /** The row as text; tests use it to store snapshots this build would not write. */
+  writeJson(json: string, format: number, takenAt: number): number {
+    this.db.prepare('INSERT INTO session_snapshot (id, format, taken_at, json) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET format = excluded.format, taken_at = excluded.taken_at, json = excluded.json').run(format, takenAt, json);
     return json.length;
   }
 
