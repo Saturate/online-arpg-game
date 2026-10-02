@@ -1968,7 +1968,7 @@ kbd {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #c9a964;
-  text-shadow: 0 0 18px rgba(224, 135, 58, 0.18), 0 2px 3px #000;
+  text-shadow: 0 0 18px rgba(224, 135, 58, 0.1), 0 2px 3px #000;
 }
 .restart-overlay p {
   margin: 0;
@@ -1977,8 +1977,8 @@ kbd {
 }
 .restart-overlay .restart-step {
   margin-top: 8px;
-  color: var(--muted);
-  font-size: 12px;
+  color: #9d9482;
+  font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1988,13 +1988,14 @@ kbd {
   width: 54px;
   height: 54px;
   border-radius: 50%;
-  border: 2px solid #3d2e1b;
+  border: 2px solid #4a3a24;
   box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #000, inset 0 0 14px rgba(0, 0, 0, 0.9);
+  animation: restart-ring 2.8s ease-in-out infinite;
 }
 .restart-sigil::after {
   content: '';
   position: absolute;
-  inset: 16px;
+  inset: 13px;
   border-radius: 50%;
   background: radial-gradient(circle, #f0a656 0%, #b4541e 45%, rgba(110, 40, 12, 0) 72%);
   animation: restart-breathe 2.8s ease-in-out infinite;
@@ -2002,12 +2003,22 @@ kbd {
 @keyframes restart-breathe {
   0%,
   100% {
-    opacity: 0.35;
-    transform: scale(0.82);
+    opacity: 0.5;
+    transform: scale(0.9);
   }
   50% {
     opacity: 0.9;
-    transform: scale(1.12);
+    transform: scale(1.06);
+  }
+}
+/* The ring catches a little of the ember's light at its brightest. */
+@keyframes restart-ring {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #000, inset 0 0 14px rgba(0, 0, 0, 0.9);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #000, inset 0 0 14px rgba(0, 0, 0, 0.9), 0 0 10px 2px rgba(224, 135, 58, 0.25);
   }
 }
 @keyframes restart-fade {
@@ -2020,6 +2031,9 @@ kbd {
 }
 @media (prefers-reduced-motion: reduce) {
   .restart-overlay {
+    animation: none;
+  }
+  .restart-sigil {
     animation: none;
   }
   .restart-sigil::after {

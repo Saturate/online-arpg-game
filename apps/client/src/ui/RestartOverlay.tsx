@@ -49,10 +49,17 @@ export function RestartCountdown() {
   const left = countdownLeft(restart, now);
   // The server forgets a countdown a minute after it ran out (no deploy followed); so does the pill.
   if (left === null || restart.countdownEndsAt === null || now > restart.countdownEndsAt + 60_000) return null;
-  const text = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'any moment';
   return (
     <div className="restart-countdown" role="timer" aria-live="off">
-      Server update in <b>{text}</b>
+      {left > 0 ? (
+        <>
+          Server update in <b>{`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`}</b>
+        </>
+      ) : (
+        <>
+          Server update <b>any moment</b>
+        </>
+      )}
     </div>
   );
 }
