@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGear, emptyGuildStash, guildPlace, guildStashView, intoGuild, newGuildTab, Rng, type GearItem, type GuildRank, type GuildStash } from '@rune/shared';
-import { accessText, currentGuildTab, guildDropAction, guildItemHint, guildQuickAction, involvesGuild, togglePerm } from '../src/ui/guildStashView.js';
+import { accessText, canSendBuy, currentGuildTab, draggedItem, guildDropAction, guildItemHint, guildQuickAction, involvesGuild, isDraggedHere, nextPendingPerms, togglePerm } from '../src/ui/guildStashView.js';
 import { parseDrag, type DragPayload } from '../src/ui/itemActions.js';
 
 const rng = new Rng(7);
@@ -75,6 +75,31 @@ describe('guild stash drops', () => {
   });
 });
 
+describe('colliding uids between the bag and the guild stash', () => {
+  it('takes a dragged item from the side it left, never the other with the same uid', () => {
+    const { v, held } = view('officer');
+    const bagTwin = { ...ring(), uid: held.uid, name: 'Bag twin' };
+    const inv = { items: [bagTwin] };
+    const fromGuild: DragPayload = { uid: held.uid, from: { at: 'guild', tab: 1, x: 0, y: 0 }, grab: { x: 0, y: 0 } };
+    const fromBagDrag: DragPayload = { uid: held.uid, from: { at: 'bag', x: 0, y: 0 }, grab: { x: 0, y: 0 } };
+    expect(draggedItem(fromGuild, inv, v)?.name).toBe(held.name);
+    expect(draggedItem(fromBagDrag, inv, v)?.name).toBe('Bag twin');
+    // Only the cell on the dragged side dims.
+    expect(isDraggedHere(fromBagDrag, { at: 'guild', tab: 1, x: 0, y: 0 }, held.uid)).toBe(false);
+    expect(isDraggedHere(fromBagDrag, { at: 'bag', x: 0, y: 0 }, held.uid)).toBe(true);
+    expect(isDraggedHere(fromGuild, { at: 'guild', tab: 1, x: 0, y: 0 }, held.uid)).toBe(true);
+  });
+
+  it('only lights a guild cell where the item fits', () => {
+    const { v, held } = view('officer');
+    const item = ring();
+    expect(guildDropAction(v, item, fromBag(item.uid), { at: 'guild', tab: 1, x: 0, y: 0 })).toEqual({ refuse: 'No room there' });
+    // Moving inside the tab may overlap its own old cells.
+    const drag: DragPayload = { uid: held.uid, from: { at: 'guild', tab: 1, x: 0, y: 0 }, grab: { x: 0, y: 0 } };
+    expect(guildDropAction(v, held, drag, { at: 'guild', tab: 1, x: 0, y: 1 })).toEqual({ send: { t: 'guildMove', uid: held.uid, tab: 1, at: { x: 0, y: 1 } } });
+  });
+});
+
 describe('guild stash quick clicks', () => {
   it('sends a bag item into the open guild tab, and a guild item to the bag', () => {
     const { v, held } = view('officer');
@@ -119,9 +144,26 @@ describe('guild tab access', () => {
     expect(togglePerm({ view: true, deposit: true, withdraw: false }, 'deposit', false)).toEqual({ view: true, deposit: false, withdraw: false });
   });
 
-  it('tells a viewer who cannot take so in the tooltip', () => {
+  it('tells a viewer who cannot take so in the tooltip, as a warning', () => {
     const member = view('member').v;
-    expect(guildItemHint(member, 1, 'Ctrl')).toBe('Your rank can look but not take from this tab');
-    expect(guildItemHint(view('leader').v, 1, 'Ctrl')).toBe('Ctrl+click to take it out · Drag to move');
+    expect(guildItemHint(member, 1, 'Ctrl')).toEqual({ text: 'Your rank cannot take from this tab · Drag to move it inside the tab', warn: true });
+    expect(guildItemHint(member, 2, 'Ctrl')).toEqual({ text: 'Your rank can look but not take from this tab', warn: true });
+    expect(guildItemHint(view('leader').v, 1, 'Ctrl')).toEqual({ text: 'Ctrl+click to take it out · Drag to move', warn: false });
+  });
+
+  it('builds each permission click on the last one sent, so quick clicks do not undo each other', () => {
+    const base = { officer: { view: true, deposit: true, withdraw: true }, member: { view: true, deposit: true, withdraw: false } };
+    const first = nextPendingPerms(base, null, 'member', 'withdraw', true);
+    const second = nextPendingPerms(base, first, 'officer', 'withdraw', false);
+    expect(second.member).toEqual({ view: true, deposit: true, withdraw: true });
+    expect(second.officer).toEqual({ view: true, deposit: true, withdraw: false });
+    // The view from before both clicks is never changed in place.
+    expect(base.member.withdraw).toBe(false);
+  });
+
+  it('sends Buy once per tab count', () => {
+    expect(canSendBuy(null, 1)).toBe(true);
+    expect(canSendBuy(1, 1)).toBe(false);
+    expect(canSendBuy(1, 2)).toBe(true);
   });
 });

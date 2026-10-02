@@ -172,7 +172,7 @@ export class Effects {
   }
 
   /** Floating labels (player names, loot names). Called every frame with the current set. */
-  syncLabels(entries: readonly { key: string; x: number; y: number; text: string; color: string; height: number; className: string; onClick?: () => void; onHover?: (over: boolean) => void }[]): void {
+  syncLabels(entries: readonly { key: string; x: number; y: number; text: string; tag?: string | undefined; color: string; height: number; className: string; onClick?: () => void; onHover?: (over: boolean) => void }[]): void {
     const seen = new Set<string>();
     for (const e of entries) {
       seen.add(e.key);
@@ -184,7 +184,17 @@ export class Effects {
       }
       const el = label.el;
       if (label.className !== e.className) el.className = label.className = e.className;
-      if (label.text !== e.text) el.textContent = label.text = e.text;
+      // A guild tag sits before a player's name in its own smaller, dimmer span (.fx-tag).
+      const text = e.tag ? `[${e.tag}]\u0000${e.text}` : e.text;
+      if (label.text !== text) {
+        label.text = text;
+        if (e.tag) {
+          const tag = document.createElement('span');
+          tag.className = 'fx-tag';
+          tag.textContent = `[${e.tag}] `;
+          el.replaceChildren(tag, document.createTextNode(e.text));
+        } else el.textContent = e.text;
+      }
       if (label.color !== e.color) el.style.color = label.color = e.color;
       el.onclick = e.onClick ?? null;
       const hover = e.onHover;

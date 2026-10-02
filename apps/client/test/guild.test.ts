@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GuildInfo, GuildLogEntry, GuildMemberView, GuildRank } from '@rune/shared';
 import { EMPTY_GUILD_LOG, foundProblem, logRequest, memberActions, receiveGuild, sortRoster, taggedName, type GuildSlice } from '../src/ui/guildView.js';
-import { chatWho } from '../src/ui/chatLine.js';
+import { answersGuildInvite, chatWho } from '../src/ui/chatLine.js';
 import { chatPartner, playerMenuItems } from '../src/ui/playerActions.js';
 
 function member(id: number, name: string, rank: GuildRank, online = true): GuildMemberView {
@@ -123,9 +123,22 @@ describe('player menu', () => {
     expect(playerMenuItems('Pal', 'Me', { leader: 'Me', members: [{ name: 'Pal', online: true }], hasWorld: false }, null)).toEqual(['whisper']);
   });
 
-  it('names the other side of a whisper', () => {
-    expect(chatPartner({ kind: 'whisper', from: 'Me', to: 'Pal' }, 'me')).toBe('Pal');
-    expect(chatPartner({ kind: 'guild', from: 'Pal', to: null }, 'Me')).toBe('Pal');
+  it('names the other side of a whisper, with the tag only when it is theirs', () => {
+    expect(chatPartner({ kind: 'whisper', from: 'Me', to: 'Pal', tag: 'ASH' }, 'me')).toEqual({ name: 'Pal', tag: null });
+    expect(chatPartner({ kind: 'guild', from: 'Pal', to: null, tag: 'ASH' }, 'Me')).toEqual({ name: 'Pal', tag: 'ASH' });
     expect(chatPartner({ kind: 'system', from: '', to: null }, 'Me')).toBeNull();
+    // Your own line opens nothing.
+    expect(chatPartner({ kind: 'game', from: 'Me', to: null }, 'me')).toBeNull();
+  });
+
+  it('never offers a guild invite to someone wearing a tag', () => {
+    expect(playerMenuItems('Stranger', 'Lead', null, guild('leader'), 'OTH')).toEqual(['whisper', 'party']);
+  });
+
+  it('clears the guild invite prompt for /gaccept and /gdecline only', () => {
+    expect(answersGuildInvite('/gaccept')).toBe(true);
+    expect(answersGuildInvite(' /GDECLINE ')).toBe(true);
+    expect(answersGuildInvite('/g accept this')).toBe(false);
+    expect(answersGuildInvite('/gacceptx')).toBe(false);
   });
 });

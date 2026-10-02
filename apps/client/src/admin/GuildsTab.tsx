@@ -50,9 +50,16 @@ function Detail({ token, role, id, notify, reloadList }: { token: string; role: 
   const mayLead = can(role, 'guilds');
   return (
     <div className="adm-guild-detail">
-      <p className="muted">
-        {detail.motd ? <>Message of the day: {detail.motd}</> : 'No message of the day.'} Tabs: {detail.tabList.map((t) => `${t.name} (${t.items})`).join(', ') || 'none'}
-      </p>
+      <dl className="adm-guild-facts">
+        <div>
+          <dt>Message of the day</dt>
+          <dd>{detail.motd || <span className="muted">none</span>}</dd>
+        </div>
+        <div>
+          <dt>Stash tabs</dt>
+          <dd>{detail.tabList.map((t) => `${t.name} (${t.items} items)`).join(', ') || <span className="muted">none</span>}</dd>
+        </div>
+      </dl>
       <h3>Roster</h3>
       <table className="adm-table inner">
         <thead>

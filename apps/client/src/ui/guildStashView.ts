@@ -1,4 +1,4 @@
-import { findSpot, itemSize, STASH, stashRefuses, type ClientMessage, type GuildStashView, type GuildTabView, type Item, type ItemUid, type TabPerms } from '@rune/shared';
+import { canPlace, findSpot, itemSize, STASH, stashRefuses, type ClientMessage, type GuildStashView, type GuildTabView, type InventoryMessage, type Item, type ItemUid, type ManagedRank, type TabPerms } from '@rune/shared';
 import type { DragPayload, ItemPlace } from './itemActions.js';
 import type { ItemStation } from './stations.js';
 
@@ -23,6 +23,19 @@ export function guildItem(view: GuildStashView | null, uid: ItemUid): Item | und
   return view?.items.find((i) => i.uid === uid);
 }
 
+/**
+ * The item a drag carries, from the side it left: guild uids are the guild's own and can equal a
+ * bag item's, so the place decides which list to look in, never the uid alone.
+ */
+export function draggedItem(drag: DragPayload, inv: InventoryMessage | null, view: GuildStashView | null): Item | undefined {
+  return drag.from.at === 'guild' ? guildItem(view, drag.uid) : inv?.items.find((i) => i.uid === drag.uid);
+}
+
+/** Whether the item being dragged is the one in this cell: the same uid on the same side. */
+export function isDraggedHere(drag: DragPayload | null, place: ItemPlace, uid: ItemUid | undefined): boolean {
+  return drag !== null && uid !== undefined && drag.uid === uid && (drag.from.at === 'guild') === (place.at === 'guild');
+}
+
 /** The tab holding a guild item, by its cells. */
 export function guildTabHolding(view: GuildStashView, uid: ItemUid): GuildTabView | undefined {
   return view.tabs.find((t) => t.cells?.includes(uid) ?? false);
@@ -39,10 +52,21 @@ function cannotTake(tab: GuildTabView): string {
   return `Your rank cannot take items from ${tab.name}`;
 }
 
+const NO_ROOM_THERE = 'No room there';
+const NO_ROOM_TAB = 'No room in that guild tab';
+
+/** The server's own room check (guildPlace): the corner must fit, or the tab must have a spot. */
+function fits(tab: GuildTabView, item: Item, at: { x: number; y: number } | null, self: ItemUid | null): boolean {
+  if (!tab.cells) return false;
+  const size = itemSize(item);
+  return at ? canPlace(tab.cells, STASH, size, at.x, at.y, self) : findSpot(tab.cells, STASH, size) !== null;
+}
+
 function deposit(item: Item, tab: GuildTabView, at: { x: number; y: number } | null): GuildAction {
   if (!tab.access.deposit) return { refuse: cannotPut(tab) };
   const refused = stashRefuses(item);
   if (refused) return { refuse: refused };
+  if (!fits(tab, item, at, null)) return { refuse: at ? NO_ROOM_THERE : NO_ROOM_TAB };
   return { send: { t: 'guildDeposit', uid: item.uid, tab: tab.id, at } };
 }
 
@@ -78,10 +102,12 @@ export function guildDropAction(view: GuildStashView | null, item: Item, drag: D
     if (target.at === 'guildTab') {
       if (source.id === tab.id || !tab.cells) return null;
       const spot = findSpot(tab.cells, STASH, itemSize(item));
-      return spot ? { send: { t: 'guildMove', uid: item.uid, tab: tab.id, at: spot } } : { refuse: 'No room in that guild tab' };
+      return spot ? { send: { t: 'guildMove', uid: item.uid, tab: tab.id, at: spot } } : { refuse: NO_ROOM_TAB };
     }
     const at = corner(target.x, target.y);
     if (!at || (source.id === tab.id && at.x === from.x && at.y === from.y)) return null;
+    // Inside one tab the item's own cells count as free, as the server's move does.
+    if (!fits(tab, item, at, source.id === tab.id ? item.uid : null)) return { refuse: NO_ROOM_THERE };
     return { send: { t: 'guildMove', uid: item.uid, tab: tab.id, at } };
   }
   // From the guild stash to anywhere else: only the bag takes it.
@@ -120,11 +146,16 @@ export function involvesGuild(drag: DragPayload, target: ItemPlace): boolean {
   return drag.from.at === 'guild' || target.at === 'guild' || target.at === 'guildTab';
 }
 
-/** The tooltip's last line for a guild item. */
-export function guildItemHint(view: GuildStashView | null, tabId: number, quickKey: string): string {
+/**
+ * The tooltip's last line for a guild item, and whether it is a limit (shown as a warning). A tab
+ * that takes deposits but not withdrawals still lets the viewer rearrange inside it: the server's
+ * move within one tab needs deposit only.
+ */
+export function guildItemHint(view: GuildStashView | null, tabId: number, quickKey: string): { text: string; warn: boolean } {
   const tab = view ? guildTabOf(view, tabId) : undefined;
-  if (!tab?.access.withdraw) return 'Your rank can look but not take from this tab';
-  return `${quickKey}+click to take it out · Drag to move`;
+  if (tab?.access.withdraw) return { text: `${quickKey}+click to take it out · Drag to move`, warn: false };
+  if (tab?.access.deposit) return { text: 'Your rank cannot take from this tab · Drag to move it inside the tab', warn: true };
+  return { text: 'Your rank can look but not take from this tab', warn: true };
 }
 
 // Access and permissions -------------------------------------------------------------------------
@@ -150,6 +181,21 @@ export function togglePerm(p: TabPerms, key: PermKey, on: boolean): TabPerms {
   if (key === 'view') return on ? { ...p, view: true } : { view: false, deposit: false, withdraw: false };
   const next = { ...p, [key]: on };
   return { ...next, view: next.view || next.deposit || next.withdraw };
+}
+
+/**
+ * The permissions editor's copy while changes are on their way: each click builds on the last
+ * one sent, not on the view from before it, so two quick clicks both land. The server's next view
+ * replaces it.
+ */
+export function nextPendingPerms(base: Record<ManagedRank, TabPerms>, pending: Record<ManagedRank, TabPerms> | null, rank: ManagedRank, key: PermKey, on: boolean): Record<ManagedRank, TabPerms> {
+  const current = pending ?? base;
+  return { ...current, [rank]: togglePerm(current[rank], key, on) };
+}
+
+/** The Buy button sends once per tab count: a second click before the new tab arrives does nothing. */
+export function canSendBuy(sentAtTabs: number | null, tabs: number): boolean {
+  return sentAtTabs !== tabs;
 }
 
 /** A drag from the guild grid needs withdraw (or a move inside the same tab, which also needs deposit). */

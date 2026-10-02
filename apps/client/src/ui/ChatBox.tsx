@@ -5,7 +5,7 @@ import { useHover } from './Inventory.js';
 import { tierColor } from './parts.js';
 import { chatPartner, openPlayerMenu } from './playerActions.js';
 import { sendCommand, useUi, type ChatLine } from './store.js';
-import { chatWho } from './chatLine.js';
+import { answersGuildInvite, chatWho } from './chatLine.js';
 
 /** Lines stay readable this long after arriving, then fade; opening the chat shows them all again. */
 const VISIBLE_MS = 12_000;
@@ -60,7 +60,7 @@ function Line({ line }: { line: ChatLine }) {
         className="chat-who"
         onContextMenu={(e) => {
           e.preventDefault();
-          if (partner) openPlayerMenu(partner, e.clientX, e.clientY);
+          if (partner) openPlayerMenu(partner.name, e.clientX, e.clientY, partner.tag);
         }}
       >
         {who.tag && <span className="chat-tag">[{who.tag}] </span>}
@@ -183,6 +183,7 @@ export function ChatBox() {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (answersGuildInvite(text)) useUi.setState({ guildInvite: null });
     const msg = composeChat(text.trim(), links);
     if (msg.text) sendCommand(msg.links.length > 0 ? { t: 'chat', text: msg.text, links: msg.links } : { t: 'chat', text: msg.text });
     close();
@@ -212,7 +213,7 @@ export function ChatBox() {
               }
             }}
             onBlur={() => text.trim() === '' && close()}
-            placeholder="Say something to your game. /p party, /g guild. Shift+click an item to link it. /help for commands"
+            placeholder="Chat to your game · /p party, /g guild · Shift+click to link · /help"
             aria-label="Chat message"
           />
         </form>

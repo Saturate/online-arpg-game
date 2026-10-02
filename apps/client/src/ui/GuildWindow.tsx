@@ -113,6 +113,14 @@ function Roster({ guild, onAsk }: { guild: GuildInfo; onAsk: (p: Pending) => voi
   return (
     <div className="guild-roster-wrap">
       <table className="guild-roster">
+        <colgroup>
+          <col className="c-rank" />
+          <col className="c-name" />
+          <col className="c-class" />
+          <col className="c-level" />
+          <col className="c-where" />
+          <col className="c-actions" />
+        </colgroup>
         <thead>
           <tr>
             <th scope="col">Rank</th>
@@ -139,7 +147,7 @@ function Roster({ guild, onAsk }: { guild: GuildInfo; onAsk: (p: Pending) => voi
                 }}
               >
                 <td className="guild-rank">{GUILD_RANK_NAMES[m.rank]}</td>
-                <td>{m.name}</td>
+                <td className="guild-member-name">{m.name}</td>
                 <td>{m.cls ? CLASSES[m.cls].name : ''}</td>
                 <td>{m.level}</td>
                 <td className="guild-zone">{m.online ? m.zone || 'online' : 'offline'}</td>
@@ -155,12 +163,12 @@ function Roster({ guild, onAsk }: { guild: GuildInfo; onAsk: (p: Pending) => voi
                     </button>
                   )}
                   {can.transfer && (
-                    <button type="button" className="small" onClick={() => onAsk({ kind: 'transfer', member: m })}>
+                    <button type="button" className="small guild-danger" onClick={() => onAsk({ kind: 'transfer', member: m })}>
                       Make Leader
                     </button>
                   )}
                   {can.kick && (
-                    <button type="button" className="small danger" onClick={() => onAsk({ kind: 'kick', member: m })}>
+                    <button type="button" className="small guild-danger" onClick={() => onAsk({ kind: 'kick', member: m })}>
                       Kick
                     </button>
                   )}
@@ -292,14 +300,15 @@ function InGuild({ guild }: { guild: GuildInfo }) {
               Leave guild
             </button>
           )}
-          {guildCan(guild.rank, 'disband') && (
-            <button type="button" className="small danger" onClick={() => setPending({ kind: 'disband' })}>
-              Disband
-            </button>
-          )}
           <span className="muted small">
             <kbd>/g</kbd> guild chat · right-click a name to invite
           </span>
+          {/* Apart from everyday controls, at the far end, so it is never hit on the way to Leave. */}
+          {guildCan(guild.rank, 'disband') && (
+            <button type="button" className="small guild-danger guild-disband" onClick={() => setPending({ kind: 'disband' })}>
+              Disband
+            </button>
+          )}
         </div>
       )}
     </>
@@ -323,7 +332,22 @@ export function GuildWindow() {
   }, [open, inGuild]);
   if (!open) return null;
   return (
-    <GamePanel id="guild" className="guild-window" title={guild ? 'Guild' : 'Found a guild'} headerExtra={<kbd className="guild-key">{keyLabel(key)}</kbd>} onClose={() => useUi.setState({ guildOpen: false })} closeLabel="Close guild window" aria-label="Guild">
+    <GamePanel
+      id="guild"
+      className="guild-window"
+      title={guild ? 'Guild' : 'Found a guild'}
+      headerExtra={<kbd className="guild-key">{keyLabel(key)}</kbd>}
+      onClose={() => useUi.setState({ guildOpen: false })}
+      closeLabel="Close guild window"
+      aria-label="Guild"
+      // The game ignores keys typed into fields, so Escape in the invite or founding fields closes the window here.
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || !(e.target instanceof HTMLInputElement)) return;
+        e.stopPropagation();
+        e.target.blur();
+        useUi.setState({ guildOpen: false });
+      }}
+    >
       {guild ? <InGuild guild={guild} /> : <FoundForm />}
     </GamePanel>
   );
@@ -344,7 +368,7 @@ export function GuildInvitePrompt() {
         <b>{invite.from}</b> invites you to the guild <b>{invite.guild}</b> <span className="guild-tag">[{invite.tag}]</span>.
       </p>
       <div className="menu-actions row">
-        <button type="button" className="primary" onClick={() => answer(true)}>
+        <button type="button" className="primary" onClick={() => answer(true)} autoFocus>
           Join
         </button>
         <button type="button" onClick={() => answer(false)}>

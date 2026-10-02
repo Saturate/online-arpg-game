@@ -11,3 +11,8 @@ export function chatWhoText(line: { kind: string; from: string; to: string | nul
   const who = chatWho(line);
   return taggedName(who.name, who.tag ?? undefined);
 }
+
+/** Typing /gaccept or /gdecline answers the guild invite, so its prompt goes as if clicked. */
+export function answersGuildInvite(text: string): boolean {
+  return /^\/g(accept|decline)(\s|$)/i.test(text.trim());
+}

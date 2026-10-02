@@ -9,7 +9,7 @@ import { ItemDetails, tierColor } from './parts.js';
 import { spiritCost } from './spirit.js';
 import { itemByUid, sendCommand, swapSkills, useUi } from './store.js';
 import { openGeneralTab, openGuildTab } from './stashView.js';
-import { guildDropAction, guildItem, guildItemHint, guildQuickAction, involvesGuild, type GuildAction } from './guildStashView.js';
+import { draggedItem, guildDropAction, guildItemHint, guildQuickAction, involvesGuild, isDraggedHere, type GuildAction } from './guildStashView.js';
 import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { useSettings } from './settings.js';
@@ -99,9 +99,9 @@ function runGuild(action: GuildAction): boolean {
   return true;
 }
 
-/** The item a drag carries: guild stash items live in the guild's view, everything else in the inventory. */
+/** The item a drag carries, from the side it left (guild uids can equal bag uids). */
 function draggedItemOf(drag: DragPayload, inv: InventoryMessage | null): Item | undefined {
-  return drag.from.at === 'guild' ? guildItem(useUi.getState().guildStash, drag.uid) : itemByUid(inv, drag.uid);
+  return draggedItem(drag, inv, useUi.getState().guildStash);
 }
 
 function isTyping(t: EventTarget | null): boolean {
@@ -172,12 +172,14 @@ export function ItemTooltip() {
   }, [x, y, item, place]);
   if (!item || !classId) return null;
   const tier: CSSProperties & Record<'--tier', string> = { '--tier': tierColor(item), left: pos.left, top: pos.top };
+  const guildHint = place?.at === 'guild' ? guildItemHint(useUi.getState().guildStash, place.tab, QUICK_KEY) : null;
   return (
     <div className={`tooltip tt tt-${item.tier}`} style={tier} ref={ref} role="tooltip">
       <ItemDetails item={item} classId={classId} />
       {place?.at !== 'chat' && <SpiritPreview item={item} place={place} />}
       {place?.at === 'bag' && <Comparison item={item} />}
       {place?.at === 'forge' && place.warn && <p className="tt-warn">{place.warn}</p>}
+      {guildHint?.warn && <p className="tt-warn tt-guild-warn">{guildHint.text}</p>}
       <footer className="tt-hint">
         {place?.at === 'chat'
           ? 'Linked in chat'
@@ -189,8 +191,10 @@ export function ItemTooltip() {
             ? isBound(item)
               ? 'Starter item: cannot be sold'
               : `Right-click to sell for ${sellPrice(item)} gold`
-            : place?.at === 'guild'
-              ? guildItemHint(useUi.getState().guildStash, place.tab, QUICK_KEY)
+            : guildHint
+              ? guildHint.warn
+                ? 'In the guild stash'
+                : guildHint.text
             : place?.at === 'stash' || place?.at === 'runeTab' || place?.at === 'sigilTab'
           ? item.kind === 'rune' && item.affixes.length === 0 && item.count > 1
             ? `${QUICK_KEY}+click to take it out · Shift+click to take some · Drag to move`
@@ -245,10 +249,10 @@ export function ItemCell({
   const level = useUi((s) => s.level);
   const classId = useUi((s) => s.classId);
   const inv = useUi((s) => s.inventory);
-  const guildView = useUi((s) => s.guildStash);
 
+  // Read from the store only while dragging: a guild stash update must not re-render every cell.
   const dragged = drag ? draggedItemOf(drag, inv) : undefined;
-  const guildDrop = drag && dragged && involvesGuild(drag, place) ? guildDropAction(guildView, dragged, drag, place) : undefined;
+  const guildDrop = drag && dragged && involvesGuild(drag, place) ? guildDropAction(useUi.getState().guildStash, dragged, drag, place) : undefined;
   const accepts =
     guildDrop !== undefined
       ? guildDrop !== null && 'send' in guildDrop
@@ -349,7 +353,7 @@ export function ItemCell({
     over ? 'drop-over' : '',
     accepts ? 'drop-ok' : '',
     blocked ? 'unusable' : '',
-    drag?.uid === item?.uid && item ? 'dragging' : '',
+    isDraggedHere(drag, place, item?.uid) ? 'dragging' : '',
   ]
     .filter(Boolean)
     .join(' ');

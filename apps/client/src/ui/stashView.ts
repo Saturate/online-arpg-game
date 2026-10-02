@@ -1,5 +1,6 @@
 import type { AffixId, ItemTier, RuneId, RuneKind, RuneSortKey, SigilSortKey, StashTabRef } from '@rune/shared';
 import { create } from 'zustand';
+import { useUi } from './store.js';
 
 export type SigilContents = 'all' | 'blank' | 'runes' | 'starter';
 
@@ -49,5 +50,11 @@ export function openGeneralTab(): number | null {
 /** The guild tab a quick move from the bag goes to, or null while the window shows the account stash. */
 export function openGuildTab(): number | null {
   const { source, guildTab } = useStashView.getState();
-  return source === 'guild' ? guildTab : null;
+  return source === 'guild' && useUi.getState().guild !== null ? guildTab : null;
 }
+
+// Out of a guild (left, kicked, disbanded, or out of the game), the window shows the account stash
+// again, so a later guild never opens on its side by surprise.
+useUi.subscribe((s, prev) => {
+  if (prev.guild !== null && s.guild === null) useStashView.setState({ source: 'account' });
+});

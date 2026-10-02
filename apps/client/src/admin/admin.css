@@ -298,8 +298,20 @@ body {
   margin: 12px 0 4px;
   font-size: 13px;
 }
-.adm-guild-detail > p {
+.adm-guild-facts {
+  display: grid;
+  gap: 3px;
   margin: 4px 0 8px;
+}
+.adm-guild-facts > div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+}
+.adm-guild-facts dt {
+  color: var(--muted);
+}
+.adm-guild-facts dd {
+  margin: 0;
 }
 .adm-table tr.adm-dim td {
   opacity: 0.6;

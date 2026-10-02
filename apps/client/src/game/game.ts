@@ -70,9 +70,10 @@ import { emitLight, entityLightKey } from '../render/lights.js';
 import { enemyBody, setModelOverrides } from '../render/characters.js';
 import { applyTryOns, watchTryOns } from '../render/tryOn.js';
 import { actionFor, useSettings } from '../ui/settings.js';
-import { receiveGuild, taggedName } from '../ui/guildView.js';
+import { receiveGuild } from '../ui/guildView.js';
 import { closePlayerMenu, openPlayerMenu } from '../ui/playerActions.js';
 import { useStashView } from '../ui/stashView.js';
+import { playerInTownAt, type TownPlayer } from './townPick.js';
 
 /** Frames spent in a background tab should not turn into a burst of inputs on return. */
 /** How long a chat line hangs over the speaker's head. */
@@ -212,7 +213,7 @@ export class Game {
   private leftOnLoot = false;
   private pickPresses = 0;
   /** Other players drawn this frame, for a right-click on one in town. */
-  private renderedPlayers: { x: number; y: number; r: number; name: string }[] = [];
+  private renderedPlayers: TownPlayer[] = [];
   /** The right button went down on a player in town: it opened their menu and casts nothing while held. */
   private rightOnPlayer = false;
   private rightPresses = 0;
@@ -715,14 +716,13 @@ export class Game {
       }
       case 'guild':
         useUi.setState((s) => receiveGuild(s, msg));
-        if (msg.guild === null) useStashView.setState({ source: 'account' });
         return;
       case 'guildLog':
         useUi.setState((s) => receiveGuild(s, msg));
         return;
       case 'guildInvite':
+        // The Join and Decline prompt says it; a notice on top would say it twice.
         useUi.setState((s) => receiveGuild(s, msg));
-        useUi.getState().notify(`${msg.from} invited you to the guild ${msg.guild} [${msg.tag}]`);
         return;
       case 'guildStash':
         useUi.setState((s) => receiveGuild(s, msg));
@@ -833,9 +833,9 @@ export class Game {
     const rightBit = SKILL_BUTTONS[rightSkill] ?? 0;
     if (room.input.rightPresses !== this.rightPresses) {
       this.rightPresses = room.input.rightPresses;
-      const name = room.input.overCanvas && aimPoint ? this.playerInTownAt(room, aimPoint) : null;
-      this.rightOnPlayer = name !== null;
-      if (name !== null) openPlayerMenu(name, room.input.rightAt.x, room.input.rightAt.y);
+      const hit = room.input.overCanvas && aimPoint ? playerInTownAt(room.def, this.renderedPlayers, aimPoint) : null;
+      this.rightOnPlayer = hit !== null;
+      if (hit) openPlayerMenu(hit.name, room.input.rightAt.x, room.input.rightAt.y, hit.tag);
     }
     if (!room.input.rightDown) this.rightOnPlayer = false;
     if (room.input.rightDown && room.input.overCanvas && !this.rightOnPlayer) sampled.buttons |= rightBit;
@@ -912,25 +912,6 @@ export class Game {
       room.mover.moveTo(origin, aimPoint, now);
     }
     sampled.moveDir = room.mover.direction(origin);
-  }
-
-  /**
-   * Another player under a right-click, only inside a safe area (town): nobody casts there, so the
-   * right button is free to open their menu. Outside town it always casts, as before.
-   */
-  private playerInTownAt(room: RoomView, p: Vec2): string | null {
-    const safe = room.def.safe || (room.def.safeZones ?? []).some((z) => p.x >= z.x && p.y >= z.y && p.x <= z.x + z.w && p.y <= z.y + z.h);
-    if (!safe) return null;
-    let best: string | null = null;
-    let bestD = Infinity;
-    for (const pl of this.renderedPlayers) {
-      const d = Math.hypot(pl.x - p.x, pl.y - p.y) - pl.r;
-      if (d < 22 && d < bestD) {
-        best = pl.name;
-        bestD = d;
-      }
-    }
-    return best;
   }
 
   /** Walks to the clicked pile and takes it (one item) or opens its window on arrival; movement keys or the pile vanishing cancel it. */
@@ -1123,8 +1104,8 @@ export class Game {
         if (to.k === 'player') {
           // Party members carry a faint share of the hero's light, so the group reads at night.
           if (partyNames?.some((m) => m.name === to.name)) emitLight(entityLightKey(id), x, y, 100, 0xffd6a0, 0.55 * lighting.heroLight, 320, 1);
-          labels.push({ key: `p${id}`, x, y, text: taggedName(to.name, to.tag), color: '#cfe6ff', height: 78, className: 'fx-label' });
-          if (!to.dead) this.renderedPlayers.push({ x, y, r, name: to.name });
+          labels.push({ key: `p${id}`, x, y, text: to.name, tag: to.tag, color: '#cfe6ff', height: 78, className: 'fx-label' });
+          if (!to.dead) this.renderedPlayers.push({ x, y, r, name: to.name, tag: to.tag ?? null });
           const bubble = this.bubbles.get(to.name);
           if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
         }

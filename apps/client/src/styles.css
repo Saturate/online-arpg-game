@@ -2201,10 +2201,19 @@ kbd {
 .chat-line.party b {
   color: #8fe07a;
 }
-/* Guild chat: a weathered verdigris, quieter than the party green so the two never read as one. */
+/* Guild chat: a weathered verdigris, its own hue beside the party green and the off-white game chat. */
 .chat-line.guild,
-.chat-line.guild b {
-  color: #86aaa0;
+.chat-line.guild b,
+.chat-line.guild span {
+  color: #6fa898;
+}
+.chat-line.guild .chat-tag {
+  color: #4f8576;
+}
+/* A guild tag on a nameplate: smaller and dimmer than the name, so names stay the thing you read. */
+.fx-label .fx-tag {
+  font-size: 0.85em;
+  color: #8a7c66;
 }
 /* Names take a right-click for the player menu even while the chat is closed. */
 .chat-line .chat-who {

@@ -1,8 +1,8 @@
 import { guildCan, itemSize, MANAGED_RANKS, GUILD_RANK_NAMES, placements, STASH, type GuildStashView, type GuildTabView, type InventoryMessage, type ManagedRank, type TabPerms } from '@rune/shared';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { CELL, ItemCell, useDrag } from './Inventory.js';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { CELL, ItemCell, useDrag, useHover } from './Inventory.js';
 import { DRAG_TYPE, parseDrag, type ItemPlace } from './itemActions.js';
-import { accessText, canDragFrom, currentGuildTab, guildDropAction, guildItem, involvesGuild, PERM_KEYS, PERM_LABELS, togglePerm, type PermKey } from './guildStashView.js';
+import { accessText, canDragFrom, canSendBuy, currentGuildTab, draggedItem, guildDropAction, guildItem, involvesGuild, nextPendingPerms, PERM_KEYS, PERM_LABELS, type PermKey } from './guildStashView.js';
 import { colorHex, TabEditor } from './StashTabEditor.js';
 import { useStashView } from './stashView.js';
 import { sendCommand, useUi } from './store.js';
@@ -21,16 +21,16 @@ function useGuildAccepts(target: ItemPlace): boolean {
   const inv = useUi((s) => s.inventory);
   const view = useUi((s) => s.guildStash);
   if (!drag || !involvesGuild(drag, target)) return false;
-  const item = drag.from.at === 'guild' ? guildItem(view, drag.uid) : inv?.items.find((i) => i.uid === drag.uid);
+  const item = draggedItem(drag, inv, view);
   const action = item ? guildDropAction(view, item, drag, target) : null;
   return action !== null && 'send' in action;
 }
 
 function AccessIcons({ access }: { access: TabPerms }) {
   return (
-    <span className="gstash-access" aria-label={accessText(access)} {...tip(accessText(access))}>
+    <span className="gstash-access" role="img" aria-label={accessText(access)} {...tip(accessText(access))}>
       {PERM_KEYS.map((k) => (
-        <span key={k} className={`gstash-perm${access[k] ? ' on' : ''}`}>
+        <span key={k} className={`gstash-perm${access[k] ? ' on' : ''}`} title={`${PERM_LABELS[k]}: ${access[k] ? 'yes' : 'no'}`}>
           {PERM_LABELS[k][0]}
         </span>
       ))}
@@ -77,7 +77,7 @@ function GuildTabButton({ tab, active }: { tab: GuildTabView; active: boolean })
         useDrag.setState({ drag: null });
         const drag = parseDrag(e.dataTransfer.getData(DRAG_TYPE));
         const ui = useUi.getState();
-        const item = drag ? (drag.from.at === 'guild' ? guildItem(ui.guildStash, drag.uid) : ui.inventory?.items.find((i) => i.uid === drag.uid)) : undefined;
+        const item = drag ? draggedItem(drag, ui.inventory, ui.guildStash) : undefined;
         if (!drag || !item) return;
         const action = guildDropAction(ui.guildStash, item, drag, { at: 'guildTab', tab: tab.id });
         if (action && 'send' in action) sendCommand(action.send);
@@ -94,8 +94,16 @@ function GuildTabButton({ tab, active }: { tab: GuildTabView; active: boolean })
 
 function BuyGuildTab({ view, gold }: { view: GuildStashView; gold: number }) {
   const [asking, setAsking] = useState(false);
+  // The tab count the last Buy was sent at: a double click must not buy two tabs.
+  const sent = useRef<number | null>(null);
   const price = view.tabPrice;
   useEffect(() => setAsking(false), [view.tabs.length]);
+  const buy = () => {
+    setAsking(false);
+    if (!canSendBuy(sent.current, view.tabs.length)) return;
+    sent.current = view.tabs.length;
+    sendCommand({ t: 'guildBuyTab' });
+  };
   if (price === null) return null;
   if (asking)
     return (
@@ -103,7 +111,7 @@ function BuyGuildTab({ view, gold }: { view: GuildStashView; gold: number }) {
         <span>
           Guild tab {view.tabs.length + 1} for <span className="gold">{price} gold</span> of yours?
         </span>
-        <button type="button" onClick={() => sendCommand({ t: 'guildBuyTab' })}>
+        <button type="button" onClick={buy}>
           Buy
         </button>
         <button type="button" onClick={() => setAsking(false)}>
@@ -120,47 +128,78 @@ function BuyGuildTab({ view, gold }: { view: GuildStashView; gold: number }) {
   );
 }
 
-/** Per tab, what Officers and Members may do; the Leader can always do everything. */
-function PermEditor({ tab }: { tab: GuildTabView }) {
-  const perms = tab.perms;
-  if (!perms) return null;
-  const set = (rank: ManagedRank, key: PermKey, on: boolean) => sendCommand({ t: 'guildTabPerms', tab: tab.id, rank, perms: togglePerm(perms[rank], key, on) });
+/**
+ * Per tab, what Officers and Members may do; the Leader can always do everything. A popover over
+ * the grid, so opening it never moves the grid or grows the window.
+ */
+function PermEditor({ tab, onClose }: { tab: GuildTabView; onClose: () => void }) {
+  const base = tab.perms;
+  const [pending, setPending] = useState<Record<ManagedRank, TabPerms> | null>(null);
+  // The server's next view of the tab is the truth again.
+  useEffect(() => setPending(null), [base]);
+  if (!base) return null;
+  const shown = pending ?? base;
+  const set = (rank: ManagedRank, key: PermKey, on: boolean) => {
+    const next = nextPendingPerms(base, pending, rank, key, on);
+    setPending(next);
+    sendCommand({ t: 'guildTabPerms', tab: tab.id, rank, perms: next[rank] });
+  };
   return (
-    <table className="gstash-perms" aria-label={`Permissions for ${tab.name}`}>
-      <thead>
-        <tr>
-          <th scope="col">Rank</th>
-          {PERM_KEYS.map((k) => (
-            <th key={k} scope="col">
-              {PERM_LABELS[k]}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {MANAGED_RANKS.map((rank) => (
-          <tr key={rank}>
-            <th scope="row">{GUILD_RANK_NAMES[rank]}</th>
+    <div className="gstash-perms-pop" role="dialog" aria-label={`Permissions for ${tab.name}`}>
+      <table className="gstash-perms">
+        <thead>
+          <tr>
+            <th scope="col">Rank</th>
             {PERM_KEYS.map((k) => (
-              <td key={k}>
-                <input type="checkbox" checked={perms[rank][k]} aria-label={`${GUILD_RANK_NAMES[rank]} ${PERM_LABELS[k].toLowerCase()}`} onChange={(e) => set(rank, k, e.target.checked)} />
-              </td>
+              <th key={k} scope="col">
+                {PERM_LABELS[k]}
+              </th>
             ))}
           </tr>
+        </thead>
+        <tbody>
+          <tr className="muted">
+            <th scope="row">Leader</th>
+            <td colSpan={3}>always all</td>
+          </tr>
+          {MANAGED_RANKS.map((rank) => (
+            <tr key={rank}>
+              <th scope="row">{GUILD_RANK_NAMES[rank]}</th>
+              {PERM_KEYS.map((k) => (
+                <td key={k}>
+                  <input type="checkbox" checked={shown[rank][k]} aria-label={`${GUILD_RANK_NAMES[rank]} ${PERM_LABELS[k].toLowerCase()}`} onChange={(e) => set(rank, k, e.target.checked)} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="small" onClick={onClose}>
+        Done
+      </button>
+    </div>
+  );
+}
+
+/** A locked tab keeps the grid's size, so switching to it never makes the window jump. */
+function LockedGrid() {
+  const style: CSSProperties = { gridTemplateColumns: `repeat(${STASH.w}, ${CELL}px)`, gridTemplateRows: `repeat(${STASH.h}, ${CELL}px)` };
+  return (
+    <div className="inv-bag stash-grid gstash-locked-grid">
+      <div className="inv-grid" style={style} aria-hidden="true">
+        {Array.from({ length: STASH.w * STASH.h }, (_, i) => (
+          <span key={i} className="inv-cell grid-free gstash-locked-cell" />
         ))}
-        <tr className="muted">
-          <th scope="row">Leader</th>
-          <td colSpan={3}>always all</td>
-        </tr>
-      </tbody>
-    </table>
+      </div>
+      <p className="gstash-locked">Your rank cannot see inside this tab. The Leader or an Officer can open it to you.</p>
+    </div>
   );
 }
 
 function GuildGrid({ view, tab }: { view: GuildStashView; tab: GuildTabView }) {
-  const cells = tab.cells;
-  if (!cells) return null;
+  const cells = tab.cells ?? [];
   const draggable = canDragFrom(tab);
+  const byUid = useMemo(() => new Map(view.items.map((i) => [i.uid, i])), [view.items]);
   const style: CSSProperties = { gridTemplateColumns: `repeat(${STASH.w}, ${CELL}px)`, gridTemplateRows: `repeat(${STASH.h}, ${CELL}px)` };
   const at = (x: number, y: number): ItemPlace => ({ at: 'guild', tab: tab.id, x, y });
   return (
@@ -169,7 +208,7 @@ function GuildGrid({ view, tab }: { view: GuildStashView; tab: GuildTabView }) {
         uid === null ? <ItemCell key={`free-${i}`} item={undefined} place={at(i % STASH.w, Math.floor(i / STASH.w))} className="inv-cell grid-free" style={{ gridColumn: (i % STASH.w) + 1, gridRow: Math.floor(i / STASH.w) + 1 }} /> : null,
       )}
       {placements(cells, STASH).map(({ uid, x, y }) => {
-        const item = guildItem(view, uid);
+        const item = byUid.get(uid);
         if (!item) return null;
         const s = itemSize(item);
         return (
@@ -200,9 +239,20 @@ export function GuildStashPane({ inv }: { inv: InventoryMessage }) {
     setEditing(false);
     setPerms(false);
   }, [wanted]);
+  // A cell that changes under the mouse never sends mouseleave; drop a tooltip whose item left its cell.
+  useEffect(() => {
+    const { item, place, set } = useHover.getState();
+    if (!item || place?.at !== 'guild') return;
+    const tab = view?.tabs.find((t) => t.id === place.tab);
+    const still = tab?.cells?.[place.y * STASH.w + place.x] === item.uid ? guildItem(view, item.uid) : undefined;
+    if (!still) set(null, 0, 0);
+  }, [view]);
   if (!view) return <p className="stash-empty gstash-wait">Opening the guild stash</p>;
   const tab = currentGuildTab(view, wanted);
   const manager = rank !== null && guildCan(rank, 'manageTabs');
+  // Someone else's change can take the power away while an editor is open.
+  const editOpen = editing && manager;
+  const permsOpen = perms && manager;
   const style: CSSProperties & Record<'--tab', string> = { '--tab': tab ? colorHex(tab.color) : '#6e6a62' };
   const used = tab?.cells ? placements(tab.cells, STASH).length : 0;
   return (
@@ -227,23 +277,23 @@ export function GuildStashPane({ inv }: { inv: InventoryMessage }) {
                 <button type="button" onClick={() => setEditing(true)}>
                   Rename
                 </button>
-                <button type="button" className={perms ? 'on' : ''} aria-pressed={perms} onClick={() => setPerms((p) => !p)}>
+                <button type="button" className={permsOpen ? 'on' : ''} aria-pressed={permsOpen} onClick={() => setPerms((p) => !p)}>
                   Permissions
                 </button>
               </>
             )}
           </div>
         )}
-        {tab && perms && manager && <PermEditor tab={tab} />}
+        {tab && permsOpen && <PermEditor tab={tab} onClose={() => setPerms(false)} />}
         {tab?.cells ? (
           <div className="inv-bag stash-grid">
             <GuildGrid view={view} tab={tab} />
           </div>
         ) : (
-          <p className="stash-empty gstash-locked">Your rank cannot see inside this tab. The Leader or an Officer can open it to you.</p>
+          <LockedGrid />
         )}
         {view.unplaced > 0 && <p className="muted small">{view.unplaced} items wait for room in the guild stash; they are placed as soon as a tab has space.</p>}
-        {editing && tab && <TabEditor key={tab.id} name={tab.name} color={tab.color} onSave={(name, color) => sendCommand({ t: 'guildEditTab', tab: tab.id, name, color })} onClose={() => setEditing(false)} />}
+        {editOpen && tab && <TabEditor key={tab.id} name={tab.name} color={tab.color} onSave={(name, color) => sendCommand({ t: 'guildEditTab', tab: tab.id, name, color })} onClose={() => setEditing(false)} />}
       </div>
     </>
   );

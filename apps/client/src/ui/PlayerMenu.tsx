@@ -13,7 +13,7 @@ function run(item: PlayerMenuItem, name: string): void {
 
 /** The right-click menu on another player, at the mouse. Any click elsewhere or Escape closes it. */
 export function PlayerMenu() {
-  const { name, x, y } = usePlayerMenu();
+  const { name, tag, x, y } = usePlayerMenu();
   const me = useUi((s) => s.name);
   const party = useUi((s) => s.partyInfo);
   const guild = useUi((s) => s.guild);
@@ -23,6 +23,8 @@ export function PlayerMenu() {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Keyboard users land on the first action; Escape still closes it.
+    el.querySelector('button')?.focus({ preventScroll: true });
     setPos({ left: Math.max(4, Math.min(x, window.innerWidth - el.offsetWidth - 4)), top: Math.max(4, Math.min(y, window.innerHeight - el.offsetHeight - 4)) });
   }, [x, y, name]);
 
@@ -47,7 +49,7 @@ export function PlayerMenu() {
   }, [name]);
 
   if (name === null) return null;
-  const items = playerMenuItems(name, me, party, guild);
+  const items = playerMenuItems(name, me, party, guild, tag);
   if (items.length === 0) return null;
   return (
     <div ref={ref} className="player-menu" role="menu" aria-label={`Actions for ${name}`} style={{ left: pos.left, top: pos.top }}>

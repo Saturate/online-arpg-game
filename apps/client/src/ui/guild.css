@@ -5,7 +5,7 @@
   /* Beside the minimap column, clear of the bag and stash on the right at 1600x900. */
   left: 260px;
   top: 12px;
-  width: 500px;
+  width: 540px;
   max-height: calc(100% - 210px);
   display: flex;
   flex-direction: column;
@@ -105,8 +105,34 @@
 }
 .guild-roster {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 12.5px;
+}
+.guild-roster .c-rank {
+  width: 62px;
+}
+.guild-roster .c-name {
+  width: 104px;
+}
+.guild-roster .c-class {
+  width: 58px;
+}
+.guild-roster .c-level {
+  width: 32px;
+}
+.guild-roster .c-where {
+  width: auto;
+}
+.guild-roster .c-actions {
+  width: 208px;
+}
+.guild-roster tbody tr {
+  height: 26px;
+}
+.guild-member-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .guild-roster th {
   text-align: left;
@@ -122,7 +148,7 @@
   background: #0f0c09;
 }
 .guild-roster td {
-  padding: 3px 5px;
+  padding: 1px 5px;
   border-bottom: 1px solid #1d1711;
   white-space: nowrap;
 }
@@ -142,19 +168,36 @@
   color: #6a6052;
 }
 .guild-zone {
-  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .guild-actions {
   text-align: right;
+  white-space: nowrap;
+  line-height: 1;
 }
-.panel .guild-actions button {
-  padding: 1px 6px;
+/* As specific as the shared plate rule, which would otherwise win. */
+.panel .guild-actions button:not(.close):not(.cell):not(.inv-cell):not(.bare) {
+  padding: 0 6px;
+  height: 20px;
   font-size: 11px;
-  margin-left: 3px;
+  margin: 0 0 0 3px;
+  vertical-align: middle;
 }
-.panel button.small {
+/* Steps that cannot be undone (kick, make Leader, disband) wear a dried-blood edge. */
+.panel button.guild-danger:not(.close):not(.cell):not(.inv-cell):not(.bare):not(:disabled) {
+  border-color: #5a2a22;
+  color: #b06a5a;
+}
+.panel button.guild-danger:not(.close):not(.cell):not(.inv-cell):not(.bare):not(:disabled):hover {
+  border-color: #8a3a2c;
+  color: #d08070;
+}
+.guild-disband {
+  margin-left: 18px;
+}
+.guild-window button.small:not(.close):not(.cell):not(.inv-cell):not(.bare),
+.stash-window button.small:not(.close):not(.cell):not(.inv-cell):not(.bare) {
   padding: 2px 8px;
   font-size: 11.5px;
 }
@@ -321,11 +364,11 @@
 .gstash-perm {
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  font: 600 10px ui-monospace, monospace;
-  color: #4a4136;
-  border: 1px solid #2a231a;
+  width: 18px;
+  height: 18px;
+  font: 600 10.5px ui-monospace, monospace;
+  color: #6a5d4c;
+  border: 1px solid #2e261d;
   border-radius: 2px;
   text-decoration: line-through;
 }
@@ -334,12 +377,24 @@
   border-color: #5a4a30;
   text-decoration: none;
 }
+/* The permissions table floats over the grid under the toolbar, so the window never grows. */
+.gstash-perms-pop {
+  position: absolute;
+  top: 40px;
+  right: 16px;
+  z-index: 5;
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(14, 11, 8, 0.97);
+  border: 1px solid var(--panel-edge);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px #000c;
+}
 .gstash-perms {
   border-collapse: collapse;
   font-size: 12px;
-  align-self: flex-start;
-  background: #0f0c09;
-  border: 1px solid #2e261b;
 }
 .gstash-perms th,
 .gstash-perms td {
@@ -357,14 +412,44 @@
   text-transform: uppercase;
   letter-spacing: 0.6px;
 }
-.gstash-locked,
 .gstash-wait {
   min-height: 120px;
   display: grid;
   place-items: center;
 }
+/* A locked tab draws the empty grid it hides, so the window keeps its size, and says why on top. */
+.gstash-locked-grid {
+  position: relative;
+}
+.gstash-locked-cell {
+  opacity: 0.35;
+}
+.gstash-locked {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0 60px;
+  text-align: center;
+  font-size: 13px;
+  color: #8f8270;
+  background: radial-gradient(ellipse at center, rgba(10, 8, 6, 0.85), rgba(10, 8, 6, 0.3) 70%);
+}
+/* The tooltip's limit line, in the warning red at the tooltip's normal size. */
+.tt-guild-warn {
+  margin: 6px 10px 0;
+  font-size: 12px;
+}
 /* Items the viewer's rank can look at but not take: dimmed, still with their tooltip. */
 .inv-cell.gstash-held {
   opacity: 0.6;
   cursor: var(--cur);
+}
+
+/* The shared .small also adds a top margin and centres text, meant for footnotes in older panels. */
+.guild-window .small,
+.gstash-perms-pop .small {
+  margin-top: 0;
+  text-align: inherit;
 }

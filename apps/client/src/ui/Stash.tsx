@@ -46,6 +46,7 @@ import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { colorHex, TabEditor } from './StashTabEditor.js';
 import { GuildStashPane } from './GuildStash.js';
+import { currentGuildTab } from './guildStashView.js';
 import './forge.css';
 import './stash.css';
 import { formatCooldown, sigilCooldown, useCastTiming } from '../game/castTiming.js';
@@ -642,6 +643,9 @@ export function StashWindow() {
   const tab = useStashView((s) => s.tab);
   const shown = useGuildStashOpen(open);
   const guildName = useUi((s) => s.guild?.name ?? '');
+  const guildTab = useStashView((s) => s.guildTab);
+  // On a tab the rank cannot see into, nothing can be moved, so the move hints would only mislead.
+  const lockedTab = useUi((s) => shown === 'guild' && s.guildStash !== null && currentGuildTab(s.guildStash, guildTab)?.cells === null);
   const [editing, setEditing] = useState(false);
   useEffect(() => setEditing(false), [open, tab]);
   // A row that unmounts under the mouse never sends mouseleave, so its tooltip would stay up.
@@ -672,12 +676,20 @@ export function StashWindow() {
         </>
       )}
       <footer className="inv-footer">
-        <span>
-          <kbd>{QUICK_KEY}</kbd>+click or <kbd>Right-click</kbd> to the bag and back
-        </span>
-        <span>
-          <kbd>Drag</kbd> to place or onto a tab
-        </span>
+        {lockedTab ? (
+          <span>
+            <kbd>Locked</kbd> nothing here can be moved by your rank
+          </span>
+        ) : (
+          <>
+            <span>
+              <kbd>{QUICK_KEY}</kbd>+click or <kbd>Right-click</kbd> to the bag and back
+            </span>
+            <span>
+              <kbd>Drag</kbd> to place or onto a tab
+            </span>
+          </>
+        )}
         {shown === 'account' && current === 'runes' && (
           <span>
             <kbd>Shift</kbd>+click split
