@@ -283,17 +283,32 @@ export interface ZoneComp {
   tickTimer: number;
 }
 
+/**
+ * Who dropped an item and where they stood. They cannot take it back until they have walked
+ * LOOT.dropStepAway from that spot, measured from the spot rather than the pile because a crowded
+ * floor scatters a drop up to a few bag widths away.
+ */
+export interface DropMark {
+  id: EntityId;
+  x: number;
+  y: number;
+}
+
+/** A pile of items on the ground (several drops merged), or a pile of gold. */
 export interface LootComp {
   items: Item[];
   /** Gold on the ground; picked up by walking over it, unlike items which need a click. */
   gold: number;
   lifetime: number;
   /**
-   * Who dropped the bag and where they stood. They cannot take it back until they have walked
-   * LOOT.dropStepAway from that spot, measured from the spot rather than the bag because a crowded
-   * floor scatters a drop up to a few bag widths away.
+   * Seconds left before the pile goes however often drops join it (the admin's lootPileMaxSeconds
+   * from its first drop), so a pile kept topped up is not endless storage.
    */
-  dropper: { id: EntityId; x: number; y: number } | null;
+  maxLife: number;
+  /** Per item, since a pile can hold a player's own drop beside a monster's (the dropper rule). */
+  droppers: Map<ItemUid, DropMark>;
+  /** Bumped whenever the items or their marks change, so an open loot window knows to refresh. */
+  rev: number;
 }
 
 export interface StatusComp {

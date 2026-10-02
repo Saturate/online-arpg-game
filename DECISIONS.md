@@ -113,6 +113,6 @@ Map edges, dungeon meshes and lights are in [town.md](docs/features/town.md); th
 - Monster roster, biome pools, tuning overrides and Model check: [monsters.md](docs/features/monsters.md).
 - Chat and parties: [chat-and-parties.md](docs/features/chat-and-parties.md).
 - The Arena and its leaderboard: [arena.md](docs/features/arena.md).
-- Planned: loot piles in [loot.md](docs/features/loot.md), guilds in [guilds.md](docs/features/guilds.md), phase 4 onward of the rune plan in [runes.md](docs/features/runes.md).
+- Loot piles are built ([loot.md](docs/features/loot.md)). Planned: guilds in [guilds.md](docs/features/guilds.md), phase 4 onward of the rune plan in [runes.md](docs/features/runes.md).
 
 Open items and the handoff for the next session are in the README.

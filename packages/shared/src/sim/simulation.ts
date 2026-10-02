@@ -1,4 +1,4 @@
-import { ENEMY_LEVEL, HEAT, MINIONS, SIM, WAVES } from '../config/sim.js';
+import { ENEMY_LEVEL, HEAT, LOOT, MINIONS, SIM, WAVES } from '../config/sim.js';
 import { CLASSES, type ClassId } from '../data/classes.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { STANCES, type Stance } from '../data/minions.js';
@@ -93,6 +93,10 @@ export interface SimRates {
   bossDamage: number;
   /** Seconds between any two sigil casts, before the cast delay affix and cast speed. */
   castCooldown: number;
+  /** World units within which a new drop joins an item pile; 0 keeps every drop apart. */
+  lootMerge: number;
+  /** Seconds a pile may live from its first drop, however often drops join and restart its clock. */
+  lootPileMax: number;
 }
 
 /**
@@ -116,6 +120,8 @@ export const DEFAULT_RATES: SimRates = {
   bossLife: ENEMY_LEVEL.bossLifeMultiplier,
   bossDamage: ENEMY_LEVEL.bossDamageMultiplier,
   castCooldown: HEAT.castCooldownSeconds,
+  lootMerge: LOOT.mergeRadius,
+  lootPileMax: LOOT.pileMaxSeconds,
 };
 
 export class Simulation {
@@ -404,8 +410,13 @@ export class Simulation {
     return inv.discard(this, id, uid);
   }
 
-  pickup(id: EntityId, lootId: EntityId): string | null {
-    return inv.pickupLoot(this, id, lootId);
+  /** Takes item `uid` from a ground pile, or everything that fits when `uid` is null. */
+  pickup(id: EntityId, lootId: EntityId, uid: ItemUid | null = null): string | null {
+    return inv.takeLoot(this, id, lootId, uid);
+  }
+
+  lootView(id: EntityId, lootId: EntityId): ReturnType<typeof inv.lootView> {
+    return inv.lootView(this, id, lootId);
   }
 
   moveItem(id: EntityId, uid: ItemUid, to: ItemDest): string | null {

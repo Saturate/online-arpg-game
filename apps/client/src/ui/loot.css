@@ -1,0 +1,86 @@
+/* Loot window: beside the hero, who stands on the pile at the screen's centre. */
+.panel.loot-window {
+  top: 26%;
+  left: calc(50% - 420px);
+  width: 270px;
+  padding: 10px 12px;
+}
+.loot-window header h2 {
+  font-size: 16px;
+}
+.loot-list {
+  display: grid;
+  gap: 3px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+.loot-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px 2px 4px !important;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid #2e261b !important;
+  cursor: var(--cur-hover);
+}
+.loot-row:hover,
+.loot-row:focus-visible {
+  border-color: #6b5634 !important;
+  background: rgba(40, 30, 18, 0.55) !important;
+}
+.loot-row[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: var(--cur);
+}
+/* One line each, so a long vessel name cannot spill into the next row; the tooltip has it in full. */
+.loot-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.loot-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+.loot-wait {
+  margin: 6px 2px;
+}
+.loot-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3a2f20;
+}
+
+/* Hover preview: names only, never in the way of a click. */
+.loot-preview {
+  position: fixed;
+  z-index: 19;
+  max-width: 240px;
+  padding: 4px 8px;
+  background: rgba(6, 5, 4, 0.88);
+  border: 1px solid #4a3a22;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px #000, 0 6px 18px #000c;
+  font: 600 12px var(--font-body);
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.loot-preview > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.loot-more {
+  color: var(--muted);
+  font-weight: 400;
+}

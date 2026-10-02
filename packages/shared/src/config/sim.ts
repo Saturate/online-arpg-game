@@ -244,6 +244,20 @@ export const LOOT = {
   pickupReach: 50,
   /** Extra server-side reach: two input frames of walking, for a request that overtakes its inputs. */
   pickupLagSlack: 20,
+  /**
+   * Default pile merge radius (the admin's lootMergeRadius): a drop this close to a pile joins it.
+   * 1.5 player body widths (radius 14), so one kill's drops or a drop at the hero's feet join, and two
+   * monsters dying apart stay two piles.
+   */
+  mergeRadius: 42,
+  /** Default cap on a pile's whole life from its first drop (the admin's lootPileMaxSeconds), however often drops join it. */
+  pileMaxSeconds: 300,
+  /** A pile stops taking drops here, so its window and its snapshot stay short; the next drop starts a pile. */
+  pileMaxItems: 40,
+  /** Names a pile sends in snapshots for labels and the hover preview; the loot window gets every item. */
+  pilePreviewNames: 8,
+  /** Extra room past pickup reach before an open loot window closes, so a nudge in a fight does not shut it. */
+  pileWindowSlack: 40,
   corruptChance: 0.08,
   /** Share of sigil drops that come inscribed with a starter sigil's runes; the rest are blank. */
   sigilSpellShare: 0.3,

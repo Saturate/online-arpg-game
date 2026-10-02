@@ -211,7 +211,13 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'buy':
       return isNonNegativeInt(value.id) ? { t: 'buy', id: value.id } : null;
     case 'pickup':
-      return isNonNegativeInt(value.id) ? { t: 'pickup', id: value.id } : null;
+      if (!isNonNegativeInt(value.id)) return null;
+      if (value.uid === undefined) return { t: 'pickup', id: value.id };
+      return isNonNegativeInt(value.uid) ? { t: 'pickup', id: value.id, uid: value.uid } : null;
+    case 'lootOpen':
+      return isNonNegativeInt(value.id) ? { t: 'lootOpen', id: value.id } : null;
+    case 'lootClose':
+      return { t: 'lootClose' };
     case 'moveItem': {
       const to = parseItemDest(value.to);
       return isNonNegativeInt(value.uid) && to ? { t: 'moveItem', uid: value.uid, to } : null;
@@ -265,7 +271,7 @@ function isPlanHash(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables', 'lootPile']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by

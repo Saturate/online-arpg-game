@@ -19,6 +19,7 @@ import { ForgeEditor } from './ForgeEditor.js';
 import { StagingPanel } from './StagingPanel.js';
 import { ArenaResultPanel, LeaderboardPanel } from './ArenaPanels.js';
 import { WaypointPanel } from './WaypointPanel.js';
+import { LootPreview, LootWindow } from './LootWindow.js';
 import { PartyFrames, TeleportBar } from './PartyFrames.js';
 import { GameTooltip } from './Tip.js';
 import { TownEditorPanel } from './TownEditorPanel.js';
@@ -101,6 +102,7 @@ export function GameView({ token, character }: { token: string; character: Chara
         <LeaderboardPanel />
         <ArenaResultPanel />
         <WaypointPanel />
+        <LootWindow />
         <SettingsPanel />
       </div>
       {reconnecting && (
@@ -108,6 +110,7 @@ export function GameView({ token, character }: { token: string; character: Chara
           Connection lost. Reconnecting...
         </div>
       )}
+      <LootPreview />
       <ItemTooltip />
       <GameTooltip />
     </div>

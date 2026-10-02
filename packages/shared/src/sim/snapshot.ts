@@ -2,8 +2,9 @@ import { CLASSES } from '../data/classes.js';
 import { cloneLayout } from '../items/stash.js';
 import { stashTabPrice } from '../config/stash.js';
 import { xpToNext } from './progression.js';
-import { SIM } from '../config/sim.js';
-import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, SelfState, Snapshot, SpellSnap } from '../protocol/messages.js';
+import { LOOT, SIM } from '../config/sim.js';
+import type { AuraSnap, EntitySnap, GameEvent, InventoryMessage, LootName, SelfState, Snapshot, SpellSnap } from '../protocol/messages.js';
+import { ITEM_TIERS, type Item } from '../items/items.js';
 import { STATUS } from '../protocol/messages.js';
 import { auraRadius, persistentNode, spiritReservedFor } from './auras.js';
 import type { EntityId, StatusComp } from './ecs.js';
@@ -123,12 +124,28 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
       case 'loot': {
         const l = w.loot.get(id);
         if (!l) break;
-        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: l.items.map((it) => (it.kind === 'vessel' && it.fixedName ? { n: it.name, tier: it.tier, u: true } : { n: it.name, tier: it.tier })), gold: l.gold });
+        const only = l.items.length === 1 ? l.items[0] : undefined;
+        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: previewNames(l.items), gold: l.gold, ...(only ? { one: only.uid } : {}) });
         break;
       }
     }
   }
   return out;
+}
+
+/**
+ * Snapshots go out every tick to everyone near, so a pile sends only its best few names (best tier
+ * first, then drop order); the loot window asks for the rest.
+ */
+export function previewNames(items: readonly Item[]): LootName[] {
+  const order = items.map((it, i) => ({ it, i, rank: ITEM_TIERS.indexOf(it.tier) + (it.kind === 'vessel' && it.fixedName ? ITEM_TIERS.length : 0) }));
+  order.sort((a, b) => b.rank - a.rank || a.i - b.i);
+  return order.slice(0, LOOT.pilePreviewNames).map(({ it }) => {
+    const name: LootName = { n: it.name, tier: it.tier };
+    if (it.kind === 'vessel' && it.fixedName) name.u = true;
+    if (it.kind === 'rune' && it.count > 1) name.c = it.count;
+    return name;
+  });
 }
 
 function selfState(sim: Simulation, pid: EntityId): SelfState | null {

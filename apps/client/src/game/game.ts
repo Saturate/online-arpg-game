@@ -40,7 +40,7 @@ import { Connection } from '../net/connection.js';
 import { Recorder, encodeReplay } from './replay.js';
 import { isOutdated, reloadForUpdate } from './update.js';
 import { netSettings } from '../net/settings.js';
-import { cssColor, FX, TIER_COLORS, UNIQUE_COLOR, VIEW } from '../render/config.js';
+import { FX, VIEW } from '../render/config.js';
 import { EntityRenderer, type RenderItem } from '../render/entities.js';
 import { ExitPortal } from '../render/exitPortal.js';
 import { GateSeals } from '../render/gateSeals.js';
@@ -62,6 +62,8 @@ import { receiveTunables } from './tunables.js';
 import { TownEditor, useTownEditor } from './townEditor.js';
 import { useDevCursor } from '../ui/DevPanel.js';
 import { clearItemInteractions, noteInventory } from '../ui/Inventory.js';
+import { dropLootWindow, hoverPile, openLootWindow, opensWindow, pileLabel, receiveLootPile, useLootWindow } from '../ui/lootPiles.js';
+import { closeLootWindow } from '../ui/LootWindow.js';
 import { lighting } from '../render/daylight.js';
 import { effectiveZoom, stepZoomScale, zoomLimits } from './zoom.js';
 import { emitLight, entityLightKey } from '../render/lights.js';
@@ -193,10 +195,12 @@ export class Game {
   /** Reused for the nearest hurt circle of the locked target, every frame. */
   private readonly hurtSpot = { x: 0, y: 0, r: 0 };
   private renderedEnemies: { x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'enemy' }> }[] = [];
-  /** Item bags on screen, for clicking them up. Gold needs no click, so it is not listed. */
-  private renderedLoot: { id: EntityId; x: number; y: number; r: number }[] = [];
-  /** A bag the player clicked: walk to it, then pick it up. */
+  /** Item piles on screen, for clicking them up. Gold needs no click, so it is not listed. */
+  private renderedLoot: { id: EntityId; x: number; y: number; r: number; snap: Extract<EntitySnap, { k: 'loot' }> }[] = [];
+  /** A pile the player clicked: walk to it, then pick it up or open its loot window. */
   private pickupTarget: EntityId | null = null;
+  /** The pile whose ground label the cursor is on; the label sits off the canvas, so aiming cannot see it. */
+  private labelHoverPile: EntityId | null = null;
   /** A town station or waypoint the player clicked: walk to it, then open its window. */
   private stationTarget: Station | null = null;
   /** The latest waypoint menu the server offered; it only opens once the waypoint is clicked. */
@@ -383,6 +387,8 @@ export class Game {
     this.teardownRoom();
     useUi.setState({ staging: null, arena: null, boardOpen: false });
     clearItemInteractions();
+    dropLootWindow();
+    hoverPile(null);
     const loaded = loadMap(desc);
     const game = loaded.game;
     const sealed = loaded.def.portals.filter((p) => p.sealed === 'boss');
@@ -513,6 +519,7 @@ export class Game {
     else if (code === 'Escape') {
       if (ui.settingsOpen) useUi.setState({ settingsOpen: false });
       else if (useWorldMap.getState().open) useWorldMap.setState({ open: false });
+      else if (useLootWindow.getState().id !== null) closeLootWindow();
       else if (ui.inventoryOpen || ui.editorOpen || ui.characterOpen || ui.station || ui.waypointMenu) {
         // The station closes for real, or the next I would bring the stash or trader back with the bag.
         ui.closeStation();
@@ -663,6 +670,9 @@ export class Game {
         return;
       case 'trader':
         useUi.setState({ traderStock: msg.stock });
+        return;
+      case 'lootPile':
+        receiveLootPile(msg);
         return;
       case 'lighting':
         Object.assign(lighting, msg.lighting);
@@ -859,7 +869,7 @@ export class Game {
     sampled.moveDir = room.mover.direction(origin);
   }
 
-  /** Walks to the clicked bag and picks it up on arrival; movement keys or the bag vanishing cancel it. */
+  /** Walks to the clicked pile and takes it (one item) or opens its window on arrival; movement keys or the pile vanishing cancel it. */
   private walkToPickup(room: RoomView, sampled: SampledInput, origin: Vec2, now: number): void {
     const bag = this.renderedLoot.find((l) => l.id === this.pickupTarget);
     const keysMoving = sampled.moveDir.x !== 0 || sampled.moveDir.y !== 0;
@@ -870,7 +880,12 @@ export class Game {
     }
     // A little inside the server's reach, so latency cannot put the request just out of range.
     if (Math.hypot(bag.x - origin.x, bag.y - origin.y) <= bag.r + SIM.playerRadius + LOOT.pickupReach - 12) {
-      this.send({ t: 'pickup', id: bag.id });
+      // The single item by its uid: a drop joining on the way must not turn the click into a Take all.
+      const one = bag.snap.one;
+      if (opensWindow(bag.snap.count) || one === undefined) {
+        openLootWindow(bag.id);
+        this.send({ t: 'lootOpen', id: bag.id });
+      } else this.send({ t: 'pickup', id: bag.id, uid: one });
       this.pickupTarget = null;
       room.mover.stop();
       return;
@@ -920,7 +935,25 @@ export class Game {
     sampled.moveDir = room.mover.direction(origin);
   }
 
-  /** A click on a loot label: same as clicking the bag. */
+  private hoverLabel(id: EntityId, over: boolean): void {
+    if (over) this.labelHoverPile = id;
+    else if (this.labelHoverPile === id) this.labelHoverPile = null;
+  }
+
+  /** The hover preview: the pile under the cursor, by its label or its model. */
+  private updatePileHover(room: RoomView, labels: readonly { key: string }[]): void {
+    // A label removed under the cursor never sends its mouseleave.
+    if (this.labelHoverPile !== null && !labels.some((l) => l.key === `l${this.labelHoverPile}`)) this.labelHoverPile = null;
+    let pile = this.labelHoverPile === null ? undefined : this.renderedLoot.find((l) => l.id === this.labelHoverPile);
+    if (!pile && room.input.overCanvas) {
+      const aim = room.world.screenToGround(room.input.mouseX, room.input.mouseY);
+      // The same reach as a click, so the preview shows exactly where a click would pick the pile.
+      if (aim) pile = this.renderedLoot.find((l) => Math.hypot(l.x - aim.x, l.y - aim.y) <= l.r + 26);
+    }
+    hoverPile(pile?.snap ?? null);
+  }
+
+  /** A click on a loot label: same as clicking the pile. */
   private pickUpFromLabel(id: EntityId): void {
     this.pickupTarget = id;
   }
@@ -1030,20 +1063,20 @@ export class Game {
           if (bubble && bubble.until > performance.now()) labels.push({ key: `b${id}`, x, y, text: bubble.text, color: '#fff6dc', height: 104, className: 'fx-label bubble' });
         }
         if (to.k === 'loot') {
-          if (to.count > 0) this.renderedLoot.push({ id, x, y, r });
-          // D2 style: good drops are always labelled, everything shows while Alt is held. Labels are
-          // clickable, the easy way to pick a drop out of a pile.
-          to.names.forEach((n, i) => {
-            if (!showAllLoot && n.tier !== 'rare' && n.tier !== 'relic') return;
-            labels.push({ key: `l${id}-${i}`, x, y, text: n.n, color: cssColor(n.u ? UNIQUE_COLOR : TIER_COLORS[n.tier]), height: 40 + i * 18, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id) });
-          });
+          if (to.count > 0) this.renderedLoot.push({ id, x, y, r, snap: to });
+          // D2 style: good drops are always labelled, everything shows while Alt is held. One label
+          // per pile; hovering it lists the pile, clicking it walks there.
+          const label = pileLabel(to, showAllLoot);
+          if (label) labels.push({ key: `l${id}`, x, y, text: label.text, color: label.color, height: 40, className: 'fx-label loot', onClick: () => this.pickUpFromLabel(id), onHover: (over) => this.hoverLabel(id, over) });
           if (to.gold > 0) labels.push({ key: `g${id}`, x, y, text: `${to.gold} gold`, color: '#e8c860', height: 34, className: 'fx-label loot gold' });
         }
-        items.push({ key: `s${id}`, snap, x, y, isSelf: false, isAlly: to.k === 'player' || to.k === 'minion' });
+        // A pile's best tier picks its tie colour and light shaft, so a better drop joining it rebuilds the view.
+        items.push({ key: to.k === 'loot' ? `s${id}-${to.tier}` : `s${id}`, snap, x, y, isSelf: false, isAlly: to.k === 'player' || to.k === 'minion' });
       }
     }
 
     this.updateTarget(room, now);
+    this.updatePileHover(room, labels);
     this.closeWaypointMenuWhenAway(room, room.predictor.position);
     this.updatePlaceName(room, room.predictor.position);
 

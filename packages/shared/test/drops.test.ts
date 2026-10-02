@@ -14,6 +14,8 @@ function withoutUid(items: readonly Item[]): unknown[] {
 describe('rollDrops', () => {
   it('matches the simulation drop roll item for item', () => {
     const sim = new Simulation(3, { kind: 'flat' });
+    // Every kill is on one spot: merged into one pile, each roll could not be told apart.
+    sim.rates.lootMerge = 0;
     let compared = 0;
     for (const [i, src] of [
       { level: 1, rare: false, boss: false },

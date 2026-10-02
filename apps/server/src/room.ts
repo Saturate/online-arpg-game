@@ -45,7 +45,17 @@ interface Member {
   sentInventoryVersion: number;
   /** Spell entities this member's client already has a record of, with the motion it was sent. */
   knownSpells: Map<EntityId, string>;
+  /** The pile whose loot window is open, and the version of it last sent. Only its viewer gets its full items. */
+  openLoot: { id: EntityId; rev: number } | null;
+  /** The tick of this member's last answered lootOpen, for its rate limit. */
+  lootOpenTick: number;
 }
+
+/**
+ * At most one answered lootOpen per member in this many ticks (0.25 s at 20 ticks): a client
+ * resending it every frame would otherwise get a whole pile back each time.
+ */
+const LOOT_OPEN_TICKS = 5;
 
 /** Rooms opened since start; each takes its own block of item ids (see Simulation.startItemUidsAt). */
 let roomSerial = 0;
@@ -118,7 +128,7 @@ export class Room {
 
   add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
     const playerId = this.sim.addPlayer(client.id, classId, name, save, at);
-    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map() });
+    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map(), openLoot: null, lootOpenTick: -LOOT_OPEN_TICKS });
     // A save from before a live tuning change can hold more auras than the pool now pays for.
     for (const skill of fitSpirit(this.sim, playerId)) client.send({ t: 'notice', text: `${skill} was unequipped: its spirit now passes your pool` });
     client.room = this;
@@ -204,6 +214,9 @@ export class Room {
     const m = this.members.get(client.id);
     if (!m) return null;
     const save = this.sim.exportPlayer(m.playerId);
+    // The window's pile belongs to this room's world, so it cannot follow the player into the next
+    // one, not even a town rebuild that keeps the room id.
+    if (m.openLoot) client.send({ t: 'lootPile', id: m.openLoot.id, items: null });
     this.sim.removePlayer(m.playerId);
     this.members.delete(client.id);
     if (client.room === this) client.room = null;
@@ -258,8 +271,22 @@ export class Room {
         error = this.sim.discard(pid, msg.uid);
         break;
       case 'pickup':
-        error = this.sim.pickup(pid, msg.id);
+        error = this.sim.pickup(pid, msg.id, msg.uid ?? null);
         break;
+      case 'lootOpen': {
+        // Answered at once, so the window fills on the click; broadcast keeps it current after that.
+        if (this.sim.tick - m.lootOpenTick < LOOT_OPEN_TICKS) return;
+        const view = this.sim.lootView(pid, msg.id);
+        // A repeat for the window already open, with nothing changed, has its answer already.
+        if (view && m.openLoot?.id === msg.id && m.openLoot.rev === view.rev) return;
+        m.lootOpenTick = this.sim.tick;
+        m.openLoot = view ? { id: msg.id, rev: view.rev } : null;
+        client.send(view ? { t: 'lootPile', id: msg.id, items: view.items, own: view.own } : { t: 'lootPile', id: msg.id, items: null });
+        return;
+      }
+      case 'lootClose':
+        m.openLoot = null;
+        return;
       case 'moveItem':
         error = this.sim.moveItem(pid, msg.uid, msg.to);
         break;
@@ -373,11 +400,27 @@ export class Room {
     const events = this.sim.takeEvents();
     for (const m of this.members.values()) {
       this.sendInventory(m);
+      this.sendLoot(m);
       if (m.client.congested) continue;
       const snap = snapshotFor(this.sim, m.playerId, entities, events, NET.interestRadius, m.knownSpells);
       snap.paused = this.paused;
       m.client.send(snap);
     }
+  }
+
+  /** Keeps an open loot window current, and closes it once the pile is gone or out of reach. */
+  private sendLoot(m: Member): void {
+    const open = m.openLoot;
+    if (!open) return;
+    const view = this.sim.lootView(m.playerId, open.id);
+    if (!view) {
+      m.openLoot = null;
+      m.client.send({ t: 'lootPile', id: open.id, items: null });
+      return;
+    }
+    if (view.rev === open.rev) return;
+    open.rev = view.rev;
+    m.client.send({ t: 'lootPile', id: open.id, items: view.items, own: view.own });
   }
 
   private sendInventory(m: Member): void {

@@ -148,8 +148,14 @@ export function ItemTooltip() {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Beside the loot window, away from the screen centre where the hero stands on the pile.
+    const lootWindow = place?.at === 'ground' ? document.querySelector('.loot-window')?.getBoundingClientRect() : undefined;
+    if (lootWindow && lootWindow.left > el.offsetWidth + 16) {
+      setPos({ left: lootWindow.left - el.offsetWidth - 8, top: Math.max(8, Math.min(y - 20, window.innerHeight - el.offsetHeight - 8)) });
+      return;
+    }
     setPos(placeTooltip(x, y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight));
-  }, [x, y, item]);
+  }, [x, y, item, place]);
   if (!item || !classId) return null;
   const tier: CSSProperties & Record<'--tier', string> = { '--tier': tierColor(item), left: pos.left, top: pos.top };
   return (
@@ -161,7 +167,7 @@ export function ItemTooltip() {
       <footer className="tt-hint">
         {place?.at === 'chat'
           ? 'Linked in chat'
-          : place?.at === 'forge'
+          : place?.at === 'forge' || place?.at === 'ground'
           ? place.hint
           : place?.at === 'trader'
           ? `Click to buy for ${place.price} gold`

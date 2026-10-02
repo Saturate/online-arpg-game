@@ -7,7 +7,7 @@ One file per feature, each the single place that explains it: what it does, why 
 | [runes.md](runes.md) | Live (v2 on `main` 2026-09-30); phase 4+ planned | The v2 rune grammar, the compiler and Force pricing, the spell engine, Aura and Bond, kit sigils, the six rune tiers, balance tests, and the rest of the rune plan |
 | [forge.md](forge.md) | Live | The sigil editor at the forge, inscribe rules, gold prices, roll clamping, the builders' bench |
 | [items.md](items.md) | Live | Item kinds, affixes, bound items, named items (Brothers Creation), the grid inventory, pending items, the trader, the v1 to v2 conversion |
-| [loot.md](loot.md) | Live; loot piles planned | Drops, drop tables, gold, ground bags and pickup, dungeon caches, and the planned loot piles |
+| [loot.md](loot.md) | Live; loot piles built, not deployed | Drops, drop tables, gold, ground piles and pickup, the loot window, dungeon caches |
 | [stash.md](stash.md) | Live; tabs in progress | The account stash |
 | [characters.md](characters.md) | Live | Classes, levels and XP, stats, item requirements, death and respawn |
 | [minions.md](minions.md) | Live | Vessels, the warband, stances, behaviour affixes, minion AI, the Hound pack |
