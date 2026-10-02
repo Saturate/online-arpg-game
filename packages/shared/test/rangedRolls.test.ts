@@ -234,6 +234,16 @@ describe('ranged rolls on the way out and on the bench', () => {
     expect(clampRoll(r)).toEqual({ id: 'rune_damage', tier: 5, value: 30, max: 130 });
   });
 
+  it('never clamps a ranged roll below its affix floor', () => {
+    applyTunables({ [affixTierPath('rune_pierce', 5, 'min')]: 1, [affixTierPath('rune_pierce', 5, 'max')]: 1, [affixTierPath('rune_pierce', 4, 'min')]: 1, [affixTierPath('rune_pierce', 4, 'max')]: 1, [affixTierPath('rune_pierce', 3, 'min')]: 1, [affixTierPath('rune_pierce', 3, 'max')]: 1, [affixTierPath('rune_pierce', 2, 'min')]: 1, [affixTierPath('rune_pierce', 2, 'max')]: 1, [affixTierPath('rune_pierce', 1, 'max')]: 1 });
+    // Average 4 against a best of 1: moving down 3 would put the low end at -2.
+    const out = clampRoll({ id: 'rune_pierce', tier: 5, value: 3, max: 5 });
+    expect(out.value).toBe(0);
+    expect(out.max).toBe(2);
+    const shut = clampRoll({ id: 'split_count', tier: 5, value: 2, max: 3 });
+    expect(shut.value).toBeGreaterThanOrEqual(2);
+  });
+
   it('a kit roll clamps a ranged roll by its average and keeps its spread', () => {
     const out = kitRoll({ id: 'rune_damage', tier: 5, value: 150, max: 250 });
     expect(out.max).toBeDefined();

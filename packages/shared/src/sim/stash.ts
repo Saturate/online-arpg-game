@@ -202,7 +202,8 @@ export function takeRunes(sim: Simulation, pid: EntityId, uid: ItemUid, count: n
   if (item.kind !== 'rune' || !isPlainRune(item)) return 'Only plain rune stacks can be split';
   if (!Number.isInteger(count) || count < 1 || count > item.count) return `That stack holds ${item.count}`;
   if (count === item.count) return to === null ? quickMove(sim, pid, uid, null) : moveItem(sim, pid, uid, to);
-  const part: RuneItem = { ...item, uid: sim.newItemUid(), count, affixes: [] };
+  // The part shares nothing mutable with the stack it leaves, as a rune split off at the forge.
+  const part: RuneItem = { ...item, uid: sim.newItemUid(), count, affixes: [], ...(item.implicit ? { implicit: { ...item.implicit } } : {}) };
   if (to === null) {
     // addItem is all or nothing, so a part that does not fit leaves the bag untouched.
     if (!addItem(p, part)) return 'No room in your bag';

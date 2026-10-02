@@ -1,5 +1,5 @@
 import { HEAT, HOUND_PACK, LOOT, SIM, SPELL, SPIRIT } from '../config/sim.js';
-import { AFFIXES, AFFIX_IDS, affixText, IMPLICIT_NEUTRAL_TIER, implicitIdFor, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
+import { AFFIXES, AFFIX_IDS, affixText, IMPLICIT_NEUTRAL_TIER, implicitIdFor, isAffixId, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
@@ -342,8 +342,9 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
   if (spread.pierce > 0) a.pierceMax = (a.pierce ?? 0) + spread.pierce;
   if (spread.count > 0) a.countMax = (a.count ?? 0) + spread.count;
   const implicit = runeImplicit(item);
-  // The neutral roll is left out, so a rune from before implicits reads exactly as it did.
-  if (implicit && implicit.value !== AFFIXES[implicit.id].neutral) return { id: item.rune, affixes: a, implicit: implicit.value };
+  // The neutral roll is left out, so a rune from before implicits reads exactly as it did. An implicit
+  // id the game no longer has is left in the item untouched and read as none, like a retired affix.
+  if (implicit && isAffixId(implicit.id) && implicit.value !== AFFIXES[implicit.id].neutral) return { id: item.rune, affixes: a, implicit: implicit.value };
   return { id: item.rune, affixes: a };
 }
 
@@ -604,7 +605,7 @@ export function formatAffix(a: AffixRoll): string {
  */
 export function formatImplicit(item: RuneItem): string | null {
   const i = runeImplicit(item);
-  if (!i) return null;
+  if (!i || !isAffixId(i.id)) return null;
   const v = i.value;
   const pct = formatNumber(v, 0);
   const seconds = (base: number): string => String(Number(((base * 100) / Math.max(1e-9, v)).toFixed(2)));

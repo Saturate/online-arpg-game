@@ -6,6 +6,7 @@ import {
   buyPrice,
   CASTABLE_RUNES,
   clampRuneRolls,
+  compareForSort,
   compileRunes,
   createPlainDrop,
   createRolledRune,
@@ -312,6 +313,11 @@ describe('implicits and stacks', () => {
   }
   const tiered = (uid: number, tier: number, value: number, count = 1): RuneItem => ({ ...createRune(uid, 'fire', count), implicit: { id: 'implicit_conversion', tier, value } });
 
+  it('sort puts the better implicit first among plain stacks of one rune', () => {
+    const order = [tiered(1, 2, 100), tiered(2, 5, 121), tiered(3, 0, 88)].sort(compareForSort);
+    expect(order.map((r) => r.kind === 'rune' && r.implicit?.value)).toEqual([121, 100, 88]);
+  });
+
   it('plain runes stack only with the same implicit', () => {
     expect(stacksWith(tiered(1, 2, 100), tiered(2, 2, 100))).toBe(true);
     expect(stacksWith(tiered(1, 2, 100), tiered(2, 3, 106))).toBe(false);
@@ -352,6 +358,33 @@ describe('implicits and stacks', () => {
     const fires = [...p.items.values()].filter((i): i is RuneItem => i.kind === 'rune' && i.rune === 'fire');
     expect(fires.reduce((n, r) => n + r.count, 0)).toBe(4);
     expect(fires.find((r) => r.implicit?.value === 120)?.count).toBe(2);
+  });
+});
+
+describe('odd stored implicits and stash splits', () => {
+  it('an implicit id the game no longer has stays in the item and reads as none', () => {
+    const odd = JSON.parse(JSON.stringify({ ...createRune(1, 'bolt'), implicit: { id: 'implicit_retired', tier: 2, value: 140 } }));
+    expect(toRuneInstance(odd)).toEqual({ id: 'bolt', affixes: {} });
+    expect(formatImplicit(odd)).toBeNull();
+    expect(clampRuneRolls(odd)).toBe(odd);
+  });
+
+  it('a stack split off in the stash shares no implicit object with the stack it left', () => {
+    const sim = new Simulation(4, { kind: 'world', seed: 3 });
+    const pid = sim.addPlayer('c', 'mage');
+    const p = sim.world.player.get(pid);
+    const pos = sim.world.position.get(pid);
+    const chest = sim.mapDef.stash;
+    if (!p || !pos || !chest) throw new Error('setup');
+    pos.x = chest.x + 40;
+    pos.y = chest.y;
+    const stack = createRune(sim.newItemUid(), 'fire', 6);
+    p.items.set(stack.uid, stack);
+    p.stash.runes.list.push(stack.uid);
+    expect(sim.takeRunes(pid, stack.uid, 2, null)).toBeNull();
+    const part = [...p.items.values()].find((i): i is RuneItem => i.kind === 'rune' && i.uid !== stack.uid);
+    expect(part?.implicit).toEqual(stack.implicit);
+    expect(part?.implicit).not.toBe(stack.implicit);
   });
 });
 

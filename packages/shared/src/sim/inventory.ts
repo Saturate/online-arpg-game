@@ -694,6 +694,9 @@ export function compareForSort(a: Item, b: Item): number {
     if (rune !== 0) return rune;
     const rolled = Number(isPlainRune(a)) - Number(isPlainRune(b));
     if (rolled !== 0) return rolled;
+    // Plain stacks of one rune differ only by implicit: the better one first.
+    const implicit = (runeImplicit(b)?.value ?? 0) - (runeImplicit(a)?.value ?? 0);
+    if (isPlainRune(a) && implicit !== 0) return implicit;
   }
   const tier = ITEM_TIERS.indexOf(b.tier) - ITEM_TIERS.indexOf(a.tier);
   if (tier !== 0) return tier;

@@ -80,9 +80,15 @@ function clampInto(a: AffixRoll, range: Range | null): AffixRoll {
   const better = betterOf(a.id);
   if (a.max !== undefined && a.max > a.value) {
     // A ranged roll keeps its spread and moves down until its average is the best a drop can have.
+    // Neither end goes below the affix's floor (pierce 0, Split 2, never negative); a spread the floor
+    // squeezes shut leaves a single number.
     const over = rollAverage(a) - range.max.value;
-    if (better === 'higher' && over > 0) return { id: a.id, tier: Math.min(a.tier, range.max.tier), value: a.value - over, max: a.max - over };
-    return a;
+    if (better !== 'higher' || over <= 0) return a;
+    const floor = Math.max(0, AFFIXES[a.id].ranged?.min ?? 0);
+    const tier = Math.min(a.tier, range.max.tier);
+    const lo = Math.max(floor, a.value - over);
+    const hi = Math.max(lo, a.max - over);
+    return hi > lo ? { id: a.id, tier, value: lo, max: hi } : { id: a.id, tier, value: lo };
   }
   // The tier only ever goes down: sell value and forge price count tiers, so a rune never comes out
   // worth more than it was inside.
