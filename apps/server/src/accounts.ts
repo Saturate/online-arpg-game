@@ -11,6 +11,7 @@ import { BenchStore } from './benchStore.js';
 import { TunablesStore } from './tunablesStore.js';
 import { WorldGenStore } from './worldGenStore.js';
 import { SnapshotStore, type SessionSnapshot } from './sessionSnapshot.js';
+import { GuildStore } from './guildStore.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
@@ -715,6 +716,18 @@ export class AccountStore {
   }
 
   /**
+   * A character, its account stash and guild rows (`extra`, GuildStore writes) in one transaction:
+   * an item moved between a bag and the guild stash, or gold paid for a guild, is then in exactly
+   * one place on disk whatever fails. Throws when anything fails, and then nothing was written.
+   */
+  saveCharacterWith(characterId: number, save: PlayerSave, accountId: number, stash: StashSave, extra: () => void): void {
+    this.transaction(() => {
+      this.writeCharacterAndStash(characterId, save, accountId, stash);
+      extra();
+    });
+  }
+
+  /**
    * Many saves in one transaction. Each commit waits for the disk: one by one, 64 saves stall every
    * room for about 250 ms on the Linux host, batched they take under 1 ms.
    */
@@ -862,6 +875,13 @@ export class AccountStore {
   get snapshots(): SnapshotStore {
     this.snapshotStore ??= new SnapshotStore(this.db);
     return this.snapshotStore;
+  }
+
+  private guildStore: GuildStore | null = null;
+  /** Guilds, their members, stashes and logs, in guildStore.ts. */
+  get guilds(): GuildStore {
+    this.guildStore ??= new GuildStore(this.db);
+    return this.guildStore;
   }
 
   private benchStore: BenchStore | null = null;

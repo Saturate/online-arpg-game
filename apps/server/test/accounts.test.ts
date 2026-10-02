@@ -163,6 +163,9 @@ function fakeHooks(): AdminHooks & { kicked: number[]; state: ServerSettings; ro
     tunablesChanged: () => undefined,
     rebuildWorlds: () => ({ copies: [], failed: [], gen: {} }),
     rerollWorld: () => 'No such world copy',
+    guildList: () => [],
+    guildDetail: () => null,
+    setGuildLeader: () => 'No such guild',
   };
 }
 

@@ -169,6 +169,13 @@ export class Room {
     if (p) p.party = party;
   }
 
+  /** The member's guild tag for their nameplate; see RoomManager.syncParties. */
+  setGuildTag(client: Client, tag: string | null): void {
+    const m = this.members.get(client.id);
+    const p = m ? this.sim.world.player.get(m.playerId) : undefined;
+    if (p) p.guildTag = tag;
+  }
+
   /** Moves a member within this room, onto open ground near the spot. */
   placeMember(client: Client, x: number, y: number): void {
     const m = this.members.get(client.id);

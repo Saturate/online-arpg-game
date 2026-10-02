@@ -32,6 +32,8 @@ import {
   TOWN_WAYPOINT,
   waypointArrival,
   type AdminOverview,
+  type AdminGuildDetail,
+  type AdminGuildSummary,
   type AdminLive,
   type LivePlayer,
   type LiveRoom,
@@ -83,6 +85,7 @@ import { Client, MAX_MESSAGES_PER_SECOND, type GameSocket } from './client.js';
 import { events } from './eventLog.js';
 import { channelBreak, PARTY_STATUS_TICKS, TELEPORT_CHANNEL_SECONDS, type ChannelWatch, type TeleportChannel } from './partyTravel.js';
 import { Room } from './room.js';
+import { GuildService } from './guilds.js';
 import { rollBackTrade, snapshotForTrade, type TradeSnapshot } from './tradeRollback.js';
 import { Staging, type StagingTarget } from './staging.js';
 import { roomTiming, serverStats } from './tickStats.js';
@@ -208,6 +211,8 @@ export class RoomManager implements AdminHooks {
   private current: ServerSettings;
   private market: Market;
   private readonly tuning: LiveTuning;
+  /** Guilds, their invites, chat and stash (guilds.ts): one object per guild for every room. */
+  readonly guilds: GuildService;
 
   constructor(
     seed: number,
@@ -224,6 +229,22 @@ export class RoomManager implements AdminHooks {
     this.tuning = new LiveTuning(store.tuning);
     // Before any room exists, so the first sigil compiled and the first welcome use the stored numbers.
     applyTunables(store.tunables.load(), (why) => events.warn('server', `[tuning] ${why}`));
+    this.guilds = new GuildService(store, { clients: () => this.clients.values(), playerName: (c) => this.playerName(c), zone: (c) => this.zoneOf(c) }, clock);
+  }
+
+  /** Where a client stands, as the guild roster shows it: the region, the town or the room. */
+  private zoneOf(client: Client): string {
+    const room = client.room;
+    const v = room?.memberView(client);
+    return room && v ? room.placeName(v.x, v.y) : '';
+  }
+
+  /**
+   * Hands a guild on whose Leader's account is gone or idle for 30 days; run at boot, daily and
+   * after accounts are removed. Returns how many guilds changed.
+   */
+  checkGuildLeadership(): number {
+    return this.guilds.checkLeadership();
   }
 
   /** The free bench is off unless a room asks for it; only the sandbox does. */
@@ -411,6 +432,18 @@ export class RoomManager implements AdminHooks {
     const inst = this.instanceOf(target);
     if (inst && inst !== before) this.sendWorldToAll(inst);
     return null;
+  }
+
+  guildList(): AdminGuildSummary[] {
+    return this.guilds.adminList();
+  }
+
+  guildDetail(id: number, before: number | null): AdminGuildDetail | null {
+    return this.guilds.adminDetail(id, before);
+  }
+
+  setGuildLeader(id: number, accountId: number, by: string): string | null {
+    return this.guilds.adminSetLeader(id, accountId, by);
   }
 
   accountOnline(accountId: number): boolean {
@@ -867,6 +900,7 @@ export class RoomManager implements AdminHooks {
       const room = client.room;
       if (room) this.persist(client, room.remove(client));
       this.clients.delete(client.id);
+      this.guilds.left(client, client.accountId);
       const inst = this.instanceOf(client);
       if (inst) this.sendWorldToAll(inst);
       const party = this.partyOf(client.accountId);
@@ -981,7 +1015,7 @@ export class RoomManager implements AdminHooks {
         return;
       }
       default:
-        client.room?.handle(client, msg);
+        if (!this.guilds.handle(client, msg)) client.room?.handle(client, msg);
     }
   }
 
@@ -1475,6 +1509,8 @@ export class RoomManager implements AdminHooks {
     const items = linked.length > 0 ? { items: linked } : {};
     if (!text) return;
     const from = this.playerName(client);
+    const guildTag = this.guilds.tagOf(client.accountId);
+    const tag = guildTag === null ? {} : { tag: guildTag };
     if (text.startsWith('/')) {
       const [cmd = '', ...rest] = text.slice(1).split(' ');
       switch (cmd.toLowerCase()) {
@@ -1486,7 +1522,7 @@ export class RoomManager implements AdminHooks {
           if (!body) this.system(client, 'Usage: /w name message');
           else if (!target) this.system(client, `${name} is not online`);
           else {
-            const msg: ServerMessage = { t: 'chat', kind: 'whisper', from, to: this.playerName(target), text: body, ...items };
+            const msg: ServerMessage = { t: 'chat', kind: 'whisper', from, to: this.playerName(target), text: body, ...tag, ...items };
             target.send(msg);
             if (target !== client) client.send(msg);
           }
@@ -1526,9 +1562,25 @@ export class RoomManager implements AdminHooks {
           const party = this.partyOf(client.accountId);
           const body = rest.join(' ').trim();
           if (!party) this.system(client, 'You are not in a party');
-          else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body, ...items });
+          else if (body) for (const c of this.onlineMembers(party)) c.send({ t: 'chat', kind: 'party', from, to: null, text: body, ...tag, ...items });
           return;
         }
+        case 'g':
+        case 'guild': {
+          const body = rest.join(' ').trim();
+          if (body) this.guilds.chat(client, body, items);
+          else this.system(client, 'Usage: /g message');
+          return;
+        }
+        case 'ginvite':
+          this.guilds.handle(client, { t: 'guildInvite', name: rest.join(' ') });
+          return;
+        case 'gaccept':
+          this.guilds.handle(client, { t: 'guildAnswer', accept: true });
+          return;
+        case 'gdecline':
+          this.guilds.handle(client, { t: 'guildAnswer', accept: false });
+          return;
         case 'sandbox':
           if (!can(client.role, 'devTools')) {
             this.system(client, 'Unknown command /sandbox. Try /help');
@@ -1537,7 +1589,7 @@ export class RoomManager implements AdminHooks {
           this.toggleSandbox(client);
           return;
         case 'help':
-          this.system(client, `Enter chats to your world. /p message to your party, /w name message whispers, /invite name, /accept, /decline, /leave, /who.${can(client.role, 'devTools') ? ' /sandbox opens or leaves your private test room.' : ''}`);
+          this.system(client, `Enter chats to your world. /p message to your party, /g message to your guild, /w name message whispers, /invite name, /accept, /decline, /leave, /ginvite name, /gaccept, /gdecline, /who. G opens the guild window.${can(client.role, 'devTools') ? ' /sandbox opens or leaves your private test room.' : ''}`);
           return;
         default:
           this.system(client, `Unknown command /${cmd}. Try /help`);
@@ -1546,7 +1598,7 @@ export class RoomManager implements AdminHooks {
     }
     const inst = this.instanceOf(client);
     const to = inst ? this.membersOf(inst) : [client];
-    for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text, ...items });
+    for (const c of to) c.send({ t: 'chat', kind: 'game', from, to: null, text, ...tag, ...items });
   }
 
   /**
@@ -1719,14 +1771,16 @@ export class RoomManager implements AdminHooks {
 
   /**
    * Tells every room's simulation which party each player is in, since kill XP is shared only
-   * inside the killer's party. Every tick rather than on each change, so a room change, a join or
+   * inside the killer's party, and which guild tag their nameplate shows. Every tick rather than on each change, so a room change, a join or
    * a leave can never leave a stale party behind; it is one map lookup per player.
    */
   private syncParties(): void {
     const partyByAccount = new Map<number, string>();
     for (const party of this.parties.values()) for (const acc of party.members.keys()) partyByAccount.set(acc, party.id);
     for (const c of this.clients.values()) {
-      if (c.accountId !== null) c.room?.setParty(c, partyByAccount.get(c.accountId) ?? null);
+      if (c.accountId === null) continue;
+      c.room?.setParty(c, partyByAccount.get(c.accountId) ?? null);
+      c.room?.setGuildTag(c, this.guilds.tagOf(c.accountId));
     }
   }
 
@@ -1902,6 +1956,7 @@ export class RoomManager implements AdminHooks {
     client.send({ t: 'zoom', zoom: this.zoom() });
     const left = this.restartSecondsLeft();
     if (left !== null) client.send({ t: 'restart', seconds: left });
+    this.guilds.joined(client);
     this.joins++;
   }
 
@@ -1973,8 +2028,10 @@ export class RoomManager implements AdminHooks {
     this.keepResume(client);
     const room = client.room;
     if (room) this.persist(client, room.remove(client));
+    const accountId = client.accountId;
     client.characterId = null;
     client.accountId = null;
+    this.guilds.left(client, accountId);
     client.send({ t: 'sessionEnded', reason });
     client.socket.close(4001, 'session ended');
   }

@@ -71,6 +71,7 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
           st,
           auras,
           links,
+          ...(p.guildTag === null ? {} : { tag: p.guildTag }),
         });
         break;
       }

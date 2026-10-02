@@ -23,10 +23,27 @@ void store.bench.seed();
 const GUEST_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
 const sweepGuests = (): void => {
   const n = store.deleteIdleGuests(GUEST_IDLE_MS, rooms.onlineAccounts());
-  if (n > 0) events.log('server', `[guests] removed ${n} guest account${n === 1 ? '' : 's'} idle for 90 days`);
+  if (n > 0) {
+    events.log('server', `[guests] removed ${n} guest account${n === 1 ? '' : 's'} idle for 90 days`);
+    // Their guild rows went with them; a guild that lost its Leader is handed on now.
+    rooms.checkGuildLeadership();
+  }
 };
 sweepGuests();
 setInterval(sweepGuests, 6 * 60 * 60 * 1000).unref();
+/**
+ * A guild whose Leader's account is gone (the guest sweep above) or idle for 30 days passes to the
+ * longest-serving Officer, else Member: checked at boot, after each sweep and daily.
+ */
+const checkGuilds = (): void => {
+  try {
+    rooms.checkGuildLeadership();
+  } catch (err) {
+    events.error('error', '[guild] leadership check failed', err);
+  }
+};
+checkGuilds();
+setInterval(checkGuilds, 24 * 60 * 60 * 1000).unref();
 const api = new AccountApi(store, (characterId) => rooms.endCharacterSession(characterId), rooms, adminUsers);
 
 // Production serves the built client from here; in dev Vite does it.

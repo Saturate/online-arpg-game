@@ -19,6 +19,7 @@ import type { ModelOverrides } from '../data/tuning.js';
 import type { TunableValues } from '../tuning/values.js';
 import type { StashColorId } from '../config/stash.js';
 import type { StashLayout, StashSortKey, StashTabRef } from '../items/stash.js';
+import type { GuildRank, GuildStashView, ManagedRank, TabPerms } from '../guild/guild.js';
 
 /**
  * One slot of a sigil in an inscribe request, left to right.
@@ -129,7 +130,37 @@ export type ClientMessage =
   /** Encounter sandbox. Only honoured for roles with the devTools permission (builder and up). */
   | { t: 'dev'; cmd: DevCommand }
   /** The client built a world plan whose `planChecksum` differs from the welcome's; logged on the server. */
-  | { t: 'planMismatch'; roomId: string; server: string; client: string };
+  | { t: 'planMismatch'; roomId: string; server: string; client: string }
+  // Guilds (docs/features/guilds.md). Members are named by account id, as the roster lists them.
+  /** Found a guild with this character's gold. */
+  | { t: 'guildCreate'; name: string; tag: string }
+  /** Invite an online player (by character name) to your guild. */
+  | { t: 'guildInvite'; name: string }
+  | { t: 'guildAnswer'; accept: boolean }
+  | { t: 'guildLeave' }
+  | { t: 'guildKick'; member: number }
+  | { t: 'guildPromote'; member: number }
+  | { t: 'guildDemote'; member: number }
+  /** The Leader hands leadership to another member and becomes an Officer. */
+  | { t: 'guildTransfer'; member: number }
+  | { t: 'guildDisband' }
+  | { t: 'guildMotd'; text: string }
+  /** Send the roster again (the guild window asks while it is open). */
+  | { t: 'guildRefresh' }
+  /** A page of the guild log, newest first: entries older than `before`, or the newest when null. */
+  | { t: 'guildLog'; before: number | null }
+  /** Standing at the stash chest: open the guild stash, which the server then keeps current. */
+  | { t: 'guildStashOpen' }
+  | { t: 'guildStashClose' }
+  /** A bag item into a guild tab: onto the cell `at` (its top-left), or the first free one. */
+  | { t: 'guildDeposit'; uid: ItemUid; tab: number; at: { x: number; y: number } | null }
+  /** A guild stash item into the bag: onto the bag cell `at`, or wherever it fits. */
+  | { t: 'guildWithdraw'; uid: ItemUid; at: { x: number; y: number } | null }
+  /** A guild stash item onto a cell of a guild tab (the same tab or another). */
+  | { t: 'guildMove'; uid: ItemUid; tab: number; at: { x: number; y: number } }
+  | { t: 'guildBuyTab' }
+  | { t: 'guildEditTab'; tab: number; name: string; color: StashColorId }
+  | { t: 'guildTabPerms'; tab: number; rank: ManagedRank; perms: TabPerms };
 
 /** Status flags packed into one number per entity. */
 export const STATUS = {
@@ -177,6 +208,8 @@ export type EntitySnap =
       st: number;
       auras: AuraSnap[];
       links: EntityId[];
+      /** The guild tag shown before the name; absent outside a guild. */
+      tag?: string;
     })
   | (EntitySnapBase & {
       k: 'enemy';
@@ -413,16 +446,57 @@ export interface StagingMessage {
 export type InscribeReply = { t: 'inscribed'; uid: ItemUid; attempt: number; ok: true } | { t: 'inscribed'; uid: ItemUid; attempt: number; ok: false; error: string };
 
 /**
- * `game` reaches everyone in your world; `party` your party anywhere; `whisper` one player; `system`
+ * `game` reaches everyone in your world; `party` your party anywhere; `guild` your guild anywhere; `whisper` one player; `system`
  * is the server. `{n}` in the text shows `items[n - 1]`, a display-only copy of the sender's item.
  */
 export interface ChatMessage {
   t: 'chat';
-  kind: 'game' | 'party' | 'whisper' | 'system';
+  kind: 'game' | 'party' | 'whisper' | 'guild' | 'system';
   from: string;
+  /** The sender's guild tag, shown before their name; absent outside a guild and on system lines. */
+  tag?: string;
   to: string | null;
   text: string;
   items?: Item[];
+}
+
+/** One member of your guild as the roster shows them: the account's most recently played character. */
+export interface GuildMemberView {
+  /** The member's account id; what kick, promote and the rest name. */
+  id: number;
+  name: string;
+  rank: GuildRank;
+  /** Null when the account has no character left. */
+  cls: ClassId | null;
+  level: number;
+  online: boolean;
+  /** Where they are when online (the region, the town or the room); empty when offline. */
+  zone: string;
+  joinedAt: number;
+}
+
+export interface GuildInfo {
+  id: number;
+  name: string;
+  tag: string;
+  motd: string;
+  /** The receiver's own rank. */
+  rank: GuildRank;
+  members: GuildMemberView[];
+  maxMembers: number;
+  createdAt: number;
+}
+
+export const GUILD_LOG_KINDS = ['found', 'join', 'leave', 'kick', 'rank', 'leader', 'deposit', 'withdraw', 'move', 'tab', 'motd'] as const;
+export type GuildLogKind = (typeof GUILD_LOG_KINDS)[number];
+
+export interface GuildLogEntry {
+  id: number;
+  at: number;
+  kind: GuildLogKind;
+  /** The character who did it, or empty for the server (a leadership handover). */
+  actor: string;
+  text: string;
 }
 
 export type ServerMessage =
@@ -449,6 +523,12 @@ export type ServerMessage =
   | { t: 'world'; world: WorldInfo }
   | { t: 'party'; party: PartyInfo | null }
   | { t: 'partyInvite'; from: string }
+  /** Your guild, or null outside one; sent on join, on every change, and when the guild window asks. */
+  | { t: 'guild'; guild: GuildInfo | null; foundPrice: number }
+  | { t: 'guildInvite'; from: string; guild: string; tag: string }
+  | { t: 'guildLog'; entries: GuildLogEntry[]; more: boolean }
+  /** The open guild stash, in full, on opening and after every change; null closes it. */
+  | { t: 'guildStash'; stash: GuildStashView | null }
   | PartyStatusMessage
   | TeleportChannelMessage
   | { t: 'lighting'; lighting: Lighting }

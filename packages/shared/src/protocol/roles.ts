@@ -10,8 +10,9 @@
  * the same reason: the copy holds every account's password hash. `apiTokens` makes admin API tokens
  * and `serverLog` reads the server's recent events. `tuning` changes live balance numbers (spell
  * shapes, rune prices; docs/features/live-tuning.md), so like `settings` it is the owner's and admins'.
+ * `guilds` reassigns a guild's Leader (docs/features/guilds.md); every staff role may look at guilds.
  */
-export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles', 'grantItems', 'apiTokens', 'serverLog', 'backup', 'tuning'] as const;
+export const PERMISSIONS = ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'manageRoles', 'grantItems', 'apiTokens', 'serverLog', 'backup', 'tuning', 'guilds'] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** Lowest to highest; the index is the rank. */
@@ -25,7 +26,7 @@ const GRANTS: Record<Role, readonly Permission[]> = {
   player: [],
   builder: ['viewAdmin', 'townEdit', 'devTools'],
   moderator: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport'],
-  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'apiTokens', 'serverLog', 'tuning'],
+  admin: ['viewAdmin', 'announce', 'kick', 'ban', 'teleport', 'settings', 'townEdit', 'devTools', 'apiTokens', 'serverLog', 'tuning', 'guilds'],
   owner: PERMISSIONS,
 };
 

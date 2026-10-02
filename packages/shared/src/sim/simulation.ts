@@ -229,6 +229,7 @@ export class Simulation {
       clientId,
       name,
       party: null,
+      guildTag: null,
       classId,
       aimAngle: 0,
       castCooldown: 0,

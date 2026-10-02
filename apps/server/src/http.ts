@@ -19,6 +19,8 @@ import {
   rank,
   seasonOf,
   type AdminAccount,
+  type AdminGuildDetail,
+  type AdminGuildSummary,
   type AdminOverview,
   type AdminLive,
   type AdminSearch,
@@ -161,6 +163,12 @@ export interface AdminHooks extends TuningHooks, TunablesHooks {
   rebuildWorlds(accountId: number, game: string | null): WorldRebuildResult | string;
   /** A new seed (random, or `seed`) for a world copy, rebuilt at once; 'wait' inside the cooldown, or why not. */
   rerollWorld(accountId: number, game: string, seed: number | null): WorldRebuildResult | string;
+  /** Every guild, for the admin Guilds tab. */
+  guildList(): AdminGuildSummary[];
+  /** One guild with its roster and a page of its log (entries older than `before`). */
+  guildDetail(id: number, before: number | null): AdminGuildDetail | null;
+  /** Makes a member the Leader; returns why not, or null. */
+  setGuildLeader(id: number, accountId: number, by: string): string | null;
 }
 
 /** World copy ids as the Live view lists them (`i12`). */
@@ -701,6 +709,27 @@ export class AccountApi {
       }
       log(`grant "${result.item.name}" (${grant.template}, ${result.item.tier}, item level ${result.item.ilvl}, uid ${result.item.uid}) to ${target.username} / ${result.characterName} (character ${grant.characterId}), pending until next login`);
       return [200, { item: result.item, character: result.characterName }];
+    }
+    if (method === 'GET' && path === '/api/admin/guilds') return [200, this.admin.guildList()];
+    const guildRoute = /^\/api\/admin\/guilds\/(\d{1,9})$/.exec(path);
+    if (guildRoute && method === 'GET') {
+      const before = query.get('before');
+      if (before !== null && !/^\d{1,15}$/.test(before)) throw new HttpError(400, 'before must be a log entry id');
+      const detail = this.admin.guildDetail(Number(guildRoute[1]), before === null ? null : Number(before));
+      if (!detail) throw new HttpError(404, 'No such guild');
+      return [200, detail];
+    }
+    const leaderRoute = /^\/api\/admin\/guilds\/(\d{1,9})\/leader$/.exec(path);
+    if (leaderRoute && method === 'POST') {
+      need('guilds');
+      const body = await readJson(req);
+      const target = isRecord(body) ? body.accountId : undefined;
+      if (typeof target !== 'number' || !Number.isSafeInteger(target) || target < 0) throw new HttpError(400, 'accountId is required: a member of the guild');
+      const id = Number(leaderRoute[1]);
+      const error = this.admin.setGuildLeader(id, target, who);
+      if (error) throw new HttpError(error === 'No such guild' ? 404 : 409, error);
+      log(`guild ${id}: leader set to account ${target}`);
+      return [200, { ok: true }];
     }
     const roleRoute = /^\/api\/admin\/accounts\/(\d{1,9})\/role$/.exec(path);
     if (roleRoute && method === 'POST') {

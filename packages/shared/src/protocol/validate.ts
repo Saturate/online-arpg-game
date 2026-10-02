@@ -18,6 +18,8 @@ import { INSTANCE_CAPACITY } from '../data/zones.js';
 import { isWaypointId } from '../world/worldPlan.js';
 import { isClassId } from '../data/classes.js';
 import { isTunableValues } from '../tuning/values.js';
+import { GUILD_LIMITS } from '../config/guild.js';
+import { GUILD_RANKS, isManagedRank } from '../guild/guild.js';
 import { BUTTON_MASK, type ChatMessage, type ClientMessage, type GridDest, type InscribeReply, type ItemDest, type PartyMemberStatus, type PartyPlace, type PartyStatusMessage, type RuneRef, type ServerMessage, type TeleportChannelMessage } from './messages.js';
 const SLOT_COUNT = 4;
 
@@ -137,6 +139,29 @@ export function cleanChat(value: unknown): string | null {
   // Whitespace first: newlines are control characters too, and should become spaces, not vanish.
   const text = value.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, CHAT_MAX_LENGTH);
   return text.length > 0 ? text : null;
+}
+
+function isGuildTabId(v: unknown): v is number {
+  return isNonNegativeInt(v) && v >= 1 && v <= GUILD_LIMITS.tabIdMax;
+}
+
+/** A member id is an account id, so any whole number; the server checks it is in the guild. */
+function isMemberId(v: unknown): v is number {
+  return isNonNegativeInt(v);
+}
+
+function parseCell(v: unknown, size: { w: number; h: number }): { x: number; y: number } | null {
+  return isRecord(v) && isNonNegativeInt(v.x) && isNonNegativeInt(v.y) && v.x < size.w && v.y < size.h ? { x: v.x, y: v.y } : null;
+}
+
+function parseOptionalCell(v: unknown, size: { w: number; h: number }): { x: number; y: number } | null | undefined {
+  if (v === null) return null;
+  return parseCell(v, size) ?? undefined;
+}
+
+/** Strings a player types for a guild: refused past a generous cap here, checked properly by the server. */
+function isShortString(v: unknown, max: number): v is string {
+  return typeof v === 'string' && v.length <= max;
 }
 
 /** Structural check only. Gameplay limits (speed, cooldowns, heat, ownership) are enforced by the simulation. */
@@ -261,6 +286,53 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       const layout = validateLayout(value.layout);
       return layout ? { t: 'saveTown', layout } : null;
     }
+    case 'guildCreate':
+      return isShortString(value.name, GUILD_LIMITS.nameMax) && isShortString(value.tag, GUILD_LIMITS.tagMax) ? { t: 'guildCreate', name: value.name, tag: value.tag } : null;
+    case 'guildInvite':
+      return typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 24 ? { t: 'guildInvite', name: value.name } : null;
+    case 'guildAnswer':
+      return typeof value.accept === 'boolean' ? { t: 'guildAnswer', accept: value.accept } : null;
+    case 'guildLeave':
+      return { t: 'guildLeave' };
+    case 'guildKick':
+    case 'guildPromote':
+    case 'guildDemote':
+    case 'guildTransfer':
+      return isMemberId(value.member) ? { t: value.t, member: value.member } : null;
+    case 'guildDisband':
+      return { t: 'guildDisband' };
+    case 'guildMotd':
+      // Longer than the cap is cut by the server, not refused: a pasted line should still land.
+      return isShortString(value.text, 1000) ? { t: 'guildMotd', text: value.text } : null;
+    case 'guildRefresh':
+      return { t: 'guildRefresh' };
+    case 'guildLog':
+      return value.before === null || isNonNegativeInt(value.before) ? { t: 'guildLog', before: value.before } : null;
+    case 'guildStashOpen':
+      return { t: 'guildStashOpen' };
+    case 'guildStashClose':
+      return { t: 'guildStashClose' };
+    case 'guildDeposit': {
+      const at = parseOptionalCell(value.at, STASH);
+      return isNonNegativeInt(value.uid) && isGuildTabId(value.tab) && at !== undefined ? { t: 'guildDeposit', uid: value.uid, tab: value.tab, at } : null;
+    }
+    case 'guildWithdraw': {
+      const at = parseOptionalCell(value.at, BAG);
+      return isNonNegativeInt(value.uid) && at !== undefined ? { t: 'guildWithdraw', uid: value.uid, at } : null;
+    }
+    case 'guildMove': {
+      const at = parseCell(value.at, STASH);
+      return isNonNegativeInt(value.uid) && isGuildTabId(value.tab) && at ? { t: 'guildMove', uid: value.uid, tab: value.tab, at } : null;
+    }
+    case 'guildBuyTab':
+      return { t: 'guildBuyTab' };
+    case 'guildEditTab':
+      return isGuildTabId(value.tab) && isStashTabName(value.name) && isStashColorId(value.color) ? { t: 'guildEditTab', tab: value.tab, name: value.name, color: value.color } : null;
+    case 'guildTabPerms': {
+      const p = value.perms;
+      if (!isGuildTabId(value.tab) || !isManagedRank(value.rank) || !isRecord(p) || typeof p.view !== 'boolean' || typeof p.deposit !== 'boolean' || typeof p.withdraw !== 'boolean') return null;
+      return { t: 'guildTabPerms', tab: value.tab, rank: value.rank, perms: { view: p.view, deposit: p.deposit, withdraw: p.withdraw } };
+    }
     default:
       return null;
   }
@@ -271,7 +343,7 @@ function isPlanHash(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}$/.test(v);
 }
 
-const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables', 'lootPile', 'restart']);
+const SERVER_TAGS = new Set(['welcome', 'snapshot', 'inventory', 'notice', 'inscribed', 'pong', 'world', 'party', 'partyInvite', 'trader', 'lighting', 'models', 'sessionEnded', 'staging', 'banner', 'waypoints', 'chat', 'arena', 'arenaResult', 'partyStatus', 'teleportChannel', 'zoom', 'castCooldown', 'tunables', 'lootPile', 'restart', 'guild', 'guildInvite', 'guildLog', 'guildStash']);
 
 /**
  * The server is trusted, so this only discriminates on the tag. The payload shape is guaranteed by
@@ -286,10 +358,24 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   if (value.t === 'castCooldown') return isCastCooldown(value.seconds);
   if (value.t === 'tunables') return isTunableValues(value.values);
   if (value.t === 'restart') return isFiniteNumber(value.seconds) && value.seconds >= 0;
+  if (value.t === 'guild') return isFiniteNumber(value.foundPrice) && (value.guild === null || isGuildInfo(value.guild));
+  if (value.t === 'guildInvite') return typeof value.from === 'string' && typeof value.guild === 'string' && typeof value.tag === 'string';
+  if (value.t === 'guildLog') return Array.isArray(value.entries) && typeof value.more === 'boolean';
+  if (value.t === 'guildStash') return value.stash === null || (isRecord(value.stash) && Array.isArray(value.stash.tabs) && Array.isArray(value.stash.items));
   return value.t !== 'inscribed' || isInscribeReply(value);
 }
 
-const CHAT_KINDS: readonly ChatMessage['kind'][] = ['game', 'party', 'whisper', 'system'];
+/**
+ * The guild window acts on this (its buttons send member ids back), so the roster is checked
+ * field by field. A guild holds at most GUILD_LIMITS.maxMembers.
+ */
+function isGuildInfo(v: unknown): boolean {
+  if (!isRecord(v) || !isNonNegativeInt(v.id) || typeof v.name !== 'string' || typeof v.tag !== 'string' || typeof v.motd !== 'string') return false;
+  if (!GUILD_RANKS.some((r) => r === v.rank) || !Array.isArray(v.members) || v.members.length > GUILD_LIMITS.maxMembers) return false;
+  return v.members.every((m: unknown) => isRecord(m) && isNonNegativeInt(m.id) && typeof m.name === 'string' && GUILD_RANKS.some((r) => r === m.rank) && (m.cls === null || isClassId(m.cls)) && isNonNegativeInt(m.level) && typeof m.online === 'boolean' && typeof m.zone === 'string');
+}
+
+const CHAT_KINDS: readonly ChatMessage['kind'][] = ['game', 'party', 'whisper', 'guild', 'system'];
 
 /**
  * Chat carries another player's text and item copies straight into the tooltip, so it is checked
@@ -300,6 +386,7 @@ export function isChatMessage(value: unknown): value is ChatMessage {
   if (!isRecord(value) || value.t !== 'chat' || !CHAT_KINDS.some((k) => k === value.kind)) return false;
   if (typeof value.from !== 'string' || value.from.length > 32 || !(value.to === null || (typeof value.to === 'string' && value.to.length <= 32))) return false;
   if (typeof value.text !== 'string' || value.text.length > 2000) return false;
+  if (value.tag !== undefined && !(typeof value.tag === 'string' && value.tag.length <= GUILD_LIMITS.tagMax)) return false;
   return value.items === undefined || (Array.isArray(value.items) && value.items.length <= CHAT_LINKS.max && value.items.every(isLinkedItem));
 }
 

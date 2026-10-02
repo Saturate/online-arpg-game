@@ -65,6 +65,8 @@ export interface PlayerComp {
   name: string;
   /** The server's party id, synced every tick; null alone. Kill XP is shared only inside a party. */
   party: string | null;
+  /** The account's guild tag, synced by the server with the party; null outside a guild. Shown on nameplates. */
+  guildTag: string | null;
   classId: ClassId;
   aimAngle: number;
   castCooldown: number;

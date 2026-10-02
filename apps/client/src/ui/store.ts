@@ -44,8 +44,10 @@ export interface DebugStats {
 
 export interface ChatLine {
   id: number;
-  kind: 'game' | 'party' | 'whisper' | 'system';
+  kind: 'game' | 'party' | 'whisper' | 'guild' | 'system';
   from: string;
+  /** The sender's guild tag, shown before their name. */
+  tag?: string;
   to: string | null;
   text: string;
   /** Display-only copies of linked items; `{n}` in the text shows `items[n - 1]`. */

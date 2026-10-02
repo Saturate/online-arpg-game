@@ -1,4 +1,5 @@
 import { AILMENTS, AURA, HEAT, LINK, SPELL, WORLD_GEN } from '../config/sim.js';
+import { GUILD, GUILD_LIMITS } from '../config/guild.js';
 import { AFFIX_IDS, AFFIXES, affixText, RUNE_AFFIX_TIERS, type AffixId } from '../data/affixes.js';
 import { SIGIL_MAX_SLOTS } from '../items/items.js';
 import { betterOf } from '../items/runeRolls.js';
@@ -15,7 +16,7 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['runes', 'sigils', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments', 'worldgen'] as const;
+export const TUNING_CATEGORIES = ['runes', 'sigils', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments', 'worldgen', 'guilds'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
@@ -29,6 +30,7 @@ export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
   runes: 'Rune balance',
   sigils: 'Sigil balance',
   worldgen: 'World generation',
+  guilds: 'Guilds',
 };
 
 export interface TunableSpec {
@@ -298,6 +300,15 @@ for (const key of WORLD_GEN_KEYS) {
   const spec = WORLD_GEN_SPECS[key];
   add(worldGenPath(key), 'worldgen', spec.label, WORLD_GEN, key, { range: { min: spec.min, max: spec.max, int: spec.int, ...(spec.note === undefined ? {} : { note: spec.note }) }, group: spec.group });
 }
+
+/**
+ * Guilds (config/guild.ts): gold sinks, base numbers like everything else. A lowered tab cap keeps
+ * the tabs a guild owns already; it only stops buying more.
+ */
+add('guild.foundPrice', 'guilds', 'Gold to found a guild', GUILD, 'foundPrice', { range: { min: 0, max: 100_000, int: true } });
+add('guild.maxTabs', 'guilds', 'Guild stash tabs at most', GUILD, 'maxTabs', { range: { min: 1, max: GUILD_LIMITS.tabIdMax, int: true, note: 'The free first tab included. Lowering it keeps tabs already owned.' } });
+add('guild.firstTabPrice', 'guilds', 'Gold for the first guild tab bought', GUILD, 'firstTabPrice', { range: { min: 0, max: 100_000, int: true } });
+add('guild.tabPriceStep', 'guilds', 'Gold more for each further guild tab', GUILD, 'tabPriceStep', { range: { min: 0, max: 100_000, int: true } });
 
 /** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
 export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));
