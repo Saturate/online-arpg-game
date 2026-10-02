@@ -1,6 +1,6 @@
 # Live tuning
 
-Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). The World generation category built 2026-10-02 on `feat/worldgen-settings` (not pushed). Phases 3 and 4 planned (owner, 2026-10-01).
+Status: phase 1 (shapes and runes) and phase 2 (starters) built and deployed 2026-10-01. Shape base damage became a min and max per shape with damage packets on 2026-10-02 (`feat/damage-packets`, not deployed; below, "Base damage ranges"). Phase 2 was replaced the same day by "no starters as a special kind" with tunable affix ranges (built on `feat/no-starters`, not deployed). The balance bench built on `feat/balance-bench` (not deployed). The World generation category built 2026-10-02 on `feat/worldgen-settings` (not pushed). Phases 3 and 4 planned (owner, 2026-10-01).
 
 "I want base damage settings for all runes, skills etc. All entities need to be able to be configured via API, deployless."
 
@@ -41,7 +41,7 @@ Every gameplay number that matters for balance can be changed through the admin 
 
 The **Balance bench** tab on the admin page, next to Tuning.
 
-- **Rows:** every class's kit sigils (made the way a new character gets them, clamped into the live tables), the 76 hand-picked spells of the balance test (`BALANCE_SPELLS`, one list for the test and the bench), the 20 sigils most equipped in the saves, and admin picks.
+- **Rows:** every class's kit sigils (made the way a new character gets them, clamped into the live tables), the 85 hand-picked spells of the balance test (76 before the added damage affixes) (`BALANCE_SPELLS`, one list for the test and the bench), the 20 sigils most equipped in the saves, and admin picks.
 - **Columns:** Force per cast (spirit for an aura or Bond), damage per Force to one target and to a pack of six as a multiple of the best kit under the same numbers (with the raw damage per Force beneath), a mark above 2x (soft, gold) and above 5x (hard, red: where the balance test fails), and while previewing the row's own largest change. Every column sorts; rows filter by source, class, rune text, "past 2x only" and "changed only".
 - **Preview:** edits typed in the Tuning tab and not saved stay when the tab is switched (they live in a small store, `admin/tuningDraft.ts`, instead of the tab's state). The bench measures every row under the saved set and under the saved set plus the edits, and shows saved → with the edits and the change in percent. Nothing is sent to the server until Save in the Tuning tab. An edit that leaves an affix table out of order or overlapping (which a Save would refuse) is not previewed: that table keeps its saved numbers and a notice says why.
 - **Stale drafts:** an edit equal to the saved value is no edit and is dropped. Each edit remembers the saved value it was made against; whenever the Tuning tab or the bench reads the saved values again, an edit whose saved value has changed since (another admin saved it) is dropped with a notice naming it, so a stale draft cannot put back a number someone else has saved.
@@ -81,6 +81,14 @@ Writes have their own limit (20 a minute per account, apart from tuning changes)
 - An edit out of range in the Tuning tab is left out of the preview (the bench says how many).
 - The multiples are against the best kit under the same numbers, so an edit that weakens the best kit moves every row's multiple; the "own change" column shows only the row's own numbers.
 
+## Base damage ranges (2026-10-02, `feat/damage-packets`, not deployed)
+
+Each shape's single base damage (`spell.bolt.damage` and the others) became a physical range rolled on every hit ([runes.md](runes.md), "Damage packets"): `spell.<shape>.damageMin` and `damageMax` under Base shapes, labelled "Bolt: lowest base damage" and "Bolt: highest base damage", for Bolt and Orb (12 to 20), Nova and Zone (10 to 18) and Dash (9 to 15). Base numbers, as the owner wants: each range is centred on the old number. A set with a shape's lowest above its highest is refused like a broken affix table (`tunableSetProblem`, a 400 naming the shape); the engine orders the ends anyway, so a half-applied set never rolls backwards. The three added damage affixes bring six tiers each of lowest, highest, weight and item level to Rune balance (`affix.rune_added_fire.t1.max`). 77 numbers more in all.
+
+- **Old paths:** a stored `spell.<shape>.damage` override is a path the game no longer knows and is dropped on load without a report. The copy of live from 2026-10-02 stored no tuning at all.
+- **Tests:** `packages/shared/test/damagePackets.test.ts` (the set check, a tuned range in the sentence), `packages/shared/test/liveTuning.test.ts` (doubling both ends doubles every hit for the same seed), `apps/server/test/liveTuning.test.ts` (a kit sigil follows a range change on its next cast).
+- **The bench's best kit** moved with the per-hit rolls to 2.18 single and 7.94 pack (from 2.13 and 7.71), so every multiple on the bench shifts a little at defaults.
+
 ## World generation (built 2026-10-02 on `feat/worldgen-settings`, not pushed)
 
 A tenth category, **World generation** (`worldgen.*`, last in the Tuning tab): 23 numbers for density (packs, rares against chests, camps, dungeons, ruins, forests, rocks, bones, ridges), size and roads (world size, home region, branch lengths, forks, side valleys, winding) and levels (least, most, the climb). The numbers, ranges and why are in [world-map.md](world-map.md), "Generation settings".
@@ -103,7 +111,7 @@ Each phase ships on its own. Loot and prices touch the economy, so phase 4 gets 
 
 **What is tunable (111 numbers).** Categories on the admin page:
 
-- **Base shapes:** every number of Bolt, Orb, Nova, Zone and Dash in `SPELL` (damage, speed, range, radius, duration, heal, shield, dash distance, ticks and hit radius).
+- **Base shapes:** every number of Bolt, Orb, Nova, Zone and Dash in `SPELL` (damage, as a lowest and highest roll since 2026-10-02, speed, range, radius, duration, heal, shield, dash distance, ticks and hit radius).
 - **Spell engine:** the rest of `SPELL`: split damage conserved, fan angle and ring offset, the Timer and Pulse default seconds (moved into `SPELL` as `timerSeconds` and `pulseSeconds`, so the parser reads them there), interval spray rotation, the live spell cap and its weights, the affix price steps, Impact knockback, Ward shield seconds, Frostfire bonus, Burning Ward damage, the doubled infusion bonus (moved from `compile.ts` into `SPELL.stackedInfusionBonus`).
 - **Aura** (`AURA`) and **Bond** (`LINK`): radius, regen, ward reduction, element damage, push, regen cap; Bond's ranges, cone, regen, ward and element bonus.
 - **Ailments** (`AILMENTS`): burn, chill, shock and poison numbers.

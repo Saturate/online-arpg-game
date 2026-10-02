@@ -4,7 +4,7 @@
  *   pnpm admin GET overview
  *   pnpm admin GET 'log?since=120'
  *   pnpm admin PUT settings '{"xpRate":2}'
- *   pnpm admin PATCH tuning '{"spell.bolt.damage":20,"force.rune.nova":null}'
+ *   pnpm admin PATCH tuning '{"spell.bolt.damageMax":24,"force.rune.nova":null}'
  *   pnpm admin backup ./rune-copy.db
  *
  * A path without a leading slash is under /api/admin/; any path must end up there. The token is read from

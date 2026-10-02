@@ -31,6 +31,11 @@ Status: Live. The affix engine and sigils since the first build (M3, 2026-09-28)
 - **Corruption:** magic or better sigil drops have an 8% chance. A corrupted sigil gets +1 rune slot and 1.5x misfire chance.
 - **Gear drops pick a slot first, then a base,** so drops spread evenly over slots rather than over bases.
 
+### Added damage affixes (2026-10-02, `feat/damage-packets`, not deployed)
+
+- Three rune affixes, "Adds X to 2X fire / cold / lightning damage" (`rune_added_fire`, `rune_added_cold`, `rune_added_lightning`), roll on orb, bolt, nova, zone and dash runes with the six rune tiers (low end 1 to 2 at T6 up to 7 to 9 at T1), the rune tier weights and item-level gates, and price like every rune affix by tier. They share the damage roll's group, so a rune has a damage roll or one added element, never both ([runes.md](runes.md), "Damage packets").
+- **Saves do not change:** a roll still stores one value (the low end; the high end is twice it), so old items load as they are and the rune roll pass, `runes:convert-check` and the seamless-restart snapshot format are unchanged. `runes:convert-check` on a fresh copy of `rune.db.live-pre-restart-20261002` prints the same report before and after the change, all checks passed. A save holding one of the new affixes fails an older build's affix check, so roll back past it with the database copy.
+
 ### Grid inventory
 
 - **Grids are flat cell arrays** (one uid per covered cell), so saves barely changed when the grid came in. A save of another size is repacked on load.
@@ -132,6 +137,7 @@ Tests:
 - `packages/shared/test/sortInventory.test.ts`, `trader.test.ts`: sort order; selling to the shared shelf, starter items refused, stall reach, buying a fresh copy at 3x.
 - `packages/shared/test/convertV2.test.ts`, `apps/server/test/convertV2.test.ts`: every conversion case, idempotency, unreadable data refused, refunds paid once.
 - `packages/shared/test/convertRuneRolls.test.ts`, `apps/server/test/runeRolls.test.ts`: the rune roll pass: no drop rolls the retired affix, a "Primed" name is rebuilt, rebuilt sigils keep uids and binding and get honest tiers, an unbound extra rune (the player's own split(3) too) comes back and a bound one goes, edited sigils left alone, the uid multiset is kept except the bound removed runes, a second pass changes nothing, and characters (returned runes in the bag), pending items, stashes (rune tab) and the shelf (a new entry) convert on load and are written back converted; an old kit sigil keeps its values, uids, binding and order and only its tiers move, a range tuned before the load does not move them, and a save written back with `runeTiers: 6` loads byte-identical, even with tiers that disagree with their values.
+- `apps/server/test/addedDamageRunes.test.ts`: a save with old runes and runes with added damage loads, casts and saves back with every roll unchanged; `packages/shared/test/damagePackets.test.ts`: the affixes drop on shape runes, never beside a damage roll, and read back as the grammar sets them.
 - `packages/shared/test/affixTuning.test.ts`: the six rune tiers and the re-tier by value, with the 3x gold check over every old roll.
 - `apps/client/test/itemActions.test.ts`, `itemView.test.ts`: right-click equip, drop fit, foreign drag data rejected, tooltips, bag clicks routed only to the open station.
 - `apps/client/test/stations.test.ts`: one station window at a time, the editor and the character sheet with them, which station takes the bag's clicks.
