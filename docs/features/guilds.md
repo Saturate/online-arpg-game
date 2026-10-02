@@ -1,45 +1,75 @@
 # Guilds
 
-Status: Planned. Owner decisions from 2026-09-30; nothing is built yet.
+Status: Built on `feat/guilds` (2026-10-02), not deployed. Owner decisions from 2026-09-30 and 2026-10-02.
 
 ## What it does
 
 A guild is a group of accounts with ranks, a shared stash, a tag on nameplates and its own chat channel. Every character on a member account is in the guild.
 
 - **Ranks:** Leader, Officer, Member.
-- **Guild window (G):** roster (rank, class, level, online and zone), invite, promote and demote, kick, leave, a message of the day, and the guild log.
-- **Tag:** 2 to 5 characters shown before the name on nameplates and in chat.
-- **Guild chat:** `/g`.
-- **Guild stash:** tabs like the personal stash, opened from the same stash chest in town.
+- **Founding:** anywhere, with the founding character's gold (1000, a live tuning number). Name 3 to 24 characters (letters, digits, spaces, `'` and `-`, a letter first), tag 2 to 5 letters or digits; both unique without regard to case.
+- **Guild window (G):** roster (rank, name, class, level, online and zone), invite, promote and demote, kick, hand leadership on, leave, disband, a message of the day, and the guild log. Outside a guild it holds the founding form.
+- **Invites** go to online players, from the guild window, by right-clicking a player, or `/ginvite name`; the invitee answers in a prompt like the party invite, or with `/gaccept` and `/gdecline`.
+- **Tag:** `[TAG]` before the name on nameplates and in chat (game, party, whisper and guild lines).
+- **Guild chat:** `/g message` (or `/guild message`) reaches every online member, in any room or world copy. Members see the message of the day as a guild line when they enter the world or join.
+- **Guild stash:** opened from the same stash chest in town as the account stash. Tabs are 12x10 grids like the account stash's general tabs, each with a name, a colour and its own access per rank. The first tab is free; Leaders and Officers buy more with their own gold (500 for the second, 500 more each after, up to 10 tabs; all live tuning numbers).
+- **At most 50 members.**
 
 ## Why
 
 - **Membership is per account,** not per character, so switching characters never drops you out of your guild. This matches the account stash, which all of an account's characters already share.
-- **Founding costs gold** (about 1000, a config value) and the guild gets one free stash tab. More tabs are bought by a Leader or Officer with their own gold, like personal tabs, up to a cap of about 10. Both are gold sinks.
-- **At most 50 members.**
-- **Invites go only to online players,** from the guild window or by right-clicking a player, and are accepted or declined like party invites (see [chat-and-parties.md](chat-and-parties.md)).
-- **Rank powers:**
-  - Leader: everything, including disbanding the guild and handing leadership to someone else. Only the Leader promotes a Member to Officer.
-  - Officer: invites, kicks Members, and manages stash tabs (buy, rename, recolour, set permissions).
-  - Member: uses the stash as each tab's permissions allow.
-- **Tab permissions are per tab and per rank:** view, deposit, withdraw.
-- **The guild log** records joins, leaves, rank changes, and every stash deposit and withdrawal, so a missing item can be traced.
+- **Founding and tabs cost gold**, as gold sinks. Guild tabs cost twice a personal tab since a whole guild shares them (owner's brief: "like personal tabs", priced as a config value).
+- **Rank powers** (owner):
+  - Leader: everything, including disbanding the guild and handing leadership to someone else. Only the Leader promotes a Member to Officer, demotes an Officer and removes an Officer.
+  - Officer: invites, kicks Members, manages stash tabs (buy, rename, recolour, set permissions) and sets the message of the day.
+  - Member: uses the stash as each tab's permissions allow; can leave.
+  - Nobody removes the Leader; the Leader cannot leave without handing leadership on (or disbanding, as the last member).
+- **Tab permissions are per tab and per rank:** view, deposit, withdraw, for Officers and Members (the Leader always has all three). Deposit or withdraw implies view. A new tab gives Officers everything and Members view and deposit, so a Member can give but not take until an Officer allows it.
+- **The guild log** records founding, joins, leaves, kicks, rank changes, leadership handovers, the message of the day, tab purchases, renames and permission changes, every deposit and withdrawal, and moves between tabs, each with who, when, and for items the name, count, tier, item level and uid, so a missing item can be traced. Moves inside one tab are tidying and are not logged.
+- **Disbanding (owner, 2026-10-02):** a guild can only disband with an empty stash, so nothing is lost; the Leader hands items out first.
+- **A Leader who leaves (owner, 2026-10-02):** on account deletion, or after 30 days without a login, leadership passes to the longest-serving Officer, else the longest-serving Member. The old Leader, if still a member, becomes an Officer. An online Leader is never idle. A guild with nobody else to lead it stays as it is (an admin can name a Leader).
+- **Bound items cannot be deposited,** nor a sigil holding bound runes, for the same reason they cannot go into the account stash: a new character must not farm starter gear for another account.
+- **Tags and names refuse staff words** (admin, mod, gm, staff, owner, dev, sys, server, official, support and a few forms of them), compared without case, a tag whole and a name word by word, so a guild cannot pass itself off as the game's staff. The game has no profanity filter for character names, so guilds have none either.
 
 ## How
 
-Planned shape, to be confirmed when it is built:
+- **The guild stash is one shared server-side object per guild,** held by the guild service (`apps/server/src/guilds.ts`, `GuildService`, owned by the room manager), not by a room. Members in different rooms and world copies act on the same object. The server runs on one thread and every stash move is handled start to finish inside one message, so two members taking the same item at the same moment are served one after the other: the first gets it, the second is told "Someone else took it" and gets the stash as it now is.
+- **Every stash move is one SQLite transaction with the character involved:** the character row, its account stash row and the guild row (with its log row) are written together (`AccountStore.saveCharacterWith`). The player's side changes in memory first; if the write throws, the player is put back exactly as before (`rollBackTrade`, the same rollback a failed trade uses) and the guild stash in memory was never touched. Only a committed write replaces the guild's stash in memory (`cloneGuildStash`, change the copy, write, swap). Memory and the database therefore always agree, so a later autosave cannot store one side of a move alone.
+- **Uids:** an item going into the guild stash gets uids from the guild's own counter (`intoGuild`, sigil runes too); one coming out gets fresh uids from the room it lands in, as every stored item does. A uid never names two things.
+- **What can move:** deposit takes bag items only (not the account stash, not equipment); withdraw goes to the bag, onto the cell given or wherever it fits (a plain rune tops up bag stacks first), all or nothing. Moves inside the guild stash need withdraw on the tab left and deposit on the tab entered. Every move needs the player at the stash chest (150 units, as the account stash).
+- **Rate limit:** 8 stash moves per second per client, since each one writes the character and the whole guild stash.
+- **Item format markers:** the stored stash carries `runeFormat: 2` and `runeTiers: 6` like every other stored item list. A row without `runeTiers: 6` goes through the rune roll pass once on load and is written back marked; runes the pass hands back join the stash (first tab with room, else they wait unplaced until room frees up, retried after every withdrawal). `pnpm runes:convert-check <db>` checks guild rows with the same roll checks as stashes and the shelf.
+- **An unreadable stash row is never written over:** the guild loads without its stash, every stash action and disbanding is refused with "could not be loaded", and the admin page flags it.
+- **Leadership check:** at boot, after each guest sweep (which removes accounts and, through `ON DELETE CASCADE`, their guild rows), and once a day (`checkGuildLeadership` in the manager, scheduled in `apps/server/src/index.ts`). It reads every guild's members from SQLite again first, so a member removed with their account is gone from memory too. Last login is the account's newest character save (`played_at`; every save stamps it), or when the account was made.
+- **Seamless restart:** nothing guild-related is in the session snapshot. Guilds, members, stashes and the log are in SQLite and every change is written when it happens; open guild invites and who had the guild stash open are lost on a restart, as party invites are.
+- **Tags:** the manager syncs each player's tag into their room's simulation every tick with the party (`syncParties`, `Room.setGuildTag`, `PlayerComp.guildTag`); the player snapshot carries it as `tag`. Chat lines carry the sender's `tag`.
 
-- **The guild stash is one shared server-side object,** held by the manager (`apps/server/src/manager.ts` level), not by a room, because members in different rooms and world instances touch it at the same time.
-- **Every stash move is one transaction** with the character involved, the same rule the account stash and the trader already follow ([stash.md](stash.md), [items.md](items.md)).
-- **Bound items cannot be deposited,** for the same reason they cannot go into the account stash: a new character must not farm starter gear for another account.
-- **Tabs reuse the stash tab model** from the stash tabs feature, which is being built now.
-- **Build order:** after stash tabs are merged. A server and data agent plus a UI agent, then a review and a browser QA pass with two accounts.
-- **Parallel with loot piles:** the two features own separate files. Guilds own guild data, the guild stash and the guild window; loot piles own ground loot, pickup, the loot window and ground rendering ([loot.md](loot.md)).
+Storage (`apps/server/src/guildStore.ts`, `GuildStore`):
+
+- `guilds` (id, name and tag `UNIQUE COLLATE NOCASE`, motd, created_at, stash_json).
+- `guild_members` (account_id primary key, so an account is in one guild at most; guild_id, rank, joined_at). Both foreign keys cascade.
+- `guild_log` (id, guild_id, at, kind, actor, account_id, text); the newest 2000 rows per guild are kept.
+
+Code:
+
+- Shared: `packages/shared/src/guild/guild.ts` (ranks and powers: `guildCan`, `canKick`, `tabAccess`, `normalisePerms`; names: `guildTagProblem`, `guildNameProblem`, `cleanMotd`; the stash model: `GuildStash`, `GuildTab`, `GuildStashSave`, `intoGuild`, `guildPlace`, `guildTake`, `cloneGuildStash`, `placeUnplaced`, `serializeGuildStash`, `parseGuildStash`, `guildStashView`). `packages/shared/src/config/guild.ts` (`GUILD`, tunable; `GUILD_LIMITS`; `guildTabPrice`).
+- Protocol (`protocol/messages.ts`, checked in `protocol/validate.ts`): `guildCreate`, `guildInvite`, `guildAnswer`, `guildLeave`, `guildKick`, `guildPromote`, `guildDemote`, `guildTransfer`, `guildDisband`, `guildMotd`, `guildRefresh`, `guildLog { before }`, `guildStashOpen`, `guildStashClose`, `guildDeposit { uid, tab, at }`, `guildWithdraw { uid, at }`, `guildMove { uid, tab, at }`, `guildBuyTab`, `guildEditTab`, `guildTabPerms`. Members are named by account id. The server sends `guild { guild, foundPrice }` (on join, on every change, on refresh), `guildInvite`, `guildLog { entries, more }` (100 a page, newest first) and `guildStash { stash }` (the open stash in full after every change; null closes it). A rank sees only the tabs it may view (locked tabs come without cells or items), and only tab managers get every rank's settings. The client checks the roster field by field (`isGuildInfo`), since its buttons send member ids back.
+- Server: `apps/server/src/guilds.ts` (`GuildService`), `apps/server/src/guildStore.ts`, `AccountStore.saveCharacterWith` and `AccountStore.guilds`; the manager routes guild messages to the service, adds tags to chat lines, and handles `/g`, `/guild`, `/ginvite`, `/gaccept` and `/gdecline`.
+- Client: see "Client" below.
+- Admin: the Guilds tab and routes, [admin-ui.md](admin-ui.md), "Guilds".
+
+## Tests
+
+- `packages/shared/test/guild.test.ts`: tags and names (lengths, characters, reserved words in any case, a reserved word inside another word allowed); the power table per rank and every kick pair; tab permissions (defaults, the Leader always all, deposit and withdraw imply view, a rank sees only tabs it may view, settings only for managers); placing, overlaps, moving onto its own cells, taking whole, a clone sharing nothing it changes, a full grid; stored rows round-trip with the markers, damaged rows throw (format, rune format, an item, a uid twice, no tabs, permissions), an item named twice lands once and one with no cell is laid in, the uid counter never goes back, the rune roll pass on an old row keeps every roll value and runs once; the four live tuning numbers and a change reaching the prices and the cap; every guild request's validator and the chat tag.
+- `apps/server/test/guilds.test.ts`: founding (gold taken and saved with the guild, back after a restart; too little gold, taken name or tag in any case, reserved and bad tags, a second guild); invites by rank, online only, decline, a used invite, someone already in a guild, the 50-member cap; kicks per rank and nobody kicking the Leader; only the Leader promotes, demotes and hands on, and cannot just leave; Officers and not Members buy, rename, set permissions and the message of the day; the tab cap as a live number; per-tab, per-rank view, deposit and withdraw, a Member's open view following a change at once; locked tabs sent without items; bound items refused; a withdrawal into a full bag or a taken cell changes nothing; **two members taking the same item at once from different world copies** (one gets it, the other is told, and after a save and a restart it exists once); a member kicked between opening the stash and taking; a write that fails inside the transaction (an injected SQLite trigger) for a deposit and for a withdrawal changes nothing, and after an autosave and a restart every item is in one place; mixed moves by two members, a disconnect straight after a withdrawal and a seamless-restart shutdown, then every item exactly once on disk and after the next boot; the rate limit; the log's kinds, texts and paging, and outsiders reading nothing; disbanding only by the Leader and only when empty, the name free again after; leadership after 30 days without a login (not a minute before, the longest-serving Officer, an online Leader never idle), after the Leader's account is deleted (to a Member when there is no Officer), and an admin naming one; `/g` reaching members in another world copy and nobody else, tags on game, party and whisper lines and on the nameplate snapshot; the roster's rank, class, level, online and zone; an unreadable stash row refused and never written over; an old row through the rune roll pass and written back marked; the admin routes per role (every staff role reads, only `guilds` names a Leader).
+- `apps/server/test/adminTokens.test.ts`: the guild routes in the per-scope check. `apps/server/test/tunableCopies.test.ts`: `GUILD` is scanned for copies taken at load.
 
 ## Limits and open questions
 
-- **Item safety review needed before it ships:** a fresh-eyes loss and duplication review, including two members taking the same item at the same moment from different rooms.
-- The exact founding price and tab cap are "about" values in the owner's brief; they become config numbers when built.
-- **Disbanding (owner, 2026-10-02):** a guild can only disband with an empty stash, so nothing is lost; the Leader hands items out first.
-- **A Leader who leaves (owner, 2026-10-02):** on account deletion, or after 30 days without a login, leadership passes to the longest-serving Officer, else the longest-serving Member.
-- **Founding price and tab cap** become live tuning numbers (base numbers, owner's rule).
+- Guild tabs are grids only: there is no rune list or sigil list tab as in the account stash, so a guild's runes take cells. Plain rune stacks are not merged on deposit, and a part of a stack cannot be taken (the whole stack moves).
+- Only bag items go in; an item in the account stash is carried to the bag first.
+- Tabs are bought, never sold back; a lowered tab cap keeps the tabs a guild owns.
+- An Officer may change Officers' own tab permissions (the owner's brief gives Officers "set permissions" without a limit).
+- No guild bank of gold, no ranks beyond the three, no renaming a guild or its tag.
+- The roster shows each member account's most recently played character; an offline member's level is read from their last save.
+- Open invites live in memory and do not expire; a restart drops them.

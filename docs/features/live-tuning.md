@@ -100,6 +100,10 @@ A tenth category, **World generation** (`worldgen.*`, last in the Tuning tab): 2
 - **Validated so generation always succeeds:** each number's range, and rules between them checked on a save like the affix tables (`tunableSetProblem`: levels and branch lengths in order, the home region inside its world), with a 400 naming the rule. History and revert work as for every number; a revert into a broken set is refused the same way.
 - **Clients apply the overrides too,** as for every number, but build a world only from the numbers in its descriptor, never from their own live tuning.
 
+## Guilds (2026-10-02, `feat/guilds`, not deployed)
+
+An eleventh category, **Guilds** (`guild.*`): the founding price (`guild.foundPrice`, 1000), the tab cap (`guild.maxTabs`, 10, the free tab included, 1 to 20) and the tab prices (`guild.firstTabPrice` 500 and `guild.tabPriceStep` 500). Base numbers, as the owner wants. A lowered cap keeps the tabs a guild owns and only stops buying; a price change applies to the next purchase. The numbers live in `GUILD` (`packages/shared/src/config/guild.ts`), read where they are used and never copied at load (the copy scan covers `GUILD`). See [guilds.md](guilds.md).
+
 ## How (plan)
 
 1. **Framework and shapes and runes** (built, below): the registry, storage (an overrides table and a history table in SQLite), the API (`GET /api/admin/tuning` for schema plus current values, `PATCH` for changes, `GET .../history`, `POST .../revert`), delivery to clients, the admin page (a dark table by category, search, the code default beside each value, reset to default per field, the history list with revert), and the first category: shapes and runes.

@@ -5,10 +5,12 @@ Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. 
 ## What it does
 
 - **Enter** chats to everyone in your world instance. A line also shows as a speech bubble over the speaker's head for 6 s, when they are in your room.
+- **Guild tags:** a sender in a guild shows as `[TAG] Name` on game, party, whisper and guild lines, and on nameplates.
 - **Item links:** with the chat open, Shift+click an item (bag, stash, paperdoll, sigil and warband rows, the skill bar, the forge's sigil list, rune slots and rolled runes, pending items) to put `[Item Name]` into the message. Up to 3 links per message, in every channel (game, `/p`, `/w`). Everyone who gets the line sees the name in its tier colour; hovering it while the chat is open shows the full item tooltip (affixes, inscribed runes, a sigil's sentence, lore), footed "Linked in chat". Speech bubbles show the link as plain `[Item Name]`.
 - **Commands** (`/help` lists them):
   - `/w name message` (or `/whisper`) whispers anyone online.
   - `/p message` (or `/party`) talks to your party.
+  - `/g message` (or `/guild`) talks to your guild, wherever its members are; `/ginvite name`, `/gaccept`, `/gdecline` for guild invites ([guilds.md](guilds.md)).
   - `/who` lists the players in your world.
   - `/invite name`, `/accept`, `/decline`, `/leave` for parties.
   - Staff only: `/goto name` (the `teleport` permission) and `/sandbox` (the `devTools` permission). Players who lack the permission get "Unknown command". See [accounts-admin.md](accounts-admin.md).
@@ -42,7 +44,7 @@ Status: Live. Chat since 2026-09-28, parties and party worlds since 2026-09-29. 
 - Validation: `cleanChat` and `CHAT_MAX_LENGTH` in `packages/shared/src/protocol/validate.ts`.
 - Item links: `packages/shared/src/protocol/chatLinks.ts` (`CHAT_LINKS`, `parseChatLinkUids`, `linkCopy`, `isLinkedItem`, `resolveChatLinks` for the server, `chatSegments` and `chatPlainText` for the client); `isChatMessage` in `validate.ts`; `ownItem` and `chat()` in the manager. Client: `apps/client/src/ui/chatCompose.ts` (`composeChat`, `ownItem`, `linkUidAt`) and `ChatBox.tsx`, which listens in the capture phase while open, so Shift+click links instead of running the item's own shift action and keeps focus in the input. Linkable elements carry `data-link-uid`. The tooltip is the shared `ItemTooltip` with place `{ at: 'chat' }`.
 - Client: frames and the cast bar in `apps/client/src/ui/PartyFrames.tsx` and `party.css` (the fill is a CSS animation, nothing runs per frame); `partyStatus` and `teleport` in the UI store; far members and edge arrows in `render/minimap.ts`. The old top-right list now only shows yourself when solo, and the Arena score. `apps/client/src/ui/ChatBox.tsx`; speech bubbles in `apps/client/src/game/game.ts` (`BUBBLE_MS` 6000); the invite form and prompt in `apps/client/src/ui/EscMenu.tsx`; shared vision in `apps/client/src/render/minimap.ts`.
-- Messages: `chat` (kinds `game`, `whisper`, `party`, `system`), `partyInvite`, `partyAnswer`, `partyLeave`, `partyWorld`, and the server's `party` message carrying `PartyInfo` (leader, members with online flags, whether a party world is open). `partyTeleport { name }` asks to teleport; `partyStatus { members }` (`PartyMemberStatus`: name, class, level, life, place, zone, position only when in the receiver's room, and `no`, the refusal reason) and `teleportChannel` (started with `to` and `seconds`, or ended with a `reason`, null on arrival) come back. The client checks both field by field (`isPartyStatus`, `isTeleportChannel`), since clicks act on them.
+- Messages: `chat` (kinds `game`, `whisper`, `party`, `guild`, `system`; `tag` is the sender's guild tag), `partyInvite`, `partyAnswer`, `partyLeave`, `partyWorld`, and the server's `party` message carrying `PartyInfo` (leader, members with online flags, whether a party world is open). `partyTeleport { name }` asks to teleport; `partyStatus { members }` (`PartyMemberStatus`: name, class, level, life, place, zone, position only when in the receiver's room, and `no`, the refusal reason) and `teleportChannel` (started with `to` and `seconds`, or ended with a `reason`, null on arrival) come back. The client checks both field by field (`isPartyStatus`, `isTeleportChannel`), since clicks act on them.
 - Announcements from the admin page arrive as `system` chat lines prefixed "Announcement:".
 
 Tests:
@@ -65,4 +67,4 @@ Tests:
 - The minimap turn is fixed by `VIEW.yawDegrees`, since the camera never turns in play; a camera that turns would need the minimap to redraw on each change.
 - On a map drawn whole (every map but the world), the edge arrow only shows for positions on or past the map border; in the world's windowed corner map it points at members past the frame, and the world map shows them all.
 - Open: should teleport cost something (gold, a scroll) once the economy has sinks, and should a party leader be able to summon?
-- Guild chat (`/g`) is planned with guilds ([guilds.md](guilds.md)).
+- Guild chat (`/g`) built with guilds (2026-10-02, `feat/guilds`, not deployed): `GuildService.chat` sends a `guild` line to every online member; tests in `apps/server/test/guilds.test.ts`.

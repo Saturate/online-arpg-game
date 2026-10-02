@@ -51,7 +51,7 @@ Status: Built on `feat/seamless-restart` (2026-10-02), not deployed. Planned by 
 ## Limits and open questions
 
 - Monsters, spells in flight, dungeon runs, Arena runs and their ground loot are not restored; chunks refill as on any first visit, and a dead player comes back alive.
-- Who had an open party invite, a teleport channel or a ready check is not kept.
+- Who had an open party invite, a teleport channel or a ready check is not kept. Guilds need nothing in the snapshot: their members, stashes and log are in SQLite and every change is written when it happens; open guild invites and open guild stash windows are lost, as party invites are ([guilds.md](guilds.md)).
 - An item dropped by a player is restored without its "step away first" mark (as in a town rebuild).
 - The deployment keeps the Recreate strategy (one pod owns the SQLite file), so there is still about a minute of downtime; a faster handover is a separate step.
 - **The first deploy of this feature** reaches clients that do not know the overlay: they reconnect the old way (eight tries over about half a minute, then the character list) and get no overlay; their server side still keeps their places. From the deploy after it on, everyone gets the overlay.

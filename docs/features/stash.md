@@ -63,4 +63,4 @@ Tests:
 
 - General tabs are only bought, never sold back.
 - The rune tab still holds plain stacks of 20; it is ready for runes that no longer stack.
-- Guild stashes will reuse the tab model ([guilds.md](guilds.md)).
+- **Guild stashes** ([guilds.md](guilds.md)) open from the same chest, with an Account and Guild switch in the stash window. They reuse the general tab (a 12x10 grid with a name and one of the 8 colours) with access per rank, but are held by the server's guild service rather than by a character, and every move between a bag and the guild stash is its own transaction with the character. They have no rune or sigil list tab, and only bag items go in.
