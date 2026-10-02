@@ -1,5 +1,5 @@
 import { AURA, SPELL } from '../config/sim.js';
-import { isOffensive, type ElementId, type FormId, type SpellNode, type SpellProgram } from './program.js';
+import { affixMultiplier, isOffensive, type ElementId, type FormId, type SpellNode, type SpellProgram } from './program.js';
 import type { Rng } from './rng.js';
 
 /**
@@ -104,6 +104,17 @@ export function shapeBaseRange(form: FormId): DamageRange | null {
   }
 }
 
+/** A spell node's base range: its shape's, times the shape rune's implicit. Null for Aura and Bond. */
+export function nodeBaseRange(node: SpellNode): DamageRange | null {
+  const base = shapeBaseRange(node.form);
+  if (!base) return null;
+  const k = node.baseScale ?? 1;
+  return k === 1 ? base : { min: base.min * k, max: base.max * k };
+}
+
+/** How much of each element's share of the base a conversion keeps (an infusion's implicit), 1 without one. */
+export type Conversion = Partial<Record<ElementId, number>>;
+
 export function rangeMean(r: Readonly<DamageRange>): number {
   return (r.min + r.max) / 2;
 }
@@ -113,7 +124,7 @@ export function rangeMean(r: Readonly<DamageRange>): number {
  * equal shares to the infusions the shape carries (all of it to one infusion, half each to two), plus
  * the added damage, which converts nothing.
  */
-export function hitRanges(base: Readonly<DamageRange>, elements: readonly ElementId[], added: Readonly<AddedDamage>): Record<DamageType, DamageRange> {
+export function hitRanges(base: Readonly<DamageRange>, elements: readonly ElementId[], added: Readonly<AddedDamage>, conversion: Readonly<Conversion> = {}): Record<DamageType, DamageRange> {
   const out: Record<DamageType, DamageRange> = {
     physical: { min: 0, max: 0 },
     fire: { ...added.fire },
@@ -127,7 +138,8 @@ export function hitRanges(base: Readonly<DamageRange>, elements: readonly Elemen
     return out;
   }
   for (const el of kinds) {
-    out[el] = { min: out[el].min + base.min / kinds.length, max: out[el].max + base.max / kinds.length };
+    const k = (conversion[el] ?? 1) / kinds.length;
+    out[el] = { min: out[el].min + base.min * k, max: out[el].max + base.max * k };
   }
   return out;
 }
@@ -142,12 +154,12 @@ function roll(rng: Rng, r: Readonly<DamageRange>): number {
  * nothing. Rolls come from the sim's damage stream, so the same seed and casts give the same hits and
  * no combat roll (misfires, reflects) moves when a hit rolls.
  */
-export function rollHit(rng: Rng, base: Readonly<DamageRange>, elements: readonly ElementId[], added: Readonly<AddedDamage>): DamagePacket {
+export function rollHit(rng: Rng, base: Readonly<DamageRange>, elements: readonly ElementId[], added: Readonly<AddedDamage>, conversion: Readonly<Conversion> = {}): DamagePacket {
   const p = emptyPacket();
   const physical = roll(rng, base);
   const kinds = [...new Set(elements)];
   if (kinds.length === 0) p.physical = physical;
-  else for (const el of kinds) p[el] += physical / kinds.length;
+  else for (const el of kinds) p[el] += (physical * (conversion[el] ?? 1)) / kinds.length;
   for (const el of ['fire', 'cold', 'lightning'] as const) if (added[el].max > 0) p[el] += roll(rng, added[el]);
   return p;
 }
@@ -198,6 +210,8 @@ export type DamageCadence = { per: 'hit' } | { per: 'tick'; seconds: number } | 
 export interface ShapeDamage {
   form: FormId;
   copies: number;
+  /** The most copies a cast can roll; equal to `copies` without a ranged Split. */
+  copiesMax: number;
   /** 0 for the cast, one more per payload level. */
   depth: number;
   cadence: DamageCadence;
@@ -216,14 +230,21 @@ export function shapeDamage(node: SpellNode): ShapeDamage | null {
     const kinds = [...new Set(node.elements)];
     if (kinds.length === 0) return null;
     const each = AURA.elementDps * node.damageScale * node.tuning.damage;
-    return { form: node.form, copies: 1, depth: node.depth, cadence: { per: 'second' }, parts: kinds.map((type) => ({ type, min: each, max: each })) };
+    return { form: node.form, copies: 1, copiesMax: 1, depth: node.depth, cadence: { per: 'second' }, parts: kinds.map((type) => ({ type, min: each * (node.conversion?.[type] ?? 1), max: each * (node.conversion?.[type] ?? 1) })) };
   }
-  const base = shapeBaseRange(node.form);
+  const base = nodeBaseRange(node);
   if (!base || !isOffensive(node)) return null;
-  const parts = damageParts(scaleRanges(hitRanges(base, node.elements, node.added), scale));
+  // Ranged rolls widen the line to what any cast may deal: the low end at the most copies (each
+  // keeps less) and the damage roll's low end, the high end at the fewest copies and its high end.
+  const pc = node.perCast;
+  const low = (pc?.splits ?? []).reduce((k, s) => (k * s.min) / s.max, 1);
+  const high = pc?.damage ? affixMultiplier(pc.damage.max) / affixMultiplier(pc.damage.min) : 1;
+  const ranges = scaleRanges(hitRanges(base, node.elements, node.added, node.conversion), scale);
+  const parts = damageParts(ranges).map((p) => ({ ...p, min: p.min * low, max: p.max * high }));
   if (parts.length === 0) return null;
   const cadence: DamageCadence = node.form === 'zone' ? { per: 'tick', seconds: SPELL.zone.tickSeconds / node.tuning.speed } : { per: 'hit' };
-  return { form: node.form, copies: node.copies, depth: node.depth, cadence, parts };
+  const copiesMax = (pc?.splits ?? []).reduce((n, s) => Math.round((n / s.min) * s.max), node.copies);
+  return { form: node.form, copies: node.copies, copiesMax, depth: node.depth, cadence, parts };
 }
 
 /** Every damaging shape of a spell, the cast first and each payload after its parent. */

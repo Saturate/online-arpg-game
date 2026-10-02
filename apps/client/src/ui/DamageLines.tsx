@@ -1,10 +1,14 @@
 import {
+  affixTierLabel,
   formatDamageRange,
+  formatImplicit,
   isShapeId,
   programDamage,
+  runeImplicit,
   runeName,
   shapeBaseRange,
   type AffixRoll,
+  type RuneItem,
   type DamagePart,
   type DamageType,
   type RuneId,
@@ -42,7 +46,7 @@ export function DamageLines({ program, className }: { program: SpellProgram; cla
           <span className="dmg-shape">
             {d.depth > 0 ? '└ ' : ''}
             {runeName(d.form)}
-            {d.copies > 1 ? ` x${d.copies}` : ''}
+            {d.copiesMax > d.copies ? ` x${d.copies} to ${d.copiesMax}` : d.copies > 1 ? ` x${d.copies}` : ''}
           </span>{' '}
           {d.parts.map((p, k) => (
             <span key={p.type}>
@@ -57,8 +61,11 @@ export function DamageLines({ program, className }: { program: SpellProgram; cla
   );
 }
 
-/** A shape rune's implicit: the physical range it rolls on every hit, read live. Null for other runes. */
-export function ShapeImplicit({ rune }: { rune: RuneId }) {
+/**
+ * A shape's base hit: the physical range it rolls on every hit, read live, times the rune's
+ * implicit (`scale`). Null for runes that deal no base damage.
+ */
+export function ShapeImplicit({ rune, scale = 1 }: { rune: RuneId; scale?: number }) {
   if (!isShapeId(rune)) return null;
   const form = rune === 'orb' || rune === 'bolt' || rune === 'nova' || rune === 'zone' || rune === 'dash' ? rune : null;
   const base = form ? shapeBaseRange(form) : null;
@@ -66,9 +73,30 @@ export function ShapeImplicit({ rune }: { rune: RuneId }) {
   return (
     <ul className="implicit tt-sec">
       <li>
-        Deals <Part part={{ type: 'physical', min: base.min, max: base.max }} /> damage
+        Deals <Part part={{ type: 'physical', min: base.min * scale, max: base.max * scale }} /> damage
       </li>
     </ul>
+  );
+}
+
+/**
+ * A rune's implicit, above its affixes: its line and tier ("104% base damage T3") and, on a shape
+ * that deals damage, the base hit it gives at the live numbers.
+ */
+export function RuneImplicit({ item }: { item: RuneItem }) {
+  const implicit = runeImplicit(item);
+  const line = formatImplicit(item);
+  if (!implicit || line === null) return null;
+  const scale = implicit.id === 'implicit_base' ? implicit.value / 100 : 1;
+  return (
+    <>
+      <ShapeImplicit rune={item.rune} scale={scale} />
+      <ul className="implicit tt-sec">
+        <li>
+          {line} <span className={`tier ${affixTierLabel(implicit.id, implicit.tier).toLowerCase()}`}>{affixTierLabel(implicit.id, implicit.tier)}</span>
+        </li>
+      </ul>
+    </>
   );
 }
 

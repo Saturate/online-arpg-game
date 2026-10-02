@@ -1,12 +1,12 @@
 import { HEAT, MINIONS, SIM, SPELL } from '../config/sim.js';
 import { castCooldownSeconds, misfireChance } from '../items/items.js';
 import type { SpellFx } from '../protocol/messages.js';
-import { isOffensive, projectileBase, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
+import { effectPower, isOffensive, projectileBase, rollCast, type ReleaseTrigger, type SpellNode, type SpellProgram } from './program.js';
 import { acquireLink } from './auras.js';
 import { withinCollider, withinHurt, withinHurtOf } from './body.js';
 import { blocksProjectile } from './enemies.js';
 import { dealDamage, grantShield, healEntity, isTargetable, knockback, selfDamage } from './combat.js';
-import { emptyPacket, hitRanges, meanPacket, packetTotal, rollHit, scalePacket, shapeBaseRange, type DamagePacket } from './damage.js';
+import { emptyPacket, hitRanges, meanPacket, nodeBaseRange, packetTotal, rollHit, scalePacket, type DamagePacket } from './damage.js';
 import type { EntityId, PlayerComp, ProjectileComp, SpellInst, Team } from './ecs.js';
 import { distSq } from './math.js';
 import type { Simulation } from './simulation.js';
@@ -39,18 +39,19 @@ function spellScale(sim: Simulation, node: SpellNode, casterId: EntityId): numbe
 
 /** One hit of a spell node: its shape's base range rolled and converted, its added damage, every multiplier. */
 function spellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
-  const base = shapeBaseRange(node.form);
+  const base = nodeBaseRange(node);
   if (!base) return emptyPacket();
   // The bench and balance harness hit for each range's mean, so their numbers are exact and stable.
-  const packet = sim.meanDamage ? meanPacket(hitRanges(base, node.elements, node.added)) : rollHit(sim.rand.damage, base, node.elements, node.added);
+  const conversion = node.conversion ?? {};
+  const packet = sim.meanDamage ? meanPacket(hitRanges(base, node.elements, node.added, conversion)) : rollHit(sim.rand.damage, base, node.elements, node.added, conversion);
   return scalePacket(packet, spellScale(sim, node, casterId));
 }
 
 /** A node's average hit, for what a projectile carries once it stops being a spell (a reflect), as the caster stands then. */
 function averageSpellHit(sim: Simulation, node: SpellNode, casterId: EntityId): DamagePacket {
-  const base = shapeBaseRange(node.form);
+  const base = nodeBaseRange(node);
   if (!base) return emptyPacket();
-  return scalePacket(meanPacket(hitRanges(base, node.elements, node.added)), spellScale(sim, node, casterId));
+  return scalePacket(meanPacket(hitRanges(base, node.elements, node.added, node.conversion ?? {})), spellScale(sim, node, casterId));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -115,7 +116,9 @@ export function castSkill(sim: Simulation, pid: EntityId, slot: number, pressed:
     return;
   }
   sim.emit({ e: 'cast', id: pid, x: pos.x, y: pos.y, el: res.program.roots[0]?.elements[0] ?? null }, pos.x, pos.y);
-  spawnProgram(sim, res.program, pid, pos.x, pos.y, p.aimAngle);
+  // Ranged rolls ("Splits into 2 to 4") are rolled here, once per cast, from their own stream, so
+  // no damage, combat or loot roll moves because a spell rolled its copies.
+  spawnProgram(sim, rollCast(res.program, sim.rand.cast, sim.meanDamage), pid, pos.x, pos.y, p.aimAngle);
 }
 
 export interface ProjectileSpec {
@@ -356,7 +359,7 @@ function spawnForm(
   const team = w.team.get(casterId) ?? 'players';
   const hasRestore = node.effects.includes('restore');
   const hasWard = node.effects.includes('ward');
-  const force = node.effects.includes('impact') ? SPELL.forceKnockback : 0;
+  const force = node.effects.includes('impact') ? SPELL.forceKnockback * effectPower(node, 'impact') : 0;
 
   switch (node.form) {
     case 'orb':
@@ -540,15 +543,15 @@ function applySpellHit(sim: Simulation, inst: SpellInst, targetId: EntityId, fro
   if (!targetTeam || !isTargetable(sim, targetId)) return;
 
   if (targetTeam === casterTeam) {
-    if (node.effects.includes('restore')) healEntity(sim, targetId, amounts.heal * node.damageScale, true);
+    if (node.effects.includes('restore')) healEntity(sim, targetId, amounts.heal * node.damageScale * effectPower(node, 'restore'), true);
     if (node.effects.includes('ward')) {
-      grantShield(sim, targetId, amounts.shield * node.damageScale, SPELL.shieldSeconds, node.combos.includes('burning_ward'));
+      grantShield(sim, targetId, amounts.shield * node.damageScale * effectPower(node, 'ward'), SPELL.shieldSeconds, node.combos.includes('burning_ward'));
     }
     return;
   }
   if (!isOffensive(node)) return;
   dealDamage(sim, targetId, spellHit(sim, node, inst.casterId), inst.casterId, { ailments: node.elements });
-  if (node.effects.includes('impact')) knockback(sim, targetId, fromX, fromY, SPELL.forceKnockback);
+  if (node.effects.includes('impact')) knockback(sim, targetId, fromX, fromY, SPELL.forceKnockback * effectPower(node, 'impact'));
 }
 
 /** Everything a spell area can touch: enemies, players and minions. */
@@ -832,9 +835,9 @@ export function updateDashSpell(sim: Simulation, pid: EntityId, dt: number, land
 
   if (landed) {
     p.dashSpell = null;
-    if (inst.node.effects.includes('restore')) healEntity(sim, pid, SPELL.nova.heal * 0.5 * inst.node.damageScale, true);
+    if (inst.node.effects.includes('restore')) healEntity(sim, pid, SPELL.nova.heal * 0.5 * inst.node.damageScale * effectPower(inst.node, 'restore'), true);
     if (inst.node.effects.includes('ward')) {
-      grantShield(sim, pid, SPELL.nova.shield * 0.5 * inst.node.damageScale, SPELL.shieldSeconds, inst.node.combos.includes('burning_ward'));
+      grantShield(sim, pid, SPELL.nova.shield * 0.5 * inst.node.damageScale * effectPower(inst.node, 'ward'), SPELL.shieldSeconds, inst.node.combos.includes('burning_ward'));
     }
     release(sim, inst, 'onland', pos.x, pos.y, inst.angle, ds.hitIds);
     endSpell(sim, inst, pos.x, pos.y, inst.angle, ds.hitIds);

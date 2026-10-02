@@ -77,6 +77,16 @@ describe('linkCopy', () => {
     expect(linkCopy(vessel)).toMatchObject({ lore: vessel.lore, fixedName: true, minion: 'zombie_brute' });
   });
 
+  it('shows a rune\'s implicit and its ranged rolls, and the check takes them', () => {
+    const rune = { ...createRolledRune(5, new Rng(2), 'rare', 20, 'bolt'), affixes: [{ id: 'rune_damage' as const, tier: 3, value: 20, max: 60 }] };
+    const copy = linkCopy(rune);
+    expect(copy.kind === 'rune' && copy.implicit).toEqual(rune.implicit);
+    expect(copy.affixes).toEqual([{ id: 'rune_damage', tier: 3, value: 20, max: 60 }]);
+    expect(isLinkedItem(copy)).toBe(true);
+    expect(isLinkedItem({ ...copy, affixes: [{ id: 'rune_damage', tier: 3, value: 20, max: 10 }] })).toBe(false);
+    expect(isLinkedItem({ ...copy, implicit: { id: 'nonsense', tier: 1, value: 1 } })).toBe(false);
+  });
+
   it('never changes the original', () => {
     linkCopy(sigil);
     expect(sigil.uid).toBe(14);

@@ -1,7 +1,7 @@
 import type { GearCategory } from './gear.js';
-import { ADDED_DAMAGE_SPREAD, CASTABLE_SHAPES, isPersistentShape, PROJECTILE_SHAPES, TRIGGERS_FOR_SHAPE, type InfusionId, type ReleaseKind, type RuneId, type ShapeId } from '../runes/v2/runes.js';
+import { ADDED_DAMAGE_SPREAD, CASTABLE_SHAPES, isPersistentShape, neutralImplicitValue, PROJECTILE_SHAPES, TRIGGERS_FOR_SHAPE, type InfusionId, type ReleaseKind, type RuneId, type ShapeId } from '../runes/v2/runes.js';
 
-export type AffixTarget = 'sigil' | 'vessel' | 'enemy' | 'gear' | 'rune';
+export type AffixTarget = 'sigil' | 'vessel' | 'enemy' | 'gear' | 'rune' | 'implicit';
 export type AffixSlot = 'prefix' | 'suffix';
 
 export interface AffixTierDef {
@@ -44,6 +44,15 @@ export interface AffixDef {
    * rune tier weights, as tuning shows them.
    */
   dropShare?: number;
+  /**
+   * Rune affixes that may roll a range at drop ("+20 to 60% damage") instead of one number; the
+   * server rolls inside it on every cast. `share` of the drops of this affix come ranged. The range
+   * is centred on a normal roll: `spread` either side, as a share of it or, with `absolute`, as a
+   * whole number, kept inside `min` to `max`.
+   */
+  ranged?: { share: number; spread: number; absolute?: boolean; min?: number; max?: number };
+  /** Implicits only: the roll every rune made before implicits had, the middle of T4 (IMPLICIT_NEUTRAL_TIER). */
+  neutral?: number;
 }
 
 export const AFFIX_IDS = [
@@ -96,6 +105,17 @@ export const AFFIX_IDS = [
   'rune_added_fire',
   'rune_added_cold',
   'rune_added_lightning',
+  'implicit_base',
+  'implicit_aura',
+  'implicit_bond',
+  'implicit_conversion',
+  'implicit_split',
+  'implicit_fuse',
+  'implicit_pulse',
+  'implicit_payload',
+  'implicit_effect',
+  'implicit_modifier',
+  'implicit_focus',
 ] as const;
 export type AffixId = (typeof AFFIX_IDS)[number];
 
@@ -118,6 +138,20 @@ export const RUNE_AFFIX_TIERS = 6;
 export const DAMAGE_FAMILY_SHARE = { roll: 1 / 2, added: 1 / 6 } as const;
 const RUNE_TIER_WEIGHTS = [100, 35, 25, 15, 8, 2] as const;
 const RUNE_TIER_ILVL = [1, 2, 3, 5, 8, 12] as const;
+
+/**
+ * Implicits (docs/features/runes.md, "Implicits"): every rune rolls one at drop, in six tiers like
+ * the rune affixes. Unlike an affix an implicit is the rune's own strength, not a bonus on top, so
+ * its weights centre on T4, the tier holding what every rune did before implicits (the neutral
+ * roll), instead of leaning on T6; low item levels lean weaker and T1 stays rare. At the top levels
+ * a drop averages about 98% of the neutral roll.
+ */
+const IMPLICIT_TIER_WEIGHTS = [40, 50, 60, 35, 15, 3] as const;
+const IMPLICIT_TIER_ILVL = [1, 1, 3, 5, 8, 12] as const;
+/** The tier index of the neutral roll (T4): runes from before implicits and kit runes carry it. */
+export const IMPLICIT_NEUTRAL_TIER = 2;
+/** Quality implicits: a percentage of what the rune did before, 100 in the middle of T4. */
+const QUALITY_TIERS: readonly (readonly [number, number])[] = [[85, 91], [92, 97], [98, 102], [103, 108], [109, 115], [116, 125]];
 
 /**
  * The affix table. Built by a function so the game gets a copy live tuning may overwrite in place
@@ -427,11 +461,18 @@ function buildAffixes(): Record<AffixId, AffixDef> {
     rune_speed: runeAffix('rune_speed', '{v}% speed', 'Fleet', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'dash'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 70]]),
     rune_size: runeAffix('rune_size', '{v}% size', 'Broad', shapesWhere((s) => s !== 'dash' && s !== 'bond'), [[10, 17], [18, 25], [26, 33], [34, 41], [42, 50], [51, 75]]),
     rune_duration: runeAffix('rune_duration', '{v}% duration', 'Lasting', shapesWhere((s) => s === 'orb' || s === 'bolt' || s === 'zone'), [[15, 26], [27, 38], [39, 50], [51, 62], [63, 75], [76, 100]]),
-    rune_damage: { ...runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 100]]), dropShare: DAMAGE_FAMILY_SHARE.roll },
+    // A quarter of damage, pierce and split rolls come as a range the server rolls inside on every
+    // cast (docs/features/runes.md, "Ranged rolls"); Force prices the average, the caps the maximum.
+    rune_damage: {
+      ...runeAffix('rune_damage', '{v}% damage', 'Honed', shapesWhere((s) => !isPersistentShape(s)), [[10, 18], [19, 27], [28, 36], [37, 45], [46, 55], [56, 100]]),
+      dropShare: DAMAGE_FAMILY_SHARE.roll,
+      ranged: { share: 0.25, spread: 0.5 },
+    },
     // Whole numbers with few values: neighbouring tiers share an end.
     rune_pierce: {
       ...runeAffix('rune_pierce', 'Pierces {v} enemies', 'Piercing', shapesWhere((s) => PROJECTILE_SHAPES.includes(s)), [[1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [4, 4]]),
       signed: false,
+      ranged: { share: 0.25, spread: 1, absolute: true, min: 0 },
     },
     split_count: {
       id: 'split_count',
@@ -443,6 +484,7 @@ function buildAffixes(): Record<AffixId, AffixDef> {
       runes: ['split'],
       // The grammar stops at 6 copies (SPLIT_COUNT_RANGE), so T1 cannot go past T2's best.
       tiers: runeTiers([[2, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 6]]),
+      ranged: { share: 0.25, spread: 1, absolute: true, min: 2, max: 6 },
     },
     // Every Concentrated drop rolls this (docs/features/runes.md); the tiers lift its amount with item level.
     rune_concentrated: {
@@ -463,6 +505,23 @@ function buildAffixes(): Record<AffixId, AffixDef> {
     rune_added_fire: addedAffix('rune_added_fire', 'fire', 'Smouldering'),
     rune_added_cold: addedAffix('rune_added_cold', 'cold', 'Rimed'),
     rune_added_lightning: addedAffix('rune_added_lightning', 'lightning', 'Crackling'),
+    // Implicits: one per rune, chosen by the rune (IMPLICIT_FOR_RUNE). Each modifies the rune's live
+    // base number rather than replacing it, so Base shapes and Rune balance tuning still reach every
+    // rune already owned (docs/features/runes.md, "Implicits").
+    implicit_base: implicitAffix('implicit_base', '{v}% base damage', ['orb', 'bolt', 'nova', 'zone', 'dash'], QUALITY_TIERS),
+    implicit_aura: implicitAffix('implicit_aura', '{v}% aura area', ['aura'], QUALITY_TIERS),
+    implicit_bond: implicitAffix('implicit_bond', '{v}% bond strength', ['bond'], QUALITY_TIERS),
+    implicit_conversion: implicitAffix('implicit_conversion', 'Converts at {v}%', ['fire', 'cold', 'lightning'], QUALITY_TIERS),
+    // Extra copies a Split may make on a cast, on top of its count: a copy range rolled every cast.
+    implicit_split: implicitAffix('implicit_split', 'Up to {v} extra copies', ['split'], [[0, 0], [0, 0], [0, 0], [0, 1], [1, 1], [1, 2]]),
+    // A better fuse or pulse is a shorter wait: the delay is the live default divided by the roll.
+    implicit_fuse: implicitAffix('implicit_fuse', '{v}% fuse speed', ['timer'], QUALITY_TIERS),
+    implicit_pulse: implicitAffix('implicit_pulse', '{v}% pulse rate', ['pulse'], QUALITY_TIERS),
+    implicit_payload: implicitAffix('implicit_payload', 'Payload deals {v}% damage', ['onhit', 'onexpire', 'onland'], QUALITY_TIERS),
+    implicit_effect: implicitAffix('implicit_effect', '{v}% effect', ['impact', 'ward', 'restore'], QUALITY_TIERS),
+    implicit_modifier: implicitAffix('implicit_modifier', '{v}% strength', ['swift', 'large'], QUALITY_TIERS),
+    // Concentrated's size loss is divided by the roll: a better focus gives up less area.
+    implicit_focus: implicitAffix('implicit_focus', '{v}% focus', ['concentrated'], QUALITY_TIERS),
     coward: {
       id: 'coward',
       text: 'Coward: retreats at low life to heal',
@@ -550,6 +609,38 @@ function addedAffix(id: AffixId, element: InfusionId, nameWord: string): AffixDe
     spread: ADDED_DAMAGE_SPREAD,
     dropShare: DAMAGE_FAMILY_SHARE.added,
   };
+}
+
+function implicitAffix(id: AffixId, text: string, runes: readonly RuneId[], ranges: readonly (readonly [number, number])[]): AffixDef {
+  if (ranges.length !== RUNE_AFFIX_TIERS) throw new Error(`an implicit needs ${RUNE_AFFIX_TIERS} tiers`);
+  const neutral = neutralImplicitValue(runes[0] ?? 'orb');
+  return {
+    id,
+    text,
+    slot: 'prefix',
+    targets: ['implicit'],
+    group: id,
+    nameWord: '',
+    runes,
+    neutral,
+    tiers: ranges.map(([min, max], i) => ({ weight: IMPLICIT_TIER_WEIGHTS[i] ?? 0, min, max, ilvl: IMPLICIT_TIER_ILVL[i] ?? 1 })),
+  };
+}
+
+/** The implicit each castable rune rolls; runes the engine cannot run yet have none. */
+export function implicitIdFor(rune: RuneId): AffixId | null {
+  return IMPLICIT_FOR_RUNE.get(rune) ?? null;
+}
+
+const IMPLICIT_FOR_RUNE: ReadonlyMap<RuneId, AffixId> = new Map(
+  AFFIX_IDS.flatMap((id) => {
+    const def = CODE_AFFIXES[id];
+    return def.targets.includes('implicit') ? (def.runes ?? []).map((r): [RuneId, AffixId] => [r, id]) : [];
+  }),
+);
+
+export function isImplicitId(id: AffixId): boolean {
+  return AFFIXES[id].targets.includes('implicit');
 }
 
 /** An affix's line with its value filled in, both ends for an "Adds X to Y" roll. */

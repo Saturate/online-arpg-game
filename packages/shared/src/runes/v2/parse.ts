@@ -7,8 +7,10 @@ import {
   affixesFor,
   CONCENTRATED,
   DEFAULTS,
+  isCastableRune,
   isPersistentShape,
   isShapeId,
+  neutralImplicitValue,
   PLAIN_MODIFIER_EFFECT,
   PROJECTILE_SHAPES,
   TRIGGERS_FOR_SHAPE,
@@ -32,6 +34,8 @@ import {
   RULES,
   MAX_COPIES,
   SPLIT_COUNT_RANGE,
+  IMPLICIT_QUALITY_RANGE,
+  SPLIT_EXTRA_RANGE,
   type GrammarContext,
   type GrammarError,
   type RuleKey,
@@ -42,11 +46,18 @@ export interface ShaperUse {
   runeIndex: number;
   /** Split: copies. Chain/Bounce: count. Homing: strength. Stack: limit. Charge: stages. Link/Orbit: 1. */
   value: number;
+  /**
+   * Split: the most copies a cast may roll, from a ranged count and the Split's implicit extra
+   * copies (never past SPLIT_COUNT_RANGE.max); `value` is the fewest. Equal to `value` for the rest.
+   */
+  max: number;
 }
 
 export interface NodeRelease extends Release {
   runeIndex: number;
   source: 'affix' | 'rune';
+  /** A trigger rune's implicit: the payload's damage as a percentage. 100 for release affixes. */
+  quality?: number;
 }
 
 export interface NodeStats {
@@ -61,6 +72,11 @@ export interface NodeStats {
   concentration: number;
   /** Low ends of the shape's "Adds X to Y" rolls per element, 0 without one (ADDED_DAMAGE_SPREAD gives the high end). */
   added: Record<InfusionId, number>;
+  /** The shape rune's implicit: its base damage, an aura's area or a bond's strength, as a percentage. */
+  base: number;
+  /** High ends of ranged rolls, rolled per cast; equal to `damage` and `pierce` without one. */
+  damageMax: number;
+  pierceMax: number;
 }
 
 export interface SpellNode {
@@ -72,11 +88,19 @@ export interface SpellNode {
   infusions: InfusionId[];
   /** Infusions it actually carries: its own, or the parent's when it has none. */
   effectiveInfusions: InfusionId[];
+  /** Each infusion's implicit (its conversion, a percentage), in the same order as `infusions`. */
+  infusionQuality: number[];
+  /** The same for `effectiveInfusions`, inherited with them. */
+  effectiveQuality: number[];
   effects: EffectId[];
+  /** Each effect's implicit (its strength, a percentage); the first rune of an effect sets it. */
+  effectQuality: Partial<Record<EffectId, number>>;
   shapers: ShaperUse[];
   stats: NodeStats;
-  /** Copies after Split (1 when unsplit). */
+  /** Copies after Split (1 when unsplit), at the fewest a cast rolls. */
   copies: number;
+  /** The most copies a cast can roll (ranged Split counts and Split implicits); the entity budget counts these. */
+  copiesMax: number;
   linked: boolean;
   /** Index of the shape's Concentrated rune, if it has one. */
   concentratedAt: number | null;
@@ -119,10 +143,14 @@ function newNode(runeIndex: number, shape: ShapeId, depth: number): SpellNode {
     depth,
     infusions: [],
     effectiveInfusions: [],
+    infusionQuality: [],
+    effectiveQuality: [],
     effects: [],
+    effectQuality: {},
     shapers: [],
-    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0, added: { fire: 0, cold: 0, lightning: 0 } },
+    stats: { speed: 0, size: 0, duration: 0, damage: 0, pierce: 0, bounce: 0, homing: 0, concentration: 0, added: { fire: 0, cold: 0, lightning: 0 }, base: 100, damageMax: 0, pierceMax: 0 },
     copies: 1,
+    copiesMax: 1,
     linked: false,
     concentratedAt: null,
     release: null,
@@ -154,6 +182,17 @@ function releaseLabel(r: Release): string {
     case 'every':
       return `every ${r.seconds} s`;
   }
+}
+
+/** The rune's implicit as written, or its neutral roll. */
+export function implicitOf(rune: RuneInstance): number {
+  return rune.implicit ?? neutralImplicitValue(rune.id);
+}
+
+/** A Split's most copies on one cast: its ranged count's high end plus its implicit extra copies, never past the grammar's limit. */
+function splitMax(rune: RuneInstance, value: number): number {
+  const high = Math.max(value, rune.affixes.countMax ?? value);
+  return Math.max(value, Math.min(SPLIT_COUNT_RANGE.max, high + Math.max(0, Math.round(implicitOf(rune)))));
 }
 
 function shaperValue(rune: RuneInstance, id: ShaperId): number {
@@ -254,16 +293,17 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       return;
     }
     const existing = node.shapers.find((s) => s.id === use.id);
-    if (existing && use.id === 'split' && node.copies * use.value > MAX_COPIES) {
-      fail('SPLIT_ONCE', i, `${label(i)} would make ${node.copies * use.value} copies of ${shape}; splits stop at ${MAX_COPIES}.`);
+    if (existing && use.id === 'split' && node.copiesMax * use.max > MAX_COPIES) {
+      fail('SPLIT_ONCE', i, `${label(i)} could make ${node.copiesMax * use.max} copies of ${shape}; splits stop at ${MAX_COPIES}.`);
       return;
     }
     if (existing && (use.id === 'link' || use.id === 'orbit')) {
       fail('DUPLICATE_SHAPER', i, `${shape} already has ${name} (rune ${existing.runeIndex + 1}); ${label(i)} has nothing to add.`);
       return;
     }
-    if (use.id === 'split' && (use.value < SPLIT_COUNT_RANGE.min || use.value > SPLIT_COUNT_RANGE.max)) {
-      fail('SPLIT_COUNT', i, `${label(i)} asks for ${use.value} copies; Split makes ${SPLIT_COUNT_RANGE.min} to ${SPLIT_COUNT_RANGE.max}.`);
+    const asked = runes[i]?.affixes.countMax ?? use.value;
+    if (use.id === 'split' && (use.value < SPLIT_COUNT_RANGE.min || use.value > SPLIT_COUNT_RANGE.max || asked > SPLIT_COUNT_RANGE.max)) {
+      fail('SPLIT_COUNT', i, `${label(i)} asks for ${asked > use.value ? `${use.value} to ${asked}` : use.value} copies; Split makes ${SPLIT_COUNT_RANGE.min} to ${SPLIT_COUNT_RANGE.max}.`);
       return;
     }
     if (use.id === 'link' && !node.shapers.some((s) => s.id === 'split')) {
@@ -275,7 +315,10 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       return;
     }
     node.shapers.push(use);
-    if (use.id === 'split') node.copies *= use.value;
+    if (use.id === 'split') {
+      node.copies *= use.value;
+      node.copiesMax *= use.max;
+    }
     if (use.id === 'link') node.linked = true;
   };
 
@@ -292,6 +335,21 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         const where = k === 'release' ? 'Release affixes only roll on shapes.' : `${name} rolls: ${allowed.join(', ') || 'no affixes'}.`;
         fail('AFFIX_NOT_ALLOWED', i, `${label(i)} cannot carry a ${k} affix. ${where}`);
       }
+    }
+
+    if (rune.implicit !== undefined) {
+      const v = rune.implicit;
+      if (!isCastableRune(rune.id)) fail('IMPLICIT_RANGE', i, `${label(i)} has no implicit yet, so {${v}} means nothing on it.`);
+      else if (rune.id === 'split' ? !(Number.isInteger(v) && v >= SPLIT_EXTRA_RANGE.min && v <= SPLIT_EXTRA_RANGE.max) : !(v >= IMPLICIT_QUALITY_RANGE.min && v <= IMPLICIT_QUALITY_RANGE.max)) {
+        fail('IMPLICIT_RANGE', i, rune.id === 'split' ? `${label(i)} may make ${SPLIT_EXTRA_RANGE.min} to ${SPLIT_EXTRA_RANGE.max} extra copies, not ${v}.` : `${label(i)} has an implicit of ${v}%; implicits are ${IMPLICIT_QUALITY_RANGE.min} to ${IMPLICIT_QUALITY_RANGE.max}%.`);
+      }
+    }
+    for (const [low, high, what] of [
+      [rune.affixes.damage, rune.affixes.damageMax, 'damage'],
+      [rune.affixes.pierce, rune.affixes.pierceMax, 'pierce'],
+      [rune.affixes.count, rune.affixes.countMax, 'copies'],
+    ] as const) {
+      if (high !== undefined && !(high > (low ?? 0))) fail('RANGED_ROLL', i, `${label(i)} rolls ${what} from ${low ?? 0} to ${high}; the high end must be above the low.`);
     }
 
     if (!current && kind !== 'shape') {
@@ -335,8 +393,12 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       if (a.damage !== undefined) {
         // Matches the drop table (rune_damage never rolls on Aura or Bond): spirit does not price damage.
         if (isPersistentShape(shape)) fail('AFFIX_NOT_ALLOWED', i, `${label(i)} is persistent, so it cannot carry a damage affix.`);
-        else node.stats.damage += a.damage;
+        else {
+          node.stats.damage += a.damage;
+          node.stats.damageMax += Math.max(a.damage, a.damageMax ?? a.damage);
+        }
       }
+      node.stats.base = implicitOf(rune);
       for (const el of INFUSION_IDS) {
         const v = a[ADDED_KEYS[el]];
         if (v === undefined) continue;
@@ -346,8 +408,10 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         else node.stats.added[el] += v;
       }
       if (a.pierce !== undefined) {
-        if (PROJECTILE_SHAPES.includes(shape)) node.stats.pierce += a.pierce;
-        else fail('AFFIX_NOT_ALLOWED', i, `${label(i)} does not fly, so it cannot pierce.`);
+        if (PROJECTILE_SHAPES.includes(shape)) {
+          node.stats.pierce += a.pierce;
+          node.stats.pierceMax += Math.max(a.pierce, a.pierceMax ?? a.pierce);
+        } else fail('AFFIX_NOT_ALLOWED', i, `${label(i)} does not fly, so it cannot pierce.`);
       }
       if (a.homing !== undefined) {
         if (SHAPERS_FOR_SHAPE[shape].includes('homing')) node.stats.homing += a.homing;
@@ -372,11 +436,15 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       case 'lightning':
         // Doubled infusions stack for now (owner decision); each extra copy strengthens the element.
         target.infusions.push(rune.id);
+        target.infusionQuality.push(implicitOf(rune));
         break;
       case 'impact':
       case 'ward':
       case 'restore':
-        if (!target.effects.includes(rune.id)) target.effects.push(rune.id);
+        if (!target.effects.includes(rune.id)) {
+          target.effects.push(rune.id);
+          target.effectQuality[rune.id] = implicitOf(rune);
+        }
         break;
       case 'onhit':
       case 'onexpire':
@@ -384,8 +452,13 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       case 'timer':
       case 'pulse': {
         const kind = TRIGGER_RELEASE[rune.id];
+        // A Timer's or Pulse's implicit shortens the live default wait (a better roll waits less); a
+        // written number is used as written. The other triggers' implicit is their payload's damage.
+        const q = implicitOf(rune);
+        const timed = rune.id === 'timer' || rune.id === 'pulse';
         const fallback = rune.id === 'timer' ? SPELL.timerSeconds : rune.id === 'pulse' ? SPELL.pulseSeconds : 0;
-        setRelease(target, { kind, seconds: rune.affixes.seconds ?? fallback, runeIndex: i, source: 'rune' });
+        const seconds = rune.affixes.seconds ?? (timed && q > 0 ? Number(((fallback * 100) / q).toFixed(3)) : fallback);
+        setRelease(target, timed ? { kind, seconds, runeIndex: i, source: 'rune' } : { kind, seconds, runeIndex: i, source: 'rune', quality: q });
         break;
       }
       case 'swift':
@@ -399,7 +472,7 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
           break;
         }
         const effect = PLAIN_MODIFIER_EFFECT[rune.id];
-        target.stats[effect.key] += effect.value;
+        target.stats[effect.key] += (effect.value * implicitOf(rune)) / 100;
         break;
       }
       case 'concentrated': {
@@ -419,7 +492,9 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         }
         target.concentratedAt = i;
         target.stats.concentration = more;
-        target.stats.size += CONCENTRATED.sizePercent;
+        // A better focus gives up less size: the loss is divided by the implicit.
+        const focus = implicitOf(rune);
+        target.stats.size += focus > 0 ? (CONCENTRATED.sizePercent * 100) / focus : CONCENTRATED.sizePercent;
         break;
       }
       case 'split':
@@ -430,7 +505,8 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
       case 'chain':
       case 'stack':
       case 'charge': {
-        const use: ShaperUse = { id: rune.id, runeIndex: i, value: shaperValue(rune, rune.id) };
+        const value = shaperValue(rune, rune.id);
+        const use: ShaperUse = { id: rune.id, runeIndex: i, value, max: rune.id === 'split' ? splitMax(rune, value) : value };
         const toPayload =
           awaitingPayload(target) && (use.id === 'split' || (use.id === 'link' && pending.some((p) => p.id === 'split')));
         if (toPayload) pending.push(use);
@@ -446,8 +522,10 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
     return { ok: false, tree: null, errors, stats: EMPTY_STATS };
   }
 
-  const finish = (node: SpellNode, inherited: InfusionId[]): void => {
-    node.effectiveInfusions = node.infusions.length > 0 ? [...node.infusions] : [...inherited];
+  const finish = (node: SpellNode, inherited: InfusionId[], inheritedQuality: number[]): void => {
+    const own = node.infusions.length > 0;
+    node.effectiveInfusions = own ? [...node.infusions] : [...inherited];
+    node.effectiveQuality = own ? [...node.infusionQuality] : [...inheritedQuality];
     const shape = SHAPES[node.shape].name;
     if (node.release && node.payload.length === 0) {
       const i = node.release.runeIndex;
@@ -464,9 +542,9 @@ export function parseSpell(runes: readonly RuneInstance[], context: Partial<Gram
         `${shape} releases on release, but nothing is held: add Charge to it, or use a Beam.`,
       );
     }
-    for (const child of node.payload) finish(child, node.effectiveInfusions);
+    for (const child of node.payload) finish(child, node.effectiveInfusions, node.effectiveQuality);
   };
-  for (const root of roots) finish(root, []);
+  for (const root of roots) finish(root, [], []);
 
   const persistent = all.filter((n) => isPersistentShape(n.shape));
   if (persistent.length > 0 && all.length > 1) {

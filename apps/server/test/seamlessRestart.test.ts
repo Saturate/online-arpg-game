@@ -1,9 +1,9 @@
-import { chestKey, createGear, LOOT, markChestsOpened, openedChests, SIM, spawnBag, type Item, type ServerMessage, WILDS } from '@rune/shared';
+import { chestKey, createGear, createRolledRune, createRune, LOOT, neutralImplicit, Rng, markChestsOpened, openedChests, SIM, spawnBag, type Item, type ServerMessage, WILDS } from '@rune/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../src/accounts.js';
 import { RoomManager } from '../src/manager.js';
 import type { Room } from '../src/room.js';
-import { parseSnapshot, RESUME_WINDOW_MS } from '../src/sessionSnapshot.js';
+import { parseSnapshot, RESUME_WINDOW_MS, SNAPSHOT_FORMAT } from '../src/sessionSnapshot.js';
 import { FakeSocket } from './fakeSocket.js';
 
 type Welcome = Extract<ServerMessage, { t: 'welcome' }>;
@@ -522,6 +522,38 @@ describe('restart edge cases', () => {
     const { rooms: next } = reboot(store, owners, clock);
     const piles = [...(next.roomById(room.id)?.sim.world.loot.values() ?? [])];
     expect(piles.flatMap((l) => l.items).length).toBe(2);
+  });
+
+  it('gives ground runes from before implicits the neutral roll, keeping the snapshot format and every other item', async () => {
+    const { store, rooms, owners, clock, room, stood } = await onTheRoad();
+    // Runes on the ground as an older build left them: a plain stack and a sigil-less rolled rune.
+    const plain = createRune(room.sim.newItemUid(), 'fire', 4);
+    const rolled = createRolledRune(room.sim.newItemUid(), new Rng(2), 'rare', 9, 'bolt');
+    spawnBag(room.sim, stood.x - 100, stood.y, [plain, rolled], LOOT.bagRadius, null);
+    rooms.shutdown();
+    editSnapshot(store, (raw) => {
+      expect(raw.runeImplicits).toBe(1);
+      delete raw.runeImplicits;
+      raw.instances = rawInstances(raw).map((i) => ({
+        ...i,
+        loot: Array.isArray(i.loot)
+          ? i.loot.map((p: unknown) => {
+              if (typeof p !== 'object' || p === null || !('items' in p) || !Array.isArray(p.items)) return p;
+              return { ...p, items: p.items.map((it: unknown) => (typeof it === 'object' && it !== null && 'implicit' in it ? Object.fromEntries(Object.entries(it).filter(([k]) => k !== 'implicit')) : it)) };
+            })
+          : i.loot,
+      }));
+    });
+    // Same format: a deploy that brings implicits restores the ground instead of dropping it.
+    expect(SNAPSHOT_FORMAT).toBe(1);
+    const { rooms: next } = reboot(store, owners, clock);
+    const items = [...(next.roomById(room.id)?.sim.world.loot.values() ?? [])].flatMap((l) => l.items);
+    expect(items.length).toBe(4);
+    const runes = items.flatMap((i) => (i.kind === 'rune' ? [i] : []));
+    expect(runes.map((r) => r.count).sort()).toEqual([1, 4]);
+    for (const r of runes) expect(r.implicit, r.rune).toEqual(neutralImplicit(r.rune));
+    // Values other than the implicit stayed: the rolled rune keeps its affixes.
+    expect(runes.find((r) => r.rune === 'bolt')?.affixes).toEqual(rolled.affixes);
   });
 
   it('checks the memory of a copy whose world room was closed against the ground it opens on', async () => {

@@ -1,15 +1,15 @@
-import { HEAT, HOUND_PACK, LOOT, SIM, SPIRIT } from '../config/sim.js';
-import { AFFIXES, AFFIX_IDS, affixText, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
+import { HEAT, HOUND_PACK, LOOT, SIM, SPELL, SPIRIT } from '../config/sim.js';
+import { AFFIXES, AFFIX_IDS, affixText, IMPLICIT_NEUTRAL_TIER, implicitIdFor, type AffixId, type AffixTarget, type BehaviourAffixId } from '../data/affixes.js';
 import type { ClassId } from '../data/classes.js';
 import { formatNumber, GEAR_AFFIX_STATS, GEAR_BASES, gearBase, STAT_IDS, type GearCategory, type StatBlock, type StatId } from '../data/gear.js';
 import { MINION_DEFS, MINION_TYPE_IDS, type MinionTypeId } from '../data/minions.js';
 import { starterSigilById, type StarterSigilDef } from '../data/starterSigils.js';
 import { FORGE } from '../config/forge.js';
 import { clampRuneRolls, honestTier } from './runeRolls.js';
-import { affixesFor, CASTABLE_RUNES, runeKind, runeName, type AddedKey, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
+import { affixesFor, CASTABLE_RUNES, CONCENTRATED, PLAIN_MODIFIER_EFFECT, runeKind, runeName, type AddedKey, type AffixKey, type RuneAffixes, type RuneId, type RuneInstance } from '../runes/v2/runes.js';
 import type { Rng } from '../sim/rng.js';
 
-export { clampRoll, clampRuneRolls, honestTier, isNoStronger, kitRoll, rollLosses, sixTierRoll } from './runeRolls.js';
+export { clampRoll, clampRuneRolls, honestTier, isNoStronger, kitRoll, rollAverage, rollLosses, sixTierRoll } from './runeRolls.js';
 
 export const ITEM_TIERS = ['common', 'magic', 'rare', 'relic'] as const;
 export type ItemTier = (typeof ITEM_TIERS)[number];
@@ -38,6 +38,11 @@ export interface AffixRoll {
   id: AffixId;
   tier: number;
   value: number;
+  /**
+   * A ranged roll's high end ("+20 to 60% damage"): `value` is the low end and the server rolls
+   * inside the two on every cast. Only rune affixes with `ranged` in their table carry one.
+   */
+  max?: number;
 }
 
 export type ItemUid = number;
@@ -116,6 +121,12 @@ export interface RuneItem {
    * bench or a real forge, it is gone, so the bench never becomes a free supply of runes.
    */
   bench?: boolean;
+  /**
+   * The rune's implicit (docs/features/runes.md, "Implicits"): every castable rune carries one,
+   * rolled at drop. Saves from before implicits get the neutral roll once on load (the implicit
+   * pass); read it with runeImplicit, which gives that neutral roll for data not converted yet.
+   */
+  implicit?: AffixRoll;
 }
 
 export type Item = SigilItem | VesselItem | GearItem | RuneItem;
@@ -128,8 +139,62 @@ export function runeTier(rune: RuneId): ItemTier {
   return k === 'shape' || k === 'infusion' ? 'common' : k === 'effect' || k === 'modifier' ? 'magic' : 'rare';
 }
 
+/**
+ * A plain rune with the neutral implicit: what kit runes, bench runes and runes converted from
+ * older saves carry. Drops roll theirs (createPlainDrop, createRolledRune).
+ */
 export function createRune(uid: ItemUid, rune: RuneId, count = 1): RuneItem {
-  return { uid, kind: 'rune', tier: runeTier(rune), name: `${runeName(rune)} Rune`, ilvl: 1, rune, count, affixes: [] };
+  const item: RuneItem = { uid, kind: 'rune', tier: runeTier(rune), name: `${runeName(rune)} Rune`, ilvl: 1, rune, count, affixes: [] };
+  const implicit = neutralImplicit(rune);
+  if (implicit) item.implicit = implicit;
+  return item;
+}
+
+/** The roll every rune had before implicits: the middle of T4, so it casts exactly as it did. Null for a rune with no implicit. */
+export function neutralImplicit(rune: RuneId): AffixRoll | null {
+  const id = implicitIdFor(rune);
+  const value = id ? AFFIXES[id].neutral : undefined;
+  return id && value !== undefined ? { id, tier: IMPLICIT_NEUTRAL_TIER, value } : null;
+}
+
+/** A rune's implicit, or the neutral roll for one stored before implicits (not converted yet). */
+export function runeImplicit(item: RuneItem): AffixRoll | null {
+  return item.implicit ?? neutralImplicit(item.rune);
+}
+
+/** An implicit by what it does and what it is worth, so two plain runes stack only when theirs match. */
+export function implicitKey(item: RuneItem): string {
+  const i = runeImplicit(item);
+  return i ? `${i.id}:${i.tier}:${i.value}` : '';
+}
+
+/** Whether two rune items may share a stack: both plain, the same rune, binding and implicit. */
+export function stacksWith(a: RuneItem, b: RuneItem): boolean {
+  return isPlainRune(a) && isPlainRune(b) && a.rune === b.rune && (a.bound === true) === (b.bound === true) && implicitKey(a) === implicitKey(b);
+}
+
+/**
+ * An implicit rolled at drop. The tier is weighted among the tiers the item level unlocks; a rolled
+ * rune then rolls its value inside the tier, while a plain rune takes the tier's middle, so plain
+ * runes of one tier still stack (until runes stop stacking, docs/features/runes.md).
+ */
+export function rollImplicit(rng: Rng, rune: RuneId, ilvl: number, exact: boolean): AffixRoll | null {
+  const id = implicitIdFor(rune);
+  if (!id) return null;
+  const def = AFFIXES[id];
+  const tier = weightedPick(rng, def.tiers.flatMap((t, i) => (t.weight > 0 && (t.ilvl ?? 1) <= Math.max(1, ilvl) ? [{ item: i, weight: t.weight }] : []))) ?? 0;
+  const t = def.tiers[tier];
+  if (!t) return null;
+  const value = roundTo(exact ? rng.range(t.min, t.max) : (t.min + t.max) / 2, def.decimals ?? 0);
+  return { id, tier, value };
+}
+
+/** A plain rune as a monster drops it: its implicit's tier gated by the monster's level. */
+export function createPlainDrop(uid: ItemUid, rng: Rng, rune: RuneId, level: number): RuneItem {
+  const item = createRune(uid, rune);
+  const implicit = rollImplicit(rng, rune, level, false);
+  if (implicit) item.implicit = implicit;
+  return item;
 }
 
 export function isPlainRune(item: RuneItem): boolean {
@@ -195,7 +260,11 @@ export function createRolledRune(uid: ItemUid, rng: Rng, tier: ItemTier, ilvl: n
   // Rune affix tiers carry their own item-level gates; the drop's tier only caps how high they go.
   const affixes = rollAffixes(rng, 'rune', count, RUNE_AFFIX_TIER_CAP[tier], { rune: id, allow: (a) => runeMayCarry(id, a), ilvl: Math.max(1, ilvl) });
   const itemTier = ITEM_TIERS[Math.max(ITEM_TIERS.indexOf(tier), ITEM_TIERS.indexOf(runeTier(id)), 1)] ?? 'magic';
-  return { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
+  const item: RuneItem = { uid, kind: 'rune', tier: itemTier, name: nameFromAffixes(`${runeName(id)} Rune`, affixes), ilvl: Math.max(1, ilvl), rune: id, count: 1, affixes };
+  // Rolled after the affixes, so the affixes a seed gives did not move when implicits came in.
+  const implicit = rollImplicit(rng, id, item.ilvl, true);
+  if (implicit) item.implicit = implicit;
+  return item;
 }
 
 /**
@@ -206,6 +275,12 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
   const a: RuneAffixes = {};
   const add = (key: 'speed' | 'size' | 'duration' | 'damage' | 'pierce' | 'count' | 'concentration' | AddedKey, v: number): void => {
     a[key] = (a[key] ?? 0) + v;
+  };
+  // A ranged roll's high end: the grammar reads `damage` to `damageMax`, so the spread is kept apart
+  // and added to the low end once every roll is in.
+  const spread = { damage: 0, pierce: 0, count: 0 };
+  const addMax = (roll: AffixRoll, key: 'damage' | 'pierce' | 'count'): void => {
+    if (roll.max !== undefined && roll.max > roll.value) spread[key] += roll.max - roll.value;
   };
   for (const roll of item.affixes) {
     switch (roll.id) {
@@ -235,12 +310,15 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
         break;
       case 'rune_damage':
         add('damage', roll.value);
+        addMax(roll, 'damage');
         break;
       case 'rune_pierce':
         add('pierce', roll.value);
+        addMax(roll, 'pierce');
         break;
       case 'split_count':
         add('count', roll.value);
+        addMax(roll, 'count');
         break;
       case 'rune_concentrated':
         add('concentration', roll.value);
@@ -258,6 +336,12 @@ export function toRuneInstance(item: RuneItem): RuneInstance {
         break;
     }
   }
+  if (spread.damage > 0) a.damageMax = (a.damage ?? 0) + spread.damage;
+  if (spread.pierce > 0) a.pierceMax = (a.pierce ?? 0) + spread.pierce;
+  if (spread.count > 0) a.countMax = (a.count ?? 0) + spread.count;
+  const implicit = runeImplicit(item);
+  // The neutral roll is left out, so a rune from before implicits reads exactly as it did.
+  if (implicit && implicit.value !== AFFIXES[implicit.id].neutral) return { id: item.rune, affixes: a, implicit: implicit.value };
   return { id: item.rune, affixes: a };
 }
 
@@ -293,6 +377,7 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
       item.affixes.push({ id, tier: honestTier(id, value), value });
       continue;
     }
+    if (key === 'damageMax' || key === 'pierceMax' || key === 'countMax') continue;
     if (
       key !== 'speed' &&
       key !== 'size' &&
@@ -308,10 +393,25 @@ export function runeItemFromInstance(uid: ItemUid, rune: RuneInstance, bound: bo
       throw new Error(`${rune.id}: no rune affix sets ${key}`);
     }
     const v = a[key];
-    if (v !== undefined) item.affixes.push({ id: AFFIX_FOR_KEY[key], tier: honestTier(AFFIX_FOR_KEY[key], v), value: v });
+    if (v === undefined) continue;
+    const id = AFFIX_FOR_KEY[key];
+    const high = key === 'damage' ? a.damageMax : key === 'pierce' ? a.pierceMax : key === 'count' ? a.countMax : undefined;
+    // A ranged roll prices at the tier of its average, as Force does.
+    if (high !== undefined && high > v) item.affixes.push({ id, tier: honestTier(id, (v + high) / 2), value: v, max: high });
+    else item.affixes.push({ id, tier: honestTier(id, v), value: v });
+  }
+  if (rune.implicit !== undefined) {
+    const id = implicitIdFor(rune.id);
+    if (!id) throw new Error(`${rune.id}: this rune has no implicit`);
+    item.implicit = { id, tier: implicitTier(id, rune.implicit), value: rune.implicit };
   }
   if (bound) item.bound = true;
   return item;
+}
+
+/** The tier an implicit value counts as: the neutral roll is T4 even where lower tiers share it (Split's 0). */
+export function implicitTier(id: AffixId, value: number): number {
+  return value === AFFIXES[id].neutral ? IMPLICIT_NEUTRAL_TIER : honestTier(id, value);
 }
 
 /**
@@ -326,9 +426,13 @@ export function matchingStarter(item: SigilItem): StarterSigilDef | undefined {
   return def.runes.every((r, i) => item.slots[i]?.rune === r.id) ? def : undefined;
 }
 
-/** A rune by what it casts: its id and each roll's value, not the tier, uid or binding. */
+/**
+ * A rune by what it casts: its id, each roll's value (both ends of a ranged one) and its implicit's
+ * value, not the tiers, uid or binding. A rune from before implicits reads as the neutral roll.
+ */
 export function runeRecipeKey(item: RuneItem): string {
-  return `${item.rune}|${item.affixes.map((a) => `${a.id}:${a.value}`).sort().join(',')}`;
+  const implicit = runeImplicit(item);
+  return `${item.rune}|${item.affixes.map((a) => `${a.id}:${a.value}${a.max === undefined ? '' : `-${a.max}`}`).sort().join(',')}|${implicit ? implicit.value : ''}`;
 }
 
 /**
@@ -371,8 +475,13 @@ export function sigilMisfireMultiplier(item: SigilItem): number {
 export function reissueUids(item: Item, newUid: () => ItemUid): Item {
   const uid = newUid();
   // Affix arrays are copied too, so the copy shares nothing mutable with the item it came from.
-  if (item.kind === 'sigil') return { ...item, uid, affixes: [...item.affixes], slots: item.slots.map((r) => ({ ...r, uid: newUid(), affixes: [...r.affixes] })) };
+  if (item.kind === 'sigil') return { ...item, uid, affixes: [...item.affixes], slots: item.slots.map((r) => ({ ...copyRune(r), uid: newUid() })) };
+  if (item.kind === 'rune') return { ...copyRune(item), uid };
   return { ...item, uid, affixes: [...item.affixes] };
+}
+
+function copyRune(r: RuneItem): RuneItem {
+  return { ...r, affixes: r.affixes.map((a) => ({ ...a })), ...(r.implicit ? { implicit: { ...r.implicit } } : {}) };
 }
 
 /** Highest affix tier index unlocked by item level for three-tier affixes (gear, sigils, vessels): the middle from level 3, the best from 5. Rune affix tiers carry their own gates. */
@@ -440,11 +549,27 @@ export function rollAffixes(
     const def = AFFIXES[pick.id];
     const tierDef = def.tiers[pick.tier];
     if (!tierDef) break;
-    out.push({ id: pick.id, tier: pick.tier, value: roundTo(rng.range(tierDef.min, tierDef.max), def.decimals ?? 0) });
+    const value = roundTo(rng.range(tierDef.min, tierDef.max), def.decimals ?? 0);
+    out.push(def.ranged && rng.next() < def.ranged.share ? rangedRoll(pick.id, pick.tier, value) : { id: pick.id, tier: pick.tier, value });
     usedGroups.add(def.group);
     slotCounts[def.slot]++;
   }
   return out;
+}
+
+/**
+ * A ranged roll around a normal one: `spread` either side, kept inside the affix's limits. It keeps
+ * the tier of the roll it is centred on. A range with no room left (Split's 2 or 6) stays a number.
+ */
+function rangedRoll(id: AffixId, tier: number, centre: number): AffixRoll {
+  const def = AFFIXES[id];
+  const r = def.ranged;
+  if (!r) return { id, tier, value: centre };
+  // Symmetric about the roll it replaces, so its average (what Force and the price count) is that
+  // roll and sits in its tier; a limit narrows both sides alike.
+  const want = roundTo(r.absolute ? r.spread : centre * r.spread, def.decimals ?? 0);
+  const half = Math.min(want, centre - (r.min ?? -Infinity), (r.max ?? Infinity) - centre);
+  return half > 0 ? { id, tier, value: roundTo(centre - half, def.decimals ?? 0), max: roundTo(centre + half, def.decimals ?? 0) } : { id, tier, value: centre };
 }
 
 export function affixValue(affixes: readonly AffixRoll[], id: AffixId): number {
@@ -462,10 +587,53 @@ export function behaviourOf(affixes: readonly AffixRoll[]): BehaviourAffixId | n
   return null;
 }
 
+/** A roll's line: "+30% damage", and a ranged roll as "+20 to 60% damage". */
 export function formatAffix(a: AffixRoll): string {
   const def = AFFIXES[a.id];
   const n = formatNumber(a.value, def.decimals ?? 0);
-  return affixText(def, def.signed && a.value > 0 ? `+${n}` : n, formatNumber(a.value * (def.spread ?? 1), def.decimals ?? 0));
+  const low = def.signed && a.value > 0 ? `+${n}` : n;
+  const shown = a.max !== undefined && a.max > a.value ? `${low} to ${formatNumber(a.max, def.decimals ?? 0)}` : low;
+  return affixText(def, shown, formatNumber(a.value * (def.spread ?? 1), def.decimals ?? 0));
+}
+
+/**
+ * A rune's implicit line, with what it gives at the live base numbers: "104% base damage",
+ * "Releases after 0.48 s", "+31% speed". Null for a rune with no implicit.
+ */
+export function formatImplicit(item: RuneItem): string | null {
+  const i = runeImplicit(item);
+  if (!i) return null;
+  const v = i.value;
+  const pct = formatNumber(v, 0);
+  const seconds = (base: number): string => String(Number(((base * 100) / Math.max(1e-9, v)).toFixed(2)));
+  switch (i.id) {
+    case 'implicit_base':
+      return `${pct}% base damage`;
+    case 'implicit_aura':
+      return `${pct}% aura area`;
+    case 'implicit_bond':
+      return `${pct}% bond strength`;
+    case 'implicit_conversion':
+      return `Converts at ${pct}% to ${item.rune}`;
+    case 'implicit_split':
+      return v > 0 ? `Up to ${formatNumber(v, 0)} extra ${v === 1 ? 'copy' : 'copies'} on a cast` : 'No extra copies';
+    case 'implicit_fuse':
+      return `Releases after ${seconds(SPELL.timerSeconds)} s`;
+    case 'implicit_pulse':
+      return `Releases every ${seconds(SPELL.pulseSeconds)} s`;
+    case 'implicit_payload':
+      return `Its payload deals ${pct}% damage`;
+    case 'implicit_effect':
+      return `${pct}% ${item.rune === 'impact' ? 'knockback' : item.rune === 'ward' ? 'shield' : 'healing'}`;
+    case 'implicit_modifier': {
+      const effect = item.rune === 'swift' ? PLAIN_MODIFIER_EFFECT.swift : PLAIN_MODIFIER_EFFECT.large;
+      return `+${formatNumber((effect.value * v) / 100, 1)}% ${effect.key}`;
+    }
+    case 'implicit_focus':
+      return `${formatNumber((-CONCENTRATED.sizePercent * 100) / Math.max(1e-9, v), 1)}% less size`;
+    default:
+      return affixText(AFFIXES[i.id], pct, pct);
+  }
 }
 
 export function vesselSpirit(item: VesselItem): number {

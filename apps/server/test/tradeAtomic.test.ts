@@ -49,8 +49,9 @@ async function world() {
     ],
     runeFormat: 2,
     runeTiers: 6,
+    runeImplicits: 1,
   };
-  const stash: StashSave = { ...emptyStash(), items: [], runeFormat: 2, runeTiers: 6 };
+  const stash: StashSave = { ...emptyStash(), items: [], runeFormat: 2, runeTiers: 6, runeImplicits: 1 };
   store.saveCharacterAndStash(ch.id, save, acc.id, stash, market);
   return { file, store, raw: new DatabaseSync(file), accountId: acc.id, characterId: ch.id, witness, shelfSigil };
 }

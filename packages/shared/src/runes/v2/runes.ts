@@ -112,6 +112,13 @@ export interface RuneAffixes {
   addedFire?: number;
   addedCold?: number;
   addedLightning?: number;
+  /**
+   * Ranged rolls (docs/features/runes.md, "Ranged rolls"): the high end beside the low end in
+   * `damage`, `pierce` or `count`. The server rolls inside the two on every cast.
+   */
+  damageMax?: number;
+  pierceMax?: number;
+  countMax?: number;
 }
 export type AffixKey = keyof RuneAffixes;
 export const AFFIX_KEYS: readonly AffixKey[] = [
@@ -132,6 +139,9 @@ export const AFFIX_KEYS: readonly AffixKey[] = [
   'addedFire',
   'addedCold',
   'addedLightning',
+  'damageMax',
+  'pierceMax',
+  'countMax',
 ];
 
 /** The added-damage key of each element, and back. */
@@ -148,6 +158,17 @@ export const ADDED_DAMAGE_SPREAD = 2;
 export interface RuneInstance {
   id: RuneId;
   affixes: RuneAffixes;
+  /**
+   * The rune's implicit roll (docs/features/runes.md, "Implicits"): a percentage of what the rune
+   * does at its live base numbers (100 is the neutral roll), or for Split the extra copies it may
+   * make on a cast (0 neutral). Missing means the neutral roll.
+   */
+  implicit?: number;
+}
+
+/** The implicit a rune reads when it has none written: what every rune did before implicits. */
+export function neutralImplicitValue(id: RuneId): number {
+  return id === 'split' ? 0 : 100;
 }
 
 export interface ShapeDef {
@@ -257,10 +278,10 @@ export const TRIGGER_RELEASE: Record<TriggerId, ReleaseKind> = {
 
 /** Which affix keys each rune may carry. Anything else is an error. */
 export function affixesFor(id: RuneId): readonly AffixKey[] {
-  if (isShapeId(id)) return ['release', 'speed', 'size', 'duration', 'damage', 'pierce', 'bounce', 'homing', 'addedFire', 'addedCold', 'addedLightning'];
+  if (isShapeId(id)) return ['release', 'speed', 'size', 'duration', 'damage', 'pierce', 'bounce', 'homing', 'addedFire', 'addedCold', 'addedLightning', 'damageMax', 'pierceMax'];
   switch (id) {
     case 'split':
-      return ['count'];
+      return ['count', 'countMax'];
     case 'link':
       return ['damage'];
     case 'homing':

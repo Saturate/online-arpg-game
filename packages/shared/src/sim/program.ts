@@ -1,6 +1,7 @@
 import { SIM, SPELL } from '../config/sim.js';
 import type { EffectId, InfusionId } from '../runes/v2/runes.js';
 import type { AddedDamage } from './damage.js';
+import type { Rng } from './rng.js';
 
 /**
  * The engine contract: what `runes/v2/compile.ts` produces and what `sim/spells.ts` and
@@ -43,6 +44,66 @@ export interface SpellNode {
   areaScale: number;
   /** Per-node numbers from the rune's affixes, as multipliers of the form's base values. */
   tuning: SpellTuning;
+  /** The shape rune's implicit on its base damage range (1, the neutral roll, when missing). */
+  baseScale?: number;
+  /** Each element's share of the converted base, from its infusions' implicits (1 when missing). */
+  conversion?: Partial<Record<ElementId, number>>;
+  /** Strength of each effect (knockback, shield, heal) from its rune's implicit (1 when missing). */
+  effectPower?: Partial<Record<EffectId, number>>;
+  /**
+   * Ranged rolls the server rolls on every cast (rollCast). The node itself holds the fewest copies,
+   * the least pierce and the low end of the damage roll; a cast swaps in what it rolled.
+   */
+  perCast?: PerCastRolls;
+}
+
+export interface PerCastRolls {
+  /** The damage roll's percent, low and high. */
+  damage?: { min: number; max: number };
+  pierce?: { min: number; max: number };
+  /** Each ranged Split's copies, fewest and most; the node's copies and damage are built at the fewest. */
+  splits: { min: number; max: number }[];
+}
+
+export function effectPower(node: SpellNode, effect: EffectId): number {
+  return node.effectPower?.[effect] ?? 1;
+}
+
+/**
+ * The program one cast runs: every ranged roll rolled once, from `rng` (the sim's cast stream), for
+ * the whole cast, payloads included. Copies and the split conservation follow the copies rolled
+ * (each copy keeps efficiency / n of the damage), and the damage roll its percent. A program with
+ * no ranged roll comes back as it is and draws nothing, so kits and fixed rolls cast as before.
+ * `mean` (the balance harness) takes the damage roll's average; copies and pierce still roll.
+ */
+export function rollCast(program: SpellProgram, rng: Rng, mean = false): SpellProgram {
+  if (!program.roots.some(hasPerCast)) return program;
+  return { ...program, roots: program.roots.map((r) => rollNode(r, rng, mean)) };
+}
+
+function hasPerCast(node: SpellNode): boolean {
+  return node.perCast !== undefined || node.payload.some(hasPerCast);
+}
+
+function rollNode(node: SpellNode, rng: Rng, mean: boolean): SpellNode {
+  const payload = node.payload.some(hasPerCast) ? node.payload.map((c) => rollNode(c, rng, mean)) : node.payload;
+  const pc = node.perCast;
+  if (!pc) return payload === node.payload ? node : { ...node, payload };
+  let copies = node.copies;
+  let damageScale = node.damageScale;
+  for (const s of pc.splits) {
+    const n = rng.int(s.min, s.max);
+    copies = Math.round((copies / s.min) * n);
+    damageScale = (damageScale * s.min) / n;
+  }
+  let tuning = node.tuning;
+  if (pc.damage) {
+    const d = mean ? (pc.damage.min + pc.damage.max) / 2 : pc.damage.min + (pc.damage.max - pc.damage.min) * rng.next();
+    tuning = { ...tuning, damage: (tuning.damage * affixMultiplier(d)) / affixMultiplier(pc.damage.min) };
+  }
+  const pierce = pc.pierce ? rng.int(pc.pierce.min, pc.pierce.max) : node.pierce;
+  const { perCast: _rolled, ...rest } = node;
+  return { ...rest, copies, damageScale, tuning, pierce, payload };
 }
 
 export interface SpellTuning {

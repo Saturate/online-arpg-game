@@ -21,6 +21,7 @@ import {
   parseTunableValues,
   resetTunables,
   Rng,
+  rollAverage,
   rollLosses,
   RUNE_AFFIX_TIERS,
   sellPrice,
@@ -95,8 +96,10 @@ describe('rune affix tiers', () => {
   it('every drop roll lies inside the tier it carries', () => {
     for (const r of rolledRunes(5, 3000)) {
       for (const a of r.affixes) {
+        // A ranged roll is centred on a roll of its tier: its average lies in the tier.
         const t = AFFIXES[a.id].tiers[a.tier];
-        expect(t && a.value >= t.min && a.value <= t.max, `${a.id} ${a.tier} ${a.value}`).toBe(true);
+        const v = rollAverage(a);
+        expect(t && v >= t.min && v <= t.max, `${a.id} ${a.tier} ${a.value} to ${a.max ?? a.value}`).toBe(true);
       }
     }
   });
@@ -259,7 +262,7 @@ describe('affix ranges in live tuning', () => {
     const rng = new Rng(3);
     const fresh = Array.from({ length: 300 }, (_, i) => createRolledRune(i, rng, 'magic', 1, 'orb')).flatMap((r) => r.affixes.filter((a) => a.id === 'rune_damage'));
     expect(fresh.length).toBeGreaterThan(10);
-    expect(fresh.every((a) => a.value === 30)).toBe(true);
+    expect(fresh.every((a) => rollAverage(a) === 30)).toBe(true);
     const sigils = Array.from({ length: 300 }, (_, i) => createSigil(i, new Rng(i), 'magic', { ilvl: 1 })).flatMap((s) => s.affixes.filter((a) => a.id === 'damage_increased'));
     expect(sigils.length).toBeGreaterThan(5);
     expect(sigils.every((a) => a.value === 30)).toBe(true);

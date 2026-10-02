@@ -2,7 +2,7 @@ import { FORGE } from '../config/forge.js';
 import { LOOT } from '../config/sim.js';
 import type { Rng } from '../sim/rng.js';
 import { STARTER_SIGILS, createStarterSigil } from '../data/starterSigils.js';
-import { createGear, createRolledRune, createRune, dropsRolled, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
+import { createGear, createPlainDrop, createRolledRune, dropsRolled, createSigil, createVessel, rollRune, rollTier, type Item, type ItemTier, type ItemUid, type SigilItem } from './items.js';
 
 /**
  * The monster drop roll without the Simulation around it. The game's `dropLoot` and the loot
@@ -66,7 +66,8 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
     const tier = rollTier(rng, weights);
     const roll = rng.next();
     // Runes first, then the rest split as before. A plain rune's rarity comes from the rune; a rolled
-    // one takes its affix count from the drop tier and its affix tiers from the monster level.
+    // one takes its affix count from the drop tier and its affix tiers from the monster level. Both
+    // roll their implicit's tier by the monster level.
     if (roll < tuning.runeShare) {
       const rolled = rng.next() < (tuning.rolledRuneShare ?? FORGE.rolledRuneShare);
       if (rolled) {
@@ -74,7 +75,7 @@ export function rollDrops(rng: Rng, newUid: () => ItemUid, src: DropSource, tuni
         continue;
       }
       const rune = rollRune(rng);
-      items.push(dropsRolled(rune) ? createRolledRune(newUid(), rng, tier, src.level, rune) : createRune(newUid(), rune));
+      items.push(dropsRolled(rune) ? createRolledRune(newUid(), rng, tier, src.level, rune) : createPlainDrop(newUid(), rng, rune, src.level));
       continue;
     }
     const rest = (roll - tuning.runeShare) / (1 - tuning.runeShare);

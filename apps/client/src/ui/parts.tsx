@@ -5,6 +5,7 @@ import {
   describeTree,
   affixTierLabel,
   formatAffix,
+  formatImplicit,
   isCastableRune,
   MINION_DEFS,
   gearBase,
@@ -14,6 +15,7 @@ import {
   runeDescription,
   runeKind,
   runeGlyph,
+  runeImplicit,
   runeName,
   RUNE_STACK,
   sigilCapacity,
@@ -35,13 +37,18 @@ import { tip } from './Tip.js';
 import { formatCooldown } from '../game/castTiming.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 import { useTunables } from '../game/tunables.js';
-import { addedType, damageClass, DamageLines, ShapeImplicit } from './DamageLines.js';
+import { addedType, damageClass, DamageLines, RuneImplicit } from './DamageLines.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
   const kind = runeKind(id);
   const style: CSSProperties & Record<'--rune', string> = { '--rune': cssColor(runeColor(id)) };
-  const rolls = item?.affixes.map((a) => `${formatAffix(a)} ${affixTierLabel(a.id, a.tier)}`) ?? [];
+  const implicit = item ? runeImplicit(item) : null;
+  const implicitLine = item ? formatImplicit(item) : null;
+  const rolls = [
+    ...(implicit && implicitLine !== null ? [`${implicitLine} ${affixTierLabel(implicit.id, implicit.tier)}`] : []),
+    ...(item?.affixes.map((a) => `${formatAffix(a)} ${affixTierLabel(a.id, a.tier)}`) ?? []),
+  ];
   return (
     <span
       className={`rune-chip cat-${kind === 'shape' ? 'form' : kind}${small ? ' small' : ''}`}
@@ -193,7 +200,7 @@ function RuneDetails({ item }: { item: RuneItem }) {
   return (
     <div className="item-details">
       <Head item={item} sub={`${KIND_NAMES[runeKind(item.rune)]} rune${rolled ? ', rolled' : ''}`} />
-      <ShapeImplicit rune={item.rune} />
+      <RuneImplicit item={item} />
       <p className="tt-sec tt-lore">{runeDescription(item.rune)}</p>
       {rolled && <RuneAffixLines item={item} />}
       <section className="tt-sec">

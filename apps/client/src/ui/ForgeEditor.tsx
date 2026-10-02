@@ -1,8 +1,10 @@
 import {
+  affixTierLabel,
   bracketTree,
   describeTree,
   forgeInsertPrice,
   formatAffix,
+  formatImplicit,
   HEAT,
   matchingStarter,
   RULES,
@@ -271,7 +273,7 @@ export function ForgeEditor() {
   const refForKey = (key: string): RuneRef | null => {
     if (!sigil || !pool) return null;
     if (key.startsWith('plain:')) {
-      const entry = pool.plain.find((p) => `plain:${p.rune}` === key);
+      const entry = pool.plain.find((p) => `plain:${p.key}` === key);
       return entry ? plainRef(sigil, draft, entry) : null;
     }
     return pool.rolled.find((r) => refKey(r.ref) === key)?.ref ?? null;
@@ -480,7 +482,7 @@ export function ForgeEditor() {
               <h4>Plain</h4>
               <ul className="forge-list">
                 {plainShown.map((p) => (
-                  <PlainRow key={p.rune} entry={p} disabled={locked || full} onAdd={() => sigil && add(plainRef(sigil, draft, p))} onDrag={(e) => startDrag(e, { kind: 'pool', key: `plain:${p.rune}` })} />
+                  <PlainRow key={p.key} entry={p} disabled={locked || full} onAdd={() => sigil && add(plainRef(sigil, draft, p))} onDrag={(e) => startDrag(e, { kind: 'pool', key: `plain:${p.key}` })} />
                 ))}
               </ul>
             </>
@@ -508,7 +510,8 @@ export function ForgeEditor() {
  */
 function PlainRow({ entry, disabled, onAdd, onDrag }: { entry: PlainEntry; disabled: boolean; onAdd: () => void; onDrag: (e: DragEvent) => void }) {
   const count = entry.loose + entry.bag + entry.stash;
-  const sample: RuneItem = { uid: -1, kind: 'rune', tier: 'common', name: `${runeName(entry.rune)} Rune`, ilvl: 1, rune: entry.rune, count: 1, affixes: [] };
+  const sample: RuneItem = { uid: -1, kind: 'rune', tier: 'common', name: `${runeName(entry.rune)} Rune`, ilvl: 1, rune: entry.rune, count: 1, affixes: [], ...(entry.implicit ? { implicit: entry.implicit } : {}) };
+  const implicitLine = formatImplicit(sample);
   const hint = entry.loose > 0 ? 'Click to put it back (free)' : entry.bag > 0 ? 'Click to add from your bag' : 'Click to add from the stash';
   return (
     <li>
@@ -529,6 +532,11 @@ function PlainRow({ entry, disabled, onAdd, onDrag }: { entry: PlainEntry; disab
         <Glyph id={entry.rune} />
         <span className="forge-rune-text">
           <span className="forge-rune-name">{runeName(entry.rune)}</span>
+          {implicitLine !== null && entry.implicit && (
+            <span className="forge-rune-implicit">
+              {implicitLine} {affixTierLabel(entry.implicit.id, entry.implicit.tier)}
+            </span>
+          )}
           <span className="forge-rune-desc">{runeDescription(entry.rune)}</span>
         </span>
         <span className="forge-rune-count">

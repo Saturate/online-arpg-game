@@ -1,5 +1,5 @@
 import { FORGE } from '../config/forge.js';
-import { isBound, type Item, type ItemTier, type RuneItem } from './items.js';
+import { isBound, runeImplicit, type Item, type ItemTier, type RuneItem } from './items.js';
 
 export { FORGE } from '../config/forge.js';
 
@@ -22,9 +22,11 @@ function baseValue(item: Item): number {
   return Math.max(1, Math.round(TIER_VALUE[item.tier] * (1 + 0.12 * (item.ilvl - 1))));
 }
 
-/** One rune of this item, bound or not: plain runes by tier, rolled ones plus each affix by its tier. */
+/** One rune of this item, bound or not: its tier, its implicit's tier, and each affix by its tier. */
 function runeValue(rune: RuneItem): number {
   let v = baseValue(rune);
+  const implicit = runeImplicit(rune);
+  if (implicit) v += FORGE.runeImplicitValue[implicit.tier] ?? FORGE.runeImplicitValue[FORGE.runeImplicitValue.length - 1] ?? 0;
   for (const a of rune.affixes) v += FORGE.runeAffixValue[a.tier] ?? FORGE.runeAffixValue[FORGE.runeAffixValue.length - 1] ?? 0;
   return v;
 }

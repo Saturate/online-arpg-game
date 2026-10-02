@@ -58,14 +58,16 @@ export interface PlayerSave {
   runeFormat: 2;
   /** Rune affix rolls count six tiers (2026-10-01). Required on what is written; see StoredPlayerSave for what is read. */
   runeTiers: 6;
+  /** Runes carry implicits (2026-10-02). Required on what is written; a save without it goes through the implicit pass once. */
+  runeImplicits: 1;
   /** Waypoints hold world ids. A save without it lists the old zones' ids and is converted before it is read. */
   worldFormat: 1;
   /** Gates this character has opened (`sim/gates.ts`). A save from before gate bosses has none. */
   gates?: string[];
 }
 
-/** A character save as read from storage, before the one-time rune roll pass: it may predate the six tiers. */
-export type StoredPlayerSave = Omit<PlayerSave, 'runeTiers'> & { runeTiers?: 6 };
+/** A character save as read from storage, before the one-time passes: it may predate the six tiers and implicits. */
+export type StoredPlayerSave = Omit<PlayerSave, 'runeTiers' | 'runeImplicits'> & { runeTiers?: 6; runeImplicits?: 1 };
 
 export interface PortalRequest {
   playerId: EntityId;
@@ -129,7 +131,7 @@ export class Simulation {
   readonly world = new World();
   readonly rng: Rng;
   /** Per-system random streams; see `Rng.stream`. */
-  readonly rand: { loot: Rng; combat: Rng; world: Rng; damage: Rng };
+  readonly rand: { loot: Rng; combat: Rng; world: Rng; damage: Rng; cast: Rng };
   /** Sees every hit `dealDamage` lands, with its packet; tests and tools set it, the game never does. */
   damageTap: ((hit: DamageRecord) => void) | null = null;
   /** Spell hits deal each range's mean instead of a roll: the bench and balance harness, never the game. */
@@ -181,7 +183,7 @@ export class Simulation {
     this.rates = { ...rates };
     this.rules = { bench: mapDesc.kind === 'flat', waves: true, ...rules };
     this.rng = new Rng(seed);
-    this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world'), damage: Rng.stream(seed, 'damage') };
+    this.rand = { loot: Rng.stream(seed, 'loot'), combat: Rng.stream(seed, 'combat'), world: Rng.stream(seed, 'world'), damage: Rng.stream(seed, 'damage'), cast: Rng.stream(seed, 'cast') };
     this.mapDesc = mapDesc;
     const loaded = loadMap(mapDesc);
     this.map = loaded.game;
@@ -298,6 +300,7 @@ export class Simulation {
       gold: p.gold,
       runeFormat: 2,
       runeTiers: 6,
+      runeImplicits: 1,
       worldFormat: 1,
       gates: [...p.gates],
     };

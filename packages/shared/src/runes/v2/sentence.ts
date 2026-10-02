@@ -43,23 +43,29 @@ function descriptors(node: SpellNode, long: boolean): string[] {
   return out;
 }
 
-/** "a slow cold orb", "6 homing orbs". Inherited infusions stay implied, as in the plan's example. */
+/** "2" or, for a roll made on every cast, "2 to 4". */
+function span(low: number, high: number): string {
+  return high > low ? `${low} to ${high}` : `${low}`;
+}
+
+/** "a slow cold orb", "6 homing orbs", "2 to 4 bolts". Inherited infusions stay implied, as in the plan's example. */
 function nounPhrase(node: SpellNode): string {
   const def = SHAPES[node.shape];
   const adjectives = [...descriptors(node, true)];
   if (shaperValue(node, 'charge') !== null) adjectives.unshift('charged');
   adjectives.push(...node.infusions);
   if (node.stats.homing > 0 || shaperValue(node, 'homing') !== null) adjectives.push('homing');
-  const noun = node.copies > 1 ? def.plural : def.noun;
+  const plural = node.copiesMax > 1;
+  const noun = plural ? def.plural : def.noun;
   const words = [...adjectives, noun].join(' ');
-  const head = node.copies > 1 ? `${node.copies} ${words}` : `${/^[aeiou]/.test(words) ? 'an' : 'a'} ${words}`;
+  const head = plural ? `${span(node.copies, node.copiesMax)} ${words}` : `${/^[aeiou]/.test(words) ? 'an' : 'a'} ${words}`;
 
   const clauses: string[] = [];
-  const plural = node.copies > 1;
   if (node.linked) clauses.push('linked by beams');
   if (shaperValue(node, 'orbit') !== null) clauses.push(node.depth === 0 ? 'circling you' : 'circling where they were released');
   const pierce = node.stats.pierce;
-  if (pierce > 0) clauses.push(`piercing ${pierce} ${pierce === 1 ? 'enemy' : 'enemies'}`);
+  const pierceMax = node.stats.pierceMax;
+  if (pierceMax > 0) clauses.push(`piercing ${span(pierce, pierceMax)} ${pierceMax === 1 ? 'enemy' : 'enemies'}`);
   const bounce = node.stats.bounce + (shaperValue(node, 'bounce') ?? 0);
   if (bounce > 0) clauses.push(`bouncing ${bounce} ${bounce === 1 ? 'time' : 'times'}`);
   const chain = shaperValue(node, 'chain');
@@ -67,10 +73,17 @@ function nounPhrase(node: SpellNode): string {
   const stack = shaperValue(node, 'stack');
   if (stack !== null) clauses.push(`stacking up to ${stack} before merging`);
   for (const e of node.effects) clauses.push(`that ${plural ? EFFECT_CLAUSE[e].many : EFFECT_CLAUSE[e].one}`);
-  if (node.stats.damage !== 0) clauses.push(`with ${node.stats.damage > 0 ? '+' : ''}${node.stats.damage}% damage`);
+  if (node.stats.damage !== 0 || node.stats.damageMax !== 0) clauses.push(`with ${damageWords(node)} damage`);
   const more = morePercent(node);
   if (more > 0) clauses.push(`concentrated for ${more}% more damage`);
   return clauses.length ? `${head}, ${joinAnd(clauses)}` : head;
+}
+
+/** "+30%", or a damage roll made on every cast, "+20 to 60%". */
+function damageWords(node: SpellNode): string {
+  const { damage, damageMax } = node.stats;
+  const sign = damage > 0 ? '+' : '';
+  return damageMax > damage ? `${sign}${damage} to ${damageMax}%` : `${sign}${damage}%`;
 }
 
 function verbPhrase(node: SpellNode): string {
@@ -79,7 +92,7 @@ function verbPhrase(node: SpellNode): string {
 }
 
 function whenPhrase(node: SpellNode, release: NodeRelease): string {
-  const they = node.copies > 1;
+  const they = node.copiesMax > 1;
   switch (release.kind) {
     case 'onhit':
       return node.shape === 'trap' ? 'When triggered' : 'On hit';
@@ -115,7 +128,7 @@ function damageSentence(node: SpellNode, named: boolean): string | null {
   const d = parsedShapeDamage(node);
   if (!d) return null;
   const def = SHAPES[node.shape];
-  const subject = named ? (node.copies > 1 ? `Each ${def.noun} deals` : `The ${def.noun} deals`) : node.copies > 1 ? 'Each deals' : 'Deals';
+  const subject = named ? (node.copiesMax > 1 ? `Each ${def.noun} deals` : `The ${def.noun} deals`) : node.copiesMax > 1 ? 'Each deals' : 'Deals';
   return `${subject} ${formatDamageParts(d.parts)}${cadenceWords(d)}.`;
 }
 
@@ -128,7 +141,7 @@ function pushDamage(group: readonly SpellNode[], named: boolean, out: string[]):
 
 function describeRelease(node: SpellNode, inGroup: boolean, out: string[]): void {
   if (!node.release || node.payload.length === 0) return;
-  const subject = node.copies > 1 ? 'each' : 'it';
+  const subject = node.copiesMax > 1 ? 'each' : 'it';
   const prefix = inGroup ? `The ${SHAPES[node.shape].noun}: ` : '';
   const when = whenPhrase(node, node.release);
   out.push(`${prefix}${prefix ? when.toLowerCase() : when} ${subject} releases ${groupNouns(node.payload)}.`);
@@ -194,9 +207,9 @@ function nodeTags(node: SpellNode): string[] {
   }
   const st = node.stats;
   if (st.homing > 0 && !node.shapers.some((s) => s.id === 'homing')) tags.push(st.homing > 1 ? `homing${st.homing}` : 'homing');
-  if (st.pierce > 0) tags.push(`pierce${st.pierce}`);
+  if (st.pierceMax > 0) tags.push(st.pierceMax > st.pierce ? `pierce${st.pierce}-${st.pierceMax}` : `pierce${st.pierce}`);
   if (st.bounce > 0) tags.push(`bounce${st.bounce}`);
-  if (st.damage !== 0) tags.push(`${st.damage > 0 ? '+' : ''}${st.damage}% damage`);
+  if (st.damage !== 0 || st.damageMax !== 0) tags.push(`${damageWords(node)} damage`);
   const more = morePercent(node);
   if (more > 0) tags.push(`${more}% more damage`);
   return tags;
@@ -204,7 +217,7 @@ function nodeTags(node: SpellNode): string[] {
 
 function bracketNode(node: SpellNode): string {
   const tags = nodeTags(node);
-  let s = `${node.copies > 1 ? `Split${node.copies} ` : ''}${SHAPES[node.shape].name}${tags.length ? `[${tags.join(', ')}]` : ''}`;
+  let s = `${node.copiesMax > 1 ? `Split${node.copiesMax > node.copies ? `${node.copies}-${node.copiesMax}` : node.copies} ` : ''}${SHAPES[node.shape].name}${tags.length ? `[${tags.join(', ')}]` : ''}`;
   if (node.release) {
     const inner = node.payload.length ? bracketGroup(node.payload) : '?';
     s += ` { ${releaseTag(node.release)}: ${inner} }`;
