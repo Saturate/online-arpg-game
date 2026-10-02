@@ -17,6 +17,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { AccountStore } from '../apps/server/src/accounts.js';
 import { convertCharacterSave, convertWorldWaypoints, isGateId, isRuneFormat2, isWaypointId, isWorldFormat1, isZoneId, WORLD_WAYPOINT_IDS, ZONE_WAYPOINT } from '../packages/shared/src/index.js';
 
+/** Fields the rune passes rewrite on load; runes:convert-check checks those, and every item-format marker is named `rune...`. */
+const RUNE_CHECK_OWNS = new Set(['items', 'inventory']);
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -114,7 +117,7 @@ function main(): void {
         if (changed.length > 0) console.log(`  normalised by the existing load path (not this conversion): ${changed.join(', ')}`);
         // The rune roll pass rewrites items, bag cells and the tier marker on the same load; runes:convert-check owns
         // those changes and checks their conservation, so this check leaves them to it.
-        check(problems, changed.every((k) => k === 'stash' || k === 'gold' || k === 'level' || k === 'xp' || k === 'items' || k === 'inventory' || k === 'runeTiers'), `fields changed: ${changed.join(', ')}`);
+        check(problems, changed.every((k) => k === 'stash' || k === 'gold' || k === 'level' || k === 'xp' || RUNE_CHECK_OWNS.has(k) || k.startsWith('rune')), `fields changed: ${changed.join(', ')}`);
       }
 
       // Written back and loaded again, a converted save is read as it is.
