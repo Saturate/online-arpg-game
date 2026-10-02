@@ -140,6 +140,8 @@ export interface AdminHooks extends TuningHooks, TunablesHooks {
   settings(): ServerSettings;
   updateSettings(patch: Partial<ServerSettings>): ServerSettings;
   announce(text: string): number;
+  /** Warns everyone online that a restart for an update comes in `seconds`; returns how many it reached. */
+  restartCountdown(seconds: number): number;
   kickCharacter(characterId: number): boolean;
   kickAccount(accountId: number): void;
   /** The live town, for `pnpm town:pull`. Every player is sent it on entering town, so it is public. */
@@ -631,6 +633,16 @@ export class AccountApi {
       if (!text) throw new HttpError(400, 'Announcement text is required');
       log(`announce "${text}"`);
       return [200, { reached: this.admin.announce(text) }];
+    }
+    if (method === 'POST' && path === '/api/admin/restart-countdown') {
+      need('announce');
+      const body = await readJson(req);
+      const raw = isRecord(body) ? body.seconds : undefined;
+      // A warning only; the deploy restarts the server. Ten minutes is as far ahead as anyone plans one.
+      const seconds = raw === undefined ? 60 : raw;
+      if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 10 || seconds > 600) throw new HttpError(400, 'seconds must be a whole number from 10 to 600');
+      log(`restart countdown ${seconds} s`);
+      return [200, { reached: this.admin.restartCountdown(seconds) }];
     }
     if (method === 'POST' && path === '/api/admin/kick') {
       need('kick');

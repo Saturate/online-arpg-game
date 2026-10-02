@@ -481,6 +481,11 @@ export type ServerMessage =
   | InscribeReply
   /** A big centre-screen announcement, like a cleared dungeon. */
   | { t: 'banner'; title: string; text: string }
+  /**
+   * The server restarts for an update: in `seconds` (the admin's countdown), or 0 when it is going
+   * down now and the client should wait for it to come back (docs/features/seamless-restart.md).
+   */
+  | { t: 'restart'; seconds: number }
   /** The server refused or ended the session; the socket closes right after. */
   | { t: 'sessionEnded'; reason: string }
   | { t: 'pong'; clientTime: number };

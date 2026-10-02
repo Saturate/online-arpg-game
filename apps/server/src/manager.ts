@@ -26,6 +26,8 @@ import {
   GATES,
   rememberWorld,
   restoreWorld,
+  groundPiles,
+  restoreGroundPile,
   setRespawnTimes,
   TOWN_WAYPOINT,
   waypointArrival,
@@ -85,6 +87,7 @@ import { rollBackTrade, snapshotForTrade, type TradeSnapshot } from './tradeRoll
 import { Staging, type StagingTarget } from './staging.js';
 import { roomTiming, serverStats } from './tickStats.js';
 import { loadTownLayout, saveTownLayout } from './townStore.js';
+import { parseSnapshot, RESUME_WINDOW_MS, SNAPSHOT_FORMAT, type SessionSnapshot, type SnapshotInstance, type SnapshotPlace, type SnapshotPlayer } from './sessionSnapshot.js';
 
 const startedAt = Date.now();
 const TOWN_SAVE_COOLDOWN_MS = 3000;
@@ -135,9 +138,14 @@ interface Instance {
   /**
    * What the world room kept when it last closed or was rebuilt (`rememberWorld`): dead bosses'
    * timers and opened chests, so a room reopened after standing empty does not hand them out again.
-   * In memory only; a restart starts every copy fresh.
+   * Kept across a restart by the session snapshot (sessionSnapshot.ts).
    */
   memory: WorldMemory | null;
+  /**
+   * Until when (clock ms) the copy and its world room stay open with nobody inside: a copy restored
+   * from the session snapshot waits for its players to come back. 0 for every other copy.
+   */
+  heldUntil: number;
   /**
    * The generation numbers the copy was made with (off the code defaults), fixed for its life so the
    * world never changes under its players; only a forced rebuild or a reroll gives it others. The
@@ -198,6 +206,8 @@ export class RoomManager implements AdminHooks {
     private readonly store: AccountStore,
     /** Lower-cased owner usernames from ADMIN_USERS. */
     private readonly owners: ReadonlySet<string> = new Set(),
+    /** Wall clock in ms; tests move it to step through the reconnect window. */
+    private readonly clock: () => number = Date.now,
   ) {
     this.seedCounter = seed;
     this.current = store.loadSettings();
@@ -561,7 +571,7 @@ export class RoomManager implements AdminHooks {
   // -------------------------------------------------------------------------------------------
 
   private newInstance(kind: Instance['kind'], seed: number, name: string, partyId: string | null, gen: WorldGenValues): Instance {
-    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId, memory: null, gen };
+    const inst: Instance = { id: `i${this.nextInstanceId++}`, seed, kind, name, rooms: new Set(), partyId, memory: null, gen, heldUntil: 0 };
     this.instances.set(inst.id, inst);
     return inst;
   }
@@ -699,6 +709,7 @@ export class RoomManager implements AdminHooks {
     }
     for (const run of [...this.arenaRuns.values()]) this.tickArena(run);
     this.tickChannels();
+    this.tickRestart();
     if (++this.ticksSinceStatus >= PARTY_STATUS_TICKS) {
       this.ticksSinceStatus = 0;
       for (const party of this.parties.values()) this.sendPartyStatus(party);
@@ -707,6 +718,7 @@ export class RoomManager implements AdminHooks {
       // A public copy on the current seed is kept, empty, for its memory: deleting it would let the
       // next player open a fresh copy of the same world with every boss and chest back.
       if (inst.kind === 'public' && inst.seed === this.current.worldSeed) continue;
+      if (inst.heldUntil > this.clock()) continue;
       if (inst.rooms.size === 0 && this.membersOf(inst).length === 0) {
         this.instances.delete(inst.id);
         const party = inst.partyId === null ? undefined : this.parties.get(inst.partyId);
@@ -728,6 +740,9 @@ export class RoomManager implements AdminHooks {
     const run = this.arenaRuns.get(room.id);
     if (run) return run.finished;
     if (room.emptySeconds <= WILDS.idleCloseSeconds) return false;
+    // A restored world room keeps its ground loot for the players coming back to it.
+    const inst = room.instanceId === null ? undefined : this.instances.get(room.instanceId);
+    if (inst && inst.heldUntil > this.clock() && room.id === this.worldRoomId(inst)) return false;
     return room.desc.kind !== 'staging' || this.stagings.get(room.id)?.runRoomId === null;
   }
 
@@ -825,7 +840,13 @@ export class RoomManager implements AdminHooks {
     this.clients.set(client.id, client);
     socket.on('message', (data, isBinary) => this.onMessage(client, data, isBinary));
     socket.on('close', () => {
+      // After the shutdown's write nothing may be saved again: the saves and the snapshot are one moment.
+      if (this.shuttingDown) {
+        this.clients.delete(client.id);
+        return;
+      }
       if (client.characterId !== null) this.leaves++;
+      this.keepResume(client);
       this.channels.delete(client.id);
       const room = client.room;
       if (room) this.persist(client, room.remove(client));
@@ -839,6 +860,7 @@ export class RoomManager implements AdminHooks {
   }
 
   private onMessage(client: Client, data: unknown, isBinary: boolean): void {
+    if (this.shuttingDown) return;
     serverStats.messagesIn++;
     const now = performance.now();
     if (now - client.messageWindowStart >= 1000) {
@@ -1820,7 +1842,9 @@ export class RoomManager implements AdminHooks {
     const party = this.partyOf(account.id);
     if (party) party.members.set(account.id, character.name);
     const partyWorld = party ? this.partyInstance(party) : null;
-    const inst = partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance();
+    // Online at the last shutdown and back inside the window: the same copy, where they stood.
+    const resumed = this.resumeFor(character.id, account.id, party);
+    const inst = resumed?.inst ?? (partyWorld && this.membersOf(partyWorld).length < INSTANCE_CAPACITY ? partyWorld : this.publicInstance());
     client.instanceId = inst.id;
     const room = this.worldRoom(inst);
     const stash = this.store.loadStash(account.id);
@@ -1832,7 +1856,8 @@ export class RoomManager implements AdminHooks {
     }
     // Before the welcome, so the first snapshot already draws overridden monsters with their models.
     client.send(this.tuning.modelsMessage());
-    room.add(client, character.classId, character.name, character.save ?? undefined);
+    room.add(client, character.classId, character.name, character.save ?? undefined, resumed ? this.resumeSpot(room, resumed.place) : undefined);
+    if (resumed) this.resume.delete(character.id);
     this.keepOutOfSeal(client, room);
     if (stash) {
       // Gold for Linger and Pierce runes in a v1 stash; saved together with the converted stash, so paid once.
@@ -1852,6 +1877,8 @@ export class RoomManager implements AdminHooks {
     if (party) this.sendParty(party);
     client.send({ t: 'lighting', lighting: this.lighting() });
     client.send({ t: 'zoom', zoom: this.zoom() });
+    const left = this.restartSecondsLeft();
+    if (left !== null) client.send({ t: 'restart', seconds: left });
     this.joins++;
   }
 
@@ -1877,7 +1904,13 @@ export class RoomManager implements AdminHooks {
   }
 
   saveAll(): void {
+    this.store.saveMany(this.collectSaves().saves);
+  }
+
+  /** Every character in a room, ready to write; `failed` names the rooms where one could not be exported. */
+  private collectSaves(): { saves: CharacterSaveRow[]; failed: Set<string> } {
     const saves: CharacterSaveRow[] = [];
+    const failed = new Set<string>();
     for (const room of this.rooms.values()) {
       for (const m of room.members.values()) {
         // One broken room or save must not cost everyone else theirs, least of all in the crash handler.
@@ -1888,16 +1921,18 @@ export class RoomManager implements AdminHooks {
           const { character, stash } = splitStash(save);
           saves.push({ characterId, save: character, accountId, stash });
         } catch (err) {
+          failed.add(room.id);
           events.error('error', `[room ${room.id}] could not export ${m.client.accountName ?? m.client.id} for saving`, err);
         }
       }
     }
-    this.store.saveMany(saves);
+    return { saves, failed };
   }
 
   /** Saves, removes and disconnects. Used for duplicate logins and deleted characters. */
   endSession(client: Client, reason: string): void {
     if (client.characterId !== null) this.leaves++;
+    this.keepResume(client);
     const room = client.room;
     if (room) this.persist(client, room.remove(client));
     client.characterId = null;
@@ -1909,4 +1944,240 @@ export class RoomManager implements AdminHooks {
   endCharacterSession(characterId: number): void {
     for (const c of this.clients.values()) if (c.characterId === characterId) this.endSession(c, 'That character was deleted');
   }
+
+  // Seamless restart (docs/features/seamless-restart.md) ---------------------------------------
+
+  /** Set once the shutdown's write is done: nothing is handled or saved after it. */
+  private shuttingDown = false;
+  /** Characters online at the last shutdown, to where they stood, while the reconnect window is open. */
+  private readonly resume = new Map<number, { accountId: number; instanceId: string; place: SnapshotPlace }>();
+  /** Characters the snapshot listed: a stale tab that resumed and then reloads gets its place back again. */
+  private readonly restoredCharacters = new Set<number>();
+  /** When the reconnect window closes (clock ms); 0 when this boot restored nobody. */
+  private restoreUntil = 0;
+  /** When the admin's restart countdown runs out (clock ms), and the chat reminders still to send. */
+  private restartAt: number | null = null;
+  private restartReminders: number[] = [];
+
+  private resumeFor(characterId: number, accountId: number, party: Party | null): { inst: Instance; place: SnapshotPlace } | null {
+    const entry = this.resume.get(characterId);
+    if (!entry || entry.accountId !== accountId) return null;
+    if (this.clock() >= this.restoreUntil) {
+      this.resume.clear();
+      return null;
+    }
+    const inst = this.instances.get(entry.instanceId);
+    if (!inst) return null;
+    // A party world is still only for its party, and a copy that filled up meanwhile is full.
+    if (inst.kind === 'party' && inst.partyId !== null && inst.partyId !== party?.id) return null;
+    if (this.membersOf(inst).length >= INSTANCE_HARD_CAP) return null;
+    return { inst, place: entry.place };
+  }
+
+  /**
+   * The spot in the world room a resumed player goes to. As a rebuild carries players (carryInto):
+   * open ground near where they stood, or the town spawn when the new build's map has no such spot or
+   * cannot reach it. The seals are checked after the placement, as on every join.
+   */
+  private resumeSpot(room: Room, place: SnapshotPlace): Vec2 | undefined {
+    if (place.at === 'town') return undefined;
+    if (place.at === 'dungeon') return entranceArrival(room.sim.mapDef, room.sim.map, place.seed) ?? undefined;
+    const { width, height } = room.sim.mapDef;
+    if (place.x <= 0 || place.y <= 0 || place.x >= width || place.y >= height) return undefined;
+    const open = room.sim.map.findOpen(place.x, place.y, SIM.playerRadius + 6);
+    const zone = room.sim.zone;
+    return !zone || zone.reachable(open.x, open.y) ? open : undefined;
+  }
+
+  /** A restored player leaving inside the window (a stale tab reloading) gets the spot they leave from. */
+  private keepResume(client: Client): void {
+    const { characterId, accountId } = client;
+    if (characterId === null || accountId === null || !this.restoredCharacters.has(characterId) || this.clock() >= this.restoreUntil) return;
+    const at = this.snapshotPlace(client);
+    if (at) this.resume.set(characterId, { accountId, ...at });
+  }
+
+  /** Where a player stands, as the snapshot keeps it. Only the world room keeps the exact spot. */
+  private snapshotPlace(client: Client): { instanceId: string; place: SnapshotPlace } | null {
+    const room = client.room;
+    const inst = this.instanceOf(client);
+    const at = room?.playerState(client);
+    if (!room || !inst || !at) return null;
+    if (room.id === this.worldRoomId(inst)) return { instanceId: inst.id, place: { at: 'world', x: at.x, y: at.y } };
+    // Dungeon runs are not restored (their boss would be back): beside the entrance instead.
+    if (room.desc.kind === 'staging' || room.desc.kind === 'dungeon') return { instanceId: inst.id, place: { at: 'dungeon', seed: room.desc.seed } };
+    // An Arena run, its gate or a sandbox: the copy's town.
+    return { instanceId: inst.id, place: { at: 'town' } };
+  }
+
+  /**
+   * The session state a restart would lose, from the live rooms as they are now. A room where a
+   * character could not be exported keeps no ground loot: that character's save is older than the
+   * ground, so an item they dropped since would be in both.
+   */
+  snapshot(skipLoot: ReadonlySet<string> = new Set()): SessionSnapshot {
+    const instances: SnapshotInstance[] = [];
+    for (const inst of this.instances.values()) {
+      const room = this.rooms.get(this.worldRoomId(inst));
+      instances.push({
+        id: inst.id,
+        seed: inst.seed,
+        kind: inst.kind,
+        name: inst.name,
+        partyId: inst.partyId,
+        gen: inst.gen,
+        memory: room ? rememberWorld(room.sim) : inst.memory,
+        layout: room?.sim.zone?.memoryLayout() ?? null,
+        loot: room && !skipLoot.has(room.id) ? groundPiles(room.sim) : [],
+      });
+    }
+    const players: SnapshotPlayer[] = [];
+    for (const c of this.clients.values()) {
+      if (c.characterId === null || c.accountId === null) continue;
+      const at = this.snapshotPlace(c);
+      if (at) players.push({ characterId: c.characterId, accountId: c.accountId, ...at });
+    }
+    return {
+      format: SNAPSHOT_FORMAT,
+      takenAt: this.clock(),
+      build: SERVER_BUILD,
+      nextInstanceId: this.nextInstanceId,
+      nextPartyId: this.nextPartyId,
+      instances,
+      parties: [...this.parties.values()].map((p) => ({ id: p.id, leader: p.leader, members: [...p.members], seen: [...p.seen], instanceId: p.instanceId })),
+      players,
+    };
+  }
+
+  /**
+   * SIGTERM: the rooms stop, then every character and the session snapshot are written in one
+   * transaction from that frozen moment, and every client is told the server is going down now.
+   * Throws if the write fails; nothing was written then, and the caller falls back to a plain save.
+   */
+  shutdown(): { players: number; piles: number; bytes: number; ms: number } {
+    const started = performance.now();
+    this.stop();
+    const { saves, failed } = this.collectSaves();
+    const snap = this.snapshot(failed);
+    const bytes = this.store.saveShutdown(saves, snap);
+    const ms = performance.now() - started;
+    this.shuttingDown = true;
+    for (const c of [...this.clients.values()]) {
+      c.send({ t: 'restart', seconds: 0 });
+      // 1012 is the WebSocket code for a service restart; the client waits for the server on it.
+      c.socket.close(1012, 'server restart');
+    }
+    let piles = 0;
+    for (const i of snap.instances) piles += i.loot.length;
+    if (failed.size > 0) events.error('save', `[restart] ground loot of ${[...failed].join(', ')} not kept: a character there could not be exported`);
+    return { players: snap.players.length, piles, bytes, ms };
+  }
+
+  /**
+   * At boot, before players are accepted: takes the last shutdown's snapshot (deleting it, so it is
+   * used once) and puts back the world copies with their seeds, numbers and memory, the parties, the
+   * ground loot, and where everyone stood. A snapshot older than the reconnect window brings back
+   * only the copies' memory and the parties; the loot on its ground would long have rotted away.
+   */
+  restore(): string {
+    const json = this.store.snapshots.take();
+    if (json === null) return 'no session snapshot';
+    const snap = parseSnapshot(json);
+    if (typeof snap === 'string') {
+      events.warn('server', `[restart] session snapshot dropped: ${snap}`);
+      return `session snapshot dropped: ${snap}`;
+    }
+    const now = this.clock();
+    const age = now - snap.takenAt;
+    const fresh = age >= 0 && age < RESUME_WINDOW_MS;
+    if (fresh) this.restoreUntil = now + RESUME_WINDOW_MS;
+    const hasPlayers = new Set(snap.players.map((p) => p.instanceId));
+    let piles = 0;
+    let lost = 0;
+    for (const s of snap.instances) {
+      if (this.instances.has(s.id)) continue;
+      const inst: Instance = { id: s.id, seed: s.seed, kind: s.kind, name: s.name, rooms: new Set(), partyId: s.partyId, memory: s.memory, gen: s.gen, heldUntil: 0 };
+      this.instances.set(inst.id, inst);
+      const loot = fresh ? s.loot : [];
+      if (!fresh || (loot.length === 0 && !hasPlayers.has(s.id))) continue;
+      inst.heldUntil = this.restoreUntil;
+      try {
+        const room = this.createRoom(this.worldRoomId(inst), this.worldDesc(inst), inst);
+        // As a rebuild does: memory keyed by ground the new build moved belongs to the old ground.
+        if (inst.memory && s.layout !== null && room.sim.zone?.memoryLayout() !== s.layout) {
+          events.warn('server', `[restart] ${inst.name} (${inst.id}) has new ground in this build: dead bosses and opened chests forgotten`);
+          inst.memory = null;
+        }
+        if (inst.memory) restoreWorld(room.sim, inst.memory);
+        for (const pile of loot) restoreGroundPile(room.sim, pile);
+        piles += loot.length;
+      } catch (err) {
+        for (const pile of loot) lost += pile.items.length;
+        events.error('error', `[restart] could not rebuild ${inst.name} (${inst.id}); its ground loot (${loot.length} piles) is lost`, err);
+      }
+    }
+    for (const p of snap.parties) {
+      const instanceId = p.instanceId !== null && this.instances.has(p.instanceId) ? p.instanceId : null;
+      this.parties.set(p.id, { id: p.id, leader: p.leader, members: new Map(p.members), seen: new Map(p.seen), instanceId });
+    }
+    for (const inst of this.instances.values()) if (inst.partyId !== null && !this.parties.has(inst.partyId)) inst.partyId = null;
+    const counter = (ids: Iterable<string>, prefix: string): number => Math.max(0, ...[...ids].map((id) => Number(id.slice(prefix.length))).filter(Number.isSafeInteger)) + 1;
+    this.nextInstanceId = Math.max(this.nextInstanceId, snap.nextInstanceId, counter(this.instances.keys(), 'i'));
+    this.nextPartyId = Math.max(this.nextPartyId, snap.nextPartyId, counter(this.parties.keys(), 'p'));
+    if (fresh) {
+      for (const p of snap.players) {
+        this.resume.set(p.characterId, { accountId: p.accountId, instanceId: p.instanceId, place: p.place });
+        this.restoredCharacters.add(p.characterId);
+      }
+    }
+    const summary = `${snap.instances.length} world copies, ${snap.parties.length} parties${fresh ? `, ${piles} piles on the ground, ${snap.players.length} players to resume for ${RESUME_WINDOW_MS / 60_000} min` : `; ${Math.round(age / 1000)} s old, so no loot or places`}${lost > 0 ? `; ${lost} items lost` : ''}`;
+    events.log('server', `[restart] session snapshot from build ${snap.build} restored: ${summary}`);
+    return summary;
+  }
+
+  /** Whole seconds until the admin's restart countdown runs out, or null when none is running. */
+  private restartSecondsLeft(): number | null {
+    if (this.restartAt === null) return null;
+    const left = Math.ceil((this.restartAt - this.clock()) / 1000);
+    return left > 0 ? left : null;
+  }
+
+  /**
+   * Warns everyone online that the server restarts for an update in `seconds`, so nobody is caught
+   * mid-fight: a banner and a countdown now, chat reminders at 30 and 10 seconds. It only warns; the
+   * deploy itself restarts the server. Returns how many players it reached.
+   */
+  restartCountdown(seconds: number): number {
+    this.restartAt = this.clock() + seconds * 1000;
+    this.restartReminders = [30, 10].filter((s) => s < seconds);
+    const text = `The server restarts for an update in ${spell(seconds)}. You will be back where you stand.`;
+    let reached = 0;
+    for (const c of this.clients.values()) {
+      if (c.characterId === null) continue;
+      c.send({ t: 'restart', seconds });
+      c.send({ t: 'banner', title: 'Server update', text });
+      this.system(c, text);
+      reached++;
+    }
+    events.log('server', `[restart] countdown of ${seconds} s sent to ${reached} players`);
+    return reached;
+  }
+
+  /** Once a tick: the countdown's chat reminders. */
+  private tickRestart(): void {
+    if (this.restartAt === null) return;
+    const left = (this.restartAt - this.clock()) / 1000;
+    const next = this.restartReminders[0];
+    if (next !== undefined && left <= next) {
+      this.restartReminders.shift();
+      for (const c of this.clients.values()) if (c.characterId !== null) this.system(c, `Server update in ${spell(Math.max(1, Math.round(left)))}`);
+    }
+    // A countdown nobody followed with a deploy stops being news after a minute.
+    if (left < -60) this.restartAt = null;
+  }
+}
+
+function spell(seconds: number): string {
+  if (seconds >= 120 && seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return seconds === 1 ? '1 second' : `${seconds} seconds`;
 }

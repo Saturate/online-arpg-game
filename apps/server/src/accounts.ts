@@ -10,6 +10,7 @@ import { TuningStore } from './tuningStore.js';
 import { BenchStore } from './benchStore.js';
 import { TunablesStore } from './tunablesStore.js';
 import { WorldGenStore } from './worldGenStore.js';
+import { SnapshotStore, type SessionSnapshot } from './sessionSnapshot.js';
 
 /** 2^15 with r=8 is about 32 MiB and 50 ms per hash: slow for guessing, fine for a login. */
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keyLen: 32, maxmem: 64 * 1024 * 1024 } as const;
@@ -72,7 +73,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Same spirit as isPlayerSave: the server wrote these, so this catches old or damaged rows, not attacks. */
-function isStoredItem(v: unknown): v is Item {
+export function isStoredItem(v: unknown): v is Item {
   return isRecord(v) && typeof v.uid === 'number' && (v.kind === 'gear' || v.kind === 'sigil' || v.kind === 'vessel' || v.kind === 'rune') && typeof v.name === 'string' && typeof v.tier === 'string';
 }
 
@@ -724,6 +725,21 @@ export class AccountStore {
     });
   }
 
+  /**
+   * The shutdown's write: every character and stash, and the session snapshot taken from the same
+   * frozen moment, in one transaction. A ground item and the bag it was picked up into can then
+   * never both be restored: either both rows are from that moment or neither was written. Returns
+   * the snapshot's size in bytes, for the log.
+   */
+  saveShutdown(saves: readonly CharacterSaveRow[], snapshot: SessionSnapshot): number {
+    let bytes = 0;
+    this.transaction(() => {
+      for (const s of saves) this.writeCharacterAndStash(s.characterId, s.save, s.accountId, s.stash);
+      bytes = this.snapshots.write(snapshot);
+    });
+    return bytes;
+  }
+
   private writeCharacterAndStash(characterId: number, save: PlayerSave, accountId: number, stash: StashSave): void {
     this.saveCharacter(characterId, save);
     this.db.prepare('UPDATE accounts SET stash_json = ? WHERE id = ?').run(JSON.stringify(stash), accountId);
@@ -839,6 +855,13 @@ export class AccountStore {
   get worldGen(): WorldGenStore {
     this.worldGenStore ??= new WorldGenStore(this.db);
     return this.worldGenStore;
+  }
+
+  private snapshotStore: SnapshotStore | null = null;
+  /** The session snapshot a shutdown leaves for the next boot, in sessionSnapshot.ts. */
+  get snapshots(): SnapshotStore {
+    this.snapshotStore ??= new SnapshotStore(this.db);
+    return this.snapshotStore;
   }
 
   private benchStore: BenchStore | null = null;

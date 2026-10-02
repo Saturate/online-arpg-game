@@ -846,6 +846,49 @@ export function carryGroundLoot(from: Simulation, to: Simulation, shift: { x: nu
   src.flushDestroyed();
 }
 
+/** A pile on the ground as the session snapshot keeps it across a restart (apps/server/src/sessionSnapshot.ts). */
+export interface GroundPile {
+  x: number;
+  y: number;
+  radius: number;
+  items: Item[];
+  gold: number;
+  lifetime: number;
+  maxLife: number;
+}
+
+/** Every live pile on the ground of the room. The items are the room's own objects: serialise them before the room moves on. */
+export function groundPiles(sim: Simulation): GroundPile[] {
+  const w = sim.world;
+  const out: GroundPile[] = [];
+  for (const [id, l] of w.loot) {
+    const pos = w.position.get(id);
+    // A pile destroyed this tick (emptied or expired) is gone already; keeping it would bring it back.
+    if (!pos || !w.isAlive(id) || (l.items.length === 0 && l.gold <= 0)) continue;
+    out.push({ x: pos.x, y: pos.y, radius: w.radius.get(id) ?? LOOT.bagRadius, items: [...l.items], gold: l.gold, lifetime: l.lifetime, maxLife: l.maxLife });
+  }
+  return out;
+}
+
+/**
+ * Lays a kept pile on the ground of a room built after a restart. Its items take uids from this
+ * room's own range, as a character's do on arrival, so a uid the old process handed out can never
+ * name two items here. Droppers are not kept: they were entities of the old process.
+ */
+export function restoreGroundPile(sim: Simulation, pile: GroundPile): void {
+  if (pile.items.length === 0 && pile.gold <= 0) return;
+  const w = sim.world;
+  const { width, height } = sim.mapDef;
+  const radius = pile.radius;
+  const x = Math.min(width - radius - 60, Math.max(radius + 60, pile.x));
+  const y = Math.min(height - radius - 60, Math.max(radius + 60, pile.y));
+  const id = w.create('loot');
+  w.position.set(id, freeBagSpot(sim, x, y, radius));
+  w.radius.set(id, radius);
+  const items = pile.items.map((it) => reissueUids(it, () => sim.newItemUid()));
+  w.loot.set(id, { items, gold: pile.gold, lifetime: pile.lifetime, maxLife: pile.maxLife, droppers: new Map(), rev: 0 });
+}
+
 /** Why a player cannot use a pile from where they stand, or null when they can. `slack` widens the reach. */
 function pileReachRefusal(sim: Simulation, pid: EntityId, lootId: EntityId, slack: number): string | null {
   const w = sim.world;

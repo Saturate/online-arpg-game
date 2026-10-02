@@ -148,6 +148,7 @@ describe('admin API tokens', () => {
     { method: 'PUT', path: '/api/admin/settings', body: { xpRate: 1 }, scope: 'settings' },
     { method: 'DELETE', path: `/api/admin/monsters/${ENEMY_TYPE_IDS[0]}`, scope: 'settings' },
     { method: 'POST', path: '/api/admin/announce', body: { text: 'hello' }, scope: 'announce' },
+    { method: 'POST', path: '/api/admin/restart-countdown', body: { seconds: 60 }, scope: 'announce' },
     { method: 'POST', path: '/api/admin/kick', body: { characterId: plebCharacter }, scope: 'kick' },
     { method: 'POST', path: `/api/admin/accounts/${ids.pleb1}/ban`, body: { banned: false }, scope: 'ban' },
     { method: 'POST', path: '/api/admin/goto', body: { characterId: plebCharacter }, scope: 'teleport' },

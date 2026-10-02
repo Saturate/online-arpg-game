@@ -13,6 +13,8 @@ const seed = Number(process.env.SEED ?? 1337);
 const store = new AccountStore();
 const adminUsers = parseAdminUsers(process.env.ADMIN_USERS);
 const rooms = new RoomManager(seed, store, adminUsers);
+// Before the first tick and before the port opens, so no player can join a world still being put back.
+rooms.restore();
 rooms.start();
 // The balance bench counts the stored saves once, in small steps between ticks; saves keep it current after.
 void store.bench.seed();
@@ -63,16 +65,42 @@ const wss = new WebSocketServer({
 wss.on('connection', (socket) => rooms.connect(socket));
 http.listen(port, () => events.log('server', `rune server listening on http://localhost:${port} (api and websocket), build ${process.env.BUILD_ID ?? 'dev'}`));
 
-function shutdown(): void {
-  rooms.stop();
-  rooms.saveAll();
+/**
+ * Kubernetes gives the pod 20 s after SIGTERM (terminationGracePeriodSeconds in the server repo's
+ * k3s/apps/arpg/deployment.yaml). The write takes milliseconds; the rest is a short wait so every
+ * client gets the restart message and the close frame, and waits for the new server instead of
+ * giving up.
+ */
+const CLOSE_WAIT_MS = 1500;
+let stopping = false;
+
+function shutdown(signal: string): void {
+  if (stopping) return;
+  stopping = true;
+  try {
+    const r = rooms.shutdown();
+    events.log('server', `[restart] ${signal}: saved ${r.players} players with the session snapshot (${r.piles} piles, ${Math.round(r.bytes / 1024)} KB) in ${r.ms.toFixed(1)} ms`);
+  } catch (err) {
+    // Nothing of that write landed; the characters are still saved, as before the snapshot existed.
+    events.error('save', `[restart] ${signal}: the session snapshot could not be written; saving the characters alone`, err);
+    try {
+      rooms.saveAll();
+    } catch (e) {
+      events.error('save', `[restart] ${signal}: the plain save failed too`, e);
+    }
+  }
   store.close();
-  wss.close();
   http.close();
-  process.exit(0);
+  wss.close();
+  const started = Date.now();
+  const wait = (): void => {
+    if (wss.clients.size === 0 || Date.now() - started >= CLOSE_WAIT_MS) process.exit(0);
+    setTimeout(wait, 50);
+  };
+  wait();
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 // A crash gets the same save as SIGTERM, or up to 30 s of play (including items handed over on the
 // ground) could be lost or duplicated. Then Kubernetes restarts the process rather than it running
 // on in an unknown state.
