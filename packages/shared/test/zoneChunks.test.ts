@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyDev, buildMap, DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutToMap, loadMap, Rng, Simulation, STREAMING, WILDS, WORLD, type EntityId, type MapDescriptor, type Obstacle, type WorldMap } from '../src/index.js';
+import { applyDev, buildMap, DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutToMap, loadMap, Rng, Simulation, STREAMING, WILDS, WORLD_GEN_DEFAULTS, type EntityId, type MapDescriptor, type Obstacle, type WorldMap } from '../src/index.js';
 import { placeTown } from '../src/world/worldMap.js';
 import { reachableCells, SPILL } from '../src/world/zoneGen.js';
 import { spawnEverywhere, streamingStats, updateStreaming } from '../src/sim/streaming.js';
@@ -73,7 +73,7 @@ describe('zone chunks', () => {
   });
 
   it('a chunk generated in a world 4 times as wide and tall reads only a fixed window of chunks around it', () => {
-    const big = freshWorld(5, undefined, { width: WORLD.width * 2, height: WORLD.height * 2 }).zone;
+    const big = freshWorld(5, undefined, { width: WORLD_GEN_DEFAULTS.size * 2, height: WORLD_GEN_DEFAULTS.size * 2 }).zone;
     const cx = Math.floor(big.cols / 2);
     const cy = Math.floor(big.rows / 2);
     // Obstacles read earlier phases up to 3 chunks out; packs read packs up to 3 out and the

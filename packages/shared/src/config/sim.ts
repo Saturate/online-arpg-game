@@ -435,14 +435,9 @@ export const PROGRESSION = {
 
 /**
  * The seamless world (`world/worldPlan.ts`): one map per world copy with the town in the middle.
- * 13000 square is 9 times a zone of before (5200 by 3600), which the streaming numbers carry with room
- * to spare (world-streaming.md, step 4).
+ * The numbers a world copy is generated with are in WORLD_GEN; these are the fixed ones.
  */
 export const WORLD = {
-  width: 13000,
-  height: 13000,
-  /** The home region around the town; the roads leave it into their own regions. */
-  hubRadius: 2400,
   /** Roads and branches keep this far inside the map edge. */
   edgeMargin: 650,
   trunkStep: 450,
@@ -452,15 +447,58 @@ export const WORLD = {
   sectorInset: 0.11,
   /** Unrelated roads stay this far apart, so branches read as separate valleys. */
   roadGap: 760,
-  /** Monster levels from the town gate to the farthest branch end, on a curve that starts slow. */
-  levels: [1, 25] as readonly [number, number],
-  levelCurve: 1.3,
   /** Off-road distance counts this much toward a spot's distance from town. */
   offRoad: 0.6,
   /** Road half widths: the trunk out of each gate, and the branches. */
   trunkWidth: 52,
   branchWidth: 40,
 } as const;
+
+/**
+ * The code defaults of the world generation settings (docs/features/world-map.md, "Generation
+ * settings"), a live tuning category: live tuning overwrites these in place, and a new world copy
+ * takes the numbers in force when it is made and keeps them (`world/worldGen.ts`). Generation never
+ * reads this object: it gets the copy's own numbers, so read them through `currentWorldGen`.
+ *
+ * Counts are for the whole world, whatever its size. The defaults are what a 13000 square world got
+ * when counts were the standard Wilds' (5600 by 4200) scaled by area, 7.185 times: 30 packs, 6
+ * forests, 70 loose rocks, 40 bone piles and 5 loose ridges at 0.6 of a zone's.
+ */
+export const WORLD_GEN = {
+  /** Width and height; 13000 is 9 times a zone of before (5200 by 3600). */
+  size: 13000,
+  /** The home region around the town; the roads leave it into their own regions. */
+  hubRadius: 2400,
+  /** Monster packs over the world, the one under each region boss included. */
+  packs: 216,
+  forests: 43,
+  looseRocks: 503,
+  bones: 287,
+  /** Loose ridges out in the regions, never in the home region. */
+  ridges: 22,
+  /** Share of the dead ends left after the boss and the dungeons that hold a rare pack; the rest hold a chest. */
+  rareShare: 0.5,
+  campsHome: 5,
+  campsRegion: 4,
+  ruinsHome: 1,
+  ruinsRegion: 2,
+  dungeonsHome: 1,
+  dungeonsRegion: 2,
+  /** Branch lengths in road steps (420 units); the branches at a road's crossroads may run one longer. */
+  branchStepsMin: 4,
+  branchStepsMax: 6,
+  /** Chance a branch of four steps or more gets a side valley. */
+  sideValleyChance: 0.8,
+  /** Branches between a road's crossroads and its gate. */
+  midForks: 1,
+  /** Random turn per trunk step and per branch step, in radians either way. */
+  trunkWander: 0.16,
+  branchWander: 0.25,
+  /** Monster level at the town gates and at each road's farthest branch end, on a curve of this power. */
+  levelMin: 1,
+  levelMax: 25,
+  levelCurve: 1.3,
+};
 
 /** Gate bosses: each road's pass past its first region, sealed per character until its boss falls. */
 export const GATES = {

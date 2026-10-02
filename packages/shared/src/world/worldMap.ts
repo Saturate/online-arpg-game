@@ -1,4 +1,4 @@
-import { GATES, STREAMING, WILDS, WORLD } from '../config/sim.js';
+import { GATES, STREAMING, WORLD } from '../config/sim.js';
 import type { EnemyTypeId } from '../data/enemies.js';
 import { ZONES, type ZoneId } from '../data/zones.js';
 import type { Vec2 } from '../sim/math.js';
@@ -8,6 +8,7 @@ import { GameMap } from './gamemap.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { DEFAULT_TOWN_LAYOUT, layoutToMap, type TownLayout } from './town.js';
 import type { Decor, GateInfo, GroundPatch, Obstacle, Portal, Shape, WorldMap } from './types.js';
+import { resolveWorldGen, type WorldGen } from './worldGen.js';
 import { HOME_REGION, TOWN_WAYPOINT, WorldPlan, type RoadSide } from './worldPlan.js';
 import { ZoneWorld, type ZoneSpec } from './zoneGen.js';
 
@@ -124,8 +125,8 @@ function crossing(a: Vec2, b: Vec2, c: Vec2, d: Vec2): number | null {
 }
 
 /** A river bending round a sector past the home region, out to the map edge at both ends. */
-function riverCourse(rng: Rng, c: Vec2, angle: number, width: number, height: number): { path: Vec2[]; width: number } {
-  const radius = WORLD.hubRadius + rng.range(800, 1800);
+function riverCourse(rng: Rng, c: Vec2, angle: number, width: number, height: number, hubRadius: number): { path: Vec2[]; width: number } {
+  const radius = hubRadius + rng.range(800, 1800);
   const half = WORLD.sectorHalf - 0.2;
   const wobble = rng.range(110, 170);
   const phase = rng.range(0, Math.PI * 2);
@@ -360,14 +361,17 @@ export interface WorldBuild {
   plan: WorldPlan;
 }
 
-/** The world of a world copy, from its seed and the town layout. `size` is for tests and benches of bigger worlds. */
-export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT, size: { width: number; height: number } = WORLD): WorldBuild {
-  const { width, height } = size;
+/**
+ * The world of a world copy, from its seed, the town layout and its generation numbers. `size` is
+ * for tests and benches of worlds past the size range; it overrides the numbers' size.
+ */
+export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT, gen: WorldGen = resolveWorldGen(), size?: { width: number; height: number }): WorldBuild {
+  const { width, height } = size ?? { width: gen.size, height: gen.size };
   const townMap = layoutToMap(layout);
   const origin = { x: Math.round((width - townMap.width) / 2), y: Math.round((height - townMap.height) / 2) };
   const exits = townExits(layout, townMap).map((e) => ({ ...e, x: e.x + origin.x, y: e.y + origin.y, from: { x: e.from.x + origin.x, y: e.from.y + origin.y } }));
   const townRect = { x: origin.x, y: origin.y, w: townMap.width, h: townMap.height };
-  const plan = new WorldPlan({ seed, width, height, town: townRect, exits });
+  const plan = new WorldPlan({ seed, width, height, town: townRect, exits, gen });
   const town = placeTown(townMap, origin);
   const home = ZONES[HOME_REGION];
   const map = emptyMap({ name: 'Emberwatch Marches', theme: 'wilds', width, height, spawn: town.spawn, waves: false, safe: false, groundTint: home.groundTint });
@@ -383,7 +387,6 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
   for (const e of exits) road(e.from.x, e.from.y, e.x, e.y, WORLD.trunkWidth);
   for (const e of plan.edges) road(e.ax, e.ay, e.bx, e.by, e.width);
 
-  const scale = (width * height) / (WILDS.width * WILDS.height);
   const clearRects = [{ ...townRect, pad: 140 }];
   const space = new Space();
   for (const z of clearRects) space.keepOutRect(z);
@@ -405,7 +408,7 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
     // A few courses are tried; one that would run alongside a road anywhere but at a bridge is dropped,
     // and so is one through a gate's pass, which gets tries of its own so gates do not cost rivers.
     for (let attempt = 0, nearGates = 0; attempt < 6 && nearGates < 8; attempt++) {
-      const river = riverCourse(riverRng, c, r.angle, width, height);
+      const river = riverCourse(riverRng, c, r.angle, width, height, gen.hubRadius);
       if (nearGate(river.path, river.width / 2 + RIVER_GATE_CLEAR)) {
         nearGates++;
         attempt--;
@@ -431,7 +434,7 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
   const borderRules: PlacementRules = { spacing: -30, riverPad: 40, keepOut: true, bridges: true };
   for (const r of plan.roads) {
     const a = r.angle + WORLD.sectorHalf;
-    for (let d = WORLD.hubRadius + 500; d < Math.hypot(width, height) / 2; d += 64) {
+    for (let d = gen.hubRadius + 500; d < Math.hypot(width, height) / 2; d += 64) {
       if (ridgeRng.next() < 0.04) continue;
       const side = ridgeRng.range(-30, 30);
       const x = c.x + Math.cos(a) * d - Math.sin(a) * side;
@@ -444,10 +447,10 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
   const gates = plan.gates.flatMap((g) => addGatePass(map, space, plan, g, width, height) ?? []);
 
   // Loose ridges out in the regions, as a zone always had, never in the home region.
-  for (let n = 0; n < Math.round(WILDS.ridges * scale * 0.6); n++) {
+  for (let n = 0; n < gen.ridges; n++) {
     let x = ridgeRng.range(400, width - 400);
     let y = ridgeRng.range(400, height - 400);
-    if (Math.hypot(x - c.x, y - c.y) < WORLD.hubRadius + 300) continue;
+    if (Math.hypot(x - c.x, y - c.y) < gen.hubRadius + 300) continue;
     let dir = ridgeRng.range(0, Math.PI * 2);
     const len = ridgeRng.int(6, 12);
     for (let k = 0; k < len; k++) {
@@ -529,8 +532,9 @@ export function worldZone(seed: number, layout: TownLayout = DEFAULT_TOWN_LAYOUT
   const spec: ZoneSpec = {
     seed,
     biome: home.biome,
-    levels: WORLD.levels,
-    scale,
+    levels: plan.levels,
+    scale: 1,
+    counts: { packs: gen.packs, forests: gen.forests, rocks: gen.looseRocks, bones: gen.bones },
     clearRects,
     keepClear: [townRect],
     spawnClear: { x: town.spawn.x, y: town.spawn.y, r: 380 },

@@ -4,6 +4,7 @@ import { ZONES, type ZoneDef, type ZoneId } from '../data/zones.js';
 import type { Vec2 } from '../sim/math.js';
 import { Rng } from '../sim/rng.js';
 import { distToSegment } from './gen.js';
+import { resolveWorldGen, worldGenOverrides, WORLD_GEN_KEYS, type WorldGen } from './worldGen.js';
 
 /**
  * The seamless world's plan: a tree of roads from the town at the centre. Pure and seeded, so the
@@ -127,6 +128,8 @@ export interface WorldPlanInput {
   town: { x: number; y: number; w: number; h: number };
   /** Where each road leaves the town, on the town's edge, and which side of the town it is on. */
   exits: readonly { x: number; y: number; side: RoadSide }[];
+  /** The world copy's generation numbers; the code defaults when left out. */
+  gen?: WorldGen;
 }
 
 const TAU = Math.PI * 2;
@@ -154,6 +157,8 @@ interface MutableNode {
 
 export class WorldPlan {
   readonly seed: number;
+  /** The numbers this plan was generated with. */
+  readonly gen: WorldGen;
   readonly width: number;
   readonly height: number;
   readonly centre: Vec2;
@@ -179,6 +184,7 @@ export class WorldPlan {
 
   constructor(input: WorldPlanInput) {
     this.seed = input.seed;
+    this.gen = input.gen ?? resolveWorldGen();
     this.width = input.width;
     this.height = input.height;
     this.town = input.town;
@@ -276,7 +282,7 @@ export class WorldPlan {
       const p = pts[pts.length - 1] ?? road.exit;
       if (Math.hypot(target.x - p.x, target.y - p.y) < WORLD.trunkStep) break;
       const want = Math.atan2(target.y - p.y, target.x - p.x);
-      heading += Math.max(-0.32, Math.min(0.32, angleDiff(want, heading))) + rng.range(-0.16, 0.16);
+      heading += Math.max(-0.32, Math.min(0.32, angleDiff(want, heading))) + rng.range(-this.gen.trunkWander, this.gen.trunkWander);
       let nx = p.x + Math.cos(heading) * WORLD.trunkStep;
       let ny = p.y + Math.sin(heading) * WORLD.trunkStep;
       if (!this.inSector(road, nx, ny, WORLD.sectorInset)) {
@@ -299,7 +305,7 @@ export class WorldPlan {
       return fallback;
     };
     const at = (i: number): Vec2 => pts[i] ?? road.exit;
-    const hub = Math.max(2, first((i) => Math.hypot(at(i).x - c.x, at(i).y - c.y) >= WORLD.hubRadius, 1, Math.min(2, last)));
+    const hub = Math.max(2, first((i) => Math.hypot(at(i).x - c.x, at(i).y - c.y) >= this.gen.hubRadius, 1, Math.min(2, last)));
     const beyond = (along[last] ?? 0) - (along[hub] ?? 0);
     const mark = (f: number, from: number): number => first((i) => (along[i] ?? 0) >= (along[hub] ?? 0) + f * beyond, from, last);
     const gate = Math.min(last - 1, Math.max(hub + 2, mark(0.5, hub)));
@@ -354,15 +360,22 @@ export class WorldPlan {
     grow(f.spur, 1, rng.int(3, 4), true);
     grow(f.spur, -1, rng.int(3, 4), true);
     const forked: number[][] = [];
+    const { branchStepsMin: lo, branchStepsMax: hi } = this.gen;
     // Out along the edges of the sector from the region's entrance, then the forks proper.
-    forked.push(grow(f.hub, 1, rng.int(4, 6), false), grow(f.hub, -1, rng.int(4, 6), false));
-    forked.push(grow(f.fork, 1, rng.int(4, 7), false), grow(f.fork, -1, rng.int(4, 7), false));
-    const mid = Math.round((f.fork + f.gate) / 2);
-    if (mid > f.fork && mid < f.gate) forked.push(grow(mid, rng.next() < 0.5 ? 1 : -1, rng.int(4, 6), false));
-    forked.push(grow(f.late, 1, rng.int(4, 6), false), grow(f.late, -1, rng.int(4, 6), false));
+    forked.push(grow(f.hub, 1, rng.int(lo, hi), false), grow(f.hub, -1, rng.int(lo, hi), false));
+    forked.push(grow(f.fork, 1, rng.int(lo, hi + 1), false), grow(f.fork, -1, rng.int(lo, hi + 1), false));
+    // Evenly between the crossroads and the gate; one fork sits halfway.
+    const mids = new Set<number>();
+    for (let j = 1; j <= this.gen.midForks; j++) {
+      const mid = Math.round(f.fork + ((f.gate - f.fork) * j) / (this.gen.midForks + 1));
+      if (mid <= f.fork || mid >= f.gate || mids.has(mid)) continue;
+      mids.add(mid);
+      forked.push(grow(mid, rng.next() < 0.5 ? 1 : -1, rng.int(lo, hi), false));
+    }
+    forked.push(grow(f.late, 1, rng.int(lo, hi), false), grow(f.late, -1, rng.int(lo, hi), false));
     // Side valleys off the longer branches.
     for (const b of forked) {
-      if (b.length < 4 || rng.next() > 0.8) continue;
+      if (b.length < 4 || rng.next() > this.gen.sideValleyChance) continue;
       const from = this.list[b[2] ?? -1];
       const to = this.list[b[3] ?? -1];
       if (!from || !to) continue;
@@ -384,12 +397,12 @@ export class WorldPlan {
     for (let s = 1; s <= steps; s++) {
       let placed: Vec2 | null = null;
       for (const turn of [0, 0.4, -0.4]) {
-        const hh = h + turn + rng.range(-0.25, 0.25);
+        const hh = h + turn + rng.range(-this.gen.branchWander, this.gen.branchWander);
         const x = prev.x + Math.cos(hh) * WORLD.branchStep;
         const y = prev.y + Math.sin(hh) * WORLD.branchStep;
         if (!this.inBounds(x, y) || !this.inSector(road, x, y, WORLD.sectorInset)) continue;
         const r = Math.hypot(x - c.x, y - c.y);
-        if (spur ? r > WORLD.hubRadius + 400 || this.nearTown(x, y, 380) : r < WORLD.hubRadius - 100) continue;
+        if (spur ? r > this.gen.hubRadius + 400 || this.nearTown(x, y, 380) : r < this.gen.hubRadius - 100) continue;
         if (this.crowded(prev, x, y, own, s)) continue;
         placed = { x, y };
         h = hh;
@@ -458,8 +471,9 @@ export class WorldPlan {
           rest[j] = a;
         }
       }
-      const dungeons = region === HOME_REGION ? 1 : 2;
-      for (const [i, n] of rest.entries()) push(i < dungeons ? 'dungeon' : rng.next() < 0.5 ? 'rare' : 'chest', i < dungeons ? beyond(n, 60) : beyond(n, 130), n);
+      const home = region === HOME_REGION;
+      const dungeons = home ? this.gen.dungeonsHome : this.gen.dungeonsRegion;
+      for (const [i, n] of rest.entries()) push(i < dungeons ? 'dungeon' : rng.next() < this.gen.rareShare ? 'rare' : 'chest', i < dungeons ? beyond(n, 60) : beyond(n, 130), n);
       const mids = this.list.filter((n) => n.region === region && n.parent !== null && n.children.length === 1 && Math.hypot(n.x - this.centre.x, n.y - this.centre.y) > 1300);
       const pick = (kind: 'camp' | 'ruin', count: number, near: [number, number], spacing: number): void => {
         const pool = [...mids];
@@ -473,8 +487,8 @@ export class WorldPlan {
           placed++;
         }
       };
-      pick('camp', region === HOME_REGION ? 5 : 4, [300, 420], 1100);
-      pick('ruin', region === HOME_REGION ? 1 : 2, [560, 720], 1500);
+      pick('camp', home ? this.gen.campsHome : this.gen.campsRegion, [300, 420], 1100);
+      pick('ruin', home ? this.gen.ruinsHome : this.gen.ruinsRegion, [560, 720], 1500);
     }
     return spots;
   }
@@ -557,15 +571,20 @@ export class WorldPlan {
   }
 
   /** The monster level at `distance` from town along road `road`. */
+  /** Monster levels from the town gates to each road's farthest branch end. */
+  get levels(): readonly [number, number] {
+    return [this.gen.levelMin, this.gen.levelMax];
+  }
+
   levelOf(distance: number, road: number): number {
-    const [lo, hi] = WORLD.levels;
+    const { levelMin: lo, levelMax: hi, levelCurve } = this.gen;
     const t = Math.min(1, Math.max(0, distance / (this.roadDepth[road] ?? 1)));
-    return Math.round(lo + (hi - lo) * t ** WORLD.levelCurve);
+    return Math.round(lo + (hi - lo) * t ** levelCurve);
   }
 
   levelAt(x: number, y: number): number {
-    const [lo, hi] = WORLD.levels;
-    return Math.round(lo + (hi - lo) * this.progressAt(x, y) ** WORLD.levelCurve);
+    const { levelMin: lo, levelMax: hi, levelCurve } = this.gen;
+    return Math.round(lo + (hi - lo) * this.progressAt(x, y) ** levelCurve);
   }
 
   biomeAt(x: number, y: number): Biome {
@@ -623,7 +642,7 @@ export function isWaypointId(v: unknown): v is string {
 }
 
 /**
- * A short hash of the plan's nodes and gates. Server and client each build the plan from the seed
+ * A short hash of the plan's nodes and gates and the numbers it was generated with. Server and client each build the plan from the seed
  * with `atan2`, `cos`, `sin` and `hypot`, which browsers need not compute bit for bit alike; one
  * flipped comparison changes a road's later branches. The server sends its hash in the welcome and a
  * client that gets another one reports it, so a split shows in the server log. Positions are rounded
@@ -641,5 +660,12 @@ export function planChecksum(plan: WorldPlan): string {
   const q = (v: number): string => String(Math.round(v * 100));
   for (const n of plan.nodes) add(`n${n.id},${q(n.x)},${q(n.y)},${n.parent ?? '-'},${n.region},${n.road},${n.behind ?? '-'};`);
   for (const g of plan.gates) add(`g${g.id},${g.node},${g.road},${g.region},${q(g.angle * 1000)};`);
+  // Only numbers off their defaults, so a world on the defaults hashes as it always did. Levels and
+  // counts move no node, so they are hashed for themselves: two builds that differ in them differ.
+  const gen = worldGenOverrides(plan.gen);
+  for (const k of WORLD_GEN_KEYS) {
+    const v = gen[k];
+    if (v !== undefined) add(`w${k}=${v};`);
+  }
   return h.toString(16).padStart(8, '0');
 }

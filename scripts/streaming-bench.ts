@@ -15,9 +15,12 @@
  *
  * "step" is `Simulation.step`; "room" adds what the server does after it every tick (serialising
  * entities and one interest-filtered snapshot per player).
+ *
+ * WORLD_GEN='{"size":16000,"packs":450}' builds every world on those generation numbers instead of
+ * the defaults (world-map.md, "Generation settings").
  */
 import { execFileSync } from 'node:child_process';
-import { CLASS_IDS, NET, serializeEntities, SIM, Simulation, snapshotFor, type MapDescriptor, type Vec2, type WorldPlan } from '../packages/shared/src/index.js';
+import { CLASS_IDS, isWorldGenValues, NET, resolveWorldGen, serializeEntities, SIM, Simulation, snapshotFor, worldGenKey, worldGenOverrides, type MapDescriptor, type Vec2, type WorldGenValues, type WorldPlan } from '../packages/shared/src/index.js';
 import * as streaming from '../packages/shared/src/sim/streaming.js';
 
 /** Seeds no other run uses, since generated maps are cached by descriptor. */
@@ -44,8 +47,20 @@ function heapMb(): number {
   return process.memoryUsage().heapUsed / 1e6;
 }
 
+function readGen(raw: string | undefined): WorldGenValues {
+  if (raw === undefined || raw === '') return {};
+  const v: unknown = JSON.parse(raw);
+  if (!isWorldGenValues(v)) throw new Error('WORLD_GEN holds an unknown key or a number out of range');
+  // Resolving puts back the numbers of a broken rule (a home region too big for the world).
+  const gen = resolveWorldGen(v);
+  if (worldGenKey(v) !== worldGenKey(gen)) throw new Error('WORLD_GEN breaks a rule between its numbers (levels or branch lengths out of order, a home region too big for the world)');
+  return worldGenOverrides(gen);
+}
+
+const GEN = readGen(process.env.WORLD_GEN);
+
 function newRoom(kind: Kind, mode: Mode, seed = nextSeed++): Simulation {
-  const desc: MapDescriptor = { kind, seed };
+  const desc: MapDescriptor = kind === 'world' ? { kind, seed, gen: GEN } : { kind, seed };
   const sim = new Simulation(seed, desc);
   if (mode === 'whole') {
     streaming.spawnEverywhere(sim);

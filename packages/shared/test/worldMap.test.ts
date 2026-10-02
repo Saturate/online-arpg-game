@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, planChecksum, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
+import { DEFAULT_TOWN_LAYOUT, freshWorld, GameMap, layoutHash, layoutToMap, loadMap, planChecksum, SIM, Simulation, TOWN_WAYPOINT, waypointArrival, WILDS, WORLD, WORLD_GEN_DEFAULTS, ZONES, type MapDescriptor, type WorldMap } from '../src/index.js';
 import { dealDamage, inSafeZone, isTargetable } from '../src/sim/combat.js';
 import { chestKey, openedChests } from '../src/sim/chests.js';
 import { spawnEnemy } from '../src/sim/enemies.js';
@@ -53,7 +53,7 @@ describe('world plan', () => {
         expect(nodes.filter((n) => n.children.length >= 2).length, `${seed} road ${k} forks`).toBeGreaterThanOrEqual(2);
         expect(nodes.filter((n) => n.children.length === 0).length, `${seed} road ${k} ends`).toBeGreaterThanOrEqual(4);
         for (const n of nodes) {
-          if (Math.hypot(n.x - plan.centre.x, n.y - plan.centre.y) < WORLD.hubRadius) continue;
+          if (Math.hypot(n.x - plan.centre.x, n.y - plan.centre.y) < WORLD_GEN_DEFAULTS.hubRadius) continue;
           const a = Math.atan2(n.y - plan.centre.y, n.x - plan.centre.x);
           const off = Math.abs(((a - road.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
           expect(off, `${seed} road ${k} node ${n.id} in its sector`).toBeLessThanOrEqual(WORLD.sectorHalf);
@@ -69,9 +69,9 @@ describe('world plan', () => {
         const levels = chain(plan, end).map((n) => plan.levelAt(n.x, n.y));
         for (let i = 1; i < levels.length; i++) expect(levels[i] ?? 0, `${seed} toward node ${end.id}`).toBeGreaterThanOrEqual(levels[i - 1] ?? 0);
       }
-      expect(plan.levelAt(plan.town.x + plan.town.w + 50, plan.town.y + plan.town.h / 2)).toBe(WORLD.levels[0]);
+      expect(plan.levelAt(plan.town.x + plan.town.w + 50, plan.town.y + plan.town.h / 2)).toBe(WORLD_GEN_DEFAULTS.levelMin);
       // Every road's far end is the hardest, however far its sector lets it run.
-      for (const k of [0, 1, 2]) expect(Math.max(...plan.nodes.filter((n) => n.road === k).map((n) => plan.levelAt(n.x, n.y))), `${seed} road ${k}`).toBe(WORLD.levels[1]);
+      for (const k of [0, 1, 2]) expect(Math.max(...plan.nodes.filter((n) => n.road === k).map((n) => plan.levelAt(n.x, n.y))), `${seed} road ${k}`).toBe(WORLD_GEN_DEFAULTS.levelMax);
       const home = plan.regions.get(HOME_REGION);
       for (const r of plan.roads) {
         const [inner, outer] = r.regions.map((id) => plan.regions.get(id));

@@ -1,6 +1,7 @@
 import type { ClassId } from '../data/classes.js';
 import type { ServerEvent } from './adminTokens.js';
 import type { Role } from './roles.js';
+import type { WorldGenValues } from '../world/worldGen.js';
 
 /**
  * `GET /api/admin/live`, the admin page's Live view (docs/features/admin-ui.md), and
@@ -109,6 +110,13 @@ export interface LiveRegionGrid {
 export interface LiveWorld {
   game: string;
   name: string;
+  kind: 'public' | 'party';
+  /** The copy's seed: for the public world, the `worldSeed` setting it was made on. */
+  seed: number;
+  /** The generation numbers the copy was built with, those off the code defaults. */
+  gen: WorldGenValues;
+  /** Whether those are the numbers live tuning holds now, which a new copy or a rebuild would take. */
+  genCurrent: boolean;
   width: number;
   height: number;
   town: { x: number; y: number; w: number; h: number } | null;
@@ -150,4 +158,23 @@ export interface AdminSearch {
   accounts: SearchAccount[];
   /** Newest first; null without `serverLog`. */
   log: ServerEvent[] | null;
+}
+
+/** One world copy in the reply of `POST /api/admin/worlds/rebuild` or `.../reroll`. */
+export interface WorldRebuildCopy {
+  game: string;
+  name: string;
+  seed: number;
+  /** Whether its world room was open and rebuilt at once; a closed one builds anew when next entered. */
+  open: boolean;
+  /** Players carried into the rebuilt room. */
+  players: number;
+  /** The seed or the numbers changed, so the plan did: its dead bosses and opened chests were forgotten. */
+  planChanged: boolean;
+}
+
+export interface WorldRebuildResult {
+  copies: WorldRebuildCopy[];
+  /** The numbers the copies were rebuilt with, those off the code defaults. */
+  gen: WorldGenValues;
 }

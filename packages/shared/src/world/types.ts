@@ -1,6 +1,7 @@
 import type { EnemyTypeId } from '../data/enemies.js';
 import type { Vec2 } from '../sim/math.js';
 import type { TownLayout } from './town.js';
+import type { WorldGenValues } from './worldGen.js';
 
 /** `decor` is a town editor piece marked solid: it blocks like the rest, and its model is drawn from the map's decor. */
 export type ObstacleKind = 'rock' | 'tree' | 'pillar' | 'wall' | 'water' | 'house' | 'stall' | 'well' | 'fence' | 'chest' | 'crate' | 'cavewall' | 'decor';
@@ -191,8 +192,11 @@ export type MapDescriptor =
   | { kind: 'town'; layout?: TownLayout }
   | { kind: 'flat' }
   | { kind: 'wilds'; seed: number }
-  /** A world copy's one seamless map: the town in the middle and every region around it. */
-  | { kind: 'world'; seed: number; layout?: TownLayout }
+  /**
+   * A world copy's one seamless map: the town in the middle and every region around it. `gen`: the
+   * copy's generation numbers that differ from the code defaults, fixed for the copy.
+   */
+  | { kind: 'world'; seed: number; layout?: TownLayout; gen?: WorldGenValues }
   | ({ kind: 'staging' } & DungeonRef)
   /** `run` counts attempts from the same staging room, so every run gets a fresh layout. */
   | ({ kind: 'dungeon'; run: number } & DungeonRef);

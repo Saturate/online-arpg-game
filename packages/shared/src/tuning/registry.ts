@@ -1,10 +1,11 @@
-import { AILMENTS, AURA, HEAT, LINK, SPELL } from '../config/sim.js';
+import { AILMENTS, AURA, HEAT, LINK, SPELL, WORLD_GEN } from '../config/sim.js';
 import { AFFIX_IDS, AFFIXES, RUNE_AFFIX_TIERS, type AffixId } from '../data/affixes.js';
 import { SIGIL_MAX_SLOTS } from '../items/items.js';
 import { betterOf } from '../items/runeRolls.js';
 import { RUNE_FORCE, RUNE_PRICE, RUNE_SPIRIT } from '../runes/v2/compile.js';
 import { MIN_RELEASE_SECONDS, SPLIT_COUNT_RANGE } from '../runes/v2/rules.js';
 import { CASTABLE_RUNES, CONCENTRATED, DEFAULTS, PLAIN_MODIFIER_EFFECT, runeName } from '../runes/v2/runes.js';
+import { WORLD_GEN_KEYS, WORLD_GEN_SPECS, worldGenProblem, type WorldGen, type WorldGenKey } from '../world/worldGen.js';
 import type { TunableValues } from './values.js';
 
 /**
@@ -14,7 +15,7 @@ import type { TunableValues } from './values.js';
  * they always did. The server and every client apply the same overrides with `applyTunables`.
  */
 
-export const TUNING_CATEGORIES = ['runes', 'sigils', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments'] as const;
+export const TUNING_CATEGORIES = ['runes', 'sigils', 'force', 'spirit', 'shapes', 'spell', 'aura', 'bond', 'ailments', 'worldgen'] as const;
 export type TuningCategory = (typeof TUNING_CATEGORIES)[number];
 
 export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
@@ -27,6 +28,7 @@ export const TUNING_CATEGORY_NAMES: Record<TuningCategory, string> = {
   spirit: 'Spirit prices',
   runes: 'Rune balance',
   sigils: 'Sigil balance',
+  worldgen: 'World generation',
 };
 
 export interface TunableSpec {
@@ -271,6 +273,18 @@ for (const id of AFFIX_IDS) {
   }
 }
 
+/**
+ * World generation (world/worldGen.ts): what new world copies are built with. A copy keeps the
+ * numbers it was made with, so a change never moves a running world; the force rebuild does.
+ */
+export function worldGenPath(key: WorldGenKey): string {
+  return `worldgen.${key}`;
+}
+for (const key of WORLD_GEN_KEYS) {
+  const spec = WORLD_GEN_SPECS[key];
+  add(worldGenPath(key), 'worldgen', spec.label, WORLD_GEN, key, { range: { min: spec.min, max: spec.max, int: spec.int, ...(spec.note === undefined ? {} : { note: spec.note }) }, group: spec.group });
+}
+
 /** Everything that can be tuned, in a stable order (by category, then as the config lists it). */
 export const TUNABLES: readonly TunableSpec[] = TUNING_CATEGORIES.flatMap((c) => slots.filter((s) => s.spec.category === c).map((s) => s.spec));
 
@@ -452,5 +466,8 @@ export function tunableSetProblem(values: Readonly<TunableValues>): string | nul
     const problem = affixTableProblem(id, values);
     if (problem !== null) return problem;
   }
-  return null;
+  const gen: Record<WorldGenKey, number> = { ...WORLD_GEN };
+  for (const key of WORLD_GEN_KEYS) gen[key] = valueIn(values, worldGenPath(key)) ?? gen[key];
+  const world: WorldGen = gen;
+  return worldGenProblem(world);
 }

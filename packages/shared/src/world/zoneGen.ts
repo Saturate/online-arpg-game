@@ -43,6 +43,8 @@ export interface ZoneSpec {
   levels: readonly [number, number];
   /** Counts in WILDS are for the standard Wilds; a zone gets this many times as many. */
   scale: number;
+  /** The zone's counts outright, in place of WILDS's times `scale`: the world's generation numbers. */
+  counts?: { packs: number; forests: number; rocks: number; bones: number };
   /** Areas left alone (a town), with the margin generation keeps from them. */
   clearRects: { x: number; y: number; w: number; h: number; pad: number }[];
   /** The town as a safe zone, for camps. */
@@ -368,11 +370,12 @@ export class ZoneWorld implements ChunkObstacleSource {
 
   /**
    * The zone's counts are the ones the whole-zone generator always used (WILDS counts times the
-   * zone's scale), spread over the chunks by how much of each can take them, so a town or a river
-   * does not thin out the rest of the zone.
+   * zone's scale) or the world's own, spread over the chunks by how much of each can take them, so
+   * a town or a river does not thin out the rest of the zone.
    */
   private apportionAll(map: WorldMap): Quotas {
     const { scale } = this.spec;
+    const counts = this.spec.counts ?? { packs: Math.round(WILDS.packs * scale), forests: Math.round(WILDS.forests * scale), rocks: Math.round(WILDS.looseRocks * scale), bones: Math.round(40 * scale) };
     const n = this.cols * this.rows;
     const each = (fn: (cx: number, cy: number) => number): number[] => Array.from({ length: n }, (_, i) => fn(i % this.cols, Math.floor(i / this.cols)));
     const area = (m: number) => (cx: number, cy: number) => {
@@ -384,16 +387,16 @@ export class ZoneWorld implements ChunkObstacleSource {
     const packFits = (x: number, y: number): boolean => this.packSpotOpen(x, y);
     const boneFits = (x: number, y: number): boolean => !this.spec.clearRects.some((z) => inRect(x, y, z, z.pad));
     // The pack under each boss is one of the zone's packs.
-    const packs = Math.max(0, Math.round(WILDS.packs * scale) - this.allPlanPacks.filter((p) => p.boss).length);
+    const packs = Math.max(0, counts.packs - this.allPlanPacks.filter((p) => p.boss).length);
     // A world weighs each chunk by its middle: thicker forest off the roads and in wooded regions, more packs further out.
     const plan = this.spec.plan;
     const mid = (cx: number, cy: number): [number, number] => [Math.min(map.width, (cx + 0.5) * this.size), Math.min(map.height, (cy + 0.5) * this.size)];
     const forestWeight = (cx: number, cy: number): number => (plan ? plan.forestWeight(...mid(cx, cy)) : 1);
     const packWeight = (cx: number, cy: number): number => (plan ? plan.packWeight(...mid(cx, cy)) : 1);
     return {
-      forests: apportion(Math.round(WILDS.forests * scale), each((cx, cy) => area(300)(cx, cy) * forestWeight(cx, cy))),
-      rocks: apportion(Math.round(WILDS.looseRocks * scale), each((cx, cy) => this.usableArea(cx, cy, 100, rockFits))),
-      bones: apportion(Math.round(40 * scale), each((cx, cy) => this.usableArea(cx, cy, 200, boneFits))),
+      forests: apportion(counts.forests, each((cx, cy) => area(300)(cx, cy) * forestWeight(cx, cy))),
+      rocks: apportion(counts.rocks, each((cx, cy) => this.usableArea(cx, cy, 100, rockFits))),
+      bones: apportion(counts.bones, each((cx, cy) => this.usableArea(cx, cy, 200, boneFits))),
       packs: apportion(packs, each((cx, cy) => this.usableArea(cx, cy, 200, packFits) * packWeight(cx, cy))),
     };
   }
@@ -413,6 +416,11 @@ export class ZoneWorld implements ChunkObstacleSource {
   /** Calls `fn` with each chunk of the 3 by 3 block around (cx, cy) inside the zone. */
   private around(cx: number, cy: number, fn: (nx: number, ny: number) => void): void {
     for (let ny = cy - 1; ny <= cy + 1; ny++) for (let nx = cx - 1; nx <= cx + 1; nx++) if (this.inChunks(nx, ny)) fn(nx, ny);
+  }
+
+  /** Whether a spot can be walked to from the spawn past the plan's barriers (rivers, ridges, ruins, the town). */
+  reachable(x: number, y: number): boolean {
+    return this.reach[this.navCell(x, y)] === 1;
   }
 
   /** How many chunks have had their obstacles generated, for tests and the bench. */

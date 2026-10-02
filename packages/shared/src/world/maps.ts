@@ -4,6 +4,7 @@ import { Rng } from '../sim/rng.js';
 import { addRiver, emptyMap, fits, pillarRing, rock, scatterDecor, tree, wall, type Placement } from './gen.js';
 import { addRuin, worldZone } from './worldMap.js';
 import { TOWN_WAYPOINT, type WorldPlan } from './worldPlan.js';
+import { resolveWorldGen, worldGenKey, type WorldGenValues } from './worldGen.js';
 import { ZONES } from '../data/zones.js';
 import { fitsIn, SCATTER_RULES, Space, type PlacementRules } from './placement.js';
 import { GameMap } from './gamemap.js';
@@ -195,10 +196,11 @@ function wildsZone(seed: number): ZoneWorld {
 
 /**
  * A world built afresh, never from the cache, for benches and tests that time it or need it
- * ungenerated; `size` makes a bigger one than the live world, which nothing in the game builds.
+ * ungenerated; `size` makes one past the size range, which nothing in the game builds; `gen` the
+ * world copy's generation numbers (overrides of the defaults).
  */
-export function freshWorld(seed: number, layout?: TownLayout, size?: { width: number; height: number }): { def: WorldMap; game: GameMap; zone: ZoneWorld; plan: WorldPlan } {
-  const { zone, plan } = worldZone(seed, layout, size);
+export function freshWorld(seed: number, layout?: TownLayout, size?: { width: number; height: number }, gen?: WorldGenValues): { def: WorldMap; game: GameMap; zone: ZoneWorld; plan: WorldPlan } {
+  const { zone, plan } = worldZone(seed, layout, resolveWorldGen(gen), size);
   return { def: zone.def, game: new GameMap(zone.def, zone), zone, plan };
 }
 
@@ -242,7 +244,7 @@ function flatMap(): WorldMap {
 /** The generated zone behind a descriptor, or null for a map built whole (town, dungeons, the Arena). */
 function zoneWorld(desc: MapDescriptor): ZoneWorld | null {
   if (desc.kind === 'wilds') return wildsZone(desc.seed);
-  if (desc.kind === 'world') return worldZone(desc.seed, desc.layout).zone;
+  if (desc.kind === 'world') return worldZone(desc.seed, desc.layout, resolveWorldGen(desc.gen)).zone;
   return null;
 }
 
@@ -288,7 +290,10 @@ export function mapKey(desc: MapDescriptor): string {
   if (desc.kind === 'town') return `town:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}`;
   if (desc.kind === 'staging') return `staging:${desc.seed}:${desc.level}`;
   if (desc.kind === 'dungeon') return `dungeon:${desc.seed}:${desc.level}:${desc.run}`;
-  if (desc.kind === 'world') return `world:${desc.seed}:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}`;
+  if (desc.kind === 'world') {
+    const gen = worldGenKey(desc.gen);
+    return `world:${desc.seed}:${layoutHash(desc.layout ?? DEFAULT_TOWN_LAYOUT)}${gen === '' ? '' : `:${gen}`}`;
+  }
   return desc.kind;
 }
 

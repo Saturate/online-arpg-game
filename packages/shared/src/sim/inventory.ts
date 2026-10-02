@@ -784,8 +784,12 @@ export function carryGroundLoot(from: Simulation, to: Simulation): void {
     if (pos) {
       const radius = src.radius.get(id) ?? LOOT.bagRadius;
       const copy = dst.create('loot');
-      // On open ground near where it lay: a rebuilt world round a moved gate can have a rock there now.
-      dst.position.set(copy, freeBagSpot(to, pos.x, pos.y, radius));
+      // On open ground near where it lay: a rebuilt world round a moved gate can have a rock there now,
+      // and one rebuilt smaller can end before it, so it is brought inside the map first.
+      const { width, height } = to.mapDef;
+      const x = Math.min(width - radius - 60, Math.max(radius + 60, pos.x));
+      const y = Math.min(height - radius - 60, Math.max(radius + 60, pos.y));
+      dst.position.set(copy, freeBagSpot(to, x, y, radius));
       dst.radius.set(copy, radius);
       // The dropper was an entity of the old room; a bag nobody claims is free to all, as it soon is anyway.
       dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, dropper: null });
