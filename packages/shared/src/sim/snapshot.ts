@@ -124,7 +124,8 @@ export function serializeEntities(sim: Simulation): EntitySnap[] {
       case 'loot': {
         const l = w.loot.get(id);
         if (!l) break;
-        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: previewNames(l.items), gold: l.gold });
+        const only = l.items.length === 1 ? l.items[0] : undefined;
+        out.push({ ...base, k: 'loot', tier: bestTier(l.items), count: l.items.length, names: previewNames(l.items), gold: l.gold, ...(only ? { one: only.uid } : {}) });
         break;
       }
     }

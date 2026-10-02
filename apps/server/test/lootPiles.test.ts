@@ -85,6 +85,7 @@ describe('loot window over the wire', () => {
     room.tick();
     expect(lootMessages(a.sent).at(-1)).toEqual({ t: 'lootPile', id: pile, items: null });
     pos.x -= 400;
+    for (let i = 0; i < 5; i++) room.tick();
     room.handle(a.client, { t: 'lootOpen', id: pile });
     expect(lootMessages(a.sent).at(-1)?.items).toHaveLength(3);
     const l = room.sim.world.loot.get(pile);
@@ -115,5 +116,23 @@ describe('loot window over the wire', () => {
     expect(lootMessages(a.sent)).toHaveLength(count);
     room.remove(a.client);
     expect(lootMessages(a.sent).at(-1)).toEqual({ t: 'lootPile', id: pile, items: null });
+  });
+
+  it('answers a repeated lootOpen only once the pile changed, and at most once per quarter second', () => {
+    const { room, a, b, pile, items } = setup();
+    room.handle(a.client, { t: 'lootOpen', id: pile });
+    expect(lootMessages(a.sent)).toHaveLength(1);
+    // Spam inside the limit: ignored.
+    for (let i = 0; i < 10; i++) room.handle(a.client, { t: 'lootOpen', id: pile });
+    expect(lootMessages(a.sent)).toHaveLength(1);
+    for (let i = 0; i < 5; i++) room.tick();
+    // Past the limit but nothing changed: still no resend.
+    room.handle(a.client, { t: 'lootOpen', id: pile });
+    expect(lootMessages(a.sent)).toHaveLength(1);
+    const first = items[0];
+    if (!first) throw new Error('setup');
+    room.handle(b.client, { t: 'pickup', id: pile, uid: first.uid });
+    room.tick();
+    expect(lootMessages(a.sent)).toHaveLength(2);
   });
 });

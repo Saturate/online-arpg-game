@@ -59,6 +59,7 @@ export const SETTING_LABELS: Record<keyof ServerSettings, { label: string; targe
   xpRate: { label: 'XP rate', target: 'xpRate', terms: ['experience'] },
   lootRate: { label: 'Loot rate', target: 'lootRate', terms: ['drops'] },
   lootMergeRadius: { label: 'Loot pile radius', target: 'lootMergeRadius', terms: ['drops', 'merge', 'pile'] },
+  lootPileMaxSeconds: { label: 'Loot pile longest life', target: 'lootPileMaxSeconds', terms: ['drops', 'pile', 'despawn'] },
   motd: { label: 'Message of the day', target: 'motd', terms: ['motd', 'welcome'] },
   registrationOpen: { label: 'Registration open', target: 'registrationOpen', terms: ['signup', 'new accounts'] },
   worldSeed: { label: 'World seed', target: 'worldSeed' },

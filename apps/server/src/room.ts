@@ -47,7 +47,15 @@ interface Member {
   knownSpells: Map<EntityId, string>;
   /** The pile whose loot window is open, and the version of it last sent. Only its viewer gets its full items. */
   openLoot: { id: EntityId; rev: number } | null;
+  /** The tick of this member's last answered lootOpen, for its rate limit. */
+  lootOpenTick: number;
 }
+
+/**
+ * At most one answered lootOpen per member in this many ticks (0.25 s at 20 ticks): a client
+ * resending it every frame would otherwise get a whole pile back each time.
+ */
+const LOOT_OPEN_TICKS = 5;
 
 /** Rooms opened since start; each takes its own block of item ids (see Simulation.startItemUidsAt). */
 let roomSerial = 0;
@@ -120,7 +128,7 @@ export class Room {
 
   add(client: Client, classId: ClassId, name: string, save?: PlayerSave, at?: Vec2): void {
     const playerId = this.sim.addPlayer(client.id, classId, name, save, at);
-    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map(), openLoot: null });
+    this.members.set(client.id, { client, playerId, inputs: new InputBuffer(), sentInventoryVersion: -1, knownSpells: new Map(), openLoot: null, lootOpenTick: -LOOT_OPEN_TICKS });
     // A save from before a live tuning change can hold more auras than the pool now pays for.
     for (const skill of fitSpirit(this.sim, playerId)) client.send({ t: 'notice', text: `${skill} was unequipped: its spirit now passes your pool` });
     client.room = this;
@@ -267,7 +275,11 @@ export class Room {
         break;
       case 'lootOpen': {
         // Answered at once, so the window fills on the click; broadcast keeps it current after that.
+        if (this.sim.tick - m.lootOpenTick < LOOT_OPEN_TICKS) return;
         const view = this.sim.lootView(pid, msg.id);
+        // A repeat for the window already open, with nothing changed, has its answer already.
+        if (view && m.openLoot?.id === msg.id && m.openLoot.rev === view.rev) return;
+        m.lootOpenTick = this.sim.tick;
         m.openLoot = view ? { id: msg.id, rev: view.rev } : null;
         client.send(view ? { t: 'lootPile', id: msg.id, items: view.items, own: view.own } : { t: 'lootPile', id: msg.id, items: null });
         return;

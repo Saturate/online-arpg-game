@@ -72,7 +72,7 @@ Create an account (or play as a guest) on the title screen; accounts are stored 
 - **Rune damage update:** damage types, implicits on every rune, ranged per-cast rolls, no stacking, visuals by damage mix, aura payloads and a Righteous Fire bargain ([runes.md](docs/features/runes.md), "Planned: damage types...").
 - **Forge redesign:** fused runes, append to open slots, smashing with a 10% survival roll, particles ([forge.md](docs/features/forge.md), "Planned: forge redesign").
 - **New minions:** Shieldbearer, Banner-bearer, Hawk, three elementals, a fireball bone mage, a healing tether minion ([minions.md](docs/features/minions.md), "Planned").
-- **Loot piles** with hover preview ([loot.md](docs/features/loot.md)) and **guilds** with a guild stash ([guilds.md](docs/features/guilds.md)).
+- **Guilds** with a guild stash ([guilds.md](docs/features/guilds.md)). Loot piles are built on `feat/loot-piles` ([loot.md](docs/features/loot.md)).
 - **World:** region terrain (dunes, caves), bigger worlds (16x to 25x needs a coarser reachability check), the server half of chunked snapshots ([world-map.md](docs/features/world-map.md), [world-streaming.md](docs/features/world-streaming.md)).
 - Small requests not started: `docs/backlog.md`.
 

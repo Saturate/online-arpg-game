@@ -855,10 +855,12 @@ export class Game {
     }
     // A little inside the server's reach, so latency cannot put the request just out of range.
     if (Math.hypot(bag.x - origin.x, bag.y - origin.y) <= bag.r + SIM.playerRadius + LOOT.pickupReach - 12) {
-      if (opensWindow(bag.snap.count)) {
+      // The single item by its uid: a drop joining on the way must not turn the click into a Take all.
+      const one = bag.snap.one;
+      if (opensWindow(bag.snap.count) || one === undefined) {
         openLootWindow(bag.id);
         this.send({ t: 'lootOpen', id: bag.id });
-      } else this.send({ t: 'pickup', id: bag.id });
+      } else this.send({ t: 'pickup', id: bag.id, uid: one });
       this.pickupTarget = null;
       room.mover.stop();
       return;

@@ -92,6 +92,8 @@ export interface ServerSettings {
   lootRate: number;
   /** World units: a new drop this close to an item pile joins it; 0 turns merging off. */
   lootMergeRadius: number;
+  /** Seconds a pile lives at most from its first drop, however often drops join it and restart its 90 s clock. */
+  lootPileMaxSeconds: number;
   /** Shown to everyone as they enter the world; empty for none. */
   motd: string;
   registrationOpen: boolean;
@@ -147,6 +149,7 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   xpRate: 1,
   lootRate: 1,
   lootMergeRadius: LOOT.mergeRadius,
+  lootPileMaxSeconds: LOOT.pileMaxSeconds,
   motd: '',
   registrationOpen: true,
   worldSeed: 1,
@@ -260,6 +263,9 @@ export const SETTINGS_LIMITS = {
   castCooldownMax: 3,
   /** Past 200 (seven body widths) a pile swallows drops from across a fight. */
   lootMergeRadiusMax: 200,
+  /** A pile always gets the 90 s a single drop gets; past an hour the ground is storage again. */
+  lootPileMaxSecondsMin: 90,
+  lootPileMaxSecondsMax: 3600,
 } as const;
 
 /** Accepts a partial update and returns only the valid fields, or an error for the first bad one. */
@@ -319,8 +325,9 @@ export function parseSettingsPatch(value: unknown): Partial<ServerSettings> | st
     bossDamageMultiplier: [SETTINGS_LIMITS.bossMultiplierMin, SETTINGS_LIMITS.bossMultiplierMax],
     castCooldownSeconds: [SETTINGS_LIMITS.castCooldownMin, SETTINGS_LIMITS.castCooldownMax],
     lootMergeRadius: [0, SETTINGS_LIMITS.lootMergeRadiusMax],
+    lootPileMaxSeconds: [SETTINGS_LIMITS.lootPileMaxSecondsMin, SETTINGS_LIMITS.lootPileMaxSecondsMax],
   } as const;
-  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds', 'lootMergeRadius'] as const) {
+  for (const key of ['heroLight', 'lampLight', 'heroLightRadius', 'forceMax', 'forceCostRate', 'forceCoolRate', 'forceRampMax', ...ZOOM_KEYS, 'respawnMinutes', 'bossRespawnMinutes', 'gateRespawnMinutes', 'bossLifeMultiplier', 'bossDamageMultiplier', 'castCooldownSeconds', 'lootMergeRadius', 'lootPileMaxSeconds'] as const) {
     const v = value[key];
     if (v === undefined) continue;
     const [min, max] = ranges[key];

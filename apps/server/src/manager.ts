@@ -212,6 +212,7 @@ export class RoomManager implements AdminHooks {
       bossDamage: s.bossDamageMultiplier,
       castCooldown: s.castCooldownSeconds,
       lootMerge: s.lootMergeRadius,
+      lootPileMax: s.lootPileMaxSeconds,
     };
   }
 

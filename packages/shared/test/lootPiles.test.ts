@@ -358,4 +358,68 @@ describe('loot piles', () => {
     for (const uid of [null, -1, 1.5, '9']) expect(parseClientMessage({ t: 'pickup', id: 3, uid })).toBeNull();
     expect(parseClientMessage({ t: 'lootOpen', id: -2 })).toBeNull();
   });
+
+  it('takes from as far as an open window reaches, and no further', () => {
+    const { sim, pid, p, pos } = setup();
+    const it = ring(sim);
+    spawnBag(sim, pos.x, pos.y, [it], LOOT.bagRadius, null);
+    const id = onlyPile(sim);
+    const at = sim.world.position.get(id);
+    if (!at) throw new Error('no pile');
+    const reach = LOOT.bagRadius + 14 + LOOT.pickupReach + LOOT.pickupLagSlack + LOOT.pileWindowSlack;
+    pos.x = at.x + reach + 5;
+    pos.y = at.y;
+    expect(sim.lootView(pid, id)).toBeNull();
+    expect(takeLoot(sim, pid, id, it.uid)).toBe('Too far away');
+    pos.x = at.x + reach - 5;
+    expect(sim.lootView(pid, id)).not.toBeNull();
+    expect(takeLoot(sim, pid, id, it.uid)).toBeNull();
+    expect(p.items.get(it.uid)).toBe(it);
+  });
+
+  it('a pile kept topped up still goes at its cap from the first drop', () => {
+    const { sim, pos } = setup();
+    spawnBag(sim, pos.x + 30, pos.y, [ring(sim)], LOOT.bagRadius, null);
+    const id = onlyPile(sim);
+    for (let t = 0; t < LOOT.pileMaxSeconds - 60; t += 60) {
+      updateLoot(sim, 60);
+      spawnBag(sim, pos.x + 30, pos.y, [ring(sim)], LOOT.bagRadius, null);
+    }
+    expect(sim.world.isAlive(id)).toBe(true);
+    // The last join came under 90 s before the cap, so the cap ends it, not its own clock.
+    const left = sim.world.loot.get(id);
+    expect(left?.maxLife).toBeCloseTo(60);
+    expect(left?.lifetime).toBeCloseTo(60);
+    updateLoot(sim, (left?.maxLife ?? 0) + 0.01);
+    expect(sim.world.isAlive(id)).toBe(false);
+  });
+
+  it('a town rebuild does not bring back a pile destroyed that tick', () => {
+    const { sim, pid, pos } = setup();
+    const it = ring(sim);
+    spawnBag(sim, pos.x + 30, pos.y, [it], LOOT.bagRadius, null);
+    const id = onlyPile(sim);
+    expect(takeLoot(sim, pid, id, null)).toBeNull();
+    const next = new Simulation(5, { kind: 'flat' });
+    carryGroundLoot(sim, next);
+    expect([...next.world.loot.values()].some((l) => l.items.includes(it))).toBe(false);
+  });
+
+  it('a one-item pile names its item in the snapshot, so a click takes only that', () => {
+    const { sim, pid, p, pos } = setup();
+    const seen = ring(sim);
+    spawnBag(sim, pos.x + 30, pos.y, [seen], LOOT.bagRadius, null);
+    const id = onlyPile(sim);
+    const snap = serializeEntities(sim).find((e) => e.id === id);
+    if (snap?.k !== 'loot') throw new Error('no snap');
+    expect(snap.one).toBe(seen.uid);
+    // A drop joins while the hero walks over; the click still takes just the item seen.
+    const joined = ring(sim, 'rare');
+    spawnBag(sim, pos.x + 30, pos.y, [joined], LOOT.bagRadius, null);
+    const again = serializeEntities(sim).find((e) => e.id === id);
+    expect(again?.k === 'loot' ? again.one : 'x').toBeUndefined();
+    expect(takeLoot(sim, pid, id, snap.one ?? null)).toBeNull();
+    expect(p.items.has(seen.uid)).toBe(true);
+    expect(p.items.has(joined.uid)).toBe(false);
+  });
 });

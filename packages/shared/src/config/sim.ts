@@ -250,6 +250,8 @@ export const LOOT = {
    * monsters dying apart stay two piles.
    */
   mergeRadius: 42,
+  /** Default cap on a pile's whole life from its first drop (the admin's lootPileMaxSeconds), however often drops join it. */
+  pileMaxSeconds: 300,
   /** A pile stops taking drops here, so its window and its snapshot stay short; the next drop starts a pile. */
   pileMaxItems: 40,
   /** Names a pile sends in snapshots for labels and the hover preview; the loot window gets every item. */

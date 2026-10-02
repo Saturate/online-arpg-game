@@ -790,8 +790,9 @@ export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], r
   if (joined !== null && pile) {
     pile.items.push(...items);
     if (mark) for (const it of items) pile.droppers.set(it.uid, mark);
-    // A pile that just grew starts its clock again, so the new drop gets its full time on the ground.
-    pile.lifetime = Math.max(pile.lifetime, LOOT.bagLifetimeSeconds);
+    // A pile that just grew starts its clock again, so the new drop gets its full time on the ground,
+    // but never past the pile's own cap.
+    pile.lifetime = Math.min(Math.max(pile.lifetime, LOOT.bagLifetimeSeconds), pile.maxLife);
     pile.rev++;
     w.radius.set(joined, Math.max(w.radius.get(joined) ?? LOOT.bagRadius, radius));
     return;
@@ -802,7 +803,7 @@ export function spawnBag(sim: Simulation, x: number, y: number, items: Item[], r
   w.radius.set(id, radius);
   const droppers = new Map<ItemUid, DropMark>();
   if (mark) for (const it of items) droppers.set(it.uid, mark);
-  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, droppers, rev: 0 });
+  w.loot.set(id, { items, gold: 0, lifetime: LOOT.bagLifetimeSeconds, maxLife: Math.max(LOOT.bagLifetimeSeconds, sim.rates.lootPileMax), droppers, rev: 0 });
 }
 
 export function spawnGold(sim: Simulation, x: number, y: number, amount: number): void {
@@ -812,7 +813,7 @@ export function spawnGold(sim: Simulation, x: number, y: number, amount: number)
   const id = w.create('loot');
   w.position.set(id, spot);
   w.radius.set(id, LOOT.bagRadius);
-  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, droppers: new Map(), rev: 0 });
+  w.loot.set(id, { items: [], gold: amount, lifetime: LOOT.bagLifetimeSeconds, maxLife: LOOT.bagLifetimeSeconds, droppers: new Map(), rev: 0 });
 }
 
 /**
@@ -824,14 +825,15 @@ export function carryGroundLoot(from: Simulation, to: Simulation): void {
   const dst = to.world;
   for (const [id, l] of [...src.loot]) {
     const pos = src.position.get(id);
-    if (pos) {
+    // A pile destroyed this tick (emptied or expired) is gone already; copying it would bring it back.
+    if (pos && src.isAlive(id)) {
       const radius = src.radius.get(id) ?? LOOT.bagRadius;
       const copy = dst.create('loot');
       // On open ground near where it lay: a rebuilt world round a moved gate can have a rock there now.
       dst.position.set(copy, freeBagSpot(to, pos.x, pos.y, radius));
       dst.radius.set(copy, radius);
       // Droppers were entities of the old room; an item nobody claims is free to all, as it soon is anyway.
-      dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, droppers: new Map(), rev: 0 });
+      dst.loot.set(copy, { items: l.items, gold: l.gold, lifetime: l.lifetime, maxLife: l.maxLife, droppers: new Map(), rev: 0 });
     }
     src.destroy(id);
   }
@@ -875,7 +877,8 @@ export function takeLoot(sim: Simulation, pid: EntityId, lootId: EntityId, uid: 
   if (!p || p.respawnIn !== null) return null;
   // Destroyed piles stay readable until the end of the tick; their items already went somewhere.
   if (!pile || !w.isAlive(lootId) || pile.items.length === 0) return uid === null ? null : 'Someone else took it';
-  const far = pileReachRefusal(sim, pid, lootId, 0);
+  // The window's own reach: whatever an open window shows can be taken from it.
+  const far = pileReachRefusal(sim, pid, lootId, LOOT.pileWindowSlack);
   if (far) return far;
   // A drop is meant to leave the item: a click on the item just dropped would put it straight back.
   // updateLoot lifts this once the dropper steps away.
@@ -946,8 +949,9 @@ export function updateLoot(sim: Simulation, dt: number): void {
   const w = sim.world;
   for (const [id, bag] of w.loot) {
     bag.lifetime -= dt;
+    bag.maxLife -= dt;
     const pos = w.position.get(id);
-    if (!pos || bag.lifetime <= 0) {
+    if (!pos || bag.lifetime <= 0 || bag.maxLife <= 0) {
       w.destroy(id);
       continue;
     }

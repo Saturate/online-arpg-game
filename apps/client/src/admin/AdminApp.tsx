@@ -341,6 +341,24 @@ function Settings({ token, role, notify }: TabProps) {
           />
           <small className="muted">{`A new drop this close to an item pile joins it, so one label shows for the pile. A player is 28 units wide; 0 keeps every drop apart. Applies to drops from now on. Default ${DEFAULT_SERVER_SETTINGS.lootMergeRadius}.`}</small>
         </label>
+        <label className="adm-field" data-search-id={searchId('settings', 'lootPileMaxSeconds')}>
+          <span>
+            Loot pile longest life <b>{draft.lootPileMaxSeconds} s</b>
+          </span>
+          <input
+            type="number"
+            min={SETTINGS_LIMITS.lootPileMaxSecondsMin}
+            max={SETTINGS_LIMITS.lootPileMaxSecondsMax}
+            step={10}
+            value={draft.lootPileMaxSeconds}
+            aria-label="Loot pile longest life"
+            onChange={(e) => {
+              // An emptied field reads as 0, which the server would reject; keep the last value instead.
+              if (e.target.value !== '') setDraft({ ...draft, lootPileMaxSeconds: Number(e.target.value) });
+            }}
+          />
+          <small className="muted">{`Every drop joining a pile restarts its 90 s clock; a pile still goes this many seconds after its first drop, so the ground is not storage. Applies to piles started from now on. Default ${DEFAULT_SERVER_SETTINGS.lootPileMaxSeconds}.`}</small>
+        </label>
         {force('forceMax', 'Force bar', `Force at level 1 before gear; each level adds more. Default ${DEFAULT_SERVER_SETTINGS.forceMax}.`, SETTINGS_LIMITS.forceMaxMin, SETTINGS_LIMITS.forceMaxMax, 10)}
         {force('forceCostRate', 'Force cost', 'Multiplies every skill\'s Force cost.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}
         {force('forceCoolRate', 'Force cooling', 'Multiplies how fast Force drains back down. Lower makes long fights and bosses run hot.', SETTINGS_LIMITS.forceRateMin, SETTINGS_LIMITS.forceRateMax, 0.05)}

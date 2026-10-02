@@ -95,6 +95,8 @@ export interface SimRates {
   castCooldown: number;
   /** World units within which a new drop joins an item pile; 0 keeps every drop apart. */
   lootMerge: number;
+  /** Seconds a pile may live from its first drop, however often drops join and restart its clock. */
+  lootPileMax: number;
 }
 
 /**
@@ -119,6 +121,7 @@ export const DEFAULT_RATES: SimRates = {
   bossDamage: ENEMY_LEVEL.bossDamageMultiplier,
   castCooldown: HEAT.castCooldownSeconds,
   lootMerge: LOOT.mergeRadius,
+  lootPileMax: LOOT.pileMaxSeconds,
 };
 
 export class Simulation {

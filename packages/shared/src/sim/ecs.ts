@@ -300,6 +300,11 @@ export interface LootComp {
   /** Gold on the ground; picked up by walking over it, unlike items which need a click. */
   gold: number;
   lifetime: number;
+  /**
+   * Seconds left before the pile goes however often drops join it (the admin's lootPileMaxSeconds
+   * from its first drop), so a pile kept topped up is not endless storage.
+   */
+  maxLife: number;
   /** Per item, since a pile can hold a player's own drop beside a monster's (the dropper rule). */
   droppers: Map<ItemUid, DropMark>;
   /** Bumped whenever the items or their marks change, so an open loot window knows to refresh. */

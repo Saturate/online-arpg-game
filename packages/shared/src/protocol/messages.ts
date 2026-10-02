@@ -215,7 +215,15 @@ export type EntitySnap =
     })
   | (EntitySnapBase & { k: 'nova'; maxR: number; el: ElementId | null; fx: SpellFx })
   | (EntitySnapBase & { k: 'zone'; el: ElementId | null; fx: SpellFx; left: number })
-  | (EntitySnapBase & { k: 'loot'; tier: ItemTier; count: number; names: LootName[]; gold: number });
+  | (EntitySnapBase & {
+      k: 'loot';
+      tier: ItemTier;
+      count: number;
+      names: LootName[];
+      gold: number;
+      /** A one-item pile's item, so a click takes exactly what the player saw even if a drop joins on the way. */
+      one?: ItemUid;
+    });
 
 /**
  * One item of a pile as snapshots carry it, for its label and the hover preview: the best
