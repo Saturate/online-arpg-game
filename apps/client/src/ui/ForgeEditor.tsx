@@ -37,6 +37,7 @@ import { useMovablePanel } from './GamePanel.js';
 import { tip } from './Tip.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 import './forge.css';
+import { DamageLines } from './DamageLines.js';
 import { useTunables } from '../game/tunables.js';
 
 /** Drag type for forge slots and pool runes; kept apart from item drags so the two never mix. */
@@ -162,6 +163,7 @@ function Readout({ result, empty }: { result: SigilCompile; empty: boolean }) {
   return (
     <>
       <p className="forge-sentence">{describeTree(result.tree)}</p>
+      <DamageLines program={result.program} />
       <p className="forge-bracket">{bracketTree(result.tree)}</p>
       <dl className="forge-stats">
         {result.persistent ? (

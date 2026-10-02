@@ -10,6 +10,7 @@ import { spiritUses } from './spirit.js';
 import { tip } from './Tip.js';
 import { compileFor, itemByUid, pickSkill, swapSkills, useUi } from './store.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
+import { DamageLines } from './DamageLines.js';
 import { useTunables } from '../game/tunables.js';
 
 const SKILL_ACTIONS = ['skill1', 'skill2', 'skill3', 'skill4'] as const;
@@ -38,6 +39,7 @@ function SkillPop({ name, description, result, cooldown }: { name: string; descr
       <h4>{name}</h4>
       {description && <p className="muted">{description}</p>}
       {result?.ok && <p className="skill-pop-sentence">{describeTree(result.tree)}</p>}
+      {result?.ok && <DamageLines program={result.program} />}
       {result?.ok && (
         <p className="skill-pop-cost">
           {result.persistent ? `Reserves ${result.spirit} spirit while equipped` : `${Math.round(result.force)} ${HEAT.displayName} per cast`}

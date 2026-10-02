@@ -35,6 +35,7 @@ import { tip } from './Tip.js';
 import { formatCooldown } from '../game/castTiming.js';
 import { useSigilCooldown } from './useSigilCooldown.js';
 import { useTunables } from '../game/tunables.js';
+import { addedType, damageClass, DamageLines, ShapeImplicit } from './DamageLines.js';
 
 /** A rune in a row. Pass `item` for a rune in a sigil slot, so its rolls show on hover. */
 export function RuneChip({ id, item, small = false, onClick }: { id: RuneId; item?: RuneItem; small?: boolean; onClick?: () => void }) {
@@ -171,9 +172,10 @@ function RuneAffixLines({ item }: { item: RuneItem }) {
     <ul className="affixes tt-sec">
       {item.affixes.map((a, i) => {
         const why = runeAffixDescription(a.id);
+        const type = addedType(a);
         return (
           <li key={i}>
-            {formatAffix(a)} <AffixTier roll={a} />
+            {type ? <span className={damageClass(type)}>{formatAffix(a)}</span> : formatAffix(a)} <AffixTier roll={a} />
             {why && <small className="affix-why">{why}</small>}
           </li>
         );
@@ -186,9 +188,12 @@ const KIND_NAMES = { shape: 'Shape', infusion: 'Infusion', shaper: 'Shaper', eff
 
 function RuneDetails({ item }: { item: RuneItem }) {
   const rolled = item.affixes.length > 0;
+  // Subscribed so a shape's implicit follows a live change of its base range.
+  useTunables((s) => s.version);
   return (
     <div className="item-details">
       <Head item={item} sub={`${KIND_NAMES[runeKind(item.rune)]} rune${rolled ? ', rolled' : ''}`} />
+      <ShapeImplicit rune={item.rune} />
       <p className="tt-sec tt-lore">{runeDescription(item.rune)}</p>
       {rolled && <RuneAffixLines item={item} />}
       <section className="tt-sec">
@@ -258,6 +263,7 @@ function SigilDetails({ item, classId }: { item: Extract<Item, { kind: 'sigil' }
         )}
       </div>
       {item.slots.length > 0 && result.ok && <p className="tt-sec tt-sentence">{describeTree(result.tree)}</p>}
+      {item.slots.length > 0 && result.ok && <DamageLines program={result.program} className="tt-sec" />}
       {item.slots.length > 0 && <CostLine result={result} />}
       {debug && item.slots.length > 0 && result.ok && <p className="debug-line">{bracketTree(result.tree)}</p>}
       <Requirements item={item} />

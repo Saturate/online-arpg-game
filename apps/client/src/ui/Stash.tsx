@@ -1,6 +1,7 @@
 import {
   AFFIX_IDS,
   AFFIXES,
+  affixText,
   describeTree,
   formatAffix,
   generalTab,
@@ -71,7 +72,7 @@ const CONTENTS: readonly { id: SigilContents; label: string }[] = [
 const RUNE_AFFIXES: readonly AffixId[] = AFFIX_IDS.filter((id) => isRuneAffixId(id));
 
 function affixLabel(id: AffixId): string {
-  return AFFIXES[id].text.replace('{v}', '#');
+  return affixText(AFFIXES[id], '#', '#');
 }
 
 function colorHex(id: StashColorId): string {

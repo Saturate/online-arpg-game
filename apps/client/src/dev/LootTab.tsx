@@ -1,4 +1,4 @@
-import { AFFIXES, CLASS_IDS, CLASSES, DEFAULT_DROP_TUNING, DROP_TIER_WEIGHTS, BOSS_DROPS, FORGE, ITEM_TIERS, LOOT, type ClassId, type Item } from '@rune/shared';
+import { AFFIXES, affixText, CLASS_IDS, CLASSES, DEFAULT_DROP_TUNING, DROP_TIER_WEIGHTS, BOSS_DROPS, FORGE, ITEM_TIERS, LOOT, type ClassId, type Item } from '@rune/shared';
 import { useEffect, useRef, useState } from 'react';
 import { cssColor, TIER_COLORS } from '../render/config.js';
 import { ItemDetails } from '../ui/parts.js';
@@ -271,7 +271,7 @@ export function LootTab() {
               <tbody>
                 {report.affixes.map((a) => (
                   <tr key={a.id}>
-                    <td title={a.id}>{AFFIXES[a.id].text.replace('{v}', '#')}</td>
+                    <td title={a.id}>{affixText(AFFIXES[a.id], '#', '#')}</td>
                     <td>{fmt(a.count)}</td>
                     {Array.from({ length: maxAffixTier }, (_, i) => {
                       const index = AFFIXES[a.id].tiers.length - (maxAffixTier - i);
