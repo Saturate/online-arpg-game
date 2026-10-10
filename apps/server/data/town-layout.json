@@ -12,8 +12,8 @@
       "kind": "well",
       "x": 1100,
       "y": 850,
-      "angle": 0,
-      "scale": 1,
+      "angle": 0.2617993877991495,
+      "scale": 0.9702990000000004,
       "length": 0
     },
     {
@@ -30,14 +30,6 @@
       "y": 720,
       "angle": -0.1417993877991494,
       "scale": 0.8419950000000003,
-      "length": 0
-    },
-    {
-      "kind": "house",
-      "x": 1620,
-      "y": 390,
-      "angle": -0.08,
-      "scale": 1.1,
       "length": 0
     },
     {
@@ -98,9 +90,9 @@
     },
     {
       "kind": "stall",
-      "x": 1300,
-      "y": 1040,
-      "angle": 0.5,
+      "x": 1248.2910572572084,
+      "y": 1168.9664619429823,
+      "angle": -0.2853981633974482,
       "scale": 1,
       "length": 0
     },
@@ -434,8 +426,8 @@
     },
     {
       "kind": "oak",
-      "x": 1300,
-      "y": 1220,
+      "x": 1400,
+      "y": 1300,
       "angle": 0,
       "scale": 1,
       "length": 0
@@ -514,7 +506,7 @@
     },
     {
       "kind": "fence",
-      "x": 659.7493138261508,
+      "x": 696.1,
       "y": 1040.9189425725124,
       "angle": 4.71238898038469,
       "scale": 1,
@@ -539,7 +531,7 @@
     {
       "kind": "fence",
       "x": 595.0535226592049,
-      "y": 1177.6497373837672,
+      "y": 1141.3,
       "angle": 3.1415926535897936,
       "scale": 1,
       "length": 200
@@ -722,6 +714,97 @@
           "y": 928.9207347219015
         }
       ]
+    },
+    {
+      "width": 50,
+      "points": [
+        {
+          "x": 1640,
+          "y": 440
+        },
+        {
+          "x": 1640,
+          "y": 500
+        },
+        {
+          "x": 1640,
+          "y": 560
+        },
+        {
+          "x": 1640,
+          "y": 620
+        },
+        {
+          "x": 1640,
+          "y": 680
+        },
+        {
+          "x": 1660,
+          "y": 720
+        },
+        {
+          "x": 1680,
+          "y": 780
+        }
+      ]
+    },
+    {
+      "width": 50,
+      "points": [
+        {
+          "x": 1380,
+          "y": 940
+        },
+        {
+          "x": 1340,
+          "y": 980
+        },
+        {
+          "x": 1320,
+          "y": 1020
+        },
+        {
+          "x": 1300,
+          "y": 1060
+        },
+        {
+          "x": 1260,
+          "y": 1100
+        },
+        {
+          "x": 1320,
+          "y": 1100
+        },
+        {
+          "x": 1360,
+          "y": 1060
+        },
+        {
+          "x": 1400,
+          "y": 1020
+        },
+        {
+          "x": 1400,
+          "y": 960
+        }
+      ]
+    },
+    {
+      "width": 50,
+      "points": [
+        {
+          "x": 1380,
+          "y": 920
+        },
+        {
+          "x": 1360,
+          "y": 960
+        },
+        {
+          "x": 1360,
+          "y": 1020
+        }
+      ]
     }
   ],
   "plazas": [
@@ -767,8 +850,8 @@
     },
     {
       "asset": "barrel",
-      "x": 1362,
-      "y": 1080,
+      "x": 1460,
+      "y": 1000,
       "angle": 3.423854792956263,
       "scale": 1
     },
@@ -788,8 +871,8 @@
     },
     {
       "asset": "weaponrack",
-      "x": 1430,
-      "y": 890,
+      "x": 480,
+      "y": 980,
       "angle": 0.3833694839850068,
       "scale": 1
     },
@@ -816,15 +899,15 @@
     },
     {
       "asset": "barrel",
-      "x": 1700,
-      "y": 520,
+      "x": 1600,
+      "y": 720,
       "angle": 2.5091124731115997,
       "scale": 1
     },
     {
       "asset": "barrel",
-      "x": 1720,
-      "y": 540,
+      "x": 1700,
+      "y": 700,
       "angle": 5.432537603192031,
       "scale": 1
     },
@@ -847,6 +930,274 @@
       "x": 1580,
       "y": 1190,
       "angle": 3.6543997493572533,
+      "scale": 1
+    },
+    {
+      "asset": "building_windmill_blue",
+      "x": 1640,
+      "y": 380,
+      "angle": 0,
+      "scale": 1.7363069361000012,
+      "solid": true
+    },
+    {
+      "asset": "building_grain",
+      "x": 1740,
+      "y": 520,
+      "angle": 0,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1740,
+      "y": 520,
+      "angle": 0,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1740,
+      "y": 520,
+      "angle": 0,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1820,
+      "y": 520,
+      "angle": 0,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1800,
+      "y": 460,
+      "angle": 0,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1880,
+      "y": 480,
+      "angle": -0.2617993877991494,
+      "scale": 1
+    },
+    {
+      "asset": "building_market_yellow",
+      "x": 1400,
+      "y": 1120,
+      "angle": 2.356194490192345,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "crate_long_C",
+      "x": 1260,
+      "y": 1120,
+      "angle": -3.1415926535897936,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "crate_long_B",
+      "x": 1409.006811831627,
+      "y": 957.2236332651631,
+      "angle": 1.308996938995747,
+      "scale": 1
+    },
+    {
+      "asset": "wheelbarrow",
+      "x": 1804.229475724049,
+      "y": 650.2133325785471,
+      "angle": -2.356194490192345,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1600,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1760,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1880,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1480,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1540,
+      "y": 720,
+      "angle": -1.1102230246251565e-16,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1540,
+      "y": 600,
+      "angle": -1.1102230246251565e-16,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1540,
+      "y": 480,
+      "angle": -1.1102230246251565e-16,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 1540,
+      "y": 360,
+      "angle": -1.1102230246251565e-16,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "fence_stone_straight",
+      "x": 2000,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "target",
+      "x": 860,
+      "y": 1340,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "target",
+      "x": 860,
+      "y": 1380,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "dungeon_keg_decorated",
+      "x": 820,
+      "y": 780,
+      "angle": -1.5707963267948963,
+      "scale": 1,
+      "solid": true
+    },
+    {
+      "asset": "building_grain",
+      "x": 1780,
+      "y": 600,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1560,
+      "y": 520,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1560,
+      "y": 600,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1500,
+      "y": 560,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1540,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1860,
+      "y": 400,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1860,
+      "y": 600,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1900,
+      "y": 540,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1860,
+      "y": 680,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1940,
+      "y": 640,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1960,
+      "y": 500,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 2020,
+      "y": 440,
+      "angle": -1.5707963267948963,
+      "scale": 1
+    },
+    {
+      "asset": "building_grain",
+      "x": 1940,
+      "y": 420,
+      "angle": -1.5707963267948963,
       "scale": 1
     }
   ]
