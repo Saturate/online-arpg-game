@@ -1,7 +1,7 @@
 # One image for the whole game: the Node server serves the built client, the account API and the
 # WebSocket from a single port, so a deploy needs no CORS and no second service.
 
-FROM node:26-alpine AS build
+FROM node:26.12.1-alpine AS build
 WORKDIR /app
 # Node 25+ no longer ships corepack.
 RUN npm install -g pnpm@12.6.0
