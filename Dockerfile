@@ -22,7 +22,8 @@ RUN pnpm typecheck && pnpm --filter @rune/client build && pnpm --filter @rune/se
 # Runtime: plain Alpine plus the node binary. The node image's npm, yarn and their trees are not
 # needed to run a bundle, and they are most of its size and CVE surface.
 FROM alpine:3.22
-RUN apk add --no-cache libstdc++ \
+# node 26.12 links against libatomic, which plain Alpine does not ship.
+RUN apk add --no-cache libstdc++ libatomic \
     && addgroup -g 1000 node \
     && adduser -u 1000 -G node -s /sbin/nologin -D node \
     # A fresh named volume copies this ownership, so the non-root user can write the database.
